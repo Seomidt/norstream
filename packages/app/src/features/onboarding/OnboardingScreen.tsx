@@ -33,36 +33,48 @@ export function OnboardingScreen({ onDone }: { onDone: () => void }) {
     };
     const fetchImpl = createFetchImpl();
 
+    // busy skal altid ryddes, uanset hvilken gren der returnerer eller
+    // kaster — ellers kan skærmen gaa i staa med en spinner der aldrig
+    // stopper og ingen mulighed for at proeve igen.
     try {
-      await new XtreamClient(creds, fetchImpl).authenticate();
-    } catch (cause) {
-      setBusy(false);
-      setError(
-        cause instanceof XtreamAuthError
-          ? 'Brugernavn eller adgangskode blev afvist af panelet.'
-          : 'Kunne ikke nå panelet. Tjek adressen og din forbindelse.',
-      );
-      return;
-    }
-
-    await saveCredentials(creds);
-
-    // Probingen maa ikke kunne blokere onboardingen: uden arkiv virker alt
-    // andet stadig, kun start-forfra er utilgaengeligt.
-    try {
-      const db = await openDatabase();
-      const streams = await new XtreamClient(creds, fetchImpl).getLiveStreams();
-      const withArchive = streams.find((s) => s.hasArchive);
-      if (withArchive) {
-        const dialect = await detectTimeshiftDialect(creds, withArchive.id, fetchImpl);
-        await setTimeshiftDialect(db, dialect);
+      try {
+        await new XtreamClient(creds, fetchImpl).authenticate();
+      } catch (cause) {
+        setError(
+          cause instanceof XtreamAuthError
+            ? 'Brugernavn eller adgangskode blev afvist af panelet.'
+            : 'Kunne ikke nå panelet. Tjek adressen og din forbindelse.',
+        );
+        return;
       }
-    } catch {
-      // Ignoreres med vilje — se kommentaren ovenfor.
-    }
 
-    setBusy(false);
-    onDone();
+      try {
+        await saveCredentials(creds);
+      } catch {
+        // Uden gemte credentials kan appen ikke fortsaette — brugeren maa
+        // blive paa skærmen og proeve igen, saa vi kalder ikke onDone().
+        setError('Kunne ikke gemme dine adgangsoplysninger på denne enhed.');
+        return;
+      }
+
+      // Probingen maa ikke kunne blokere onboardingen: uden arkiv virker alt
+      // andet stadig, kun start-forfra er utilgaengeligt.
+      try {
+        const db = await openDatabase();
+        const streams = await new XtreamClient(creds, fetchImpl).getLiveStreams();
+        const withArchive = streams.find((s) => s.hasArchive);
+        if (withArchive) {
+          const dialect = await detectTimeshiftDialect(creds, withArchive.id, fetchImpl);
+          await setTimeshiftDialect(db, dialect);
+        }
+      } catch {
+        // Ignoreres med vilje — se kommentaren ovenfor.
+      }
+
+      onDone();
+    } finally {
+      setBusy(false);
+    }
   }
 
   const canSubmit =
