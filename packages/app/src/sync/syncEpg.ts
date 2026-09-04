@@ -15,9 +15,11 @@ const MAX_WRITE_SLICE = 65_536;
  * gangen, saa en fuld XMLTV-fil ikke bliver til hundredtusindvis af enkelt-
  * skrivninger, og aldrig som eet samlet array, saa hukommelsen forbliver flad.
  *
- * Indgaaende chunks snitskæres til 64 KB for at sikre, at batch aldrig kan vokse
- * ubegræenset inden for en enkelt write(). Core's parser håndterer elementer,
- * der er splittet over chunk-grænser, saa snitskæring er sikker.
+ * Indgaaende chunks snitskæres til MAX_WRITE_SLICE (64 KB) for at sikre, at batch
+ * holdes afgrænset. Uden snitskæring ville en stor netværksburst få alle programmer
+ * fra filen ind i batch samtidig før første flush. Med snitskæring er memory-forbrug
+ * en konstant: omkring 2-3 gange BATCH_SIZE for tæt XMLTV (1000-1500 programmer).
+ * Core's parser håndterer elementer splittet over slice-grænser, saa snitskæring er sikker.
  *
  * Programmer der sluttede for mere end 12 timer siden ryddes — men kun hvis vi
  * faktisk parsede programmer. Uden det ville en fejlslået sync (f.eks. login-side

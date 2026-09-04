@@ -3,7 +3,7 @@ import type { XtreamCredentials } from '@uhf-play/core';
 import { migrate } from '../storage/schema.js';
 import { createTestDatabase } from '../storage/testDb.js';
 import type { SqlDatabase } from '../storage/types.js';
-import { listProgrammes } from '../storage/programmes.js';
+import { listProgrammes, upsertProgrammes } from '../storage/programmes.js';
 import { syncEpg } from './syncEpg.js';
 import type { TextChunkSource } from './syncEpg.js';
 
@@ -91,10 +91,11 @@ describe('syncEpg', () => {
     await expect(syncEpg(db, creds, failing)).rejects.toThrow('ECONNREFUSED');
   });
 
-  it('batches store chunks saa batch ikke vokser ubegræenset', async () => {
-    // Generér 1200 programmer i ét stort chunk. Uden snitskæring ville
-    // hele batch (1200 programmer) blive holdt i memory før flush.
-    // Med snitskæring snitskæres indgaaende chunks, saa batch holdes under ~500.
+  it('batches store chunks saa batch bliver flushed flere gange', async () => {
+    // Generér 1200 programmer i ét stort chunk. Testen verificerer at batch
+    // bliver flushed flere gange ved at tælle hvor mange gange upsertProgrammes kalles.
+    //
+    // DISCRIMINATION: uden slicing => 1 call, med slicing => 3 calls
     let xml = '<?xml version="1.0"?>\n<tv>\n';
     for (let i = 0; i < 1200; i++) {
       xml += `  <programme start="20260904200000 +0000" stop="20260904210000 +0000" channel="dr1">
@@ -103,12 +104,21 @@ describe('syncEpg', () => {
     }
     xml += '</tv>';
 
+    // Spy on upsertProgrammes to count flushes
+    const programmesModule = await import('../storage/programmes.js');
+    const upsertSpy = vi.spyOn(programmesModule, 'upsertProgrammes');
+
     // Pass a far future date so retention doesn't interfere
     const futureDate = new Date(Date.UTC(2027, 0, 1, 0));
     const result = await syncEpg(db, creds, source([xml]), futureDate);
 
     // Verify all 1200 were parsed
     expect(result.programmes).toBe(1200);
+
+    // Verify batching happened: > 1 call means multiple flushes
+    expect(upsertSpy).toHaveBeenCalledTimes(3);
+
+    upsertSpy.mockRestore();
   });
 
   it('sletter ikke gamle programmer naar sync parsede nul', async () => {
@@ -138,30 +148,4 @@ describe('syncEpg', () => {
     expect(list[0]?.title).toBe('Gammelt');
   });
 
-  it('snitskærer store chunks saa batch holdes afgrænset', async () => {
-    // Generér XML hvor hele dokumentet er meget stort (over MAX_WRITE_SLICE).
-    // Med snitskæring vil batch blive flushed flere gange under parsing.
-    // Uden snitskæring ville batch holde alle programmer samtidig.
-    //
-    // Vi verificerer dette ved at sikre at alle programmer bliver skrevet
-    // til databasen uden memory overflow. Dette test ville crashe eller
-    // bruge enorm memory uden snitskæring ved meget store inputfiler.
-
-    let xml = '<?xml version="1.0"?>\n<tv>\n';
-    // Generér nok programmer til at overskride MAX_WRITE_SLICE (65_536 bytes)
-    // Hver programme er ca. 150 bytes, så 600 giver ~90KB
-    for (let i = 0; i < 600; i++) {
-      xml += `  <programme start="20260904200000 +0000" stop="20260904210000 +0000" channel="dr1">
-    <title>Program ${i}</title>
-    <desc>Dette er program nummer ${i} med lidt længere beskrivelse</desc>
-  </programme>\n`;
-    }
-    xml += '</tv>';
-
-    const futureDate = new Date(Date.UTC(2027, 0, 1, 0));
-    const result = await syncEpg(db, creds, source([xml]), futureDate);
-
-    // Verify alle blev parseret og gemt
-    expect(result.programmes).toBe(600);
-  });
 });
