@@ -1,0 +1,91 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import { migrate } from './schema.js';
+import { createTestDatabase } from './testDb.js';
+import type { SqlDatabase } from './types.js';
+import {
+  getLastSyncMs,
+  getPanelOffsetMinutes,
+  getSetting,
+  getTimeshiftDialect,
+  setLastSyncMs,
+  setPanelOffsetMinutes,
+  setSetting,
+  setTimeshiftDialect,
+} from './settings.js';
+
+let db: SqlDatabase;
+
+beforeEach(async () => {
+  db = createTestDatabase();
+  await migrate(db);
+});
+
+describe('setSetting og getSetting', () => {
+  it('gemmer og henter', async () => {
+    await setSetting(db, 'foo', 'bar');
+    expect(await getSetting(db, 'foo')).toBe('bar');
+  });
+
+  it('giver null for en ukendt noegle', async () => {
+    expect(await getSetting(db, 'findes-ikke')).toBeNull();
+  });
+
+  it('overskriver en eksisterende vaerdi', async () => {
+    await setSetting(db, 'foo', 'en');
+    await setSetting(db, 'foo', 'to');
+    expect(await getSetting(db, 'foo')).toBe('to');
+  });
+});
+
+describe('timeshift-dialekt', () => {
+  it('giver null foer probing', async () => {
+    expect(await getTimeshiftDialect(db)).toBeNull();
+  });
+
+  it('gemmer og henter en dialekt', async () => {
+    await setTimeshiftDialect(db, 'php');
+    expect(await getTimeshiftDialect(db)).toBe('php');
+  });
+
+  it('gemmer at ingen dialekt svarede', async () => {
+    await setTimeshiftDialect(db, null);
+    expect(await getTimeshiftDialect(db)).toBeNull();
+  });
+
+  it('afviser en vaerdi der ikke er en kendt dialekt', async () => {
+    await setSetting(db, 'timeshift_dialect', 'vroevl');
+    expect(await getTimeshiftDialect(db)).toBeNull();
+  });
+});
+
+describe('panel-offset', () => {
+  it('er nul som standard', async () => {
+    expect(await getPanelOffsetMinutes(db)).toBe(0);
+  });
+
+  it('gemmer og henter', async () => {
+    await setPanelOffsetMinutes(db, 120);
+    expect(await getPanelOffsetMinutes(db)).toBe(120);
+  });
+
+  it('gemmer et negativt offset', async () => {
+    await setPanelOffsetMinutes(db, -300);
+    expect(await getPanelOffsetMinutes(db)).toBe(-300);
+  });
+
+  it('falder tilbage til nul ved en ulaeselig vaerdi', async () => {
+    await setSetting(db, 'panel_offset_minutes', 'ikke et tal');
+    expect(await getPanelOffsetMinutes(db)).toBe(0);
+  });
+});
+
+describe('sidste synkronisering', () => {
+  it('er null foer foerste synkronisering', async () => {
+    expect(await getLastSyncMs(db)).toBeNull();
+  });
+
+  it('gemmer og henter', async () => {
+    await setLastSyncMs(db, 1_700_000_000_000);
+    expect(await getLastSyncMs(db)).toBe(1_700_000_000_000);
+  });
+});
