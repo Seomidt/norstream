@@ -14,8 +14,8 @@ export function createTestDatabase(): SqlDatabase {
     async execAsync(sql: string): Promise<void> {
       db.exec(sql);
     },
-    async runAsync(sql: string, params: unknown[] = []): Promise<void> {
-      db.prepare(sql).run(...(params as never[]));
+    async runAsync(sql: string, params: unknown[] = []): Promise<unknown> {
+      return db.prepare(sql).run(...(params as never[]));
     },
     async getAllAsync<T>(sql: string, params: unknown[] = []): Promise<T[]> {
       return db.prepare(sql).all(...(params as never[])) as T[];
