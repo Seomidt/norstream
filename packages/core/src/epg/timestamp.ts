@@ -33,6 +33,7 @@ export function parseXmltvTimestamp(value: string): Date | null {
     const sign = offset.startsWith('-') ? -1 : 1;
     const offsetHours = Number(offset.slice(1, 3));
     const offsetMinutes = Number(offset.slice(3, 5));
+    if (offsetHours > 14 || offsetMinutes > 59) return null;
     ms -= sign * (offsetHours * 60 + offsetMinutes) * 60_000;
   }
 

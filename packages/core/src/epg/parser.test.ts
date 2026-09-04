@@ -71,9 +71,9 @@ describe('createXmltvParser', () => {
 
   it('holder bufferen afgrænset ved malformet input uden lukketag', () => {
     const parser = createXmltvParser(() => {});
-    // 2 MB uden et eneste komplet element må ikke akkumuleres.
-    for (let i = 0; i < 200; i++) parser.write('<programme '.repeat(1000));
-    expect(parser.bufferLength()).toBeLessThanOrEqual(1_048_576);
+    // 8 MB uden et eneste komplet element må ikke akkumuleres.
+    for (let i = 0; i < 800; i++) parser.write('<programme '.repeat(1000));
+    expect(parser.bufferLength()).toBeLessThanOrEqual(4_194_304);
   });
 
   it('holder bufferen afgrænset når det seneste elementstart selv ligger langt fra bufferens slutning', () => {
@@ -81,13 +81,40 @@ describe('createXmltvParser', () => {
     // Ét kæmpe write-kald: et tidligt <programme uden lukketag, efterfulgt
     // af endnu et <programme uden lukketag langt inde i en stor tekstblok.
     // En enkelt trimning til det seneste elementstart er ikke nok her, fordi
-    // den efterlader ~3 MB — grænsen skal genanvendes på den trimmede buffer.
+    // den efterlader ~9 MB — grænsen skal genanvendes på den trimmede buffer.
     const chunk =
       '<programme start="a">' +
-      'x'.repeat(2_000_000) +
+      'x'.repeat(6_000_000) +
       '<programme start="b">' +
       'x'.repeat(3_000_000);
     parser.write(chunk);
-    expect(parser.bufferLength()).toBeLessThanOrEqual(1_048_576);
+    expect(parser.bufferLength()).toBeLessThanOrEqual(4_194_304);
+  });
+
+  it('anker attributnavnet, så "pdc-start" ikke matches som "start"', () => {
+    const xml =
+      '<tv><programme pdc-start="19990101000000" start="20260904200000" ' +
+      'stop="20260904210000" channel="dr1.dk"><title>Test</title></programme></tv>';
+    const result = collect([xml]);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.start.toISOString()).toBe('2026-09-04T20:00:00.000Z');
+  });
+
+  it('anker attributnavnet, så "vps-start" ikke matches som "start"', () => {
+    const xml =
+      '<tv><programme vps-start="19990101000000" start="20260904200000" ' +
+      'stop="20260904210000" channel="dr1.dk"><title>Test</title></programme></tv>';
+    const result = collect([xml]);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.start.toISOString()).toBe('2026-09-04T20:00:00.000Z');
+  });
+
+  it('afkoder XML-entiteter i attributværdier, fx channel="a&amp;b"', () => {
+    const xml =
+      '<tv><programme start="20260904200000" stop="20260904210000" ' +
+      'channel="a&amp;b"><title>Test</title></programme></tv>';
+    const result = collect([xml]);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.channelId).toBe('a&b');
   });
 });

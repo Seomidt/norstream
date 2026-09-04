@@ -32,6 +32,16 @@ describe('XtreamClient.authenticate', () => {
     await expect(client.authenticate()).rejects.toBeInstanceOf(XtreamAuthError);
   });
 
+  it('kaster XtreamAuthError når auth er "true" (boolsk, ikke numerisk)', async () => {
+    const client = new XtreamClient(creds, respondWith({ user_info: { auth: true } }));
+    await expect(client.authenticate()).rejects.toBeInstanceOf(XtreamAuthError);
+  });
+
+  it('kaster XtreamAuthError når auth er et array som [1]', async () => {
+    const client = new XtreamClient(creds, respondWith({ user_info: { auth: [1] } }));
+    await expect(client.authenticate()).rejects.toBeInstanceOf(XtreamAuthError);
+  });
+
   it('kaster XtreamNetworkError ved HTTP 500', async () => {
     const client = new XtreamClient(creds, respondWith({}, false, 500));
     await expect(client.authenticate()).rejects.toBeInstanceOf(XtreamNetworkError);
@@ -83,8 +93,23 @@ describe('XtreamClient.getLiveStreams', () => {
     expect(result[0]).toMatchObject({ id: '1', hasArchive: true, archiveDays: 3 });
   });
 
-  it('returnerer tom liste når panelet svarer med et objekt', async () => {
+  it('kaster XtreamNetworkError når panelet svarer med et objekt i stedet for et array', async () => {
     const client = new XtreamClient(creds, respondWith({ error: 'nope' }));
-    await expect(client.getLiveStreams()).resolves.toEqual([]);
+    await expect(client.getLiveStreams()).rejects.toBeInstanceOf(XtreamNetworkError);
+  });
+
+  it('frafiltrerer stadig ugyldige elementer i et array uden at kaste', async () => {
+    const client = new XtreamClient(
+      creds,
+      respondWith([{ stream_id: 1, name: 'DR1' }, null, 'vrøvl']),
+    );
+    await expect(client.getLiveStreams()).resolves.toHaveLength(1);
+  });
+});
+
+describe('XtreamClient.getLiveCategories fejlhåndtering', () => {
+  it('kaster XtreamNetworkError når panelet svarer med et objekt i stedet for et array', async () => {
+    const client = new XtreamClient(creds, respondWith({ error: 'nope' }));
+    await expect(client.getLiveCategories()).rejects.toBeInstanceOf(XtreamNetworkError);
   });
 });

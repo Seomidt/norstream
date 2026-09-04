@@ -10,6 +10,7 @@ export type {
 export {
   buildLiveUrl,
   buildTimeshiftUrl,
+  buildXmltvUrl,
   formatTimeshiftStart,
   normaliseBaseUrl,
 } from './urls.js';

@@ -57,6 +57,14 @@ describe('parseM3u', () => {
     expect(parseM3u(text)[0]?.channel.name).toBe('Kanal, med komma');
   });
 
+  it('ignorerer komma inde i en citeret attributværdi ved fund af visningsnavnet', () => {
+    const text =
+      '#EXTINF:-1 tvg-id="x" group-title="Movies, Drama",Real Name\nhttp://a/1.ts';
+    const entry = parseM3u(text)[0];
+    expect(entry?.channel.name).toBe('Real Name');
+    expect(entry?.channel.categoryId).toBe('Movies, Drama');
+  });
+
   it('returnerer tom liste for tom tekst', () => {
     expect(parseM3u('')).toEqual([]);
   });

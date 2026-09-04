@@ -73,6 +73,10 @@ describe('mapChannel', () => {
   it('returnerer null når navnet er tomt', () => {
     expect(mapChannel({ stream_id: 1, name: '   ' })).toBeNull();
   });
+
+  it('klemmer negativ tv_archive_duration til 0', () => {
+    expect(mapChannel({ ...raw, tv_archive_duration: '-5' })?.archiveDays).toBe(0);
+  });
 });
 
 describe('mapChannels', () => {
@@ -90,5 +94,11 @@ describe('mapChannels', () => {
   it('returnerer tom liste når svaret ikke er et array', () => {
     expect(mapChannels({ user_info: {} })).toEqual([]);
     expect(mapCategories(null)).toEqual([]);
+  });
+
+  it('frafiltrerer array-elementer der selv er arrays', () => {
+    const result = mapChannels([{ stream_id: 1, name: 'God' }, ['ikke', 'en', 'kanal']]);
+    expect(result).toHaveLength(1);
+    expect(result[0]?.name).toBe('God');
   });
 });

@@ -18,18 +18,13 @@ export function decodeXmlEntities(text: string): string {
 }
 
 /**
- * Safely decode a numeric code point, leaving the original text untouched if
- * the value is out of range or not finite.
+ * Afkoder et numerisk kodepunkt sikkert og lader teksten stå urørt, hvis
+ * værdien ligger uden for det gyldige Unicode-område eller ikke er endelig.
  */
 function safeCodePointDecode(codePoint: number, originalText: string): string {
-  // Check if the code point is in the valid Unicode range
+  // Tjek at kodepunktet ligger i det gyldige Unicode-område.
   if (!Number.isFinite(codePoint) || codePoint < 0 || codePoint > 0x10ffff) {
     return originalText;
   }
-  try {
-    return String.fromCodePoint(codePoint);
-  } catch {
-    // If fromCodePoint still throws (should not happen with our guard), return original
-    return originalText;
-  }
+  return String.fromCodePoint(codePoint);
 }

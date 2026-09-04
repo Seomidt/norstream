@@ -1,5 +1,6 @@
 import type { Category, Channel, XtreamCredentials } from '../models.js';
 import { normaliseBaseUrl } from '../urls.js';
+import { truthyFlag } from './coerce.js';
 import { mapCategories, mapChannels } from './mapping.js';
 
 export interface FetchLikeResponse {
@@ -81,16 +82,32 @@ export class XtreamClient {
   async authenticate(): Promise<void> {
     const body = (await this.request()) as UserInfoResponse;
     const auth = body?.user_info?.auth;
-    if (auth === undefined || Number(auth) !== 1) {
+    if (!truthyFlag(auth)) {
       throw new XtreamAuthError();
     }
   }
 
   async getLiveCategories(): Promise<Category[]> {
-    return mapCategories(await this.request('get_live_categories'));
+    return mapCategories(await this.requestList('get_live_categories'));
   }
 
   async getLiveStreams(): Promise<Channel[]> {
-    return mapChannels(await this.request('get_live_streams'));
+    return mapChannels(await this.requestList('get_live_streams'));
+  }
+
+  /**
+   * Som `request`, men kaster XtreamNetworkError hvis det afkodede svar ikke
+   * er et array. Et panel i fejltilstand (fejlobjekt, captive portal,
+   * vedligeholdelsesbesked) skal ikke fejlagtigt fortolkes som "ingen kanaler" —
+   * det ville få appen til at overskrive en god cache med en tom liste.
+   * `mapCategories`/`mapChannels` er fortsat tolerante over for ugyldige
+   * *elementer* i et array; det er en bevidst forskel og skal ikke ændres.
+   */
+  private async requestList(action: string): Promise<unknown> {
+    const body = await this.request(action);
+    if (!Array.isArray(body)) {
+      throw new XtreamNetworkError('Panelets svar var ikke en liste');
+    }
+    return body;
   }
 }

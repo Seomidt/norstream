@@ -17,8 +17,19 @@ function attributes(line: string): Map<string, string> {
 }
 
 function displayName(line: string): string {
-  const comma = line.indexOf(',');
-  return comma === -1 ? '' : line.slice(comma + 1).trim();
+  // Find det første komma uden for anførselstegn — et komma inde i en
+  // citeret attributværdi (fx group-title="Movies, Drama") er ikke skillet
+  // mellem attributter og visningsnavn.
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+    } else if (ch === ',' && !inQuotes) {
+      return line.slice(i + 1).trim();
+    }
+  }
+  return '';
 }
 
 function toNumber(value: string | undefined): number | null {
@@ -30,7 +41,9 @@ function toNumber(value: string | undefined): number | null {
 /**
  * Parser en M3U-playlist. Poster uden efterfølgende URL-linje udelades.
  * Indekset i det genererede id er postens plads i resultatet, så id'et er
- * stabilt mellem to kørsler over samme playliste.
+ * stabilt mellem to kørsler over samme playliste — men kun hvis playlisten
+ * er byte-identisk. Indsættes eller fjernes en enkelt post uden tvg-id
+ * et sted i playlisten, forskydes alle senere genererede id'er.
  */
 export function parseM3u(text: string): M3uEntry[] {
   const entries: M3uEntry[] = [];

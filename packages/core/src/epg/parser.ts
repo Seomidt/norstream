@@ -2,7 +2,7 @@ import type { Programme } from '../models.js';
 import { decodeXmlEntities } from './entities.js';
 import { parseXmltvTimestamp } from './timestamp.js';
 
-const MAX_BUFFER = 1_048_576;
+const MAX_BUFFER = 4_194_304;
 const OPEN_TAG = '<programme';
 const CLOSE_TAG = '</programme>';
 
@@ -14,8 +14,9 @@ export interface XmltvParser {
 }
 
 function attribute(tag: string, name: string): string | null {
-  const match = new RegExp(`${name}\\s*=\\s*"([^"]*)"`).exec(tag);
-  return match?.[1] ?? null;
+  const match = new RegExp(`(?:^|\\s)${name}\\s*=\\s*"([^"]*)"`).exec(tag);
+  if (match?.[1] === undefined) return null;
+  return decodeXmlEntities(match[1]);
 }
 
 function childText(block: string, tag: string): string | null {

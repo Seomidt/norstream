@@ -1,4 +1,5 @@
 import type { Category, Channel } from '../models.js';
+import { toInteger, truthyFlag } from './coerce.js';
 
 export interface RawXtreamCategory {
   category_id?: string | number;
@@ -25,19 +26,6 @@ function text(value: unknown): string | null {
   return null;
 }
 
-function integer(value: unknown): number | null {
-  if (typeof value === 'number') return Number.isFinite(value) ? Math.trunc(value) : null;
-  if (typeof value === 'string') {
-    const parsed = Number.parseInt(value, 10);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function truthyFlag(value: unknown): boolean {
-  return integer(value) === 1;
-}
-
 export function mapCategory(raw: RawXtreamCategory): Category | null {
   const id = text(raw.category_id);
   const name = text(raw.category_name);
@@ -51,16 +39,19 @@ export function mapChannel(raw: RawXtreamStream): Channel | null {
   if (!id || !name) return null;
 
   const hasArchive = truthyFlag(raw.tv_archive);
+  const archiveDays = hasArchive ? (toInteger(raw.tv_archive_duration) ?? 0) : 0;
 
   return {
     id,
     name,
-    number: integer(raw.num),
+    number: toInteger(raw.num),
     logoUrl: text(raw.stream_icon),
     categoryId: text(raw.category_id),
     epgChannelId: text(raw.epg_channel_id),
     hasArchive,
-    archiveDays: hasArchive ? (integer(raw.tv_archive_duration) ?? 0) : 0,
+    // Panelet kan sende negative værdier for arkivlængden; det giver ikke mening
+    // med et negativt antal dage, så vi klemmer til 0.
+    archiveDays: Math.max(0, archiveDays),
   };
 }
 
@@ -71,7 +62,7 @@ function mapArray<TRaw, TOut>(
   if (!Array.isArray(raw)) return [];
   const out: TOut[] = [];
   for (const item of raw) {
-    if (typeof item !== 'object' || item === null) continue;
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) continue;
     const mapped = map(item as TRaw);
     if (mapped) out.push(mapped);
   }

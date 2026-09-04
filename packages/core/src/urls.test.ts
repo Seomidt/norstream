@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildLiveUrl, formatTimeshiftStart, buildTimeshiftUrl } from './urls.js';
+import {
+  buildLiveUrl,
+  buildTimeshiftUrl,
+  buildXmltvUrl,
+  formatTimeshiftStart,
+} from './urls.js';
 import type { XtreamCredentials } from './models.js';
 
 const creds: XtreamCredentials = {
@@ -32,6 +37,12 @@ describe('buildLiveUrl', () => {
     const odd = { ...creds, username: 'a b', password: 'p/w' };
     expect(buildLiveUrl(odd, '9', 'ts')).toBe(
       'http://panel.example:8080/live/a%20b/p%2Fw/9.ts',
+    );
+  });
+
+  it('URL-koder streamId', () => {
+    expect(buildLiveUrl(creds, 'a/b', 'ts')).toBe(
+      'http://panel.example:8080/live/USER/PASS/a%2Fb.ts',
     );
   });
 });
@@ -72,5 +83,32 @@ describe('buildTimeshiftUrl', () => {
   it('runder varighed op til nærmeste hele minut', () => {
     const url = buildTimeshiftUrl(creds, '123', start, 59.2, 'path');
     expect(url).toContain('/60/');
+  });
+
+  it('URL-koder streamId i path-dialekten', () => {
+    const url = buildTimeshiftUrl(creds, 'a/b', start, 60, 'path');
+    expect(url).toContain('/a%2Fb.m3u8');
+  });
+});
+
+describe('buildXmltvUrl', () => {
+  it('bygger URL til xmltv.php', () => {
+    expect(buildXmltvUrl(creds)).toBe(
+      'http://panel.example:8080/xmltv.php?username=USER&password=PASS',
+    );
+  });
+
+  it('URL-koder et password med specialtegn', () => {
+    const odd = { ...creds, password: 'p+w/x y' };
+    expect(buildXmltvUrl(odd)).toBe(
+      'http://panel.example:8080/xmltv.php?username=USER&password=p%2Bw%2Fx%20y',
+    );
+  });
+
+  it('fjerner afsluttende skråstreg fra basis-URL', () => {
+    const withSlash = { ...creds, baseUrl: 'http://panel.example:8080/' };
+    expect(buildXmltvUrl(withSlash)).toBe(
+      'http://panel.example:8080/xmltv.php?username=USER&password=PASS',
+    );
   });
 });

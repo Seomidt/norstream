@@ -13,7 +13,15 @@ export function buildLiveUrl(
   const base = normaliseBaseUrl(creds.baseUrl);
   const user = encodeURIComponent(creds.username);
   const pass = encodeURIComponent(creds.password);
-  return `${base}/live/${user}/${pass}/${streamId}.${format}`;
+  return `${base}/live/${user}/${pass}/${encodeURIComponent(streamId)}.${format}`;
+}
+
+/** Bygger URL'en til panelets XMLTV-EPG-endpoint. */
+export function buildXmltvUrl(creds: XtreamCredentials): string {
+  const base = normaliseBaseUrl(creds.baseUrl);
+  const user = encodeURIComponent(creds.username);
+  const pass = encodeURIComponent(creds.password);
+  return `${base}/xmltv.php?username=${user}&password=${pass}`;
 }
 
 function pad(value: number): string {
@@ -45,11 +53,13 @@ export function buildTimeshiftUrl(
   const base = normaliseBaseUrl(creds.baseUrl);
   const startStr = formatTimeshiftStart(start, panelOffsetMinutes);
   const duration = Math.max(1, Math.ceil(durationMinutes));
+  const user = encodeURIComponent(creds.username);
+  const pass = encodeURIComponent(creds.password);
 
   if (dialect === 'php') {
     const query = [
-      `username=${encodeURIComponent(creds.username)}`,
-      `password=${encodeURIComponent(creds.password)}`,
+      `username=${user}`,
+      `password=${pass}`,
       `stream=${encodeURIComponent(streamId)}`,
       `start=${encodeURIComponent(startStr)}`,
       `duration=${duration}`,
@@ -57,7 +67,5 @@ export function buildTimeshiftUrl(
     return `${base}/streaming/timeshift.php?${query}`;
   }
 
-  const user = encodeURIComponent(creds.username);
-  const pass = encodeURIComponent(creds.password);
-  return `${base}/timeshift/${user}/${pass}/${duration}/${startStr}/${streamId}.m3u8`;
+  return `${base}/timeshift/${user}/${pass}/${duration}/${startStr}/${encodeURIComponent(streamId)}.m3u8`;
 }
