@@ -8,4 +8,10 @@ export default defineConfig({
     // fra repo-roden med "No test files found". Fjern naar rigtige tests findes.
     passWithNoTests: true,
   },
+  resolve: {
+    // Don't try to resolve node: imports
+    alias: {
+      '^node:': 'node:',
+    },
+  },
 });
