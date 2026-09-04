@@ -58,6 +58,9 @@ export async function listProgrammes(
 /**
  * Det igangvaerende program og det foelgende. `now.start` er hvad
  * start-forfra bygger sin timeshift-URL ud fra.
+ *
+ * Hvis der ikke sendes noget i ojeblikkket, finder vi stadig det foelgende program
+ * (f.eks. naar EPG-vinduet er aabent men der er en pause mellem to udsendelser).
  */
 export async function getNowNext(
   db: SqlDatabase,
@@ -73,17 +76,31 @@ export async function getNowNext(
     [epgChannelId, ms, ms],
   );
 
-  if (!current) return { now: null, next: null };
+  if (current) {
+    // Der sendes noget nu: naeste program er det foerste der starter ved eller efter sluttidspunktet
+    const following = await db.getFirstAsync<ProgrammeRow>(
+      `SELECT * FROM programmes
+       WHERE channel_id = ? AND start_ms >= ?
+       ORDER BY start_ms LIMIT 1`,
+      [epgChannelId, current.stop_ms],
+    );
 
+    return {
+      now: toProgramme(current),
+      next: following ? toProgramme(following) : null,
+    };
+  }
+
+  // Intet program nu: find det foerste program der starter i fremtiden
   const following = await db.getFirstAsync<ProgrammeRow>(
     `SELECT * FROM programmes
-     WHERE channel_id = ? AND start_ms >= ?
+     WHERE channel_id = ? AND start_ms > ?
      ORDER BY start_ms LIMIT 1`,
-    [epgChannelId, current.stop_ms],
+    [epgChannelId, ms],
   );
 
   return {
-    now: toProgramme(current),
+    now: null,
     next: following ? toProgramme(following) : null,
   };
 }

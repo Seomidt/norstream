@@ -117,6 +117,27 @@ describe('getNowNext', () => {
     expect(result.now).toBeNull();
     expect(result.next).toBeNull();
   });
+
+  it('returnerer det foegende program selv hvis der ikke sendes noget nu (i en pause)', async () => {
+    // Programmer: A fra 20-21, B fra 22-23, query midt i pausen (21:30)
+    // Bruger anden kanal for ikke at konflikte med beforeEach
+    await upsertProgrammes(db, [
+      prog('tv2', 20, 21, 'A'),
+      prog('tv2', 22, 23, 'B'),
+    ]);
+    // Query at 21:30 (midtvejs mellem de to programmer)
+    const queryTime = new Date(Date.UTC(2026, 8, 4, 21, 30, 0));
+    const result = await getNowNext(db, 'tv2', queryTime);
+    expect(result.now).toBeNull();
+    expect(result.next?.title).toBe('B');
+  });
+
+  it('returnerer det foerste program hvis der ikke sendes noget endnu', async () => {
+    // Query foer det foerste program
+    const result = await getNowNext(db, 'dr1', T(19));
+    expect(result.now).toBeNull();
+    expect(result.next?.title).toBe('TV Avisen');
+  });
 });
 
 describe('deleteProgrammesBefore', () => {
