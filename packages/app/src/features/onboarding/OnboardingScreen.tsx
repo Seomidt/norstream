@@ -15,7 +15,16 @@ import { openDatabase } from '../../storage/db.js';
 import { setTimeshiftDialect } from '../../storage/settings.js';
 import { theme } from '../../ui/theme.js';
 
-export function OnboardingScreen({ onDone }: { onDone: () => void }) {
+interface Props {
+  onDone: () => void;
+  /**
+   * Forklaring fra den rute der sendte brugeren hertil — f.eks. at panelet
+   * afviste credentials, saa de blev slettet fra enheden.
+   */
+  notice?: string;
+}
+
+export function OnboardingScreen({ onDone, notice }: Props) {
   const [baseUrl, setBaseUrl] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -84,6 +93,8 @@ export function OnboardingScreen({ onDone }: { onDone: () => void }) {
     <View style={styles.container}>
       <Text style={styles.title}>UHF Play</Text>
       <Text style={styles.subtitle}>Forbind til dit panel</Text>
+
+      {notice !== undefined && <Text style={styles.notice}>{notice}</Text>}
 
       <TextInput
         style={styles.input}
@@ -157,6 +168,11 @@ const styles = StyleSheet.create({
     padding: theme.spacing.md,
     marginBottom: theme.spacing.sm,
     fontSize: 16,
+  },
+  notice: {
+    color: theme.colors.textMuted,
+    fontSize: 14,
+    marginBottom: theme.spacing.md,
   },
   error: {
     color: theme.colors.danger,

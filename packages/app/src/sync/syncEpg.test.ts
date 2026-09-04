@@ -92,10 +92,9 @@ describe('syncEpg', () => {
   });
 
   it('batches store chunks saa batch bliver flushed flere gange', async () => {
-    // Generér 1200 programmer i ét stort chunk. Testen verificerer at batch
-    // bliver flushed flere gange ved at tælle hvor mange gange upsertProgrammes kalles.
-    //
-    // DISCRIMINATION: uden slicing => 1 call, med slicing => 3 calls
+    // Generer 1200 programmer i eet stort chunk og tael hvor mange gange
+    // upsertProgrammes kaldes: uden snitskaering samles alt i eet kald, med
+    // snitskaering bliver batchen flushet undervejs.
     let xml = '<?xml version="1.0"?>\n<tv>\n';
     for (let i = 0; i < 1200; i++) {
       xml += `  <programme start="20260904200000 +0000" stop="20260904210000 +0000" channel="dr1">
@@ -104,25 +103,31 @@ describe('syncEpg', () => {
     }
     xml += '</tv>';
 
-    // Spy on upsertProgrammes to count flushes
+    // Aflyt upsertProgrammes for at taelle flushes.
     const programmesModule = await import('../storage/programmes.js');
     const upsertSpy = vi.spyOn(programmesModule, 'upsertProgrammes');
 
-    // Pass a far future date so retention doesn't interfere
-    const futureDate = new Date(Date.UTC(2027, 0, 1, 0));
-    const result = await syncEpg(db, creds, source([xml]), futureDate);
+    try {
+      // Fjern datoen langt ud i fremtiden, saa oprydningen ikke blander sig.
+      const futureDate = new Date(Date.UTC(2027, 0, 1, 0));
+      const result = await syncEpg(db, creds, source([xml]), futureDate);
 
-    // Verify all 1200 were parsed
-    expect(result.programmes).toBe(1200);
+      // Alle 1200 blev parset.
+      expect(result.programmes).toBe(1200);
 
-    // Verify batching happened: > 1 call means multiple flushes
-    expect(upsertSpy).toHaveBeenCalledTimes(3);
-
-    upsertSpy.mockRestore();
+      // Mere end eet kald betyder at batchen blev flushet undervejs. Det
+      // praecise tal afhaenger af fikstureens byte-stoerrelse, saa vi binder
+      // ikke testen til det.
+      expect(upsertSpy.mock.calls.length).toBeGreaterThan(1);
+    } finally {
+      // Skal ske ogsaa naar en assertion fejler, ellers lakker spionen ind i
+      // den naeste test i samme fil.
+      upsertSpy.mockRestore();
+    }
   });
 
   it('sletter ikke gamle programmer naar sync parsede nul', async () => {
-    // Seed et gammelt program som ville blive slettet hvis vi parsede noget
+    // Saa et gammelt program som ville blive slettet hvis vi parsede noget
     const { upsertProgrammes } = await import('../storage/programmes.js');
     const oldProgram = {
       channelId: 'dr1',

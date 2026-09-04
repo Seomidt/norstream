@@ -49,6 +49,14 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 `;
 
+/**
+ * Skemaversionen stemples i databasen, saa en fremtidig migrering har et tal
+ * at forgrene paa i stedet for at gaette paa hvilke kolonner der findes.
+ * Ingen migreringsramme her — kun tallet.
+ */
+const SCHEMA_VERSION = 1;
+
 export async function migrate(db: SqlDatabase): Promise<void> {
   await db.execAsync(SCHEMA);
+  await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
 }

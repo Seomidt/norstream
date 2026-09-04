@@ -23,13 +23,24 @@ function formatForPlatform(): StreamFormat {
   return Platform.OS === 'android' ? 'ts' : 'm3u8';
 }
 
-/** Det andet containerformat, brugt naar det foerste ikke kan afspilles. */
-function fallbackFormat(): StreamFormat {
-  return formatForPlatform() === 'ts' ? 'm3u8' : 'ts';
+/**
+ * Der findes kun et brugbart fallback-format naar det primaere var .ts, altsaa
+ * kun paa Android. Spec sec.8: AVPlayer kan ikke afspille raa MPEG-TS over
+ * HTTP, saa paa iOS, tvOS og web ville et skift til .ts vaere en garanteret
+ * fejl — og det ville braende det eneste fallback-forsoeg, saa en HLS-hikke
+ * der kunne have rettet sig selv ender i en doed stream.
+ */
+function hasFormatFallback(): boolean {
+  return formatForPlatform() === 'ts';
 }
+
+/** Det andet containerformat. Kun meningsfuldt naar hasFormatFallback() er sand. */
+const FALLBACK_FORMAT: StreamFormat = 'm3u8';
 
 const MAX_RETRIES = 2;
 const RETRY_BACKOFF_MS = 1500;
+/** Hvor laenge afspilleren maa haenge i buffering foer vi kalder det et udfald. */
+const STALL_TIMEOUT_MS = 15_000;
 
 export function PlayerScreen({ session, channel, onBack }: Props) {
   const [source, setSource] = useState(() =>
@@ -74,51 +85,88 @@ export function PlayerScreen({ session, channel, onBack }: Props) {
   }, [player, source]);
 
   // Spec sec.9: IPTV-streams falder ud hele tiden. To forsoeg med backoff,
-  // derefter fallback til det andet containerformat, og automatisk gen-
-  // forbindelse naar afspilningen stopper midt i. Uden det opfoerer appen sig
-  // som de Norlys-anmeldelser der klagede over konstante udfald.
+  // derefter fallback til det andet containerformat der hvor et saadant
+  // findes, og automatisk genforbindelse naar afspilningen stopper eller
+  // haenger midt i. Uden det opfoerer appen sig som de Norlys-anmeldelser
+  // der klagede over konstante udfald.
   useEffect(() => {
     let cancelled = false;
     let attempt = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function clearStallTimer(): void {
+      if (stallTimer !== null) {
+        clearTimeout(stallTimer);
+        stallTimer = null;
+      }
+    }
+
+    // Faelles vej for baade haarde fejl og stall.
+    function handleFailure(): void {
+      if (cancelled) return;
+      clearStallTimer();
+
+      attempt += 1;
+      if (attempt <= MAX_RETRIES) {
+        if (retryTimer !== null) clearTimeout(retryTimer);
+        retryTimer = setTimeout(() => {
+          if (cancelled) return;
+          player.replace(source);
+          player.play();
+        }, attempt * RETRY_BACKOFF_MS);
+        return;
+      }
+
+      // Foerst efter at begge forsoeg fejlede proever vi det andet format, og
+      // kun hvor der findes et brugbart et — se hasFormatFallback(). Under
+      // start-forfra springes fallback ogsaa over: timeshift-URLen er altid
+      // HLS uanset platform.
+      if (hasFormatFallback() && !triedFallback && !restarted) {
+        setTriedFallback(true);
+        attempt = 0;
+        setSource(buildLiveUrl(session.creds, channel.id, FALLBACK_FORMAT));
+        return;
+      }
+
+      // Den raa besked fra expo-video maa aldrig vises. Den stammer fra
+      // ExoPlayer eller AVPlayer, som rutinemaessigt skriver den fejlende URI
+      // ind i teksten — og live-URLen har panelets adgangskode som et
+      // sti-segment. En fast dansk tekst i stedet, aldrig error.message.
+      setStreamError('Streamen kunne ikke afspilles. Prøv igen.');
+    }
 
     const subscription = player.addListener(
       'statusChange',
-      ({ status, error }: { status: string; error?: { message?: string } }) => {
+      ({ status }: { status: string }) => {
         if (cancelled) return;
 
         if (status === 'readyToPlay') {
           attempt = 0;
+          clearStallTimer();
           setStreamError(null);
           return;
         }
-        if (status !== 'error') return;
 
-        attempt += 1;
-        if (attempt <= MAX_RETRIES) {
-          setTimeout(() => {
-            if (cancelled) return;
-            player.replace(source);
-            player.play();
-          }, attempt * RETRY_BACKOFF_MS);
+        if (status === 'error') {
+          handleFailure();
           return;
         }
 
-        // Foerst efter at begge forsoeg fejlede proever vi det andet format.
-        // Under start-forfra springes fallback over: timeshift-URLen er
-        // altid HLS uanset platform.
-        if (!triedFallback && !restarted) {
-          setTriedFallback(true);
-          attempt = 0;
-          setSource(buildLiveUrl(session.creds, channel.id, fallbackFormat()));
-          return;
+        // Spec sec.9 kraever ogsaa genforbindelse paa buffer-haendelser:
+        // bliver afspilleren haengende i 'loading' uden at komme videre, er
+        // streamen faldet ud midt i afspilningen, selv om der aldrig kom en
+        // egentlig fejl.
+        if (status === 'loading' && stallTimer === null) {
+          stallTimer = setTimeout(handleFailure, STALL_TIMEOUT_MS);
         }
-
-        setStreamError(error?.message ?? 'Streamen kunne ikke afspilles.');
       },
     );
 
     return () => {
       cancelled = true;
+      clearStallTimer();
+      if (retryTimer !== null) clearTimeout(retryTimer);
       subscription.remove();
     };
   }, [player, source, triedFallback, restarted, session.creds, channel.id]);

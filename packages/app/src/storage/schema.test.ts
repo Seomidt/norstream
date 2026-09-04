@@ -3,7 +3,7 @@ import { migrate } from './schema.js';
 import { createTestDatabase } from './testDb.js';
 
 describe('migrate', () => {
-  it('opretter alle fire tabeller', async () => {
+  it('opretter alle fem tabeller', async () => {
     const db = createTestDatabase();
     await migrate(db);
     const rows = await db.getAllAsync<{ name: string }>(
@@ -12,8 +12,18 @@ describe('migrate', () => {
     const names = rows.map((r) => r.name);
     expect(names).toContain('categories');
     expect(names).toContain('channels');
+    expect(names).toContain('favorites');
     expect(names).toContain('programmes');
     expect(names).toContain('settings');
+  });
+
+  it('stempler skemaversionen i user_version', async () => {
+    const db = createTestDatabase();
+    await migrate(db);
+    const row = await db.getFirstAsync<{ user_version: number }>(
+      'PRAGMA user_version',
+    );
+    expect(row?.user_version).toBeGreaterThan(0);
   });
 
   it('er idempotent', async () => {

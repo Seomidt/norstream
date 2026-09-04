@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, SafeAreaView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { ChannelListScreen } from './src/features/channels/ChannelListScreen.js';
 import { OnboardingScreen } from './src/features/onboarding/OnboardingScreen.js';
@@ -12,13 +19,25 @@ import { theme } from './src/ui/theme.js';
 
 type Route =
   | { name: 'loading' }
-  | { name: 'onboarding' }
+  | { name: 'onboarding'; notice?: string }
   | { name: 'channels' }
-  | { name: 'player'; channel: StoredChannel };
+  | { name: 'player'; channel: StoredChannel }
+  | { name: 'error' };
+
+/**
+ * Opstarten laeser Keychain, aabner SQLite og koerer migreringen. Alle tre
+ * kan kaste — f.eks. hvis enheden har en database fra en tidligere
+ * skema-version, hvor en kolonne mangler. Uden en fejlrute ville appen blive
+ * staaende paa spinneren for evigt uden vej ud, saa vi fanger og tilbyder et
+ * nyt forsoeg.
+ */
+const BOOT_ERROR_TEXT =
+  'Appen kunne ikke starte. Prøv igen — hjælper det ikke, kan du geninstallere appen.';
 
 export default function App() {
   const [route, setRoute] = useState<Route>({ name: 'loading' });
   const [session, setSession] = useState<AppSession | null>(null);
+  const [bootAttempt, setBootAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,17 +55,33 @@ export default function App() {
       setRoute({ name: 'channels' });
     }
 
-    void boot();
+    boot().catch(() => {
+      if (cancelled) return;
+      setRoute({ name: 'error' });
+    });
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [bootAttempt]);
 
   async function afterOnboarding(): Promise<void> {
-    const creds = await loadCredentials();
-    if (creds === null) return;
-    setSession(await createSession(creds));
-    setRoute({ name: 'channels' });
+    try {
+      const creds = await loadCredentials();
+      if (creds === null) return;
+      setSession(await createSession(creds));
+      setRoute({ name: 'channels' });
+    } catch {
+      // Samme grund som i boot(): databasen kan kaste, og en spinner uden
+      // udgang er vaerre end en fejlbesked med en knap.
+      setRoute({ name: 'error' });
+    }
+  }
+
+  function retryBoot(): void {
+    setSession(null);
+    setRoute({ name: 'loading' });
+    setBootAttempt((n) => n + 1);
   }
 
   return (
@@ -57,8 +92,17 @@ export default function App() {
           <ActivityIndicator color={theme.colors.accent} />
         </View>
       )}
+      {route.name === 'error' && (
+        <View style={styles.centered}>
+          <Text style={styles.errorText}>{BOOT_ERROR_TEXT}</Text>
+          <Pressable style={styles.button} onPress={retryBoot}>
+            <Text style={styles.buttonText}>Prøv igen</Text>
+          </Pressable>
+        </View>
+      )}
       {route.name === 'onboarding' && (
         <OnboardingScreen
+          notice={route.notice}
           onDone={() => {
             void afterOnboarding();
           }}
@@ -68,6 +112,10 @@ export default function App() {
         <ChannelListScreen
           session={session}
           onSelect={(channel) => setRoute({ name: 'player', channel })}
+          onSignedOut={(notice) => {
+            setSession(null);
+            setRoute({ name: 'onboarding', notice });
+          }}
         />
       )}
       {route.name === 'player' && session !== null && (
@@ -83,5 +131,23 @@ export default function App() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.colors.background },
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: theme.spacing.lg,
+  },
+  errorText: {
+    color: theme.colors.text,
+    fontSize: 15,
+    textAlign: 'center',
+    marginBottom: theme.spacing.lg,
+  },
+  button: {
+    backgroundColor: theme.colors.accent,
+    borderRadius: theme.radius,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.lg,
+  },
+  buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '600' },
 });
