@@ -15,6 +15,12 @@ config.resolver.nodeModulesPaths = [
 // Hindrer at en pakke oploeses to gange fra to node_modules-mapper.
 config.resolver.disableHierarchicalLookup = true;
 
+// expo-sqlite's web-worker importerer en .wasm-fil (wa-sqlite), men Metro's
+// standard assetExts kender ikke .wasm, saa bundlingen fejlede paa web med
+// "Unable to resolve wa-sqlite.wasm". Uden dette kunne databasen slet ikke
+// aabnes paa web. Paavirker ikke native builds.
+config.resolver.assetExts.push('wasm');
+
 // @uhf-play/core bruger eksplicitte .js-endelser i sine imports (NodeNext-stil),
 // selvom filerne er .ts. Metro kender ikke den mapning som standard, saa vi
 // falder tilbage til .ts/.tsx naar en .js-sti ikke kan opløses direkte.
