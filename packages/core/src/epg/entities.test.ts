@@ -23,4 +23,16 @@ describe('decodeXmlEntities', () => {
   it('afkoder &amp; sidst, så &amp;lt; bliver til &lt;', () => {
     expect(decodeXmlEntities('&amp;lt;')).toBe('&lt;');
   });
+
+  it('lader decimale talreferencer uden for Unicode-området stå urørt', () => {
+    expect(decodeXmlEntities('&#99999999;')).toBe('&#99999999;');
+  });
+
+  it('lader hexadecimale talreferencer uden for Unicode-området stå urørt', () => {
+    expect(decodeXmlEntities('&#xFFFFFF0;')).toBe('&#xFFFFFF0;');
+  });
+
+  it('afkoder grænsepunktet 0x10FFFF korrekt', () => {
+    expect(decodeXmlEntities('&#x10FFFF;')).toBe(String.fromCodePoint(0x10ffff));
+  });
 });
