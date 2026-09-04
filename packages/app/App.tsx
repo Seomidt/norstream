@@ -1,30 +1,87 @@
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, SafeAreaView, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
-import { buildLiveUrl } from '@uhf-play/core';
+import { ChannelListScreen } from './src/features/channels/ChannelListScreen.js';
+import { OnboardingScreen } from './src/features/onboarding/OnboardingScreen.js';
+import { PlayerScreen } from './src/features/player/PlayerScreen.js';
+import { createSession } from './src/session.js';
+import type { AppSession } from './src/session.js';
+import { loadCredentials } from './src/storage/credentials.js';
+import type { StoredChannel } from './src/storage/channels.js';
+import { theme } from './src/ui/theme.js';
 
-const demoUrl = buildLiveUrl(
-  { baseUrl: 'http://panel.example:8080', username: 'USER', password: 'PASS' },
-  '1',
-  'm3u8',
-);
+type Route =
+  | { name: 'loading' }
+  | { name: 'onboarding' }
+  | { name: 'channels' }
+  | { name: 'player'; channel: StoredChannel };
 
 export default function App() {
+  const [route, setRoute] = useState<Route>({ name: 'loading' });
+  const [session, setSession] = useState<AppSession | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function boot(): Promise<void> {
+      const creds = await loadCredentials();
+      if (cancelled) return;
+      if (creds === null) {
+        setRoute({ name: 'onboarding' });
+        return;
+      }
+      const created = await createSession(creds);
+      if (cancelled) return;
+      setSession(created);
+      setRoute({ name: 'channels' });
+    }
+
+    void boot();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function afterOnboarding(): Promise<void> {
+    const creds = await loadCredentials();
+    if (creds === null) return;
+    setSession(await createSession(creds));
+    setRoute({ name: 'channels' });
+  }
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>UHF Play</Text>
-      <Text style={styles.proof}>{demoUrl}</Text>
-      <StatusBar style="auto" />
-    </View>
+    <SafeAreaView style={styles.root}>
+      <StatusBar style="light" />
+      {route.name === 'loading' && (
+        <View style={styles.centered}>
+          <ActivityIndicator color={theme.colors.accent} />
+        </View>
+      )}
+      {route.name === 'onboarding' && (
+        <OnboardingScreen
+          onDone={() => {
+            void afterOnboarding();
+          }}
+        />
+      )}
+      {route.name === 'channels' && session !== null && (
+        <ChannelListScreen
+          session={session}
+          onSelect={(channel) => setRoute({ name: 'player', channel })}
+        />
+      )}
+      {route.name === 'player' && session !== null && (
+        <PlayerScreen
+          session={session}
+          channel={route.channel}
+          onBack={() => setRoute({ name: 'channels' })}
+        />
+      )}
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#101014',
-  },
-  title: { color: '#ffffff', fontSize: 28, fontWeight: '600' },
-  proof: { color: '#9aa0a6', fontSize: 12, marginTop: 12 },
+  root: { flex: 1, backgroundColor: theme.colors.background },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });
