@@ -20,8 +20,12 @@ CREATE TABLE IF NOT EXISTS channels (
   epg_channel_id TEXT,
   has_archive    INTEGER NOT NULL DEFAULT 0,
   archive_days   INTEGER NOT NULL DEFAULT 0,
-  is_favorite    INTEGER NOT NULL DEFAULT 0,
+  is_stale       INTEGER NOT NULL DEFAULT 0,
   sort_order     INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS favorites (
+  channel_id TEXT PRIMARY KEY
 );
 
 CREATE INDEX IF NOT EXISTS idx_channels_category ON channels (category_id);

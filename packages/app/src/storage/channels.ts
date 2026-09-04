@@ -14,7 +14,7 @@ interface ChannelRow {
   epg_channel_id: string | null;
   has_archive: number;
   archive_days: number;
-  is_favorite: number;
+  is_favorite: number | null;
 }
 
 function toStoredChannel(row: ChannelRow): StoredChannel {
@@ -50,25 +50,25 @@ export async function listCategories(db: SqlDatabase): Promise<Category[]> {
 
 /**
  * Skriver panelets kanaler ind og fjerner dem panelet ikke laengere har.
- * UPSERT frem for slet-og-indsaet, fordi is_favorite er brugerens egne data
- * og ikke maa gaa tabt naar kanallisten synkroniseres igen.
+ * Bruger stale-marking i stedet for NOT IN, fordi panel-lister kan have 10.000+ kanaler
+ * og SQLite_MAX_VARIABLE_NUMBER er 999 paa mange builds.
+ * Favoritter gemmes i en separat tabel og gaar ikke tabt naar listen synkroniseres.
  */
 export async function replaceChannels(
   db: SqlDatabase,
   channels: Channel[],
 ): Promise<void> {
-  if (channels.length === 0) {
-    await db.runAsync('DELETE FROM channels');
-    return;
-  }
+  // Trin 1: Mark alle kanaler som stale
+  await db.runAsync('UPDATE channels SET is_stale = 1');
 
+  // Trin 2: Upsert hver kanal fra panelet, marker som ikke-stale
   let order = 0;
   for (const channel of channels) {
     await db.runAsync(
       `INSERT INTO channels
          (id, name, number, logo_url, category_id, epg_channel_id,
-          has_archive, archive_days, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          has_archive, archive_days, is_stale, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
        ON CONFLICT(id) DO UPDATE SET
          name           = excluded.name,
          number         = excluded.number,
@@ -77,6 +77,7 @@ export async function replaceChannels(
          epg_channel_id = excluded.epg_channel_id,
          has_archive    = excluded.has_archive,
          archive_days   = excluded.archive_days,
+         is_stale       = 0,
          sort_order     = excluded.sort_order`,
       [
         channel.id,
@@ -92,11 +93,8 @@ export async function replaceChannels(
     );
   }
 
-  const placeholders = channels.map(() => '?').join(',');
-  await db.runAsync(
-    `DELETE FROM channels WHERE id NOT IN (${placeholders})`,
-    channels.map((c) => c.id),
-  );
+  // Trin 3: Slet kanaler der stadig er marked som stale (fandtes ikke i det nye panel)
+  await db.runAsync('DELETE FROM channels WHERE is_stale = 1');
 }
 
 export async function listChannels(
@@ -107,24 +105,30 @@ export async function listChannels(
   const params: unknown[] = [];
 
   if (opts.categoryId !== undefined) {
-    where.push('category_id = ?');
+    where.push('c.category_id = ?');
     params.push(opts.categoryId);
   }
 
   const search = opts.search?.trim() ?? '';
   if (search.length > 0) {
     // ESCAPE er noedvendigt: uden det ville en soegning paa % matche alt.
-    where.push("name LIKE ? ESCAPE '\\'");
+    where.push("c.name LIKE ? ESCAPE '\\'");
     params.push(`%${search.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
   }
 
   if (opts.favouritesOnly === true) {
-    where.push('is_favorite = 1');
+    where.push('f.channel_id IS NOT NULL');
   }
 
   const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
   const rows = await db.getAllAsync<ChannelRow>(
-    `SELECT * FROM channels ${clause} ORDER BY sort_order`,
+    `SELECT c.id, c.name, c.number, c.logo_url, c.category_id, c.epg_channel_id,
+            c.has_archive, c.archive_days, c.sort_order,
+            CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE NULL END AS is_favorite
+     FROM channels c
+     LEFT JOIN favorites f ON f.channel_id = c.id
+     ${clause}
+     ORDER BY c.sort_order`,
     params,
   );
   return rows.map(toStoredChannel);
@@ -135,7 +139,12 @@ export async function getChannel(
   id: string,
 ): Promise<StoredChannel | null> {
   const row = await db.getFirstAsync<ChannelRow>(
-    'SELECT * FROM channels WHERE id = ?',
+    `SELECT c.id, c.name, c.number, c.logo_url, c.category_id, c.epg_channel_id,
+            c.has_archive, c.archive_days, c.sort_order,
+            CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE NULL END AS is_favorite
+     FROM channels c
+     LEFT JOIN favorites f ON f.channel_id = c.id
+     WHERE c.id = ?`,
     [id],
   );
   return row ? toStoredChannel(row) : null;
@@ -146,8 +155,9 @@ export async function setFavorite(
   id: string,
   favorite: boolean,
 ): Promise<void> {
-  await db.runAsync('UPDATE channels SET is_favorite = ? WHERE id = ?', [
-    favorite ? 1 : 0,
-    id,
-  ]);
+  if (favorite) {
+    await db.runAsync('INSERT OR IGNORE INTO favorites (channel_id) VALUES (?)', [id]);
+  } else {
+    await db.runAsync('DELETE FROM favorites WHERE channel_id = ?', [id]);
+  }
 }
