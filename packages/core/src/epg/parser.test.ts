@@ -75,4 +75,19 @@ describe('createXmltvParser', () => {
     for (let i = 0; i < 200; i++) parser.write('<programme '.repeat(1000));
     expect(parser.bufferLength()).toBeLessThanOrEqual(1_048_576);
   });
+
+  it('holder bufferen afgrænset når det seneste elementstart selv ligger langt fra bufferens slutning', () => {
+    const parser = createXmltvParser(() => {});
+    // Ét kæmpe write-kald: et tidligt <programme uden lukketag, efterfulgt
+    // af endnu et <programme uden lukketag langt inde i en stor tekstblok.
+    // En enkelt trimning til det seneste elementstart er ikke nok her, fordi
+    // den efterlader ~3 MB — grænsen skal genanvendes på den trimmede buffer.
+    const chunk =
+      '<programme start="a">' +
+      'x'.repeat(2_000_000) +
+      '<programme start="b">' +
+      'x'.repeat(3_000_000);
+    parser.write(chunk);
+    expect(parser.bufferLength()).toBeLessThanOrEqual(1_048_576);
+  });
 });

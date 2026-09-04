@@ -72,13 +72,19 @@ export function createXmltvParser(
       const end = buffer.indexOf(CLOSE_TAG, start);
       if (end === -1) {
         buffer = buffer.slice(start);
-        if (buffer.length > MAX_BUFFER) {
-          // Malformet input uden lukketag: kassér alt på nær det sidste
-          // mulige elementstart, så hukommelsen forbliver afgrænset.
-          const lastStart = buffer.lastIndexOf(OPEN_TAG);
-          buffer = lastStart > 0 ? buffer.slice(lastStart) : '';
+        if (buffer.length <= MAX_BUFFER) {
+          return;
         }
-        return;
+        // Malformet input uden lukketag: kassér alt på nær det sidste
+        // mulige elementstart, så hukommelsen forbliver afgrænset. Det
+        // sidste elementstart kan selv ligge langt fra bufferens slutning
+        // (fx et enkelt kæmpestort tekstbidde), så trimningen kan stadig
+        // efterlade bufferen over grænsen — løkken går derfor rundt igen
+        // og genanvender grænsen på den trimmede buffer i stedet for at
+        // returnere med det samme.
+        const lastStart = buffer.lastIndexOf(OPEN_TAG);
+        buffer = lastStart > 0 ? buffer.slice(lastStart) : '';
+        continue;
       }
 
       const block = buffer.slice(start, end + CLOSE_TAG.length);
