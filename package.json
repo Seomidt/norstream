@@ -1,0 +1,6 @@
+{
+  "name": "uhf-play",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "engines": { "node": ">=20" }
+}
