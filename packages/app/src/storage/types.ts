@@ -1,11 +1,14 @@
+/** De vaerdityper appen faktisk binder til SQL-parametre. */
+export type SqlValue = string | number | null;
+
 /**
- * Den delmaengde af expo-sqlite's API som repositories bruger.
- * Formet efter expo-sqlite, saa den rigtige database opfylder den direkte,
- * og saa tests kan koere mod node:sqlite uden emulator.
+ * Appens egen graenseflade mod SQLite — ikke noget expo-sqlite opfylder
+ * direkte. En lille adapter i db.ts binder den til den rigtige database;
+ * tests koerer mod node:sqlite uden emulator via samme graenseflade.
  */
 export interface SqlDatabase {
   execAsync(sql: string): Promise<void>;
-  runAsync(sql: string, params?: unknown[]): Promise<unknown>;
-  getAllAsync<T>(sql: string, params?: unknown[]): Promise<T[]>;
-  getFirstAsync<T>(sql: string, params?: unknown[]): Promise<T | null>;
+  runAsync(sql: string, params?: SqlValue[]): Promise<unknown>;
+  getAllAsync<T>(sql: string, params?: SqlValue[]): Promise<T[]>;
+  getFirstAsync<T>(sql: string, params?: SqlValue[]): Promise<T | null>;
 }

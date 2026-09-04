@@ -7,15 +7,23 @@ const DATABASE_NAME = 'uhf-play.db';
 let cached: SqlDatabase | null = null;
 
 /**
- * Aabner databasen og koerer migreringen. expo-sqlite's async-API opfylder
- * SqlDatabase direkte, saa der er ingen adapter mellem app og repositories.
+ * Aabner databasen og koerer migreringen. expo-sqlite's runAsync-overloads
+ * kraever params som naervaerende argument, mens SqlDatabase goer det
+ * valgfrit — en lille adapter goer forskellen eksplicit og typesikker, uden
+ * at gribe til en cast der ville skjule at typerne ikke passede.
  */
 export async function openDatabase(): Promise<SqlDatabase> {
   if (cached !== null) return cached;
-  // Enkelt cast, ikke "as unknown as": SqlDatabase er formet saa expo-sqlite's
-  // rigtige type er tilordnelig. En dobbelt-cast ville slaa typekontrollen fra
-  // netop paa graensen mellem app og repositories.
-  const db: SqlDatabase = await SQLite.openDatabaseAsync(DATABASE_NAME);
+
+  const native = await SQLite.openDatabaseAsync(DATABASE_NAME);
+
+  const db: SqlDatabase = {
+    execAsync: (sql) => native.execAsync(sql),
+    runAsync: (sql, params = []) => native.runAsync(sql, params),
+    getAllAsync: (sql, params = []) => native.getAllAsync(sql, params),
+    getFirstAsync: (sql, params = []) => native.getFirstAsync(sql, params),
+  };
+
   await migrate(db);
   cached = db;
   return db;

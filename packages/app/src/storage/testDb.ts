@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import type { SqlDatabase } from './types.js';
+import type { SqlDatabase, SqlValue } from './types.js';
 
 /**
  * In-memory SQLite til tests, bygget paa Node's indbyggede modul.
@@ -14,14 +14,14 @@ export function createTestDatabase(): SqlDatabase {
     async execAsync(sql: string): Promise<void> {
       db.exec(sql);
     },
-    async runAsync(sql: string, params: unknown[] = []): Promise<unknown> {
-      return db.prepare(sql).run(...(params as never[]));
+    async runAsync(sql: string, params: SqlValue[] = []): Promise<unknown> {
+      return db.prepare(sql).run(...params);
     },
-    async getAllAsync<T>(sql: string, params: unknown[] = []): Promise<T[]> {
-      return db.prepare(sql).all(...(params as never[])) as T[];
+    async getAllAsync<T>(sql: string, params: SqlValue[] = []): Promise<T[]> {
+      return db.prepare(sql).all(...params) as T[];
     },
-    async getFirstAsync<T>(sql: string, params: unknown[] = []): Promise<T | null> {
-      const row = db.prepare(sql).get(...(params as never[]));
+    async getFirstAsync<T>(sql: string, params: SqlValue[] = []): Promise<T | null> {
+      const row = db.prepare(sql).get(...params);
       return (row ?? null) as T | null;
     },
   };

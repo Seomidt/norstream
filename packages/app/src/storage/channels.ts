@@ -1,5 +1,5 @@
 import type { Category, Channel } from '@uhf-play/core';
-import type { SqlDatabase } from './types.js';
+import type { SqlDatabase, SqlValue } from './types.js';
 
 export interface StoredChannel extends Channel {
   isFavorite: boolean;
@@ -102,7 +102,7 @@ export async function listChannels(
   opts: { categoryId?: string; search?: string; favouritesOnly?: boolean } = {},
 ): Promise<StoredChannel[]> {
   const where: string[] = [];
-  const params: unknown[] = [];
+  const params: SqlValue[] = [];
 
   if (opts.categoryId !== undefined) {
     where.push('c.category_id = ?');
