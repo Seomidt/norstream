@@ -8,14 +8,21 @@ export type TextChunkSource = (url: string) => Promise<AsyncIterable<string>>;
 
 const BATCH_SIZE = 500;
 const RETENTION_HOURS = 12;
+const MAX_WRITE_SLICE = 65_536;
 
 /**
  * Henter og parser EPG streamet. Programmer skrives i partier frem for eet ad
  * gangen, saa en fuld XMLTV-fil ikke bliver til hundredtusindvis af enkelt-
  * skrivninger, og aldrig som eet samlet array, saa hukommelsen forbliver flad.
  *
- * Programmer der sluttede for mere end 12 timer siden ryddes: uden det vokser
- * databasen ubegraenset for hver fornyelse.
+ * Indgaaende chunks snitskæres til 64 KB for at sikre, at batch aldrig kan vokse
+ * ubegræenset inden for en enkelt write(). Core's parser håndterer elementer,
+ * der er splittet over chunk-grænser, saa snitskæring er sikker.
+ *
+ * Programmer der sluttede for mere end 12 timer siden ryddes — men kun hvis vi
+ * faktisk parsede programmer. Uden det ville en fejlslået sync (f.eks. login-side
+ * eller panel-fejl) slette alle gamle programmer uden at have nogen nye at erstatte
+ * dem med.
  */
 export async function syncEpg(
   db: SqlDatabase,
@@ -42,14 +49,22 @@ export async function syncEpg(
   }
 
   for await (const chunk of chunks) {
-    parser.write(chunk);
-    if (batch.length >= BATCH_SIZE) await flush();
+    // Snitskær store chunks for at holde batch-størrelsen afgrænset. Parseren
+    // håndterer elementer splittet over slice-grænser, saa det er sikkert.
+    for (let offset = 0; offset < chunk.length; offset += MAX_WRITE_SLICE) {
+      parser.write(chunk.slice(offset, offset + MAX_WRITE_SLICE));
+      if (batch.length >= BATCH_SIZE) await flush();
+    }
   }
   parser.end();
   await flush();
 
-  const cutoff = new Date(now.getTime() - RETENTION_HOURS * 60 * 60_000);
-  await deleteProgrammesBefore(db, cutoff);
+  // Ryd kun gamle programmer hvis vi faktisk parsede noget. Ellers ville
+  // en fejlet sync (f.eks. panel svar med login-side) slette hele EPG-en.
+  if (total > 0) {
+    const cutoff = new Date(now.getTime() - RETENTION_HOURS * 60 * 60_000);
+    await deleteProgrammesBefore(db, cutoff);
+  }
 
   return { programmes: total };
 }
