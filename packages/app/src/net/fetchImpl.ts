@@ -1,0 +1,28 @@
+import type { FetchLike, FetchLikeResponse } from '@uhf-play/core';
+
+const DEFAULT_TIMEOUT_MS = 15_000;
+
+/**
+ * Bygger den FetchLike core's XtreamClient forbruger, med timeout.
+ * Et panel der haenger maa ikke kunne fryse opstarten; core kaster
+ * XtreamNetworkError paa afvisningen, og appen falder tilbage paa cache.
+ */
+export function createFetchImpl(
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  underlying: typeof fetch = fetch,
+): FetchLike {
+  return async (url: string): Promise<FetchLikeResponse> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await underlying(url, { signal: controller.signal });
+      return {
+        ok: response.ok,
+        status: response.status,
+        json: () => response.json() as Promise<unknown>,
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+}
