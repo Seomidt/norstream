@@ -85,19 +85,49 @@ describe('syncChannels', () => {
     );
   });
 
-  it('roerer ikke cachen naar panelet fejler', async () => {
+  it('roerer ikke cachen naar panelet er helt nede paa foerste kald', async () => {
     const ok = panel({
       get_live_categories: [{ category_id: '1', category_name: 'Danmark' }],
       get_live_streams: [{ stream_id: 10, name: 'DR1' }],
     });
     await syncChannels(db, creds, ok);
 
-    const failing: FetchLike = vi.fn(async () => {
+    const fullyUnreachable: FetchLike = vi.fn(async () => {
       throw new Error('ECONNREFUSED');
     });
-    await expect(syncChannels(db, creds, failing)).rejects.toThrow();
+    await expect(syncChannels(db, creds, fullyUnreachable)).rejects.toThrow();
 
     // Spec sec.2 kraever drift paa cached data naar panelet er nede.
     expect(await listChannels(db)).toHaveLength(1);
+  });
+
+  it('roerer ikke cachen naar anden foresporgsel fejler efter foerste lukkedes', async () => {
+    // Først synkroniser succesfuldt for at have cache med data
+    const ok = panel({
+      get_live_categories: [{ category_id: '1', category_name: 'Danmark' }],
+      get_live_streams: [{ stream_id: 10, name: 'DR1' }],
+    });
+    await syncChannels(db, creds, ok);
+
+    // Derefter, når anden forespørgsel fejler (efter at første lukkedes),
+    // skal cachen stadig være intakt. Vi returner en ANDEN kategori for
+    // at bevise at hvis vi skrev den med det samme, ville testen fejle.
+    const failsOnStreams: FetchLike = vi.fn(async (url: string) => {
+      const action = new URL(url).searchParams.get('action');
+      if (action === 'get_live_streams') throw new Error('ECONNREFUSED');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [{ category_id: '2', category_name: 'Sverige' }],
+      };
+    });
+
+    await expect(syncChannels(db, creds, failsOnStreams)).rejects.toThrow();
+
+    // Spec sec.2 kraever drift paa cached data naar panelet fejler.
+    // Hvis vi havde skrevet kategorier før anden forespørgsel fejlede, ville
+    // cachen nu indeholde den nye kategori. Vi verificerer det ikke skete.
+    expect(await listChannels(db)).toHaveLength(1);
+    expect(await listCategories(db)).toEqual([{ id: '1', name: 'Danmark' }]);
   });
 });
