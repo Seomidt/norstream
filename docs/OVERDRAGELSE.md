@@ -16,7 +16,7 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 **Repo:** https://github.com/Seomidt/norstream (privat). Alt er merget til `main`, CI er grøn.
 
-Appen hed oprindeligt "UHF Play" og blev omdøbt til **NorStream** 2026-09-05. Repo, pakkenavne og EAS-projektet bærer stadig de gamle navne — se "Løse ender".
+Appen hed oprindeligt "UHF Play" og blev omdøbt til **NorStream** 2026-09-05. Navn, pakkenavne, native identifikatorer og GitHub-repo er alle skiftet. Kun EAS-projektets slug og den lokale mappe bærer stadig det gamle navn — se "Løse ender".
 
 ## Status: hvad virker
 
