@@ -18,8 +18,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "dk.seomidt.uhfplay",
-      "usesCleartextTraffic": true
+      "package": "dk.seomidt.uhfplay"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -27,7 +26,15 @@
     "plugins": [
       "expo-sqlite",
       "expo-secure-store",
-      "expo-video"
+      "expo-video",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {
