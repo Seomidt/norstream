@@ -1,0 +1,100 @@
+name: Byg Android-APK
+
+# Kun manuelt. Et EAS-build koster byggetid, saa det maa ikke fyre af ved
+# hvert push — det skal vaere en beslutning, ikke en bivirkning.
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'EAS-byggeprofil'
+        required: true
+        default: preview
+        type: choice
+        options: [preview, development, production]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      # Uden tokenet fejler eas-cli med en uigennemskuelig GraphQL-fejl.
+      # Bedre at sige praecis hvad der mangler, og hvor det saettes.
+      - name: Tjek at EXPO_TOKEN findes
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::EXPO_TOKEN mangler. Opret et token paa" \
+                 "https://expo.dev/settings/access-tokens og laeg det ind under" \
+                 "Settings -> Secrets and variables -> Actions -> New repository secret."
+            exit 1
+          fi
+          echo "EXPO_TOKEN er sat"
+
+      - run: npm ci
+
+      # Samme porte som CI. Et build af kode der ikke kan bestaa sine egne
+      # tests er spildt byggetid.
+      - name: Typecheck og tests
+        run: |
+          npm run typecheck --workspaces
+          npm test --workspaces
+
+      # Verificerer at app.json's indstillinger faktisk lander i manifestet.
+      # Det var her usesCleartextTraffic blev laest og aldrig anvendt, og hvor
+      # userInterfaceStyle gjorde det samme. Begge fejlede stille.
+      #
+      # android/ er git-ignoreret (packages/app/.gitignore), og EAS uploader
+      # kun sporede filer — mappen naar derfor aldrig builden, uanset at den
+      # ligger her paa runneren.
+      - name: Verificér AndroidManifest
+        working-directory: packages/app
+        run: |
+          npx expo prebuild --platform android --no-install
+          manifest=android/app/src/main/AndroidManifest.xml
+          echo "--- $manifest ---"
+          cat "$manifest"
+
+          fail=0
+          grep -q 'android:usesCleartextTraffic="true"' "$manifest" || {
+            echo "::error::usesCleartextTraffic mangler i manifestet." \
+                 "Panelet koerer uden TLS, saa appen kan ikke naa det uden den."
+            fail=1
+          }
+          grep -q 'android.permission.INTERNET' "$manifest" || {
+            echo "::error::INTERNET-rettigheden mangler i manifestet."
+            fail=1
+          }
+          grep -q "applicationId 'dk.seomidt.norstream'" android/app/build.gradle || {
+            echo "::error::applicationId er ikke dk.seomidt.norstream."
+            fail=1
+          }
+          exit $fail
+
+      - name: Byg APK paa EAS
+        working-directory: packages/app
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          npx eas-cli@latest build \
+            --platform android \
+            --profile "${{ inputs.profile }}" \
+            --non-interactive \
+            --no-wait
+
+      - name: Hvor ligger APK'en
+        run: |
+          echo "### Build sendt til EAS" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Foelg det her, og hent APK'en naar den er faerdig:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://expo.dev/accounts/seomidts-team/projects/iptv-norlys/builds" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Afinstallér den gamle app foerst** — pakkenavnet skiftede ved omdoebningen," >> "$GITHUB_STEP_SUMMARY"
+          echo "saa Android ser den nye som en anden app og kan ikke opgradere oven i." >> "$GITHUB_STEP_SUMMARY"
