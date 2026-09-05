@@ -35,6 +35,13 @@ jobs:
       # minutter senere. Bedre at stoppe her og sige hvad der skal tjekkes.
       - name: Tjek at EXPO_TOKEN findes
         run: |
+          # Siger hvilke navne der er sat, uden at afsloere nogen vaerdi.
+          # Uden det kan "tom" lige saa godt vaere en fejl i udtrykket ovenfor
+          # som en manglende hemmelighed, og de to kraever hver sin rettelse.
+          echo "EXPO_TOKEN sat:        ${{ secrets.EXPO_TOKEN != '' }}"
+          echo "EXPO_ACCESS_TOKEN sat: ${{ secrets.EXPO_ACCESS_TOKEN != '' }}"
+          echo "EAS_TOKEN sat:         ${{ secrets.EAS_TOKEN != '' }}"
+
           if [ -n "$EXPO_TOKEN" ]; then
             echo "EXPO_TOKEN er sat (${#EXPO_TOKEN} tegn)"
             exit 0
