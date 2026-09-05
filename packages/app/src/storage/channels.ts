@@ -150,14 +150,45 @@ export async function getChannel(
   return row ? toStoredChannel(row) : null;
 }
 
+/**
+ * `sourceCategoryId` husker hvilken kategori favoritten kom fra, saa
+ * favoritskaermen kan gruppere i sammenklappelige sektioner. Uden det ville
+ * eet tryk paa "Tilfoej alle" for Danmark give 979 kanaler i én flad liste.
+ *
+ * `INSERT OR IGNORE`: er kanalen allerede favorit, beholder den den kategori
+ * den foerst kom fra. Et senere "tilfoej alle" fra en anden kategori maa ikke
+ * flytte den under brugerens fingre.
+ */
 export async function setFavorite(
   db: SqlDatabase,
   id: string,
   favorite: boolean,
+  sourceCategoryId: string | null = null,
 ): Promise<void> {
   if (favorite) {
-    await db.runAsync('INSERT OR IGNORE INTO favorites (channel_id) VALUES (?)', [id]);
-  } else {
-    await db.runAsync('DELETE FROM favorites WHERE channel_id = ?', [id]);
+    await db.runAsync(
+      'INSERT OR IGNORE INTO favorites (channel_id, source_category_id) VALUES (?, ?)',
+      [id, sourceCategoryId],
+    );
+    // Brugeren vil have den igen; en tidligere fravalgt kanal skal ikke blive
+    // ved med at vaere udelukket fra kategoriens opdatering.
+    await db.runAsync('DELETE FROM favorite_exclusions WHERE channel_id = ?', [id]);
+    return;
   }
+
+  // Kom favoritten fra en kategori, huskes fravalget. Ellers ville "opdatér"
+  // paa kategorien haente kanalen tilbage, og brugerens oprydning i 979
+  // danske kanaler skulle laves forfra efter hvert tryk.
+  const row = await db.getFirstAsync<{ source_category_id: string | null }>(
+    'SELECT source_category_id FROM favorites WHERE channel_id = ?',
+    [id],
+  );
+  if (row?.source_category_id != null) {
+    await db.runAsync(
+      `INSERT INTO favorite_exclusions (channel_id, category_id) VALUES (?, ?)
+       ON CONFLICT(channel_id) DO UPDATE SET category_id = excluded.category_id`,
+      [id, row.source_category_id],
+    );
+  }
+  await db.runAsync('DELETE FROM favorites WHERE channel_id = ?', [id]);
 }

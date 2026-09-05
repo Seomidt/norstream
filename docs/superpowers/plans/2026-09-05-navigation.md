@@ -49,6 +49,21 @@ lande under **Øvrige** sammen med `4K UHD 3840P`.
 fra listen — jo mere gætteri, jo større risiko for at gruppere forkert, og
 spec'ens risikotabel foretrækker **Øvrige** frem for et forkert flag.
 
+### 3. Et fravalg i en favoriseret kategori huskes
+
+Spec afsnit 6 lover at kopierede favoritter "derefter er brugerens egne, og
+enkelte kan fjernes frit", og at **opdatér** henter de kanaler udbyderen har
+lagt til siden. De to ting strider mod hinanden i en ren `INSERT OR IGNORE`:
+opdatér ville hente hver eneste fjernede kanal tilbage. Efter en oprydning i
+Danmarks 979 kanaler ville knappen fortryde arbejdet hver gang den blev brugt.
+
+Fundet af Task 3's egen test, ikke ved læsning.
+
+**Afgjort:** en ny tabel `favorite_exclusions (channel_id TEXT PK,
+category_id TEXT NOT NULL)` husker fravalgene. Favoriserer brugeren kanalen
+igen med stjernen, ryddes fravalget; fjernes hele gruppen, nulstilles de alle,
+for så forventer man gruppen hel næste gang.
+
 ---
 
 ## Filstruktur
@@ -107,15 +122,15 @@ spec'ens risikotabel foretrækker **Øvrige** frem for et forkert flag.
 modify `channels.ts` så `setFavorite` kan bære `source_category_id`
 
 **Produces:** `addCategoryToFavorites(db, categoryId)`,
-`refreshCategoryFavorites(db, categoryId)`, `listFavoriteGroups(db)`
+`removeCategoryFromFavorites(db, categoryId)`, `listFavoriteGroups(db)`
 
 - [ ] "Tilføj alle" **kopierer** kanalerne ind i `favorites` med
       `source_category_id`. Spec afsnit 6: den beregnede variant gør "fjern
       denne ene" tvetydig
 - [ ] `INSERT OR IGNORE`, så en kanal der allerede er favorit beholder den
       kategori den først kom fra og ikke duplikeres
-- [ ] `refreshCategoryFavorites` tilføjer kun nye kanaler; den fjerner aldrig
-      noget brugeren selv har slettet
+- [ ] **Opdatér er det samme kald igen.** Det tilføjer kun nye kanaler, og
+      fravalgte kanaler bliver væk — se afvigelse 3
 - [ ] `listFavoriteGroups` returnerer sektioner: kategorinavn plus kanaler,
       med de løse favoritter (`source_category_id IS NULL`) i en egen sektion
 - [ ] Tests: tilføj alle; tilføj igen efter at panelet fik en ny kanal; fjern én

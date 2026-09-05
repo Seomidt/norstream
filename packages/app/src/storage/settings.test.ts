@@ -3,11 +3,14 @@ import { migrate } from './schema.js';
 import { createTestDatabase } from './testDb.js';
 import type { SqlDatabase } from './types.js';
 import {
+  clearLastSyncMs,
   getLastSyncMs,
+  getMiniPreviewEnabled,
   getPanelOffsetMinutes,
   getSetting,
   getTimeshiftDialect,
   setLastSyncMs,
+  setMiniPreviewEnabled,
   setPanelOffsetMinutes,
   setSetting,
   setTimeshiftDialect,
@@ -87,5 +90,32 @@ describe('sidste synkronisering', () => {
   it('gemmer og henter', async () => {
     await setLastSyncMs(db, 1_700_000_000_000);
     expect(await getLastSyncMs(db)).toBe(1_700_000_000_000);
+  });
+});
+
+describe('clearLastSyncMs', () => {
+  it('nulstiller tidspunktet, saa naeste session synkroniserer med det samme', async () => {
+    // Parkeret punkt 1 fra overdragelsen: uden det viser et nyt panel det
+    // gamles kanaler i op til et doegn efter udlogning.
+    await setLastSyncMs(db, 1788626052000);
+    await clearLastSyncMs(db);
+    await expect(getLastSyncMs(db)).resolves.toBeNull();
+  });
+
+  it('taaler at blive kaldt naar der aldrig har vaeret synkroniseret', async () => {
+    await expect(clearLastSyncMs(db)).resolves.toBeUndefined();
+  });
+});
+
+describe('mini-preview-indstillingen', () => {
+  it('er slaaet til som standard', async () => {
+    await expect(getMiniPreviewEnabled(db)).resolves.toBe(true);
+  });
+
+  it('kan slaas fra og til igen', async () => {
+    await setMiniPreviewEnabled(db, false);
+    await expect(getMiniPreviewEnabled(db)).resolves.toBe(false);
+    await setMiniPreviewEnabled(db, true);
+    await expect(getMiniPreviewEnabled(db)).resolves.toBe(true);
   });
 });

@@ -4,6 +4,7 @@ import type { SqlDatabase } from './types.js';
 const KEY_DIALECT = 'timeshift_dialect';
 const KEY_OFFSET = 'panel_offset_minutes';
 const KEY_LAST_SYNC = 'last_sync_ms';
+const KEY_PREVIEW = 'mini_preview_enabled';
 
 export async function getSetting(
   db: SqlDatabase,
@@ -66,4 +67,31 @@ export async function getLastSyncMs(db: SqlDatabase): Promise<number | null> {
 
 export async function setLastSyncMs(db: SqlDatabase, ms: number): Promise<void> {
   await setSetting(db, KEY_LAST_SYNC, String(Math.trunc(ms)));
+}
+
+/**
+ * Nulstiller tidspunktet for sidste kanal-synkronisering.
+ *
+ * Kaldes ved udlogning. Uden det springer den naeste session synkroniseringen
+ * over i op til et doegn, fordi `last_sync_ms` stadig er frisk — og logger man
+ * ind paa et *andet* panel, ser man det gamles kanaler indtil da.
+ */
+export async function clearLastSyncMs(db: SqlDatabase): Promise<void> {
+  await db.runAsync('DELETE FROM settings WHERE key = ?', [KEY_LAST_SYNC]);
+}
+
+/**
+ * Mini-preview er slaaet til som standard, men er appens mest skroebelige del:
+ * panelet tillader én samtidig forbindelse, saa hver ny preview skal lukke den
+ * forrige helt ned foerst. Spec sec.7 kraever derfor at den kan slaas fra.
+ */
+export async function getMiniPreviewEnabled(db: SqlDatabase): Promise<boolean> {
+  return (await getSetting(db, KEY_PREVIEW)) !== 'off';
+}
+
+export async function setMiniPreviewEnabled(
+  db: SqlDatabase,
+  enabled: boolean,
+): Promise<void> {
+  await setSetting(db, KEY_PREVIEW, enabled ? 'on' : 'off');
 }
