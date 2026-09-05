@@ -111,6 +111,8 @@ cd packages/app
 npx eas-cli@latest build --platform android --profile preview --non-interactive --no-wait
 ```
 
+**Fuld vejledning: `docs/BUILD.md`** - hvert felt forklaret, hvad der sker paa Expos side, og alle de faelder der har kostet tid.
+
 Profilen `preview` giver en APK der kan deles direkte. **Verificér altid den byggede APK** frem for at antage en rettelse kom med — pak `AndroidManifest.xml` ud af zip-filen og se efter. Det afslørede at `android.usesCleartextTraffic` i `app.json` bliver læst men aldrig anvendt; det kræver `expo-build-properties`.
 
 Android er gratis hele vejen. **iOS og Apple TV kræver Apple Developer Program, 99 USD/år**, selv til privat brug via TestFlight. TestFlight-builds udløber efter 90 dage.
