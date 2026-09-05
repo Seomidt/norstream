@@ -15,6 +15,14 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Tokenet laeses paa jobniveau, saa alle trin ser det samme.
+    #
+    # Faldback-kaeden findes fordi et forkert secret-navn ellers giver praecis
+    # den samme tomme vaerdi som et manglende: workflows kan ikke opremse
+    # secrets, saa hvert navn skal staa eksplicit.
+    env:
+      EXPO_TOKEN: >-
+        ${{ secrets.EXPO_TOKEN || secrets.EXPO_ACCESS_TOKEN || secrets.EAS_TOKEN }}
     steps:
       - uses: actions/checkout@v5
 
@@ -23,19 +31,35 @@ jobs:
           node-version: 24
           cache: npm
 
-      # Uden tokenet fejler eas-cli med en uigennemskuelig GraphQL-fejl.
-      # Bedre at sige praecis hvad der mangler, og hvor det saettes.
+      # Uden tokenet fejler eas-cli med en uigennemskuelig GraphQL-fejl et par
+      # minutter senere. Bedre at stoppe her og sige hvad der skal tjekkes.
       - name: Tjek at EXPO_TOKEN findes
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
-          if [ -z "$EXPO_TOKEN" ]; then
-            echo "::error::EXPO_TOKEN mangler. Opret et token paa" \
-                 "https://expo.dev/settings/access-tokens og laeg det ind under" \
-                 "Settings -> Secrets and variables -> Actions -> New repository secret."
-            exit 1
+          if [ -n "$EXPO_TOKEN" ]; then
+            echo "EXPO_TOKEN er sat (${#EXPO_TOKEN} tegn)"
+            exit 0
           fi
-          echo "EXPO_TOKEN er sat"
+          cat <<'HJAELP'
+          EXPO_TOKEN er tom. Den skal ligge som *repository secret* under
+          Actions. Tjek i denne raekkefoelge — de tre foerste er de hyppigste:
+
+          1. Settings -> Secrets and variables -> Actions.
+             Siden har tre faneblade: Actions, Codespaces, Dependabot.
+             Kun **Actions** er synlig for workflows. En hemmelighed lagt
+             under Codespaces eller Dependabot ser rigtig ud og virker ikke.
+
+          2. "Repository secrets", ikke "Repository variables". De ligger paa
+             samme side under hinanden.
+
+          3. Navnet. Workflowen accepterer EXPO_TOKEN, EXPO_ACCESS_TOKEN
+             eller EAS_TOKEN.
+
+          4. Er den lagt paa et *environment* frem for paa repoet, skal jobbet
+             erklaere det environment for at kunne se den.
+
+          Token oprettes paa https://expo.dev/settings/access-tokens
+          HJAELP
+          exit 1
 
       - run: npm ci
 
@@ -79,8 +103,6 @@ jobs:
 
       - name: Byg APK paa EAS
         working-directory: packages/app
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: |
           npx eas-cli@latest build \
             --platform android \
