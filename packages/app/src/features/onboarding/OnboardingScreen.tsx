@@ -107,7 +107,7 @@ Detalje: ${describeFailure(cause, creds)}`,
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>UHF Play</Text>
+      <Text style={styles.title}>NorStream</Text>
       <Text style={styles.subtitle}>Forbind til dit panel</Text>
 
       {notice !== undefined && <Text style={styles.notice}>{notice}</Text>}
