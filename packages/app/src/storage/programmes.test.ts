@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { Programme } from '@uhf-play/core';
+import type { Programme } from '@norstream/core';
 import { migrate } from './schema.js';
 import { createTestDatabase } from './testDb.js';
 import type { SqlDatabase } from './types.js';

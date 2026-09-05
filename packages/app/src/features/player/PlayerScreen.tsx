@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
-import { buildLiveUrl, buildTimeshiftUrl } from '@uhf-play/core';
-import type { Programme, StreamFormat } from '@uhf-play/core';
+import { buildLiveUrl, buildTimeshiftUrl } from '@norstream/core';
+import type { Programme, StreamFormat } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { getNowNext } from '../../storage/programmes.js';

@@ -1,5 +1,5 @@
-import { buildXmltvUrl, createXmltvParser } from '@uhf-play/core';
-import type { Programme, XtreamCredentials } from '@uhf-play/core';
+import { buildXmltvUrl, createXmltvParser } from '@norstream/core';
+import type { Programme, XtreamCredentials } from '@norstream/core';
 import { deleteProgrammesBefore, upsertProgrammes } from '../storage/programmes.js';
 import type { SqlDatabase } from '../storage/types.js';
 

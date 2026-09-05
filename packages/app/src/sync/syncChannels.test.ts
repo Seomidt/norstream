@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FetchLike, XtreamCredentials } from '@uhf-play/core';
-import { XtreamAuthError, XtreamNetworkError } from '@uhf-play/core';
+import type { FetchLike, XtreamCredentials } from '@norstream/core';
+import { XtreamAuthError, XtreamNetworkError } from '@norstream/core';
 import { migrate } from '../storage/schema.js';
 import { createTestDatabase } from '../storage/testDb.js';
 import type { SqlDatabase } from '../storage/types.js';

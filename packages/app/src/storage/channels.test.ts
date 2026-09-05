@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { Channel } from '@uhf-play/core';
+import type { Channel } from '@norstream/core';
 import { migrate } from './schema.js';
 import { createTestDatabase } from './testDb.js';
 import type { SqlDatabase } from './types.js';

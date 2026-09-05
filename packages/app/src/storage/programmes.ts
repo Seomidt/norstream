@@ -1,4 +1,4 @@
-import type { Programme } from '@uhf-play/core';
+import type { Programme } from '@norstream/core';
 import type { SqlDatabase } from './types.js';
 
 interface ProgrammeRow {

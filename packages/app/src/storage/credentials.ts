@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
-import type { XtreamCredentials } from '@uhf-play/core';
+import type { XtreamCredentials } from '@norstream/core';
 
 const KEY = 'uhf_play_xtream_credentials';
 

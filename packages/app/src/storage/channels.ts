@@ -1,4 +1,4 @@
-import type { Category, Channel } from '@uhf-play/core';
+import type { Category, Channel } from '@norstream/core';
 import type { SqlDatabase, SqlValue } from './types.js';
 
 export interface StoredChannel extends Channel {

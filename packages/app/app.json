@@ -8,7 +8,7 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "dk.seomidt.uhfplay"
+      "bundleIdentifier": "dk.seomidt.norstream"
     },
     "android": {
       "adaptiveIcon": {
@@ -18,7 +18,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "dk.seomidt.uhfplay"
+      "package": "dk.seomidt.norstream"
     },
     "web": {
       "favicon": "./assets/favicon.png"

@@ -1,4 +1,4 @@
-import type { TimeshiftDialect } from '@uhf-play/core';
+import type { TimeshiftDialect } from '@norstream/core';
 import type { SqlDatabase } from './types.js';
 
 const KEY_DIALECT = 'timeshift_dialect';

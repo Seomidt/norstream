@@ -10,8 +10,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { XtreamAuthError } from '@uhf-play/core';
-import type { Category } from '@uhf-play/core';
+import { XtreamAuthError } from '@norstream/core';
+import type { Category } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { listCategories, listChannels, setFavorite } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';

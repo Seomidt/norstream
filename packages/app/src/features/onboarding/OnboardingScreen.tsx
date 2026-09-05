@@ -7,8 +7,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { XtreamAuthError, XtreamClient, detectTimeshiftDialect } from '@uhf-play/core';
-import type { XtreamCredentials } from '@uhf-play/core';
+import { XtreamAuthError, XtreamClient, detectTimeshiftDialect } from '@norstream/core';
+import type { XtreamCredentials } from '@norstream/core';
 import { createFetchImpl } from '../../net/fetchImpl.js';
 import { saveCredentials } from '../../storage/credentials.js';
 import { openDatabase } from '../../storage/db.js';

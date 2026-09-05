@@ -1,4 +1,4 @@
-# @uhf-play/core
+# @norstream/core
 
 Platformsuafhængigt TypeScript-bibliotek: parser M3U-playlister og XMLTV-EPG,
 taler med et Xtream Codes-panel og bygger stream-URL'er. Ingen

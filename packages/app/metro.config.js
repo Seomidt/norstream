@@ -19,7 +19,7 @@ config.resolver.nodeModulesPaths = [
 // aabnes paa web. Paavirker ikke native builds.
 config.resolver.assetExts.push('wasm');
 
-// @uhf-play/core bruger eksplicitte .js-endelser i sine imports (NodeNext-stil),
+// @norstream/core bruger eksplicitte .js-endelser i sine imports (NodeNext-stil),
 // selvom filerne er .ts. Metro kender ikke den mapning som standard, saa vi
 // falder tilbage til .ts/.tsx naar en .js-sti ikke kan opløses direkte.
 const defaultResolveRequest = config.resolver.resolveRequest;

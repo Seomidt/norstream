@@ -1,5 +1,5 @@
-import { XtreamClient } from '@uhf-play/core';
-import type { FetchLike, XtreamCredentials } from '@uhf-play/core';
+import { XtreamClient } from '@norstream/core';
+import type { FetchLike, XtreamCredentials } from '@norstream/core';
 import { replaceCategories, replaceChannels } from '../storage/channels.js';
 import { setLastSyncMs } from '../storage/settings.js';
 import type { SqlDatabase } from '../storage/types.js';

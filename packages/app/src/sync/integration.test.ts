@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FetchLike, XtreamCredentials } from '@uhf-play/core';
+import type { FetchLike, XtreamCredentials } from '@norstream/core';
 import { listChannels } from '../storage/channels.js';
 import { getNowNext } from '../storage/programmes.js';
 import { migrate } from '../storage/schema.js';

@@ -1,4 +1,4 @@
-import type { FetchLike, FetchLikeResponse } from '@uhf-play/core';
+import type { FetchLike, FetchLikeResponse } from '@norstream/core';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
