@@ -24,6 +24,20 @@ interface Props {
   notice?: string;
 }
 
+/**
+ * Kort, sanitiseret beskrivelse af en forbindelsesfejl, saa brugeren kan
+ * skelne "Android blokerede forespoergslen" fra "panelet er nede" fra
+ * "forkert protokol". Credentials filtreres fra: stream- og API-URLer
+ * indeholder adgangskoden, og fejl fra netvaerkslaget citerer ofte URLen.
+ */
+function describeFailure(cause: unknown, creds: XtreamCredentials): string {
+  const raw = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
+  let safe = raw;
+  if (creds.password.length > 0) safe = safe.split(creds.password).join('***');
+  if (creds.username.length > 0) safe = safe.split(creds.username).join('***');
+  return safe.slice(0, 300);
+}
+
 export function OnboardingScreen({ onDone, notice }: Props) {
   const [baseUrl, setBaseUrl] = useState('');
   const [username, setUsername] = useState('');
@@ -52,7 +66,9 @@ export function OnboardingScreen({ onDone, notice }: Props) {
         setError(
           cause instanceof XtreamAuthError
             ? 'Brugernavn eller adgangskode blev afvist af panelet.'
-            : 'Kunne ikke nå panelet. Tjek adressen og din forbindelse.',
+            : `Kunne ikke nå panelet. Tjek adressen og din forbindelse.
+
+Detalje: ${describeFailure(cause, creds)}`,
         );
         return;
       }
