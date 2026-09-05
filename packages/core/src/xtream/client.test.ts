@@ -113,3 +113,86 @@ describe('XtreamClient.getLiveCategories fejlhåndtering', () => {
     await expect(client.getLiveCategories()).rejects.toBeInstanceOf(XtreamNetworkError);
   });
 });
+
+describe('XtreamClient.getShortEpg', () => {
+  const listing = {
+    title: 'VFYgQXZpc2Vu',
+    description: 'TnloZWRlciBmcmEgRGFubWFya3MgUmFkaW8=',
+    start_timestamp: '1788624000',
+    stop_timestamp: '1788625800',
+  };
+
+  it('kalder get_short_epg med stream_id og limit', async () => {
+    const fetchImpl = respondWith({ epg_listings: [listing] });
+    await new XtreamClient(creds, fetchImpl).getShortEpg('247634', 6);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://panel.example:8080/player_api.php' +
+        '?username=USER&password=PASS&action=get_short_epg&stream_id=247634&limit=6',
+    );
+  });
+
+  it('mapper svaret til programmer med stream_id som noegle', async () => {
+    const client = new XtreamClient(creds, respondWith({ epg_listings: [listing] }));
+    const result = await client.getShortEpg('247634');
+    expect(result).toEqual([
+      {
+        channelId: '247634',
+        title: 'TV Avisen',
+        description: 'Nyheder fra Danmarks Radio',
+        start: new Date(1788624000_000),
+        stop: new Date(1788625800_000),
+      },
+    ]);
+  });
+
+  it('accepterer et objektsvar — det er ikke en liste som de oevrige endpoints', async () => {
+    // requestList ville kaste her; getShortEpg skal ikke bruge den.
+    const client = new XtreamClient(creds, respondWith({ epg_listings: [] }));
+    await expect(client.getShortEpg('1')).resolves.toEqual([]);
+  });
+
+  it('giver en tom liste naar panelet ikke kender endpointet og svarer tomt', async () => {
+    const client = new XtreamClient(creds, respondWith({}));
+    await expect(client.getShortEpg('1')).resolves.toEqual([]);
+  });
+
+  it('kaster XtreamAuthError ved HTTP 401', async () => {
+    const client = new XtreamClient(creds, respondWith({}, false, 401));
+    await expect(client.getShortEpg('1')).rejects.toBeInstanceOf(XtreamAuthError);
+  });
+
+  it('kaster XtreamNetworkError ved HTTP 500', async () => {
+    const client = new XtreamClient(creds, respondWith({}, false, 500));
+    await expect(client.getShortEpg('1')).rejects.toBeInstanceOf(XtreamNetworkError);
+  });
+
+  it('bruger mindst limit 1, ogsaa naar kalderen beder om nul', async () => {
+    const fetchImpl = respondWith({ epg_listings: [] });
+    await new XtreamClient(creds, fetchImpl).getShortEpg('1', 0);
+    expect(fetchImpl).toHaveBeenCalledWith(expect.stringContaining('limit=1'));
+  });
+
+  it('URL-koder stream_id', async () => {
+    const fetchImpl = respondWith({ epg_listings: [] });
+    await new XtreamClient(creds, fetchImpl).getShortEpg('a b&c');
+    expect(fetchImpl).toHaveBeenCalledWith(expect.stringContaining('stream_id=a%20b%26c'));
+  });
+});
+
+describe('XtreamClient.getPanelOffsetMinutes', () => {
+  it('laeser panelets offset af server_info', async () => {
+    const fetchImpl = respondWith({
+      server_info: { time_now: '2026-09-05 18:34:12', timestamp_now: 1788626052 },
+    });
+    const client = new XtreamClient(creds, fetchImpl);
+    await expect(client.getPanelOffsetMinutes()).resolves.toBe(120);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'http://panel.example:8080/player_api.php?username=USER&password=PASS',
+    );
+  });
+
+  it('returnerer null naar panelet ikke oplyser nok', async () => {
+    const client = new XtreamClient(creds, respondWith({ user_info: { auth: 1 } }));
+    await expect(client.getPanelOffsetMinutes()).resolves.toBeNull();
+  });
+});

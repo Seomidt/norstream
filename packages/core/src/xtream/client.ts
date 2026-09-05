@@ -1,7 +1,9 @@
-import type { Category, Channel, XtreamCredentials } from '../models.js';
+import type { Category, Channel, Programme, XtreamCredentials } from '../models.js';
 import { normaliseBaseUrl } from '../urls.js';
 import { truthyFlag } from './coerce.js';
 import { mapCategories, mapChannels } from './mapping.js';
+import { panelOffsetFromServerInfo } from './serverInfo.js';
+import { mapShortEpg } from './shortEpg.js';
 
 export interface FetchLikeResponse {
   ok: boolean;
@@ -41,19 +43,25 @@ export class XtreamClient {
     this.baseUrl = normaliseBaseUrl(creds.baseUrl);
   }
 
-  private endpoint(action?: string): string {
+  private endpoint(action?: string, params: Record<string, string> = {}): string {
     const query = [
       `username=${encodeURIComponent(this.creds.username)}`,
       `password=${encodeURIComponent(this.creds.password)}`,
     ];
     if (action) query.push(`action=${encodeURIComponent(action)}`);
+    for (const [key, value] of Object.entries(params)) {
+      query.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+    }
     return `${this.baseUrl}/player_api.php?${query.join('&')}`;
   }
 
-  private async request(action?: string): Promise<unknown> {
+  private async request(
+    action?: string,
+    params: Record<string, string> = {},
+  ): Promise<unknown> {
     let response: FetchLikeResponse;
     try {
-      response = await this.fetchImpl(this.endpoint(action));
+      response = await this.fetchImpl(this.endpoint(action, params));
     } catch (cause) {
       throw new XtreamNetworkError(
         `Kunne ikke nå panelet: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -93,6 +101,33 @@ export class XtreamClient {
 
   async getLiveStreams(): Promise<Channel[]> {
     return mapChannels(await this.requestList('get_live_streams'));
+  }
+
+  /**
+   * Programoversigt for een kanal, slaaet op paa `stream_id`.
+   *
+   * Det er vejen uden om XMLTV-filen, som paa brugerens panel er 98 MB og
+   * aldrig naar frem inden for en rimelig timeout. Svaret her er faa kilobyte.
+   *
+   * Bruger `request`, ikke `requestList`: svaret er et objekt med
+   * `epg_listings`, ikke et bart array. `mapShortEpg` er tolerant over for
+   * begge former og over for beskadigede poster.
+   */
+  async getShortEpg(streamId: string, limit = 12): Promise<Programme[]> {
+    const body = await this.request('get_short_epg', {
+      stream_id: streamId,
+      limit: String(Math.max(1, Math.trunc(limit))),
+    });
+    return mapShortEpg(streamId, body);
+  }
+
+  /**
+   * Panelets offset fra UTC i minutter, eller `null` hvis panelet ikke oplyser
+   * nok til at regne det ud. Se `serverInfo.ts` for hvorfor `timezone`-strengen
+   * ikke bruges.
+   */
+  async getPanelOffsetMinutes(): Promise<number | null> {
+    return panelOffsetFromServerInfo(await this.request());
   }
 
   /**

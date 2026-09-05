@@ -15,6 +15,11 @@ export {
   normaliseBaseUrl,
 } from './urls.js';
 
+export { decodeBase64Utf8 } from './base64.js';
+
+export { countryFlag, deriveCountry } from './country/countries.js';
+export type { Country } from './country/countries.js';
+
 export { createXmltvParser } from './epg/parser.js';
 export type { XmltvParser } from './epg/parser.js';
 export { parseXmltvTimestamp } from './epg/timestamp.js';
@@ -35,3 +40,8 @@ export { XtreamAuthError, XtreamClient, XtreamNetworkError } from './xtream/clie
 export type { FetchLike, FetchLikeResponse } from './xtream/client.js';
 
 export { detectTimeshiftDialect } from './xtream/probe.js';
+
+export { mapShortEpg } from './xtream/shortEpg.js';
+export type { RawShortEpgListing } from './xtream/shortEpg.js';
+
+export { panelOffsetFromServerInfo } from './xtream/serverInfo.js';

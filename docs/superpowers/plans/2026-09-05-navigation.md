@@ -76,7 +76,7 @@ spec'ens risikotabel foretrækker **Øvrige** frem for et forkert flag.
 - [ ] Normalisér: store bogstaver, ikke-alfanumerisk → mellemrum, klem mellemrum
 - [ ] Match det **længste** kendte landeudtryk fra begyndelsen, så
       `UNITED KINGDOM` ikke taber til et kortere `UNITED`
-- [ ] Understøt flerordede navne og gængse aliaser (`UK`, `USA`, `EX YU`, `SE`,
+- [ ] Understøt flerordede navne og gængse aliaser (`UK`, `USA`, `SE`,
       `DK`, `NO`, `FI`, `DE`, `NL`, `FR`, `ES`, `IT`, `PL`, `TR`, `AR`)
 - [ ] Navnet returneres på dansk: `Danmark`, `Storbritannien`, `Tyskland`
 - [ ] Ét markør-ord springes over, se afvigelse 2
