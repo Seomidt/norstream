@@ -8,7 +8,8 @@ import {
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { ChannelListScreen } from './src/features/channels/ChannelListScreen.js';
+import type { Programme } from '@norstream/core';
+import { HomeScreen } from './src/features/home/HomeScreen.js';
 import { OnboardingScreen } from './src/features/onboarding/OnboardingScreen.js';
 import { PlayerScreen } from './src/features/player/PlayerScreen.js';
 import { createSession } from './src/session.js';
@@ -20,8 +21,9 @@ import { theme } from './src/ui/theme.js';
 type Route =
   | { name: 'loading' }
   | { name: 'onboarding'; notice?: string }
-  | { name: 'channels' }
-  | { name: 'player'; channel: StoredChannel }
+  | { name: 'home' }
+  /** `startFrom` er sat naar afspilningen kommer fra guidens start-forfra. */
+  | { name: 'player'; channel: StoredChannel; startFrom?: Programme }
   | { name: 'error' };
 
 /**
@@ -52,7 +54,7 @@ export default function App() {
       const created = await createSession(creds);
       if (cancelled) return;
       setSession(created);
-      setRoute({ name: 'channels' });
+      setRoute({ name: 'home' });
     }
 
     boot().catch(() => {
@@ -70,7 +72,7 @@ export default function App() {
       const creds = await loadCredentials();
       if (creds === null) return;
       setSession(await createSession(creds));
-      setRoute({ name: 'channels' });
+      setRoute({ name: 'home' });
     } catch {
       // Samme grund som i boot(): databasen kan kaste, og en spinner uden
       // udgang er vaerre end en fejlbesked med en knap.
@@ -108,10 +110,12 @@ export default function App() {
           }}
         />
       )}
-      {route.name === 'channels' && session !== null && (
-        <ChannelListScreen
+      {route.name === 'home' && session !== null && (
+        <HomeScreen
           session={session}
-          onSelect={(channel) => setRoute({ name: 'player', channel })}
+          onSelect={(channel, startFrom) =>
+            setRoute({ name: 'player', channel, startFrom })
+          }
           onSignedOut={(notice) => {
             setSession(null);
             setRoute({ name: 'onboarding', notice });
@@ -122,7 +126,8 @@ export default function App() {
         <PlayerScreen
           session={session}
           channel={route.channel}
-          onBack={() => setRoute({ name: 'channels' })}
+          startFrom={route.startFrom}
+          onBack={() => setRoute({ name: 'home' })}
         />
       )}
     </SafeAreaView>

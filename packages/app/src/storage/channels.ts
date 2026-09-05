@@ -99,7 +99,13 @@ export async function replaceChannels(
 
 export async function listChannels(
   db: SqlDatabase,
-  opts: { categoryId?: string; search?: string; favouritesOnly?: boolean } = {},
+  opts: {
+    categoryId?: string;
+    search?: string;
+    favouritesOnly?: boolean;
+    /** Oevre graense paa antal raekker. Soegning paa tvaers af 22.142 kanaler skal have en. */
+    limit?: number;
+  } = {},
 ): Promise<StoredChannel[]> {
   const where: string[] = [];
   const params: SqlValue[] = [];
@@ -121,6 +127,13 @@ export async function listChannels(
   }
 
   const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+
+  let limitClause = '';
+  if (opts.limit !== undefined) {
+    limitClause = 'LIMIT ?';
+    params.push(Math.max(1, Math.trunc(opts.limit)));
+  }
+
   const rows = await db.getAllAsync<ChannelRow>(
     `SELECT c.id, c.name, c.number, c.logo_url, c.category_id, c.epg_channel_id,
             c.has_archive, c.archive_days, c.sort_order,
@@ -128,7 +141,8 @@ export async function listChannels(
      FROM channels c
      LEFT JOIN favorites f ON f.channel_id = c.id
      ${clause}
-     ORDER BY c.sort_order`,
+     ORDER BY c.sort_order
+     ${limitClause}`,
     params,
   );
   return rows.map(toStoredChannel);

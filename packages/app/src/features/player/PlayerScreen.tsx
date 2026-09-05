@@ -1,55 +1,50 @@
-import { useEffect, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { buildLiveUrl, buildTimeshiftUrl } from '@norstream/core';
-import type { Programme, StreamFormat } from '@norstream/core';
+import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { getNowNext } from '../../storage/programmes.js';
 import { getPanelOffsetMinutes, getTimeshiftDialect } from '../../storage/settings.js';
 import { theme } from '../../ui/theme.js';
+import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback } from './format.js';
 
 interface Props {
   session: AppSession;
   channel: StoredChannel;
   onBack: () => void;
+  /**
+   * Programmet der skal afspilles fra begyndelsen. Saettes af guiden, hvor
+   * start-forfra har sit synlige hjem: man trykker paa et afsluttet program,
+   * ikke paa en knap man skal vide findes.
+   */
+  startFrom?: Programme;
 }
-
-/**
- * AVPlayer paa iOS og tvOS kan ikke afspille raa MPEG-TS over HTTP, saa
- * Apple-platforme og web skal have HLS. Android faar .ts for lavere latenstid.
- */
-function formatForPlatform(): StreamFormat {
-  return Platform.OS === 'android' ? 'ts' : 'm3u8';
-}
-
-/**
- * Der findes kun et brugbart fallback-format naar det primaere var .ts, altsaa
- * kun paa Android. Spec sec.8: AVPlayer kan ikke afspille raa MPEG-TS over
- * HTTP, saa paa iOS, tvOS og web ville et skift til .ts vaere en garanteret
- * fejl — og det ville braende det eneste fallback-forsoeg, saa en HLS-hikke
- * der kunne have rettet sig selv ender i en doed stream.
- */
-function hasFormatFallback(): boolean {
-  return formatForPlatform() === 'ts';
-}
-
-/** Det andet containerformat. Kun meningsfuldt naar hasFormatFallback() er sand. */
-const FALLBACK_FORMAT: StreamFormat = 'm3u8';
 
 const MAX_RETRIES = 2;
 const RETRY_BACKOFF_MS = 1500;
 /** Hvor laenge afspilleren maa haenge i buffering foer vi kalder det et udfald. */
 const STALL_TIMEOUT_MS = 15_000;
 
-export function PlayerScreen({ session, channel, onBack }: Props) {
-  const [source, setSource] = useState(() =>
-    buildLiveUrl(session.creds, channel.id, formatForPlatform()),
+export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
+  /**
+   * Null indtil arkiv-URLen er bygget, naar afspilningen kommer fra guiden.
+   *
+   * Panelet tillader én samtidig forbindelse. Startede vi paa live-URLen og
+   * skiftede bagefter, ville arkiv-streamen bede om forbindelse nummer to og
+   * blive afvist — af den stream vi selv lige havde aabnet.
+   */
+  const [source, setSource] = useState<string | null>(() =>
+    startFrom !== undefined ? null : buildLiveUrl(session.creds, channel.id, formatForPlatform()),
   );
   const [now, setNow] = useState<Programme | null>(null);
   const [next, setNext] = useState<Programme | null>(null);
   const [canRestart, setCanRestart] = useState(false);
-  const [restarted, setRestarted] = useState(false);
+  // Kommer vi fra guiden med et program, er afspilningen en start-forfra fra
+  // foerste billede — ogsaa foer dialekten er laest, saa format-fallbacket
+  // aldrig naar at slaa til paa en timeshift-URL.
+  const [restarted, setRestarted] = useState(startFrom !== undefined);
   const [triedFallback, setTriedFallback] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
 
@@ -62,8 +57,10 @@ export function PlayerScreen({ session, channel, onBack }: Props) {
     let cancelled = false;
 
     async function loadEpg(): Promise<void> {
-      if (channel.epgChannelId === null) return;
-      const result = await getNowNext(session.db, channel.epgChannelId, new Date());
+      // Opslaget sker paa kanalens eget id — Xtreams stream_id. I v1 gik det
+      // gennem epg_channel_id, som 87 % af panelets kanaler ikke har, saa
+      // start-forfra var utilgaengeligt for dem uanset deres arkiv.
+      const result = await getNowNext(session.db, channel.id, new Date());
       if (cancelled) return;
       setNow(result.now);
       setNext(result.next);
@@ -80,6 +77,7 @@ export function PlayerScreen({ session, channel, onBack }: Props) {
   }, [session.db, channel]);
 
   useEffect(() => {
+    if (source === null) return;
     player.replace(source);
     player.play();
   }, [player, source]);
@@ -90,6 +88,8 @@ export function PlayerScreen({ session, channel, onBack }: Props) {
   // haenger midt i. Uden det opfoerer appen sig som de Norlys-anmeldelser
   // der klagede over konstante udfald.
   useEffect(() => {
+    if (source === null) return;
+
     let cancelled = false;
     let attempt = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -171,27 +171,46 @@ export function PlayerScreen({ session, channel, onBack }: Props) {
     };
   }, [player, source, triedFallback, restarted, session.creds, channel.id]);
 
-  async function restart(): Promise<void> {
-    if (now === null) return;
-    const dialect = await getTimeshiftDialect(session.db);
-    if (dialect === null) return;
-    const offset = await getPanelOffsetMinutes(session.db);
+  const playFromStart = useCallback(
+    async (programme: Programme): Promise<void> => {
+      const dialect = await getTimeshiftDialect(session.db);
+      if (dialect === null) {
+        // Uden dialekt kan arkiv-URLen ikke bygges. Kom vi fra guiden, staar
+        // skaermen sort uden dette: fald tilbage paa live frem for ingenting.
+        setSource((current) =>
+          current ?? buildLiveUrl(session.creds, channel.id, formatForPlatform()),
+        );
+        setRestarted(false);
+        return;
+      }
+      const offset = await getPanelOffsetMinutes(session.db);
 
-    const durationMinutes = Math.ceil(
-      (now.stop.getTime() - now.start.getTime()) / 60_000,
-    );
-    setSource(
-      buildTimeshiftUrl(
-        session.creds,
-        channel.id,
-        now.start,
-        durationMinutes,
-        dialect,
-        offset,
-      ),
-    );
-    setRestarted(true);
-  }
+      const durationMinutes = Math.ceil(
+        (programme.stop.getTime() - programme.start.getTime()) / 60_000,
+      );
+      setSource(
+        buildTimeshiftUrl(
+          session.creds,
+          channel.id,
+          programme.start,
+          durationMinutes,
+          dialect,
+          offset,
+        ),
+      );
+      setRestarted(true);
+    },
+    [session.db, session.creds, channel.id],
+  );
+
+  // Guiden aabner afspilleren med et afsluttet program: byg arkiv-URLen med
+  // det samme, i stedet for at vente paa at brugeren finder en knap.
+  const startFromHandled = useRef(false);
+  useEffect(() => {
+    if (startFrom === undefined || startFromHandled.current) return;
+    startFromHandled.current = true;
+    void playFromStart(startFrom);
+  }, [startFrom, playFromStart]);
 
   return (
     <View style={styles.container}>
@@ -201,8 +220,14 @@ export function PlayerScreen({ session, channel, onBack }: Props) {
 
       <View style={styles.info}>
         <Text style={styles.channelName}>{channel.name}</Text>
-        <Text style={styles.nowTitle}>{now?.title ?? 'Ingen programdata'}</Text>
-        {next !== null && <Text style={styles.nextTitle}>Derefter: {next.title}</Text>}
+        {/* Kommer vi fra guiden, er det programmet der genafspilles der staar
+            oeverst — ikke det der sendes lige nu. */}
+        <Text style={styles.nowTitle}>
+          {startFrom?.title ?? now?.title ?? 'Ingen programdata'}
+        </Text>
+        {startFrom === undefined && next !== null && (
+          <Text style={styles.nextTitle}>Derefter: {next.title}</Text>
+        )}
         {restarted && <Text style={styles.badge}>Afspilles fra begyndelsen</Text>}
         {streamError !== null && <Text style={styles.error}>{streamError}</Text>}
       </View>
@@ -211,11 +236,11 @@ export function PlayerScreen({ session, channel, onBack }: Props) {
         <Pressable style={styles.button} onPress={onBack}>
           <Text style={styles.buttonText}>Tilbage</Text>
         </Pressable>
-        {canRestart && !restarted && (
+        {canRestart && !restarted && now !== null && (
           <Pressable
             style={[styles.button, styles.buttonAccent]}
             onPress={() => {
-              void restart();
+              void playFromStart(now);
             }}
           >
             <Text style={styles.buttonText}>Start forfra</Text>

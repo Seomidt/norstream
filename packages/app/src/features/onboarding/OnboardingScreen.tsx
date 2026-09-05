@@ -12,7 +12,7 @@ import type { XtreamCredentials } from '@norstream/core';
 import { createFetchImpl } from '../../net/fetchImpl.js';
 import { saveCredentials } from '../../storage/credentials.js';
 import { openDatabase } from '../../storage/db.js';
-import { setTimeshiftDialect } from '../../storage/settings.js';
+import { setPanelOffsetMinutes, setTimeshiftDialect } from '../../storage/settings.js';
 import { theme } from '../../ui/theme.js';
 
 interface Props {
@@ -86,10 +86,26 @@ Detalje: ${describeFailure(cause, creds)}`,
       // andet stadig, kun start-forfra er utilgaengeligt.
       try {
         const db = await openDatabase();
-        const streams = await new XtreamClient(creds, fetchImpl).getLiveStreams();
+        const client = new XtreamClient(creds, fetchImpl);
+
+        // Panelets offset fra UTC laeses foerst: bliver det gemt inden
+        // probingen, bygger probe-URLerne paa det rigtige tidspunkt.
+        // Null betyder at panelet ikke oplyste nok — saa beholder vi de
+        // gemte 0 minutter, og probingen daekker afvigelsen med sit
+        // 13-timers forsoeg.
+        const offset = await client.getPanelOffsetMinutes();
+        if (offset !== null) await setPanelOffsetMinutes(db, offset);
+
+        const streams = await client.getLiveStreams();
         const withArchive = streams.find((s) => s.hasArchive);
         if (withArchive) {
-          const dialect = await detectTimeshiftDialect(creds, withArchive.id, fetchImpl);
+          const dialect = await detectTimeshiftDialect(
+            creds,
+            withArchive.id,
+            fetchImpl,
+            new Date(),
+            offset ?? 0,
+          );
           await setTimeshiftDialect(db, dialect);
         }
       } catch {
