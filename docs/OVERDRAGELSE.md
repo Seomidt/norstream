@@ -11,31 +11,43 @@ Dette dokument er udgangspunktet. Alt andet i `docs/` er detaljer; dette er hvad
 
 En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugerens eget Xtream Codes-panel. Bygget i en npm-monorepo:
 
-- **`packages/core`** — platform-uafhængigt TypeScript-bibliotek. M3U- og XMLTV-parsing, Xtream-klient, URL-byggere. **93 tests.** Ingen runtime-afhængigheder, ingen React Native-imports. CI håndhæver begge dele.
-- **`packages/app`** — Expo SDK 57-app (React Native 0.86). **72 tests.**
+- **`packages/core`** — platform-uafhængigt TypeScript-bibliotek. M3U-parsing, Xtream-klient, `get_short_epg`-oversættelse, base64, landeudledning, URL-byggere. **153 tests.** Ingen runtime-afhængigheder, ingen React Native-imports. CI håndhæver begge dele.
+- **`packages/app`** — Expo SDK 57-app (React Native 0.86). **145 tests.**
 
-**Repo:** https://github.com/Seomidt/norstream (privat). Alt er merget til `main`, CI er grøn.
+**Repo:** https://github.com/Seomidt/norstream (privat).
 
-Appen hed oprindeligt "UHF Play" og blev omdøbt til **NorStream** 2026-09-05. Navn, pakkenavne, native identifikatorer og GitHub-repo er alle skiftet. Kun EAS-projektets slug og den lokale mappe bærer stadig det gamle navn — se "Løse ender".
+## Status
 
-## Status: hvad virker
+Plan 1 (EPG og guide) og Plan 2 (navigation) er **implementeret og verificeret**, men **endnu ikke afprøvet på brugerens rigtige panel**. Det er det næste der skal ske: byg en APK og lad brugeren teste.
 
-**Appen kører på Android og er verificeret mod brugerens rigtige panel.** Den forbinder, henter 22.142 kanaler, viser dem, og **afspiller**.
+### Hvad der er lavet siden sidst
 
-Verificeret undervejs, ikke antaget:
-- Onboarding, fejlhåndtering og kanalliste kørt i browser med screenshots
-- APK'ens manifest pakket ud og inspiceret efter hver rettelse
-- Panelets API kaldt direkte med curl og sammenholdt med appens forventninger
+De tre problemer fra sidste overdragelse er alle adresseret:
 
-## Status: hvad virker ikke
+| Var | Nu |
+|---|---|
+| EPG tom — 98 MB XMLTV nåede aldrig frem | `get_short_epg` per kanal, få kilobyte, slår op på `stream_id` som **alle** kanaler har |
+| Start-forfra virkede ikke | Bor i guiden: tryk på et afsluttet program på en kanal med arkiv |
+| 285 kategorier i én vandret række | Søgning → lande med flag → kategorier → kanaler |
 
-Tre ting, alle diagnosticeret med årsag:
+Derudover: kategori-favoritter med gruppering, skjulte lande, mini-preview, indstillinger, panelets tidszone, og parkeret punkt 1 (`last_sync_ms` overlevede udlogning) er lukket.
 
-| Problem | Årsag | Løsning |
-|---|---|---|
-| **EPG er tom** | Appen henter hele XMLTV-filen. Den er **98 MB** på dette panel, og appens timeout er 60 sekunder. Hentningen afbrydes altid. | `get_short_epg` per kanal — se spec |
-| **Start-forfra virker ikke** | Følger af ovenstående: knappen skal kende programmets starttidspunkt. DR1 og TV 2 *har* 3 dages arkiv. | Følger med EPG-rettelsen |
-| **Umuligt at navigere** | **285 kategorier** i en vandret række designet til en håndfuld. 22.142 kanaler i én flad liste. | Landegruppering — se spec |
+**XMLTV-vejen er slettet.** `syncEpg.ts` findes ikke længere.
+
+### Hvordan det er verificeret
+
+- 298 tests og typecheck grønne i begge pakker
+- Android-bundlen bygger og Hermes-kompilerer (661 moduler)
+- **Hele den nye brugerflade kørt igennem i en rigtig browser mod et falsk Xtream-panel:** onboarding, landegruppering med flag, kategorier, "tilføj alle", favoritter, guidegitteret, sideskift i guiden, søgning på tværs, skjul/vis land, forhåndsvisning til og fra, og udlogning
+
+Det sidste er nyt for projektet og fangede fire fejl som hverken typecheck eller tests så. Se `docs/superpowers/plans/2026-09-05-udfoerelse.md`.
+
+### Hvad der **ikke** er verificeret
+
+- **Intet er kørt mod brugerens rigtige panel.** Alt panel-samspil er afprøvet mod en lokal efterligning.
+- **Ingen video er afspillet.** Det falske panel serverer ingen streams. Afspilning, start-forfra og mini-previewets lykkelige vej er uafprøvede i praksis.
+- **Migreringen fra v1 er kun kørt mod `node:sqlite`,** ikke mod `expo-sqlite` på en rigtig enhed med rigtige data.
+- Skærmkomponenterne har stadig ingen enhedstests. Den logik der kunne trækkes ud af dem — guidens layout, landeudledningen, cache-reglerne — er testet hver for sig.
 
 ## Panelets faktiske karakteristika
 
@@ -45,84 +57,124 @@ Målt, ikke gættet. Disse tal er grunden til at det oprindelige design ikke hol
 |---|---|
 | Kategorier | 285 |
 | Kanaler | 22.142 |
-| XMLTV-fil | 98 MB |
+| XMLTV-fil | 98 MB (bruges ikke længere) |
 | Kanaler med `epg_channel_id` | 13% (3.009) |
 | Kanaler med arkiv | 1.095 |
 | **Samtidige forbindelser** | **1** |
-| Panelets tidszone | `Europe/Amsterdam` (oplyses i `server_info.timezone`) |
-| Kategorinavne | Landepræfiks: `DENMARK HD & HEVC`, `SWEDEN SPORT` |
+| Panelets tidszone | `Europe/Amsterdam` |
+| Kategorinavne | Landepræfiks: `DENMARK HD & HEVC` |
 | Kanalnavne | Landepræfiks: `DNK\| DR1 HD` |
 
-**`max_connections: 1` er en hård designbegrænsning.** Den udelukker at se på telefon og fjernsyn samtidig, og den gør mini-preview skrøbelig: hver ny stream skal lukke den forrige helt ned først.
-
-### Den bærende opdagelse
-
-`get_short_epg` henter programoversigt for **én kanal** via `stream_id`:
-
-```
-GET /player_api.php?username=U&password=P&action=get_short_epg&stream_id=247634&limit=12
-```
-
-Svaret er få kilobyte. Titler og beskrivelser er **base64-kodet**; tider er **epoch-sekunder**.
-
-Det afgørende: opslaget sker på `stream_id`, som alle kanaler har — ikke på `epg_channel_id`, som kun 13% har. Det fjerner hele den kobling der ellers gjorde EPG umulig for de fleste kanaler.
+**`max_connections: 1` er en hård designbegrænsning.** Den udelukker at se på telefon og fjernsyn samtidig, og den former mini-previewet: hver ny stream lukker den forrige helt ned og venter på det, og previewet frigives før navigation til afspilleren.
 
 ## Næste skridt
 
-**Spec'en er skrevet og godkendt:** `docs/superpowers/specs/2026-09-05-navigation-og-epg-design.md`
+1. **Byg en APK og lad brugeren teste.** Se "Build" nedenfor. Han skal **afinstallere den gamle app først** — pakkenavnet skiftede ved omdøbningen.
+2. Bed ham især kigge efter: om EPG'en fylder ud i kanallisten og guiden, om start-forfra virker fra guiden på DR1 og TV 2, og om mini-previewet er til at leve med eller skal slås fra.
+3. Første start efter opgraderingen **sletter og genopbygger den lokale database**. Favoritter og timeshift-dialekten bevares; kanaler og EPG hentes på ny.
 
-Den dækker EPG-omlægningen, guiden, landegruppering med flag, kategori-favoritter og mini-preview. Den er inddelt i to delprojekter:
+### Hvis noget ikke virker
 
-1. **Plan 1 — EPG og guide.** `getShortEpg` i core, cache med tre fornyelsesregler, skema v2 med migrering der bevarer favoritter, panelets tidszone, guide-skærm hvor start-forfra får et synligt hjem. **Planen er ikke skrevet endnu** — det er det første der skal gøres.
-2. **Plan 2 — Navigation.** Landegruppering, skjulte lande, kategori-favoritter, mini-preview.
+Læs `docs/superpowers/plans/2026-09-05-udfoerelse.md` først. Den rummer hver afvigelse fra spec'en med begrundelse, og de fire fejl browserkørslen fandt. Flere af dem forklarer hvorfor koden ser ud som den gør.
 
-Brugeren vil have begge eksekveret **før** næste APK, så han kun skal teste én gang.
+## Dokumenter
 
-Følg processen: `superpowers:writing-plans` → `superpowers:subagent-driven-development`. Den har fanget elleve fejl i planerne indtil nu.
+| Dokument | Hvad |
+|---|---|
+| `docs/BUILD.md` | Hvordan appen bygges, verificeres og installeres. Læs den før du bygger |
+| `docs/superpowers/specs/2026-09-05-navigation-og-epg-design.md` | Godkendt design for alt ovenstående |
+| `docs/superpowers/plans/2026-09-05-epg-og-guide.md` | Plan 1, med tre afvigelser fra spec'en og hvorfor |
+| `docs/superpowers/plans/2026-09-05-navigation.md` | Plan 2, med tre afvigelser fra spec'en og hvorfor |
+| `docs/superpowers/plans/2026-09-05-udfoerelse.md` | Udførelseslog: hver beslutning, og hvad verifikationen fandt |
+| `docs/superpowers/specs/2026-09-04-uhf-play-design.md` | Oprindeligt design, gælder stadig for alt de nyere ikke ændrer |
+| `docs/superpowers/plans/2026-09-04-*` | Historik fra core- og app-lagene, inkl. 30 rulings |
 
-## Hvad du bør vide om processen
+De historiske dokumenter bruger stadig navnet "UHF Play" og kommandoer som `npm test --workspace @uhf-play/core`. Det er med vilje: de beskriver arbejde udført dengang. Skal du køre en kommando derfra, så oversæt scopet til `@norstream/`.
 
-**Alle blokerende fejl har været i plandokumenterne, ikke i implementeringen.** Elleve i alt. Mønsteret er konsistent: planerne ræsonnerede fra deres egen referencekode i stedet for fra spec'en og bibliotekernes faktiske API'er. Tre fejlede *stille* — `pdc-start` læst som `start`, komma i `group-title`, manglende entity-afkodning. To var kommentarer der løj om hvad koden gjorde. Én var en test der bestod uanset om koden var rigtig.
+## Hvad du bør vide om koden
 
-**Læs udførelseslogge før du gætter.** `docs/superpowers/plans/*-udfoerelse.md` rummer samtlige 30 rulings med begrundelse og konsekvens. Flere af dem forklarer hvorfor koden ser ud som den gør.
+**Læs de tre afvigelsesafsnit i planerne før du ændrer noget i EPG, skema eller favoritter.** Hver af dem er et sted hvor spec'en ikke holdt ved kontakt med virkeligheden, og hvor en "oprydning" tilbage til spec'ens ordlyd ville genindføre en fejl.
 
-To eksempler der sparer tid:
+Kort:
 
-- **`db.ts` bruger en eksplicit adapter, ikke en cast.** `expo-sqlite`s overloads matcher aldrig `SqlDatabase` direkte. Den oprindelige `as unknown as` skjulte det. Genindfør den ikke.
-- **`packages/core` må ikke importere React Native, `react` eller Node-moduler.** CI fejler hvis den gør. `tsconfig` har `lib: ["ES2022"]` uden `DOM` med vilje.
-
-## Parkerede punkter
-
-Fra det store review, ingen er bærende:
-
-1. **`last_sync_ms` overlever udlogning** — logger man ind på et *andet* panel, vises det gamles kanaler i op til 24 timer. Én linje at rette. Vigtigst af de fire.
-2. Tre uhåndterede rejections i `syncFromPanel` — en fejlende keychain-sletning afbryder udlogning stille.
-3. EPG deler tæller med kanal-synk, så hyppig pull-to-refresh forhindrer EPG i at blive hentet. **Bortfalder med Plan 1.**
-4. Omvendt kommentar i `syncEpg.test.ts` — **bortfalder med Plan 1**, filen slettes.
-
-Derudover: **ingen UI-tests.** Skærmene har nul dækning, og `vitest.config.ts` matcher kun `.ts`, ikke `.tsx`. Det er et reelt hul, og fire af de fejl det store review fandt var netop state-fejl i skærmene.
+- **Cache-regel 1 betyder "der er ikke hentet", ikke "der er ingen programmer."** Den anden læsning giver et panel-kald ved hver rendering for hver kanal uden EPG.
+- **Migreringen bevarer `timeshift_dialect`.** Den findes kun ved en probing der kun kører under onboarding; slettes den, mister eksisterende installationer start-forfra permanent.
+- **`favorite_exclusions` findes fordi "opdatér" ellers henter fjernede kanaler tilbage.** Uden den fortryder knappen brugerens oprydning hver gang han bruger den.
+- **`Alert.alert` må ikke bruges.** react-native-web implementerer den ikke, så flowet dør stille der. Brug `src/ui/Notice.tsx`.
+- **`db.ts` bruger en eksplicit adapter, ikke en cast.** `expo-sqlite`s overloads matcher aldrig `SqlDatabase` direkte. Genindfør ikke `as unknown as`.
+- **`packages/core` må ikke importere React Native, `react` eller Node-moduler.** CI fejler hvis den gør. `tsconfig` har `lib: ["ES2022"]` uden `DOM` med vilje — det er derfor base64 er skrevet fra bunden i stedet for at bruge `atob`.
+- **Testene må ikke bruge vægururet.** Alt der har brug for "nu" tager et eksplicit `now`.
 
 ## Praktisk
 
 ### Build
+
+**Fuld vejledning: `docs/BUILD.md`** — hvert felt forklaret, hvad der sker på
+Expos side, og alle de fælder der har kostet tid, også ved at installere
+APK'en. Læs den før du bygger; her står kun det der ikke står der.
 
 ```bash
 cd packages/app
 npx eas-cli@latest build --platform android --profile preview --non-interactive --no-wait
 ```
 
-**Fuld vejledning: `docs/BUILD.md`** - hvert felt forklaret, hvad der sker paa Expos side, og alle de faelder der har kostet tid.
-
-Profilen `preview` giver en APK der kan deles direkte. **Verificér altid den byggede APK** frem for at antage en rettelse kom med — pak `AndroidManifest.xml` ud af zip-filen og se efter. Det afslørede at `android.usesCleartextTraffic` i `app.json` bliver læst men aldrig anvendt; det kræver `expo-build-properties`.
-
 Android er gratis hele vejen. **iOS og Apple TV kræver Apple Developer Program, 99 USD/år**, selv til privat brug via TestFlight. TestFlight-builds udløber efter 90 dage.
+
+**Builds kræver adgang til `api.expo.dev`.** Det har en maskine hvor `eas login`
+er kørt, og en GitHub-runner med `EXPO_TOKEN`. Det har derimod ikke
+nødvendigvis en agent-session: nogle miljøer blokerer værten i deres
+netværkspolitik, og så fejler ethvert EAS-kald med `Forbidden` eller
+`CONNECT tunnel failed, response 403`. Det er gatewayen, ikke tokenet —
+`curl -sS "$HTTPS_PROXY/__agentproxy/status"` viser afvisningen direkte. Kør
+`npx eas-cli@latest whoami` før du konkluderer noget, som BUILD.md siger.
+
+`.github/workflows/build-android.yml` findes til netop det: den bygger fra en
+GitHub-runner, som har adgangen uanset hvor den der beder om buildet sidder.
+Den kræver `EXPO_TOKEN` som repository secret og udløses manuelt under Actions.
+Før selve builden kører den typecheck, tests og manifest-kontrollen nedenfor.
+
+### Verificér en rettelse **før** du bygger
+
+BUILD.md beskriver at pakke den færdige APK ud. Det er den rigtige
+slutkontrol — men det samme kan gøres **før** builden, på et sekund i stedet
+for ti minutter:
+
+```bash
+cd packages/app
+npx expo prebuild --platform android --no-install
+grep -n 'usesCleartextTraffic' android/app/src/main/AndroidManifest.xml
+```
+
+`prebuild` genererer præcis det native projekt EAS selv bygger. Manifestet er
+læsbar XML, så `usesCleartextTraffic`, pakkenavn og rettigheder kan efterses
+direkte. Mappen `android/` er git-ignoreret (`packages/app/.gitignore`) og
+påvirker hverken repoet eller cloud-builden, som prebuilder selv.
+
+Metoden fandt selv en **tredje** fejl af samme slags som `usesCleartextTraffic`:
+`userInterfaceStyle: "dark"` stod i `app.json`, men blev **ignoreret**, fordi
+`expo-system-ui` ikke var installeret. Prebuild sagde det højt; et build ville
+bare have været grønt. Mønsteret er nu set tre gange, og det er værd at sige
+rent ud: **en nøgle i `app.json` kan blive læst og alligevel aldrig anvendt.**
+Kun manifestet afgør det.
+
+### Kør appen lokalt uden panel
+
+Browserkørslen der fandt fire fejl kan gentages. Et lille falskt Xtream-panel plus `npx expo export --platform web` (kørt **fra `packages/app`**, ikke fra roden) og en headless browser er nok. Fremgangsmåden står i udførelsesloggen.
 
 ### Fælder der har kostet tid
 
-- **Android blokerer `http` som standard.** Panelet kører uden TLS (port 443 er lukket). Løst med `expo-build-properties`.
+- **Android blokerer `http` som standard.** Panelet kører uden TLS. Løst med `expo-build-properties`.
 - **Panelet har ingen HTTPS.** Adressen skal være `http://`.
-- **`node:sqlite` kræver Node 24.** CI pinnede Node 20 og fejlede efter merge.
-- **Testene må ikke bruge vægururet.** Fem `syncEpg`-tests bestod den ene dag og fejlede den næste, fordi de ikke sendte et eksplicit `now`.
+- **`node:sqlite` kræver Node 24.** CI pinner Node 24.
+- **`Alert.alert` gør intet på web.** Se ovenfor.
+- **`npx expo export` skal køres fra `packages/app`.** Fra roden fejler den på entry-punktet.
+- **En indstilling i `app.json` kan blive læst og alligevel ikke anvendt.** Det
+  gælder `usesCleartextTraffic` (kræver `expo-build-properties`) og
+  `userInterfaceStyle` (kræver `expo-system-ui`). Begge fejlede stille. Kør
+  `expo prebuild` og læs manifestet frem for at stole på at noget kom med.
+- **Er `api.expo.dev` blokeret, er `dl.google.com` det typisk også.** Så kan
+  Android SDK'et heller ikke hentes, og APK'en kan ikke bygges lokalt som
+  alternativ. Brug GitHub-workflowen i stedet — se "Build" ovenfor.
 
 ### Credentials
 
@@ -130,21 +182,10 @@ Brugerens panel-adgangsoplysninger står **ikke** i dette repo og skal ikke skri
 
 **Bemærk:** Xtream lægger brugernavn og adgangskode i URL-stien, og panelet kører `http`. Credentials sendes altså ukrypteret. Det er panelets vilkår, ikke appens — men det er grunden til at fejlbeskeder aldrig må vise en rå stream-URL.
 
-## Løse ender i navngivningen
+## Parkerede punkter
 
-Omdøbningen blev gennemført 2026-09-05.
-
-| Hvad | Status |
-|---|---|
-| Appen (synligt navn) | **NorStream** ✅ |
-| Android-pakke og iOS-bundle | **`dk.seomidt.norstream`** ✅ |
-| npm-workspaces | **`@norstream/core`**, **`@norstream/app`** ✅ |
-| GitHub-repo | **`Seomidt/norstream`** ✅ |
-| EAS-projektets slug | `iptv-norlys` — **skal omdøbes manuelt på expo.dev** |
-| Lokal mappe | hedder stadig `uhf-play` — rent kosmetisk |
-
-**Pakkenavnet er ændret.** Alle der har den gamle APK skal **afinstallere den først** — Android ser den nye som en helt anden app og kan ikke opgradere oven i.
-
-**EAS-slug'en hænger sammen med projektnavnet på expo.dev.** Omdøbes projektet der til `norstream`, skal `slug` i `app.json` ændres tilsvarende, ellers afvises builds med *"slug does not match"*. Gør begge dele eller ingen af dem.
-
-De historiske planer og specs i `docs/superpowers/` bruger stadig det gamle navn, inklusive kommandoer som `npm test --workspace @uhf-play/core`. Det er med vilje: de beskriver arbejde udført dengang, og at omskrive dem ville forfalske historikken. Skal du køre en kommando derfra, så oversæt scopet til `@norstream/`.
+1. **EAS-projektets slug hedder stadig `iptv-norlys`** og skal omdøbes manuelt på expo.dev. Omdøbes projektet der til `norstream`, skal `slug` i `app.json` ændres tilsvarende, ellers afvises builds med *"slug does not match"*. Gør begge dele eller ingen af dem.
+2. **Den lokale mappe hedder stadig `uhf-play`** — rent kosmetisk. Det samme gælder databasefilens navn `uhf-play.db`, som med vilje er uændret: skiftes det, mister eksisterende installationer deres favoritter, fordi migreringen så ikke finder den gamle database.
+3. **Guiden henter 12 programmer per kanal.** Sider man langt frem, løber den tør for data og viser huller. Flere kræver et højere `limit` eller flere kald.
+4. **Ingen UI-tests.** `vitest.config.ts` matcher kun `.ts`, ikke `.tsx`. Browserkørslen dækker hullet manuelt, men den er ikke automatiseret.
+5. **Kanaler hvis `category_id` ikke peger på en kendt kategori** tælles ikke med i landeoversigten og kan kun findes via søgning.

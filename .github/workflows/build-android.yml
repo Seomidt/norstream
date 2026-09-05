@@ -49,6 +49,10 @@ jobs:
       # Verificerer at app.json's indstillinger faktisk lander i manifestet.
       # Det var her usesCleartextTraffic blev laest og aldrig anvendt, og hvor
       # userInterfaceStyle gjorde det samme. Begge fejlede stille.
+      #
+      # android/ er git-ignoreret (packages/app/.gitignore), og EAS uploader
+      # kun sporede filer — mappen naar derfor aldrig builden, uanset at den
+      # ligger her paa runneren.
       - name: Verificér AndroidManifest
         working-directory: packages/app
         run: |
@@ -72,13 +76,6 @@ jobs:
             fail=1
           }
           exit $fail
-
-      # Mappen maa ikke foelge med ind i buildet: ligger android/ der, holder
-      # EAS op med at regenerere den, og projektet skifter fra managed til
-      # bare workflow uden at nogen har bedt om det.
-      - name: Ryd det genererede native projekt
-        working-directory: packages/app
-        run: rm -rf android
 
       - name: Byg APK paa EAS
         working-directory: packages/app
