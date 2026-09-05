@@ -23,6 +23,12 @@ const XML = `<?xml version="1.0"?>
   </programme>
 </tv>`;
 
+// Fast tidspunkt frem for vaeguret. syncEpg rydder programmer aeldre end 12
+// timer, saa et kald uden eksplicit `now` ville slette fixturens programmer
+// saa snart den rigtige dato passerer 5. september - testen bestod i gaar og
+// fejlede i dag.
+const NOW = new Date(Date.UTC(2026, 8, 4, 22, 30));
+
 function source(chunks: string[]): TextChunkSource {
   return vi.fn(async () => ({
     async *[Symbol.asyncIterator]() {
@@ -40,7 +46,7 @@ beforeEach(async () => {
 
 describe('syncEpg', () => {
   it('skriver programmer fra et samlet dokument', async () => {
-    const result = await syncEpg(db, creds, source([XML]));
+    const result = await syncEpg(db, creds, source([XML]), NOW);
     expect(result.programmes).toBe(2);
     const list = await listProgrammes(
       db,
@@ -54,13 +60,13 @@ describe('syncEpg', () => {
 
   it('giver samme resultat naar dokumentet kommer i bidder', async () => {
     const cut = Math.floor(XML.length / 2);
-    const result = await syncEpg(db, creds, source([XML.slice(0, cut), XML.slice(cut)]));
+    const result = await syncEpg(db, creds, source([XML.slice(0, cut), XML.slice(cut)]), NOW);
     expect(result.programmes).toBe(2);
   });
 
   it('henter fra den xmltv-URL core bygger', async () => {
     const src = source([XML]);
-    await syncEpg(db, creds, src);
+    await syncEpg(db, creds, src, NOW);
     expect(src).toHaveBeenCalledWith(
       'http://panel.example:8080/xmltv.php?username=USER&password=PASS',
     );
@@ -80,7 +86,7 @@ describe('syncEpg', () => {
   });
 
   it('taeller nul og kaster ikke paa vroevl', async () => {
-    const result = await syncEpg(db, creds, source(['dette er ikke XML']));
+    const result = await syncEpg(db, creds, source(['dette er ikke XML']), NOW);
     expect(result.programmes).toBe(0);
   });
 
@@ -88,7 +94,7 @@ describe('syncEpg', () => {
     const failing: TextChunkSource = vi.fn(async () => {
       throw new Error('ECONNREFUSED');
     });
-    await expect(syncEpg(db, creds, failing)).rejects.toThrow('ECONNREFUSED');
+    await expect(syncEpg(db, creds, failing, NOW)).rejects.toThrow('ECONNREFUSED');
   });
 
   it('batches store chunks saa batch bliver flushed flere gange', async () => {

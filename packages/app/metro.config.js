@@ -12,8 +12,6 @@ config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
   path.resolve(workspaceRoot, 'node_modules'),
 ];
-// Hindrer at en pakke oploeses to gange fra to node_modules-mapper.
-config.resolver.disableHierarchicalLookup = true;
 
 // expo-sqlite's web-worker importerer en .wasm-fil (wa-sqlite), men Metro's
 // standard assetExts kender ikke .wasm, saa bundlingen fejlede paa web med
