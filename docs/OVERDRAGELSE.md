@@ -117,6 +117,32 @@ Profilen `preview` giver en APK der kan deles direkte. **Verificér altid den by
 
 Android er gratis hele vejen. **iOS og Apple TV kræver Apple Developer Program, 99 USD/år**, selv til privat brug via TestFlight. TestFlight-builds udløber efter 90 dage.
 
+### Verificér en rettelse **før** du bygger
+
+Den gamle vane var at bygge, hente APK'en og pakke `AndroidManifest.xml` ud af
+zip-filen. Den fanger fejlen, men først efter et build og en download. Det
+samme kan gøres på et minut uden EAS overhovedet:
+
+```bash
+cd packages/app
+npx expo prebuild --platform android --no-install
+cat android/app/src/main/AndroidManifest.xml   # ren tekst, ikke binær
+rm -rf android                                  # ryd op — se nedenfor
+```
+
+`prebuild` genererer præcis det native projekt EAS selv bygger, ud fra
+`app.json` og pluginnene. Manifestet er læsbar tekst, så `usesCleartextTraffic`,
+pakkenavn og rettigheder kan efterses direkte.
+
+**Slet `android/` bagefter.** Bliver mappen liggende og committet, skifter
+projektet fra managed til bare workflow, og EAS holder op med at regenerere
+den — en langt større ændring end nogen havde bedt om.
+
+Metoden fandt selv en fejl af samme slags som `usesCleartextTraffic`:
+`userInterfaceStyle: "dark"` stod i `app.json`, men blev **ignoreret**, fordi
+`expo-system-ui` ikke var installeret. Prebuild sagde det højt; et build ville
+bare have været grønt.
+
 ### Kør appen lokalt uden panel
 
 Browserkørslen der fandt fire fejl kan gentages. Et lille falskt Xtream-panel plus `npx expo export --platform web` (kørt **fra `packages/app`**, ikke fra roden) og en headless browser er nok. Fremgangsmåden står i udførelsesloggen.
@@ -128,6 +154,16 @@ Browserkørslen der fandt fire fejl kan gentages. Et lille falskt Xtream-panel p
 - **`node:sqlite` kræver Node 24.** CI pinner Node 24.
 - **`Alert.alert` gør intet på web.** Se ovenfor.
 - **`npx expo export` skal køres fra `packages/app`.** Fra roden fejler den på entry-punktet.
+- **En indstilling i `app.json` kan blive læst og alligevel ikke anvendt.** Det
+  gælder `usesCleartextTraffic` (kræver `expo-build-properties`) og
+  `userInterfaceStyle` (kræver `expo-system-ui`). Begge fejlede stille. Kør
+  `expo prebuild` og læs manifestet frem for at stole på at noget kom med.
+- **Nogle miljøer kan ikke nå `expo.dev` og `api.expo.dev`.** Er de blokeret i
+  netværkspolitikken, fejler ethvert EAS-kald med `Forbidden` eller
+  `CONNECT tunnel failed, response 403` — det er gatewayen, ikke dit token.
+  `curl -sS "$HTTPS_PROXY/__agentproxy/status"` viser afvisningen direkte.
+  `dl.google.com` er blokeret samme sted, så Android SDK'et kan heller ikke
+  hentes, og APK'en kan ikke bygges lokalt som alternativ.
 
 ### Credentials
 
