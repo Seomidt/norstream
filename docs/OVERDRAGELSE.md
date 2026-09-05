@@ -14,7 +14,7 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 - **`packages/core`** — platform-uafhængigt TypeScript-bibliotek. M3U- og XMLTV-parsing, Xtream-klient, URL-byggere. **93 tests.** Ingen runtime-afhængigheder, ingen React Native-imports. CI håndhæver begge dele.
 - **`packages/app`** — Expo SDK 57-app (React Native 0.86). **72 tests.**
 
-**Repo:** https://github.com/Seomidt/uhf-play (privat). Alt er merget til `main`, CI er grøn.
+**Repo:** https://github.com/Seomidt/norstream (privat). Alt er merget til `main`, CI er grøn.
 
 Appen hed oprindeligt "UHF Play" og blev omdøbt til **NorStream** 2026-09-05. Repo, pakkenavne og EAS-projektet bærer stadig de gamle navne — se "Løse ender".
 
@@ -130,11 +130,19 @@ Brugerens panel-adgangsoplysninger står **ikke** i dette repo og skal ikke skri
 
 ## Løse ender i navngivningen
 
-| Hvad | Hedder nu | Bør måske hedde |
-|---|---|---|
-| Appen (synligt navn) | NorStream ✅ | — |
-| Android-pakke | `dk.seomidt.uhfplay` | Kan ændres, men bliver en ny app der skal geninstalleres |
-| EAS-projekt | `iptv-norlys` | Omdøbes på expo.dev |
-| GitHub-repo | `uhf-play` | Kan omdøbes uden at bryde noget |
+Omdøbningen blev gennemført 2026-09-05.
 
-Pakkenavnet er det eneste med reelle omkostninger ved at ændre — gør det nu mens brugerkredsen er lille, eller lad være.
+| Hvad | Status |
+|---|---|
+| Appen (synligt navn) | **NorStream** ✅ |
+| Android-pakke og iOS-bundle | **`dk.seomidt.norstream`** ✅ |
+| npm-workspaces | **`@norstream/core`**, **`@norstream/app`** ✅ |
+| GitHub-repo | **`Seomidt/norstream`** ✅ |
+| EAS-projektets slug | `iptv-norlys` — **skal omdøbes manuelt på expo.dev** |
+| Lokal mappe | hedder stadig `uhf-play` — rent kosmetisk |
+
+**Pakkenavnet er ændret.** Alle der har den gamle APK skal **afinstallere den først** — Android ser den nye som en helt anden app og kan ikke opgradere oven i.
+
+**EAS-slug'en hænger sammen med projektnavnet på expo.dev.** Omdøbes projektet der til `norstream`, skal `slug` i `app.json` ændres tilsvarende, ellers afvises builds med *"slug does not match"*. Gør begge dele eller ingen af dem.
+
+De historiske planer og specs i `docs/superpowers/` bruger stadig det gamle navn, inklusive kommandoer som `npm test --workspace @uhf-play/core`. Det er med vilje: de beskriver arbejde udført dengang, og at omskrive dem ville forfalske historikken. Skal du køre en kommando derfra, så oversæt scopet til `@norstream/`.
