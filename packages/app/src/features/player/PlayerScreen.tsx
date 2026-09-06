@@ -1,14 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
-import { buildLiveUrl, buildTimeshiftUrl } from '@norstream/core';
+import { buildLiveUrl, buildTimeshiftUrl, detectTimeshiftDialect } from '@norstream/core';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { getNowNext } from '../../storage/programmes.js';
-import { getPanelOffsetMinutes, getTimeshiftDialect } from '../../storage/settings.js';
+import {
+  getPanelOffsetMinutes,
+  getTimeshiftDialect,
+  setTimeshiftDialect,
+} from '../../storage/settings.js';
+import { ensureEpg } from '../../sync/epgCache.js';
 import { theme } from '../../ui/theme.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback } from './format.js';
+import { restartBlockFor, restartHint } from './restart.js';
+import type { RestartBlock } from './restart.js';
 
 interface Props {
   session: AppSession;
@@ -40,7 +47,19 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
   );
   const [now, setNow] = useState<Programme | null>(null);
   const [next, setNext] = useState<Programme | null>(null);
-  const [canRestart, setCanRestart] = useState(false);
+  /**
+   * Hvorfor start-forfra ikke kan bruges lige nu — eller `null` naar den kan.
+   *
+   * Knappen skjulte sig foer, naar en af forudsaetningerne manglede. Det ser
+   * ud som om funktionen ikke findes, og der er ingen vej videre for den der
+   * staar med telefonen. Nu staar den der og siger hvad der mangler.
+   *
+   * `undefined` betyder "ved det ikke endnu": foerste render sker foer
+   * programdata er laest, og hverken knappen eller forklaringen maa blinke
+   * forbi paa et grundlag vi ikke har naaet at faa.
+   */
+  const [restartBlock, setRestartBlock] = useState<RestartBlock | null | undefined>(undefined);
+  const [repairing, setRepairing] = useState(false);
   // Kommer vi fra guiden med et program, er afspilningen en start-forfra fra
   // foerste billede — ogsaa foer dialekten er laest, saa format-fallbacket
   // aldrig naar at slaa til paa en timeshift-URL.
@@ -67,7 +86,7 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
 
       const dialect = await getTimeshiftDialect(session.db);
       if (cancelled) return;
-      setCanRestart(channel.hasArchive && dialect !== null && result.now !== null);
+      setRestartBlock(restartBlockFor(channel.hasArchive, dialect !== null, result.now !== null));
     }
 
     void loadEpg();
@@ -203,6 +222,49 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
     [session.db, session.creds, channel.id],
   );
 
+  /**
+   * Raader bod paa det der spaerrer for start-forfra, og opdaterer tilstanden.
+   *
+   * Begge veje er billige og kan koeres af brugeren selv: dialekten findes med
+   * de samme to probes som under onboarding, og programdata hentes for netop
+   * denne ene kanal. Alternativet — at bede folk logge ud og ind igen for at
+   * faa onboarding til at koere forfra — er ikke et svar.
+   */
+  const repairRestart = useCallback(async (): Promise<void> => {
+    if (restartBlock === null || restartBlock === undefined) return;
+    if (restartBlock === 'no-archive') return;
+    setRepairing(true);
+    try {
+      if (restartBlock === 'no-dialect') {
+        const offset = await getPanelOffsetMinutes(session.db);
+        const found = await detectTimeshiftDialect(
+          session.creds,
+          channel.id,
+          session.fetchImpl,
+          new Date(),
+          offset,
+        );
+        await setTimeshiftDialect(session.db, found);
+      } else {
+        try {
+          await ensureEpg(session.db, session.creds, session.fetchImpl, [channel.id]);
+        } catch {
+          // Kunne panelet ikke naas, staar beskeden bare uaendret.
+        }
+      }
+
+      const [result, dialect] = await Promise.all([
+        getNowNext(session.db, channel.id, new Date()),
+        getTimeshiftDialect(session.db),
+      ]);
+      setNow(result.now);
+      setNext(result.next);
+      setRestartBlock(restartBlockFor(channel.hasArchive, dialect !== null, result.now !== null));
+    } finally {
+      setRepairing(false);
+    }
+  }, [restartBlock, session, channel]);
+
   // Guiden aabner afspilleren med et afsluttet program: byg arkiv-URLen med
   // det samme, i stedet for at vente paa at brugeren finder en knap.
   const startFromHandled = useRef(false);
@@ -219,12 +281,24 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
       <VideoView style={styles.video} player={player} nativeControls />
 
       <View style={styles.info}>
-        <Text style={styles.channelName}>{channel.name}</Text>
+        <View style={styles.channelLine}>
+          {channel.logoUrl !== null && (
+            <Image
+              source={{ uri: channel.logoUrl }}
+              style={styles.channelLogo}
+              resizeMode="contain"
+            />
+          )}
+          <Text style={styles.channelName}>{channel.name}</Text>
+        </View>
         {/* Kommer vi fra guiden, er det programmet der genafspilles der staar
             oeverst — ikke det der sendes lige nu. */}
         <Text style={styles.nowTitle}>
           {startFrom?.title ?? now?.title ?? 'Ingen programdata'}
         </Text>
+        {(startFrom ?? now) !== null && (
+          <Text style={styles.airtime}>{airtime(startFrom ?? now)}</Text>
+        )}
         {startFrom === undefined && next !== null && (
           <Text style={styles.nextTitle}>Derefter: {next.title}</Text>
         )}
@@ -236,7 +310,7 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
         <Pressable style={styles.button} onPress={onBack}>
           <Text style={styles.buttonText}>Tilbage</Text>
         </Pressable>
-        {canRestart && !restarted && now !== null && (
+        {!restarted && restartBlock === null && now !== null && (
           <Pressable
             style={[styles.button, styles.buttonAccent]}
             onPress={() => {
@@ -247,15 +321,83 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
           </Pressable>
         )}
       </View>
+
+      {!restarted && restartBlock !== null && restartBlock !== undefined && (
+        <RestartBlocked
+          block={restartBlock}
+          busy={repairing}
+          onRepair={() => {
+            void repairRestart();
+          }}
+        />
+      )}
     </View>
   );
+}
+
+/**
+ * Forklaringen paa hvorfor der ikke kan startes forfra, med den handling der
+ * kan aendre det. Egen komponent, saa afspillerens returnering ikke vokser til
+ * noget man skal laese to gange.
+ */
+function RestartBlocked({
+  block,
+  busy,
+  onRepair,
+}: {
+  block: RestartBlock;
+  busy: boolean;
+  onRepair: () => void;
+}) {
+  const hint = restartHint(block);
+  return (
+    <View style={styles.blocked}>
+      <Text style={styles.blockedTitle}>Start forfra er ikke klar</Text>
+      <Text style={styles.blockedText}>{hint.text}</Text>
+      {hint.action !== null && (
+        <Pressable style={styles.blockedAction} disabled={busy} onPress={onRepair}>
+          {busy ? (
+            <ActivityIndicator color={theme.colors.accent} />
+          ) : (
+            <Text style={styles.blockedActionText}>{hint.action}</Text>
+          )}
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+/** "13:30 – 14:30", som paa afspillerens tidslinje hos de store udbydere. */
+function airtime(programme: Programme | null | undefined): string {
+  if (programme === null || programme === undefined) return '';
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  const clock = (date: Date): string => `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${clock(programme.start)} – ${clock(programme.stop)}`;
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   video: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000000' },
   info: { padding: theme.spacing.md },
-  channelName: { color: theme.colors.text, fontSize: 20, fontWeight: '600' },
+  channelLine: { flexDirection: 'row', alignItems: 'center' },
+  channelLogo: { width: 40, height: 28, marginRight: theme.spacing.sm },
+  channelName: { color: theme.colors.text, fontSize: 20, fontWeight: '600', flexShrink: 1 },
+  airtime: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
+  blocked: {
+    marginHorizontal: theme.spacing.md,
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    backgroundColor: theme.colors.surface,
+  },
+  blockedTitle: { color: theme.colors.text, fontSize: 14, fontWeight: '600' },
+  blockedText: {
+    color: theme.colors.textMuted,
+    fontSize: 13,
+    marginTop: theme.spacing.xs,
+    lineHeight: 18,
+  },
+  blockedAction: { alignSelf: 'flex-start', marginTop: theme.spacing.sm, minHeight: 20 },
+  blockedActionText: { color: theme.colors.accent, fontSize: 14, fontWeight: '600' },
   nowTitle: { color: theme.colors.text, fontSize: 15, marginTop: theme.spacing.xs },
   nextTitle: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
   badge: { color: theme.colors.accent, fontSize: 13, marginTop: theme.spacing.sm },

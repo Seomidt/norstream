@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countryFlag, deriveCountry } from './countries.js';
+import { countryFlag, deriveCountry, deriveCountryLoose } from './countries.js';
 
 describe('countryFlag', () => {
   it('saetter flaget sammen af regional indicator-symboler', () => {
@@ -84,5 +84,41 @@ describe('deriveCountry', () => {
   it('giver dansk navn og et flag for hvert land det genkender', () => {
     const country = deriveCountry('GERMANY SPORT');
     expect(country).toEqual({ code: 'DE', name: 'Tyskland', flag: '🇩🇪' });
+  });
+});
+
+describe('deriveCountryLoose', () => {
+  it('finder landet naar det staar bagerst i navnet', () => {
+    expect(deriveCountryLoose('SPORT | DENMARK')?.code).toBe('DK');
+    expect(deriveCountryLoose('KIDS SWEDEN HD')?.code).toBe('SE');
+  });
+
+  it('finder trebogstavskoder midt i navnet', () => {
+    expect(deriveCountryLoose('VIP DNK NEWS')?.code).toBe('DK');
+    expect(deriveCountryLoose('SPORT NOR 4K')?.code).toBe('NO');
+  });
+
+  it('lader praefikset vinde over et land laengere inde', () => {
+    // Ellers ville en blandingskategori skifte flag efter hvad der tilfaeldigvis
+    // stod til sidst.
+    expect(deriveCountryLoose('DENMARK SWEDEN MIX')?.code).toBe('DK');
+  });
+
+  it('tager ikke tobogstavskoder midt i navnet', () => {
+    // "IT" og "IN" er for almindelige som ordstumper til at kunne bruges som
+    // andet end praefiks — et tilfaeldigt sammenfald ville give et forkert flag.
+    expect(deriveCountryLoose('SPORT IT NEWS')).toBeNull();
+    expect(deriveCountryLoose('LIVE IN HD')).toBeNull();
+  });
+
+  it('opfoerer sig som deriveCountry naar landet staar forrest', () => {
+    for (const name of ['DENMARK HD & HEVC', 'VIP SWEDEN', '4K UHD 3840P', '']) {
+      expect(deriveCountryLoose(name)?.code ?? null).toBe(deriveCountry(name)?.code ?? null);
+    }
+  });
+
+  it('giver stadig null for kategorier uden land', () => {
+    expect(deriveCountryLoose('RELAX 1920P')).toBeNull();
+    expect(deriveCountryLoose('4K UHD 3840P')).toBeNull();
   });
 });

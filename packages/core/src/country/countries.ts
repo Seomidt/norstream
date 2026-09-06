@@ -203,10 +203,16 @@ function tokenise(value: string): string[] {
     .filter((token) => token.length > 0);
 }
 
-function matchAt(tokens: readonly string[], start: number): string | null {
+function matchAt(
+  tokens: readonly string[],
+  start: number,
+  minLength = 1,
+): string | null {
   const limit = Math.min(maxTokens, tokens.length - start);
   for (let length = limit; length >= 1; length -= 1) {
-    const code = phrases.get(tokens.slice(start, start + length).join(' '));
+    const phrase = tokens.slice(start, start + length).join(' ');
+    if (phrase.length < minLength) continue;
+    const code = phrases.get(phrase);
     if (code !== undefined) return code;
   }
   return null;
@@ -237,5 +243,40 @@ export function deriveCountry(categoryName: string): Country | null {
     if (afterMarker !== null) return toCountry(afterMarker);
   }
 
+  return null;
+}
+
+/**
+ * Korteste udtryk der maa genkendes midt i et navn.
+ *
+ * Tobogstavskoderne er kun sikre foerst i navnet. `IT`, `IN` og `SE` er
+ * almindelige ord- og forkortelsesstumper, og et `IT` midt i `SPORT IT NEWS`
+ * ville laegge kategorien under italiensk flag paa et tilfaeldigt sammenfald.
+ * Tre bogstaver er nok til at `DNK`, `SWE` og `DENMARK` slipper igennem, og
+ * det er dem panelerne faktisk skriver.
+ */
+const MIN_LOOSE_LENGTH = 3;
+
+/**
+ * Som `deriveCountry`, men leder ogsaa efter landet **inde i** navnet.
+ *
+ * Panelerne er ikke enige med sig selv: ved siden af `DENMARK HD & HEVC`
+ * staar `SPORT | DENMARK` og `VIP DNK NEWS`. Den strenge praefiksregel
+ * sender de sidste to i **Øvrige**, hvor de ikke hoerer hjemme.
+ *
+ * Praefikset vinder altid, saa `DENMARK SWEDEN MIX` bliver dansk og ikke
+ * svensk. Foerste fund derefter vinder — der er ingen rimelig maade at vaelge
+ * mellem to lande midt i et navn, og foerste naevnte er panelets egen
+ * raekkefoelge.
+ */
+export function deriveCountryLoose(categoryName: string): Country | null {
+  const strict = deriveCountry(categoryName);
+  if (strict !== null) return strict;
+
+  const tokens = tokenise(categoryName);
+  for (let index = 1; index < tokens.length; index += 1) {
+    const code = matchAt(tokens, index, MIN_LOOSE_LENGTH);
+    if (code !== null) return toCountry(code);
+  }
   return null;
 }

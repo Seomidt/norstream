@@ -17,7 +17,7 @@ export {
 
 export { decodeBase64Utf8 } from './base64.js';
 
-export { countryFlag, deriveCountry } from './country/countries.js';
+export { countryFlag, deriveCountry, deriveCountryLoose } from './country/countries.js';
 export type { Country } from './country/countries.js';
 
 export { createXmltvParser } from './epg/parser.js';

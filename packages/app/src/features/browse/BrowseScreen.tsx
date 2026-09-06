@@ -12,6 +12,7 @@ import type { AppSession } from '../../session.js';
 import { listChannels, setFavorite } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import {
+  OTHER_COUNTRY_FLAG,
   hideCountry,
   listCategoriesInCountry,
   listCountryGroups,
@@ -219,6 +220,12 @@ export function BrowseScreen({
           }
           renderItem={({ item }) => (
             <View style={styles.row}>
+              {/* Ogsaa inde i Øvrige: kategorierne der er havnet der er ikke
+                  ens, og enkelte af dem *kan* stedfaestes ud fra kanalerne.
+                  Kloden staar hvor intet land kunne udledes. */}
+              <Text style={styles.categoryFlag}>
+                {item.country?.flag ?? OTHER_COUNTRY_FLAG}
+              </Text>
               <Pressable
                 style={styles.rowMain}
                 onPress={() =>
@@ -314,6 +321,7 @@ const styles = StyleSheet.create({
   },
   rowMain: { flex: 1 },
   flag: { fontSize: 26, marginRight: theme.spacing.md },
+  categoryFlag: { fontSize: 20, marginRight: theme.spacing.sm },
   rowTitle: { color: theme.colors.text, fontSize: 16 },
   rowCount: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
   action: {

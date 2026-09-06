@@ -267,6 +267,7 @@ function GuideRow({
                 styles.cell,
                 { flexGrow: cell.weight, flexShrink: cell.weight, flexBasis: 0 },
                 cell.state === 'live' && styles.cellLive,
+                action === 'restart' && styles.cellRestartable,
                 action === 'none' && styles.cellInactive,
               ]}
               disabled={action === 'none'}
@@ -277,7 +278,11 @@ function GuideRow({
                 }
               }}
             >
+              {/* Uden maerket kan man ikke se hvilke afsluttede udsendelser
+                  der kan startes igen. Cellerne ser ens ud, og forskellen —
+                  om kanalen har arkiv — er usynlig indtil man har trykket. */}
               <Text style={styles.cellText} numberOfLines={2}>
+                {action === 'restart' ? '▶ ' : ''}
                 {cell.programme?.title ?? ''}
               </Text>
             </Pressable>
@@ -374,6 +379,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   cellLive: { backgroundColor: theme.colors.surfaceRaised },
+  cellRestartable: { borderLeftColor: theme.colors.accent, borderLeftWidth: 2 },
   cellInactive: { opacity: 0.45 },
   cellText: { color: theme.colors.text, fontSize: 11 },
 });

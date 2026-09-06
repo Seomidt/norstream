@@ -5,6 +5,7 @@ const KEY_DIALECT = 'timeshift_dialect';
 const KEY_OFFSET = 'panel_offset_minutes';
 const KEY_LAST_SYNC = 'last_sync_ms';
 const KEY_PREVIEW = 'mini_preview_enabled';
+const KEY_STREAM_FORMAT = 'stream_format';
 
 export async function getSetting(
   db: SqlDatabase,
@@ -94,4 +95,31 @@ export async function setMiniPreviewEnabled(
   enabled: boolean,
 ): Promise<void> {
   await setSetting(db, KEY_PREVIEW, enabled ? 'on' : 'off');
+}
+
+/**
+ * Hvilket containerformat live-streams hentes i.
+ *
+ * `auto` er platformens valg: `.ts` paa Android for lavere forsinkelse, HLS
+ * alle andre steder fordi AVPlayer ikke kan afspille raa MPEG-TS.
+ *
+ * Valget er brugerens, fordi forskellen er maalbar paa netop det panelet
+ * leverer: raa MPEG-TS har ingen tidslinje ud over de tidsstempler
+ * transportstroemmen selv baerer, og en afspiller der estimerer forkert faar
+ * undertekster til at loebe foran billedet. HLS beskriver hvert segments
+ * laengde og har ikke det problem, men koster et par sekunders forsinkelse.
+ * Hvilken af de to der er bedst kan kun afgoeres paa det panel man har.
+ */
+export type StreamFormatSetting = 'auto' | 'ts' | 'm3u8';
+
+export async function getStreamFormatSetting(db: SqlDatabase): Promise<StreamFormatSetting> {
+  const value = await getSetting(db, KEY_STREAM_FORMAT);
+  return value === 'ts' || value === 'm3u8' ? value : 'auto';
+}
+
+export async function setStreamFormatSetting(
+  db: SqlDatabase,
+  value: StreamFormatSetting,
+): Promise<void> {
+  await setSetting(db, KEY_STREAM_FORMAT, value);
 }

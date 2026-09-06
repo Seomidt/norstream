@@ -1,4 +1,5 @@
-import { deriveCountry } from '@norstream/core';
+import { deriveCountryLoose } from '@norstream/core';
+import type { Country } from '@norstream/core';
 import type { SqlDatabase } from './types.js';
 
 /**
@@ -8,18 +9,29 @@ import type { SqlDatabase } from './types.js';
 export const OTHER_COUNTRY_KEY = '__other__';
 const OTHER_COUNTRY_NAME = 'Øvrige';
 
+/**
+ * Kloden staar hvor et flag ikke kan staa.
+ *
+ * Uden den var **Øvrige** den eneste raekke i listen uden ikon, og raekken
+ * rykkede ind i forhold til alle andre. Et tegn der betyder "ikke et bestemt
+ * land" er baade aerligere og pænere end en tom plads.
+ */
+export const OTHER_COUNTRY_FLAG = '🌐';
+
 export interface CategorySummary {
   id: string;
   name: string;
   channelCount: number;
   /** ISO-koden for landet, eller `OTHER_COUNTRY_KEY`. */
   countryKey: string;
+  /** Landet med navn og flag, eller null naar det ikke kunne udledes. */
+  country: Country | null;
 }
 
 export interface CountryGroup {
   key: string;
   name: string;
-  /** Tom streng for **Øvrige**, som ikke har et flag. */
+  /** Klodens tegn for **Øvrige**; ellers landets flag. */
   flag: string;
   categoryCount: number;
   channelCount: number;
@@ -29,6 +41,65 @@ interface CategoryRow {
   id: string;
   name: string;
   channel_count: number;
+}
+
+/**
+ * Hvor mange kanalnavne der kigges paa per kategori naar kategorinavnet selv
+ * intet land rummer. Fem er nok til at et flertal kan afgoere sagen, og holder
+ * opslaget paa under halvandet tusind raekker for alle 285 kategorier.
+ */
+const CHANNEL_SAMPLE = 5;
+
+interface SampleRow {
+  category_id: string;
+  name: string;
+}
+
+/**
+ * Udleder land per kategori ud fra dens **kanalnavne**.
+ *
+ * Panelet skriver landet paa kanalerne ogsaa — `DNK| DR1 HD` — og gør det
+ * oftere end paa kategorierne. Er kategorien doebt `SPORT 1080P`, er den
+ * eneste maade at finde landet paa at se hvad der ligger i den.
+ *
+ * Ét opslag for hele panelet, ikke ét per kategori: 285 rundture for at tegne
+ * én skaerm er ikke en mulighed. Flertallet blandt stikproeven vinder; staar
+ * det lige, vinder det foerst fundne, som er panelets egen raekkefoelge.
+ */
+async function countriesFromChannels(db: SqlDatabase): Promise<Map<string, Country>> {
+  const rows = await db.getAllAsync<SampleRow>(
+    `SELECT category_id, name FROM (
+       SELECT category_id, name,
+              ROW_NUMBER() OVER (PARTITION BY category_id ORDER BY sort_order, id) AS rn
+       FROM channels
+       WHERE category_id IS NOT NULL
+     ) WHERE rn <= ?`,
+    [CHANNEL_SAMPLE],
+  );
+
+  const votes = new Map<string, Map<string, { country: Country; count: number }>>();
+  for (const row of rows) {
+    const country = deriveCountryLoose(row.name);
+    if (country === null) continue;
+    let perCategory = votes.get(row.category_id);
+    if (perCategory === undefined) {
+      perCategory = new Map();
+      votes.set(row.category_id, perCategory);
+    }
+    const entry = perCategory.get(country.code);
+    if (entry === undefined) perCategory.set(country.code, { country, count: 1 });
+    else entry.count += 1;
+  }
+
+  const winners = new Map<string, Country>();
+  for (const [categoryId, perCategory] of votes) {
+    let best: { country: Country; count: number } | null = null;
+    for (const entry of perCategory.values()) {
+      if (best === null || entry.count > best.count) best = entry;
+    }
+    if (best !== null) winners.set(categoryId, best.country);
+  }
+  return winners;
 }
 
 /**
@@ -49,12 +120,21 @@ export async function listCategorySummaries(db: SqlDatabase): Promise<CategorySu
      ORDER BY c.name`,
   );
 
-  return rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    channelCount: row.channel_count,
-    countryKey: deriveCountry(row.name)?.code ?? OTHER_COUNTRY_KEY,
-  }));
+  // Kanalnavnene bruges kun som anden udvej: kategorinavnet er panelets egen
+  // gruppering, og en enkelt fejlmaerket kanal maa ikke kunne flytte hele
+  // kategorien under et andet flag.
+  const fromChannels = await countriesFromChannels(db);
+
+  return rows.map((row) => {
+    const country = deriveCountryLoose(row.name) ?? fromChannels.get(row.id) ?? null;
+    return {
+      id: row.id,
+      name: row.name,
+      channelCount: row.channel_count,
+      countryKey: country?.code ?? OTHER_COUNTRY_KEY,
+      country,
+    };
+  });
 }
 
 export async function listHiddenCountries(db: SqlDatabase): Promise<string[]> {
@@ -94,11 +174,10 @@ export async function listCountryGroups(db: SqlDatabase): Promise<CountryGroup[]
 
     let group = groups.get(summary.countryKey);
     if (group === undefined) {
-      const country = deriveCountry(summary.name);
       group = {
         key: summary.countryKey,
-        name: country?.name ?? OTHER_COUNTRY_NAME,
-        flag: country?.flag ?? '',
+        name: summary.country?.name ?? OTHER_COUNTRY_NAME,
+        flag: summary.country?.flag ?? OTHER_COUNTRY_FLAG,
         categoryCount: 0,
         channelCount: 0,
       };

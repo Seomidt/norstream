@@ -5,7 +5,14 @@ import type { AppSession } from '../../session.js';
 import { listHiddenCountries, unhideCountry } from '../../storage/countries.js';
 import { OTHER_COUNTRY_KEY } from '../../storage/countries.js';
 import { clearCredentials } from '../../storage/credentials.js';
-import { clearLastSyncMs, setMiniPreviewEnabled } from '../../storage/settings.js';
+import {
+  clearLastSyncMs,
+  getStreamFormatSetting,
+  setMiniPreviewEnabled,
+  setStreamFormatSetting,
+} from '../../storage/settings.js';
+import type { StreamFormatSetting } from '../../storage/settings.js';
+import { applyStreamFormatSetting } from '../player/format.js';
 import { theme } from '../../ui/theme.js';
 
 interface Props {
@@ -17,6 +24,12 @@ interface Props {
 
 const SIGNED_OUT_MESSAGE = 'Du er logget ud. Log ind igen for at fortsætte.';
 
+const STREAM_FORMATS: readonly { value: StreamFormatSetting; label: string }[] = [
+  { value: 'auto', label: 'Automatisk' },
+  { value: 'ts', label: 'TS' },
+  { value: 'm3u8', label: 'HLS' },
+];
+
 export function SettingsScreen({
   session,
   previewEnabled,
@@ -27,9 +40,15 @@ export function SettingsScreen({
   // Bekraeftelsen ligger i skaermen, ikke i en Alert: react-native-web
   // implementerer ikke Alert, saa udlogning ville doe stille paa web.
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+  const [streamFormat, setStreamFormat] = useState<StreamFormatSetting>('auto');
 
   const load = useCallback(async (): Promise<void> => {
-    setHidden(await listHiddenCountries(session.db));
+    const [hiddenCountries, format] = await Promise.all([
+      listHiddenCountries(session.db),
+      getStreamFormatSetting(session.db),
+    ]);
+    setHidden(hiddenCountries);
+    setStreamFormat(format);
   }, [session.db]);
 
   useEffect(() => {
@@ -39,6 +58,12 @@ export function SettingsScreen({
   async function togglePreview(enabled: boolean): Promise<void> {
     await setMiniPreviewEnabled(session.db, enabled);
     onPreviewEnabledChange(enabled);
+  }
+
+  async function chooseStreamFormat(value: StreamFormatSetting): Promise<void> {
+    await setStreamFormatSetting(session.db, value);
+    applyStreamFormatSetting(value);
+    setStreamFormat(value);
   }
 
   async function signOut(): Promise<void> {
@@ -78,6 +103,39 @@ export function SettingsScreen({
           trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
         />
       </View>
+
+      <Text style={styles.sectionTitle}>Streamformat</Text>
+      <Text style={styles.hint}>
+        Automatisk vælger det formatet der plejer at virke bedst på enheden.
+        Løber underteksterne foran billedet, er HLS værd at prøve: rå TS
+        bærer ingen tidslinje, så afspilleren må gætte sig frem.
+      </Text>
+      <View style={styles.choices}>
+        {STREAM_FORMATS.map((option) => (
+          <Pressable
+            key={option.value}
+            style={[
+              styles.choice,
+              streamFormat === option.value && styles.choiceSelected,
+            ]}
+            onPress={() => {
+              void chooseStreamFormat(option.value);
+            }}
+          >
+            <Text
+              style={[
+                styles.choiceText,
+                streamFormat === option.value && styles.choiceTextSelected,
+              ]}
+            >
+              {option.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={styles.hint}>
+        Skiftet gælder næste gang du åbner en kanal.
+      </Text>
 
       <Text style={styles.sectionTitle}>Skjulte lande</Text>
       {hidden.length === 0 ? (
@@ -144,6 +202,16 @@ function countryLabel(key: string): string {
 }
 
 const styles = StyleSheet.create({
+  choices: { flexDirection: 'row', gap: theme.spacing.sm, marginTop: theme.spacing.sm },
+  choice: {
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: theme.radius,
+    backgroundColor: theme.colors.surface,
+  },
+  choiceSelected: { backgroundColor: theme.colors.accent },
+  choiceText: { color: theme.colors.textMuted, fontSize: 15, fontWeight: '600' },
+  choiceTextSelected: { color: theme.colors.text },
   container: { flex: 1, backgroundColor: theme.colors.background },
   content: { padding: theme.spacing.md, paddingBottom: theme.spacing.xl },
   sectionTitle: {
