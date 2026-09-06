@@ -8,7 +8,7 @@ import {
   markArchiveFetched,
   markEpgFetched,
   needsArchiveFetch,
-  needsEpgFetch,
+  needsShortEpg,
 } from '../storage/epgFetch.js';
 import { deleteProgrammesBefore, upsertProgrammes } from '../storage/programmes.js';
 import type { SqlDatabase } from '../storage/types.js';
@@ -112,7 +112,11 @@ export async function ensureEpg(
 
   const stale: string[] = [];
   for (const key of unique) {
-    if (needsEpgFetch(await getEpgFreshness(db, key), now)) stale.push(key);
+    const [freshness, archiveAt] = await Promise.all([
+      getEpgFreshness(db, key),
+      getArchiveFetchedAt(db, key),
+    ]);
+    if (needsShortEpg(freshness, archiveAt, now)) stale.push(key);
   }
   if (stale.length === 0) return { fetched: 0, programmes: 0 };
 

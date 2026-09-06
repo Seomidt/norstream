@@ -163,6 +163,12 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
         return true;
       };
 
+      // **Cachen foerst.** Foer tegnede guiden efter hentningen, saa hver gang
+      // programdata var mere end en halv time gamle, stod skaermen tom mens
+      // panelet svarede — ogsaa naar cachen laa med aftenens programmer klar.
+      // Det man har, skal vises med det samme; hentningen er en opdatering.
+      if (!(await draw())) return;
+
       try {
         await ensureEpg(session.db, session.credsBySource, session.fetchImpl, streamIds);
       } catch (cause) {
@@ -170,7 +176,7 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
           onAuthError();
           return;
         }
-        // Panelet kunne ikke naas; vi tegner hvad cachen har.
+        // Panelet kunne ikke naas; det tegnede staar.
       }
       if (!(await draw())) return;
 

@@ -4,6 +4,7 @@ import {
   getEpgFreshness,
   markEpgFetched,
   needsEpgFetch,
+  needsShortEpg,
 } from './epgFetch.js';
 import { migrate } from './schema.js';
 import { createTestDatabase } from './testDb.js';
@@ -94,5 +95,33 @@ describe('markEpgFetched', () => {
     await markEpgFetched(db, '247634', NOW);
     const { fetchedAt } = await getEpgFreshness(db, '247634');
     expect(fetchedAt).toBe(NOW.getTime());
+  });
+});
+
+describe('needsShortEpg', () => {
+  const NOW = new Date('2026-09-06T20:00:00.000Z');
+  const HOUR = 60 * 60_000;
+
+  const gammel = { fetchedAt: null, latestStopMs: null };
+
+  it('springer den korte over naar den fulde tabel er frisk', () => {
+    // Den fulde tabel daekker dage frem og tilbage. De tolv naeste programmer
+    // tilfoejer intet, og et kald per kanal hver halve time er spild af
+    // panelets ene forbindelse.
+    expect(needsShortEpg(gammel, NOW.getTime() - HOUR, NOW)).toBe(false);
+  });
+
+  it('henter den korte naar den fulde tabel er blevet gammel', () => {
+    expect(needsShortEpg(gammel, NOW.getTime() - 7 * HOUR, NOW)).toBe(true);
+  });
+
+  it('henter den korte naar den fulde tabel aldrig er hentet', () => {
+    expect(needsShortEpg(gammel, null, NOW)).toBe(true);
+  });
+
+  it('foelger stadig den korte oversigts egen friskhed', () => {
+    const frisk = { fetchedAt: NOW.getTime() - 60_000, latestStopMs: NOW.getTime() + HOUR };
+    // Fuld tabel gammel, kort oversigt frisk: der er intet at hente.
+    expect(needsShortEpg(frisk, NOW.getTime() - 7 * HOUR, NOW)).toBe(false);
   });
 });

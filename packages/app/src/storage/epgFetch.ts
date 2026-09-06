@@ -115,3 +115,24 @@ export async function markArchiveFetched(
     [streamId, now.getTime()],
   );
 }
+
+/**
+ * Skal den korte programoversigt hentes for kanalen?
+ *
+ * `get_short_epg` giver de naeste tolv programmer. `get_simple_data_table`
+ * giver hele tabellen — dage frem og tilbage — og guiden henter den for hver
+ * synlig kanal. Er den fulde tabel frisk, tilfoejer de tolv **ingenting**, og
+ * et kald per kanal hver halve time er ren spild af panelets ene forbindelse.
+ *
+ * Reglen staar her frem for inde i hente-lagets loekke, saa den kan proeves
+ * for sig: en fejl her koster enten et hav af overfloedige kald eller en guide
+ * der ikke opdaterer sig.
+ */
+export function needsShortEpg(
+  freshness: EpgFreshness,
+  archiveFetchedAt: number | null,
+  now: Date,
+): boolean {
+  if (!needsArchiveFetch(archiveFetchedAt, now)) return false;
+  return needsEpgFetch(freshness, now);
+}

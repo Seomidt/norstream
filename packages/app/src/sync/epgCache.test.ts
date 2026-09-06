@@ -389,3 +389,49 @@ describe('oprydningen og arkivet', () => {
     expect(stored.map((p) => p.title)).toEqual(['Bjerget']);
   });
 });
+
+describe('cachen sparer turene til panelet', () => {
+  it('henter ikke "nu og naeste" naar den fulde tabel lige er hentet', async () => {
+    // Den fulde tabel daekker dage. Uden den her regel ville guiden hente tolv
+    // programmer per kanal hver halve time oveni — paa et panel der kun
+    // tillader én forbindelse.
+    const full = archivePanel({ '247634': [listing(-60), listing(0), listing(60)] });
+    await ensureFullEpg(db, sources, full, [{ id: key('247634') }], NOW);
+
+    const short = panel({ listings: { '247634': [listing(0)] } });
+    const later = new Date(NOW.getTime() + 45 * 60_000);
+    const result = await ensureEpg(db, sources, short, [key('247634')], later);
+
+    expect(result.fetched).toBe(0);
+    expect((short as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
+  });
+
+  it('henter igen naar den fulde tabel er blevet gammel', async () => {
+    const full = archivePanel({ '247634': [listing(0)] });
+    await ensureFullEpg(db, sources, full, [{ id: key('247634') }], NOW);
+
+    const short = panel({ listings: { '247634': [listing(0)] } });
+    const muchLater = new Date(NOW.getTime() + 7 * 60 * 60_000);
+    expect((await ensureEpg(db, sources, short, [key('247634')], muchLater)).fetched).toBe(1);
+  });
+
+  it('beholder programmerne mellem to aabninger af guiden', async () => {
+    // Det er hele pointen med cachen: anden gang skal der ikke hentes noget,
+    // og programmerne skal stadig staa der.
+    const fetchImpl = panel({ listings: { '247634': [listing(0, 120)] } });
+    await ensureEpg(db, sources, fetchImpl, [key('247634')], NOW);
+    const callsAfterFirst = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    const soon = new Date(NOW.getTime() + 5 * 60_000);
+    await ensureEpg(db, sources, fetchImpl, [key('247634')], soon);
+
+    expect((fetchImpl as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsAfterFirst);
+    const stored = await listProgrammes(
+      db,
+      key('247634'),
+      soon,
+      new Date(soon.getTime() + 60 * 60_000),
+    );
+    expect(stored).toHaveLength(1);
+  });
+});
