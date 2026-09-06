@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { deriveCountry } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { logoCoverage } from '../../storage/channels.js';
@@ -15,6 +15,7 @@ import {
 import type { StreamFormatSetting } from '../../storage/settings.js';
 import { applyStreamFormatSetting } from '../player/format.js';
 import { theme } from '../../ui/theme.js';
+import { redactCredentials } from './redact.js';
 
 interface Props {
   session: AppSession;
@@ -42,7 +43,13 @@ export function SettingsScreen({
   // implementerer ikke Alert, saa udlogning ville doe stille paa web.
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [streamFormat, setStreamFormat] = useState<StreamFormatSetting>('auto');
-  const [logos, setLogos] = useState<{ withLogo: number; total: number } | null>(null);
+  const [logos, setLogos] = useState<{
+    withLogo: number;
+    total: number;
+    example: string | null;
+  } | null>(null);
+  /** Kunne eksempel-logoet overhovedet hentes af telefonen? */
+  const [exampleFailed, setExampleFailed] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     const [hiddenCountries, format, coverage] = await Promise.all([
@@ -114,9 +121,28 @@ export function SettingsScreen({
           ? 'Tæller …'
           : logos.total === 0
             ? 'Ingen kanaler hentet endnu.'
-            : `${logos.withLogo} af ${logos.total} kanaler har et logo fra udbyderen. ` +
-              'De øvrige vises med kanalens forbogstaver.'}
+            : `${logos.withLogo} af ${logos.total} kanaler har en logo-adresse fra udbyderen.`}
       </Text>
+      {logos !== null && logos.example !== null && (
+        <View style={styles.logoProbe}>
+          <Image
+            source={{ uri: logos.example }}
+            style={styles.logoSample}
+            resizeMode="contain"
+            onError={() => setExampleFailed(true)}
+          />
+          <View style={styles.logoProbeText}>
+            <Text style={styles.rowHint}>
+              {exampleFailed
+                ? 'Telefonen kunne ikke hente logoet fra denne adresse.'
+                : 'Firkanten til venstre er et rigtigt logo hentet fra adressen herunder. Er den tom, kan telefonen ikke nå den.'}
+            </Text>
+            <Text style={styles.logoUrl} numberOfLines={3}>
+              {redactCredentials(logos.example)}
+            </Text>
+          </View>
+        </View>
+      )}
 
       <Text style={styles.sectionTitle}>Streamformat</Text>
       <Text style={styles.hint}>
@@ -216,6 +242,15 @@ function countryLabel(key: string): string {
 }
 
 const styles = StyleSheet.create({
+  logoProbe: { flexDirection: 'row', alignItems: 'flex-start', marginTop: theme.spacing.sm },
+  logoSample: {
+    width: 44,
+    height: 44,
+    borderRadius: 6,
+    backgroundColor: theme.colors.surfaceRaised,
+  },
+  logoProbeText: { flex: 1, marginLeft: theme.spacing.sm },
+  logoUrl: { color: theme.colors.textMuted, fontSize: 11, marginTop: theme.spacing.xs },
   choices: { flexDirection: 'row', gap: theme.spacing.sm, marginTop: theme.spacing.sm },
   choice: {
     paddingVertical: theme.spacing.sm,

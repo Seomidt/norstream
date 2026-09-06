@@ -233,11 +233,22 @@ export async function maxArchiveDays(db: SqlDatabase): Promise<number> {
  */
 export async function logoCoverage(
   db: SqlDatabase,
-): Promise<{ withLogo: number; total: number }> {
+): Promise<{ withLogo: number; total: number; example: string | null }> {
   const row = await db.getFirstAsync<{ with_logo: number; total: number }>(
     `SELECT COUNT(*) AS total,
             SUM(CASE WHEN logo_url IS NOT NULL AND logo_url <> '' THEN 1 ELSE 0 END) AS with_logo
      FROM channels`,
   );
-  return { withLogo: row?.with_logo ?? 0, total: row?.total ?? 0 };
+  // Ét eksempel med. Uden det kan "logoerne mangler" stadig betyde to ting
+  // naar tallet er hoejt: at adressen ikke kan naas fra telefonen, eller at
+  // den peger paa noget der ikke er et billede. Vises adressen sammen med et
+  // forsoeg paa at tegne den, kan de to skelnes paa ét skaermbillede.
+  const sample = await db.getFirstAsync<{ logo_url: string }>(
+    "SELECT logo_url FROM channels WHERE logo_url IS NOT NULL AND logo_url <> '' LIMIT 1",
+  );
+  return {
+    withLogo: row?.with_logo ?? 0,
+    total: row?.total ?? 0,
+    example: sample?.logo_url ?? null,
+  };
 }
