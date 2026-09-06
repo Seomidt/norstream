@@ -4,6 +4,7 @@ import {
   getLogoHostsCheckedMs,
   recordLogoHostState,
   setLogoHostsCheckedMs,
+  sourceOrigins,
 } from '../storage/logoHosts.js';
 import type { LogoHostRecord } from '../storage/logoHosts.js';
 import type { SqlDatabase } from '../storage/types.js';
@@ -27,6 +28,15 @@ const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
  * spild.
  */
 const SAMPLE = 2000;
+
+/**
+ * Hvor laenge der ventes paa en vaert der ikke svarer.
+ *
+ * Kortere end appens almindelige timeout paa femten sekunder. Maalingen er en
+ * bekvemmelighed, ikke noget nogen venter paa, og tre doede vaerter á femten
+ * sekunder er et helt minut lagt til en opdatering.
+ */
+const PROBE_TIMEOUT_MS = 6000;
 
 export interface LogoHostCheck {
   hosts: LogoHostRecord[];
@@ -58,13 +68,26 @@ export async function checkLogoHosts(
     return { hosts: [], checked: false };
   }
 
-  const samples = await sampleLogoUrls(db);
-  const hosts: LogoHostRecord[] = [];
-  for (const [origin, url] of samples) {
-    const record = await probeOrigin(origin, url, fetchImpl);
-    await recordLogoHostState(db, record);
-    hosts.push(record);
-  }
+  const [samples, sources] = await Promise.all([sampleLogoUrls(db), sourceOrigins(db)]);
+
+  // Kildernes egne vaerter maales **ikke**. Panelet tillader én forbindelse, og
+  // et kald til det her ville tage den fra de kanaler og programmer der
+  // faktisk skal hentes — og saa tabe kapløbet og blive noteret som doedt.
+  // Det behoeves heller ikke: taler appen ikke med panelet, er der ingen
+  // kanaler at vise logoer for.
+  const toProbe = [...samples].filter(([origin]) => !sources.has(origin));
+  const known: LogoHostRecord[] = [...samples]
+    .filter(([origin]) => sources.has(origin))
+    .map(([origin]) => ({ origin, state: 'ok' as const, detail: 'kildens egen vært' }));
+
+  // Samtidigt, ikke efter hinanden: vaerterne har intet med hinanden at goere,
+  // og en der ikke svarer maa ikke holde de oevrige tilbage.
+  const measured = await Promise.all(
+    toProbe.map(([origin, url]) => probeOrigin(origin, url, fetchImpl)),
+  );
+
+  const hosts = [...known, ...measured];
+  for (const record of hosts) await recordLogoHostState(db, record);
 
   await setLogoHostsCheckedMs(db, now.getTime());
   return { hosts, checked: true };
@@ -100,7 +123,7 @@ async function probeOrigin(
   fetchImpl: FetchLike,
 ): Promise<LogoHostRecord> {
   try {
-    const response = await fetchImpl(url);
+    const response = await withTimeout(fetchImpl(url));
     // Ogsaa en fejlstatus er et svar. En 404 gaelder den ene fil, ikke vaerten,
     // og `Image` fejler med det samme paa den — der er intet at spare ved at
     // springe vaerten over.
@@ -115,4 +138,28 @@ async function probeOrigin(
     // legitimation i sig.
     return { origin, state: 'unreachable', detail: 'kunne ikke nås' };
   }
+}
+
+/**
+ * Giver op efter `PROBE_TIMEOUT_MS`, uanset hvad den underliggende hentning
+ * gaar og laver.
+ *
+ * Det underliggende kald har sin egen timeout, men den er sat efter hvad et
+ * panel maa have lov at bruge paa et svar. En maaling ingen venter paa maa
+ * ikke laane den graense.
+ */
+function withTimeout<T>(promise: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timeout')), PROBE_TIMEOUT_MS);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (cause: unknown) => {
+        clearTimeout(timer);
+        reject(cause instanceof Error ? cause : new Error(String(cause)));
+      },
+    );
+  });
 }

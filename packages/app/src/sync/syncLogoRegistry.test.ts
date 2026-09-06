@@ -93,7 +93,7 @@ DR1.dk,,TRUE,,320,320,PNG,https://logo.example/ny.png
   });
 
   it('kaster naar registret ikke kan hentes', async () => {
-    const dead = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) })) as
+    const dead = vi.fn(async () => ({ ok: false, status: 500, text: async () => '', json: async () => ({}) })) as
       unknown as FetchLike;
     await expect(syncLogoRegistry(db, dead)).rejects.toThrow('500');
   });

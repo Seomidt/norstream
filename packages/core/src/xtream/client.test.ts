@@ -10,7 +10,7 @@ const creds: XtreamCredentials = {
 };
 
 function respondWith(body: unknown, ok = true, status = 200): FetchLike {
-  return vi.fn(async () => ({ ok, status, json: async () => body }));
+  return vi.fn(async () => ({ ok, status, text: async () => '', json: async () => body }));
 }
 
 describe('XtreamClient.authenticate', () => {
@@ -59,7 +59,7 @@ describe('XtreamClient.authenticate', () => {
     const badJson: FetchLike = vi.fn(async () => ({
       ok: true,
       status: 200,
-      json: async () => {
+      text: async () => '', json: async () => {
         throw new SyntaxError('Unexpected token');
       },
     }));

@@ -7,6 +7,7 @@ const KEY_LAST_SYNC = 'last_sync_ms';
 const KEY_PREVIEW = 'mini_preview_enabled';
 const KEY_STREAM_FORMAT = 'stream_format';
 const KEY_LAST_XMLTV = 'last_xmltv_ms';
+const KEY_REGISTRY_ERROR = 'registry_error';
 
 export async function getSetting(
   db: SqlDatabase,
@@ -213,4 +214,25 @@ export async function setStreamFormatSetting(
   value: StreamFormatSetting,
 ): Promise<void> {
   await setSetting(db, KEY_STREAM_FORMAT, value);
+}
+
+/**
+ * Hvorfor logo-registret sidst ikke kunne hentes, eller null naar det gik godt.
+ *
+ * Gemmes fordi alternativet er at gaette. Hentningen sker i baggrunden, og
+ * fejler den, staar der bare at registret ikke er hentet — uden at nogen kan
+ * se om det var netvaerket, filen eller databasen. Fejlteksten kommer fra
+ * hentningen af et offentligt register uden legitimation, saa der er intet at
+ * skjule i den.
+ */
+export async function getRegistryError(db: SqlDatabase): Promise<string | null> {
+  const value = await getSetting(db, KEY_REGISTRY_ERROR);
+  return value === null || value.length === 0 ? null : value;
+}
+
+export async function setRegistryError(
+  db: SqlDatabase,
+  message: string | null,
+): Promise<void> {
+  await setSetting(db, KEY_REGISTRY_ERROR, message ?? '');
 }

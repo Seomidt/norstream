@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { XtreamAuthError } from '@norstream/core';
 import type { FetchLike, Source, XtreamCredentials } from '@norstream/core';
 import { listChannels } from '../storage/channels.js';
+import { getRegistryError } from '../storage/settings.js';
 import { migrate } from '../storage/schema.js';
 import { createTestDatabase } from '../storage/testDb.js';
 import type { SqlDatabase } from '../storage/types.js';
@@ -40,19 +41,19 @@ function world(options: { authFails?: string[]; dead?: string[] } = {}): FetchLi
     }
     const host = new URL(url).host;
     if (options.authFails?.includes(host) === true) {
-      return { ok: false, status: 401, json: async () => ({}) };
+      return { ok: false, status: 401, text: async () => '', json: async () => ({}) };
     }
     if (options.dead?.includes(host) === true) {
-      return { ok: false, status: 500, json: async () => ({}) };
+      return { ok: false, status: 500, text: async () => '', json: async () => ({}) };
     }
     const action = new URL(url).searchParams.get('action');
     if (action === 'get_live_categories') {
-      return { ok: true, status: 200, json: async () => [{ category_id: '1', category_name: 'DK' }] };
+      return { ok: true, status: 200, text: async () => '', json: async () => [{ category_id: '1', category_name: 'DK' }] };
     }
     return {
       ok: true,
       status: 200,
-      json: async () => [{ stream_id: '1', name: 'DR1', category_id: '1' }],
+      text: async () => '', json: async () => [{ stream_id: '1', name: 'DR1', category_id: '1' }],
     };
   }) as unknown as FetchLike;
 }
@@ -165,5 +166,34 @@ describe('doegnrytmen', () => {
     });
 
     expect(result.synced).toBe(1);
+  });
+});
+
+describe('logo-registret', () => {
+  // Registret laa foerst i synkroniseringen. Det er to filer paa flere
+  // megabyte og 36.000 raekker i databasen, og saa laenge det stod der,
+  // ventede kanaler og programoversigt paa noget der kun handler om logoer.
+  it('staar ikke i vejen for kanalerne naar det fejler', async () => {
+    const accesses: SourceAccess[] = [{ source: source('p1', 'xtream'), creds }];
+    const result = await syncAllSources(db, accesses, world(), { force: true });
+
+    expect(result.synced).toBe(1);
+    expect(await listChannels(db)).toHaveLength(1);
+  });
+
+  it('gemmer hvorfor det fejlede i stedet for at sluge det', async () => {
+    const panel = world();
+    const registryIsDown: FetchLike = (url: string) => {
+      if (url.includes('githubusercontent')) throw new Error('Network request failed');
+      return panel(url);
+    };
+    const accesses: SourceAccess[] = [{ source: source('p1', 'xtream'), creds }];
+    await syncAllSources(db, accesses, registryIsDown, { force: true });
+
+    // Uden det her staar der bare "ikke hentet endnu" paa skaermen, og saa kan
+    // aarsagen kun gaettes paa.
+    expect(await getRegistryError(db)).toBe('Network request failed');
+    // Og kanalerne kom stadig ind.
+    expect(await listChannels(db)).toHaveLength(1);
   });
 });

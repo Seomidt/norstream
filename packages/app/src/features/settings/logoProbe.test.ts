@@ -11,7 +11,7 @@ function panel(
     ({
       ok,
       status,
-      json: async () => ({}),
+      text: async () => '', json: async () => ({}),
       headers: { get: (key: string) => headers[key.toLowerCase()] ?? null },
     }) as unknown as Awaited<ReturnType<FetchLike>>;
 }
@@ -52,7 +52,7 @@ describe('probeLogo', () => {
 
   it('klarer et svar helt uden headers', async () => {
     const bare: FetchLike = async () =>
-      ({ ok: true, status: 200, json: async () => ({}) }) as Awaited<ReturnType<FetchLike>>;
+      ({ ok: true, status: 200, text: async () => '', json: async () => ({}) }) as Awaited<ReturnType<FetchLike>>;
     const result = await probeLogo('http://x/logo.png', bare);
     expect(result.ok).toBe(false);
     expect(result.text).toContain('ukendt indholdstype');

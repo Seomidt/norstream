@@ -58,7 +58,7 @@ function panel(): FetchLike {
       return {
         ok: true,
         status: 200,
-        json: async () => [{ category_id: '1', category_name: 'DENMARK HD & HEVC' }],
+        text: async () => '', json: async () => [{ category_id: '1', category_name: 'DENMARK HD & HEVC' }],
       };
     }
 
@@ -66,7 +66,7 @@ function panel(): FetchLike {
       return {
         ok: true,
         status: 200,
-        json: async () => [
+        text: async () => '', json: async () => [
           {
             stream_id: STREAM_ID_NUMBER,
             name: 'DNK| DR1 HD',
@@ -84,12 +84,12 @@ function panel(): FetchLike {
     if (action === 'get_short_epg') {
       // Panelet svarer kun for det stream_id der faktisk blev spurgt om.
       if (params.get('stream_id') !== String(STREAM_ID_NUMBER)) {
-        return { ok: true, status: 200, json: async () => ({ epg_listings: [] }) };
+        return { ok: true, status: 200, text: async () => '', json: async () => ({ epg_listings: [] }) };
       }
       return {
         ok: true,
         status: 200,
-        json: async () => ({
+        text: async () => '', json: async () => ({
           epg_listings: [
             {
               title: TITLE_NOW,
@@ -107,7 +107,7 @@ function panel(): FetchLike {
       };
     }
 
-    return { ok: true, status: 200, json: async () => ({ user_info: { auth: 1 } }) };
+    return { ok: true, status: 200, text: async () => '', json: async () => ({ user_info: { auth: 1 } }) };
   });
 }
 

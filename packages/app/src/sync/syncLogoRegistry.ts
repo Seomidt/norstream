@@ -76,34 +76,57 @@ export async function syncLogoRegistry(
   const withLogo = channels.filter((channel) => best.has(channel.id));
   const index = buildNameIndex(withLogo);
 
-  await db.runAsync('DELETE FROM registry_logos');
-  let stored = 0;
+  const rows: [string, string, string][] = [];
   for (const [key, candidates] of index) {
     const countries = new Set(candidates.map((candidate) => candidate.country));
     for (const candidate of candidates) {
       const url = best.get(candidate.id);
       if (url === undefined) continue;
       // Noeglen er navn + land: to lande maa gerne have hver sin `TV 2`.
-      await db.runAsync(
-        'INSERT OR IGNORE INTO registry_logos (key, country, url) VALUES (?, ?, ?)',
-        [`${key}:${candidate.country}`, candidate.country, url],
-      );
-      stored += 1;
+      rows.push([`${key}:${candidate.country}`, candidate.country, url]);
 
       // Findes navnet kun i ét land, kan det ogsaa slaas op uden at kende
       // landet — og de fleste af panelets kanaler har intet land vi kan
       // udlede. Gaar navnet igen paa tvaers af lande, laves den noegle ikke,
       // og saa faar kanalen ikke noget logo frem for et forkert et.
-      if (countries.size === 1) {
-        await db.runAsync(
-          'INSERT OR IGNORE INTO registry_logos (key, country, url) VALUES (?, ?, ?)',
-          [`${key}:*`, candidate.country, url],
-        );
-      }
+      if (countries.size === 1) rows.push([`${key}:*`, candidate.country, url]);
     }
   }
 
-  return { logos: stored };
+  await db.runAsync('DELETE FROM registry_logos');
+  await insertInBatches(db, rows);
+  return { logos: rows.length };
+}
+
+/**
+ * Hvor mange raekker der skrives per saetning.
+ *
+ * SQLite har en graense paa 999 variabler i én saetning, og hver raekke bruger
+ * tre. 300 raekker er 900 — under graensen med luft til overs.
+ */
+const BATCH = 300;
+
+/**
+ * Skriver registret i store slurke frem for én raekke ad gangen.
+ *
+ * Registret er omkring 36.000 raekker. Med ét kald per raekke er det 36.000
+ * ture over broen til SQLite, og paa en telefon tager det minutter — minutter
+ * hvor synkroniseringen ikke naar frem til kanalerne. Det er ikke en
+ * finpudsning: det er forskellen paa en app der henter sine kanaler og en der
+ * ser ud til at haenge.
+ */
+async function insertInBatches(
+  db: SqlDatabase,
+  rows: readonly [string, string, string][],
+): Promise<void> {
+  for (let index = 0; index < rows.length; index += BATCH) {
+    const slice = rows.slice(index, index + BATCH);
+    const values = slice.map(() => '(?, ?, ?)').join(', ');
+    await db.runAsync(
+      `INSERT OR IGNORE INTO registry_logos (key, country, url) VALUES ${values}`,
+      slice.flat(),
+    );
+  }
 }
 
 /**

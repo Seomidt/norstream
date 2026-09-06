@@ -16,10 +16,14 @@ export function createFetchImpl(
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await underlying(url, { signal: controller.signal });
+      // `text` skal med. Uden den fejlede alt der laeser en krop som tekst —
+      // M3U-lister, XMLTV-oversigter og logo-registret — og de fejlede
+      // *stille*, som om filen bare ikke var hentet endnu.
       return {
         ok: response.ok,
         status: response.status,
         json: () => response.json() as Promise<unknown>,
+        text: () => response.text(),
       };
     } finally {
       clearTimeout(timer);

@@ -1,3 +1,4 @@
+import { originOf } from '@norstream/core';
 import { getSetting, setSetting } from './settings.js';
 import type { SqlDatabase } from './types.js';
 
@@ -45,6 +46,23 @@ export async function listLogoHosts(db: SqlDatabase): Promise<LogoHostRecord[]> 
 }
 
 /**
+ * Vaerterne kildernes egne adresser peger paa.
+ *
+ * De maales ikke, og de kan ikke doemmes ude. Appen taler med dem hele tiden —
+ * er panelet uden for raekkevidde, er der ingen kanaler at vise logoer for
+ * overhovedet, og saa er det ikke logoerne der er problemet.
+ */
+export async function sourceOrigins(db: SqlDatabase): Promise<Set<string>> {
+  const rows = await db.getAllAsync<{ url: string }>('SELECT url FROM sources');
+  const origins = new Set<string>();
+  for (const row of rows) {
+    const origin = originOf(row.url);
+    if (origin !== null) origins.add(origin);
+  }
+  return origins;
+}
+
+/**
  * De vaerter der ikke kunne naas, som et opslag kanallisten kan filtrere med.
  *
  * Det her er hele pointen i at maale én gang. `Image` falder tilbage til den
@@ -54,10 +72,24 @@ export async function listLogoHosts(db: SqlDatabase): Promise<LogoHostRecord[]> 
  * der ligger et brugbart logo laengere nede i raekken. Ved at kende vaerten paa
  * forhaand springes den over med det samme, og det naeste forsoeg er det der
  * faktisk kan tegne noget.
+ *
+ * **Kildernes egne vaerter tages fra igen, uanset hvad der staar gemt.** Foerste
+ * udgave af det her maalte ogsaa dem, og panelet — som kun tillader én
+ * forbindelse — tabte kapløbet mod appens egne kald og blev noteret som
+ * uden for raekkevidde. Det var ikke bare et forkert logo: maalingen laa til
+ * sidst i hver synkronisering og brugte forbindelsen, saa hverken kanaler
+ * eller programoversigt kunne komme igennem imens.
+ *
+ * Filtreringen sker her ved laesningen frem for ved skrivningen, saa en doem
+ * der allerede er gemt paa en telefon ikke bliver ved med at gaelde.
  */
 export async function deadLogoOrigins(db: SqlDatabase): Promise<Set<string>> {
-  const hosts = await listLogoHosts(db);
-  return new Set(hosts.filter((host) => host.state === 'unreachable').map((host) => host.origin));
+  const [hosts, sources] = await Promise.all([listLogoHosts(db), sourceOrigins(db)]);
+  return new Set(
+    hosts
+      .filter((host) => host.state === 'unreachable' && !sources.has(host.origin))
+      .map((host) => host.origin),
+  );
 }
 
 export async function getLogoHostsCheckedMs(db: SqlDatabase): Promise<number | null> {

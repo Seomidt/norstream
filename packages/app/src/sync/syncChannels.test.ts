@@ -25,7 +25,7 @@ function panel(responses: Record<string, unknown>): FetchLike {
     return {
       ok: true,
       status: 200,
-      json: async () => responses[action] ?? { user_info: { auth: 1 } },
+      text: async () => '', json: async () => responses[action] ?? { user_info: { auth: 1 } },
     };
   });
 }
@@ -74,7 +74,7 @@ describe('syncChannels', () => {
     const failing: FetchLike = vi.fn(async () => ({
       ok: false,
       status: 401,
-      json: async () => ({}),
+      text: async () => '', json: async () => ({}),
     }));
     await expect(syncChannels(db, SOURCE, creds, failing)).rejects.toBeInstanceOf(
       XtreamAuthError,
@@ -123,7 +123,7 @@ describe('syncChannels', () => {
       return {
         ok: true,
         status: 200,
-        json: async () => [{ category_id: '2', category_name: 'Sverige' }],
+        text: async () => '', json: async () => [{ category_id: '2', category_name: 'Sverige' }],
       };
     });
 

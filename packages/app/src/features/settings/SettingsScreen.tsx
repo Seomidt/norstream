@@ -12,6 +12,7 @@ import { clearSourceCredentials } from '../../storage/credentials.js';
 import { deleteSource, listSources } from '../../storage/sources.js';
 import {
   clearLastSyncMs,
+  getRegistryError,
   getStreamFormatSetting,
   setMiniPreviewEnabled,
   setStreamFormatSetting,
@@ -67,21 +68,26 @@ export function SettingsScreen({
   /** Vaerterne logoerne ligger paa, og om telefonen kan naa dem. */
   const [hosts, setHosts] = useState<LogoHostRecord[]>([]);
   const [registry, setRegistry] = useState<{ rows: number; matched: number } | null>(null);
+  /** Hvorfor registret ikke kunne hentes. Uden den er en tom liste uforklarlig. */
+  const [registryError, setRegistryError] = useState<string | null>(null);
   const [rechecking, setRechecking] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
-    const [hiddenCountries, format, coverage, knownHosts, fromRegistry] = await Promise.all([
-      listHiddenCountries(session.db),
-      getStreamFormatSetting(session.db),
-      logoCoverage(session.db),
-      listLogoHosts(session.db),
-      registryCoverage(session.db),
-    ]);
+    const [hiddenCountries, format, coverage, knownHosts, fromRegistry, lastError] =
+      await Promise.all([
+        listHiddenCountries(session.db),
+        getStreamFormatSetting(session.db),
+        logoCoverage(session.db),
+        listLogoHosts(session.db),
+        registryCoverage(session.db),
+        getRegistryError(session.db),
+      ]);
     setHidden(hiddenCountries);
     setStreamFormat(format);
     setLogos(coverage);
     setHosts(knownHosts);
     setRegistry(fromRegistry);
+    setRegistryError(lastError);
 
     // Et rigtigt kald frem for at laene sig op ad om et Image tegner noget:
     // en tom firkant kan lige saa godt vaere en hentning der venter som et
@@ -227,7 +233,9 @@ export function SettingsScreen({
         {registry === null
           ? ''
           : registry.rows === 0
-            ? 'Det åbne kanalregister er ikke hentet endnu.'
+            ? registryError === null
+              ? 'Det åbne kanalregister er ikke hentet endnu.'
+              : `Det åbne kanalregister kunne ikke hentes: ${registryError}`
             : `Registret har ${registry.rows} logoer, og ${registry.matched} af dine kanaler passer på et af dem.`}
       </Text>
       <Pressable

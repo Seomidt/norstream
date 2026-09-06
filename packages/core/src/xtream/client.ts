@@ -9,6 +9,16 @@ export interface FetchLikeResponse {
   ok: boolean;
   status: number;
   json(): Promise<unknown>;
+  /**
+   * Svarets krop som tekst.
+   *
+   * Paakraevet, og det er den vigtige del. Den var valgfri, og appens egen
+   * `fetch`-indpakning gav den ikke videre — saa hver eneste ting der laeser
+   * tekst frem for JSON fejlede stille paa telefonen: M3U-lister,
+   * XMLTV-oversigter og det aabne logo-register. Alle tre saa ud til bare
+   * "ikke at vaere hentet". Nu fanger oversaetteren den slags.
+   */
+  text(): Promise<string>;
 }
 
 export type FetchLike = (url: string) => Promise<FetchLikeResponse>;

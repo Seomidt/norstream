@@ -55,12 +55,12 @@ function panel(options: PanelOptions = {}): FetchLike {
 
     const status = options.failWith?.[streamId];
     if (status !== undefined) {
-      return { ok: false, status, json: async () => ({}) };
+      return { ok: false, status, text: async () => '', json: async () => ({}) };
     }
     return {
       ok: true,
       status: 200,
-      json: async () => ({ epg_listings: options.listings?.[streamId] ?? [] }),
+      text: async () => '', json: async () => ({ epg_listings: options.listings?.[streamId] ?? [] }),
     };
   });
 }
@@ -262,11 +262,11 @@ function archivePanel(
     actions.push(params.get('action') ?? '');
     const streamId = params.get('stream_id') ?? '';
     const status = failWith[streamId];
-    if (status !== undefined) return { ok: false, status, json: async () => ({}) };
+    if (status !== undefined) return { ok: false, status, text: async () => '', json: async () => ({}) };
     return {
       ok: true,
       status: 200,
-      json: async () => ({ epg_listings: listings[streamId] ?? [] }),
+      text: async () => '', json: async () => ({ epg_listings: listings[streamId] ?? [] }),
     };
   }) as FetchLike & { actions: string[] };
   impl.actions = actions;

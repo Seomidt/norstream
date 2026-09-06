@@ -7,6 +7,7 @@ import {
   getLastXmltvMs,
   setLastSyncMs,
   setLastXmltvMs,
+  setRegistryError,
 } from '../storage/settings.js';
 import { checkLogoHosts } from './logoHosts.js';
 import { syncChannels } from './syncChannels.js';
@@ -71,10 +72,6 @@ export async function syncAllSources(
   const force = options.force === true;
   const result: SyncAllResult = { synced: 0, skipped: 0, rejected: [], failed: [] };
 
-  // Foer kilderne: naar kanalerne skrives, skal registret gerne staa klar, saa
-  // logoerne er der fra foerste tegning frem for efter naeste opdatering.
-  await maybeRegistry(db, fetchImpl, now, force);
-
   for (const access of sources) {
     // Hver kilde har sin egen doegnrytme. Med én faelles ville en nyligt
     // tilfoejet kilde arve de andres hentetid og staa tom i op til et doegn.
@@ -105,9 +102,14 @@ export async function syncAllSources(
     }
   }
 
-  // Til sidst: kanalerne skal vaere skrevet foerst, ellers er der ingen
-  // logo-adresser at finde vaerterne i. Fejler det, staar de vaerter der
-  // allerede er maalt — en manglende maaling koster kun det den kostede foer.
+  // **Efter** kilderne, ikke foer. Registret er to filer paa flere megabyte og
+  // 36.000 raekker i databasen; laa det foerst, ventede kanaler og
+  // programoversigt paa noget der kun handler om logoer. Kanalerne er appen,
+  // logoerne er pynt.
+  await maybeRegistry(db, fetchImpl, now, force);
+
+  // Og til sidst vaerterne: kanalerne skal vaere skrevet foerst, ellers er der
+  // ingen logo-adresser at finde dem i.
   try {
     await checkLogoHosts(db, fetchImpl, now, force);
   } catch {
@@ -166,7 +168,12 @@ async function maybeRegistry(
   try {
     await syncLogoRegistry(db, fetchImpl);
     await setLastSyncMs(db, now.getTime(), REGISTRY_SOURCE);
-  } catch {
-    // Med vilje: se kommentaren ovenfor.
+    await setRegistryError(db, null);
+  } catch (cause) {
+    // Fejlen sluges ikke laengere. Den gjorde det foer, og resultatet var at
+    // "Det aabne kanalregister er ikke hentet endnu" stod paa skaermen uden at
+    // nogen — heller ikke jeg — kunne se **hvorfor**. En aarsag der ikke er
+    // gemt noget sted, kan kun gaettes paa.
+    await setRegistryError(db, cause instanceof Error ? cause.message : String(cause));
   }
 }
