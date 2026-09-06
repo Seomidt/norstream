@@ -33,6 +33,23 @@ jobs:
 
       # Uden tokenet fejler eas-cli med en uigennemskuelig GraphQL-fejl et par
       # minutter senere. Bedre at stoppe her og sige hvad der skal tjekkes.
+      # Sidste udvej naar navnene ovenfor alle melder tomt: spoerg GitHub hvad
+      # jobbet overhovedet kan se. Kun noeglerne skrives ud — vaerdierne naar
+      # aldrig loggen, og runneren maskerer dem i forvejen.
+      #
+      # github_token staar der altid. Er den den eneste, er der ingen
+      # repository secrets paa Actions-fanebladet, og saa er vaerdien lagt et
+      # andet sted end der hvor workflows kan naa den.
+      - name: Hvilke hemmeligheder kan jobbet se
+        env:
+          ALL_SECRETS: ${{ toJSON(secrets) }}
+        run: |
+          node -e '
+            const names = Object.keys(JSON.parse(process.env.ALL_SECRETS)).sort();
+            console.log("Hemmeligheder synlige for dette job:");
+            for (const name of names) console.log("  " + name);
+          '
+
       - name: Tjek at EXPO_TOKEN findes
         run: |
           # Siger hvilke navne der er sat, uden at afsloere nogen vaerdi.
