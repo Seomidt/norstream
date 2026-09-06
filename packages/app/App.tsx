@@ -123,6 +123,14 @@ export default function App() {
           onSelect={(channel, startFrom) =>
             setRoute({ name: 'player', channel, startFrom })
           }
+          onSourcesChanged={() => {
+            void (async () => {
+              // Kilderne er skiftet: sessionen skal laese legitimation for de
+              // nye og glemme de fjernede, ellers bygger afspilleren URL'er
+              // for et panel der ikke laengere findes.
+              setSession(await reloadSources(session));
+            })();
+          }}
           onSignedOut={(notice) => {
             setSession(null);
             setPlace({ tab: 'favorites', browse: null });

@@ -22,6 +22,7 @@ import { redactCredentials } from './redact.js';
 
 interface Props {
   session: AppSession;
+  onOpenSources: () => void;
   previewEnabled: boolean;
   onPreviewEnabledChange: (enabled: boolean) => void;
   onSignedOut: (notice: string) => void;
@@ -37,6 +38,7 @@ const STREAM_FORMATS: readonly { value: StreamFormatSetting; label: string }[] =
 
 export function SettingsScreen({
   session,
+  onOpenSources,
   previewEnabled,
   onPreviewEnabledChange,
   onSignedOut,
@@ -127,6 +129,18 @@ export function SettingsScreen({
           trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
         />
       </View>
+
+      <Text style={styles.sectionTitle}>Kilder</Text>
+      <Pressable style={styles.row} onPress={onOpenSources}>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Paneler og M3U-lister</Text>
+          <Text style={styles.rowHint}>
+            Tilføj flere udbydere. Kanalerne står side om side, og favoritter
+            kan blandes på tværs.
+          </Text>
+        </View>
+        <Text style={styles.actionText}>Åbn</Text>
+      </Pressable>
 
       <Text style={styles.sectionTitle}>Kanallogoer</Text>
       <Text style={styles.hint}>

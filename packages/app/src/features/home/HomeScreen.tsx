@@ -18,6 +18,7 @@ import type { Level } from '../browse/BrowseScreen.js';
 import { FavoritesScreen } from '../favorites/FavoritesScreen.js';
 import { GuideScreen } from '../guide/GuideScreen.js';
 import { RecordingsScreen } from '../recordings/RecordingsScreen.js';
+import { SourcesScreen } from '../sources/SourcesScreen.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SettingsScreen } from '../settings/SettingsScreen.js';
@@ -41,6 +42,8 @@ interface Props {
   onPlaceChange: (place: HomePlace) => void;
   onSelect: (channel: StoredChannel, startFrom?: Programme) => void;
   onSignedOut: (notice: string) => void;
+  /** Kaldes naar kilderne er aendret, saa sessionen kan laeses om. */
+  onSourcesChanged: () => void;
 }
 
 export type Tab = 'favorites' | 'browse' | 'guide' | 'recordings' | 'settings';
@@ -68,7 +71,14 @@ const SIGNED_OUT_MESSAGE =
  * Startskaermen er **Favoritter**, som spec sec.5 beder om. EPG hentes ikke
  * her: den henter sig selv per synlig raekke gennem `epgCache`.
  */
-export function HomeScreen({ session, place, onPlaceChange, onSelect, onSignedOut }: Props) {
+export function HomeScreen({
+  session,
+  place,
+  onPlaceChange,
+  onSelect,
+  onSignedOut,
+  onSourcesChanged,
+}: Props) {
   // Telefonens navigationslinje ligger oven i fanelinjen uden det her.
   // Maalt frem for gaettet: en fast polstring rammer forkert paa baade
   // gestus-navigation og de gammeldags tre knapper.
@@ -78,6 +88,7 @@ export function HomeScreen({ session, place, onPlaceChange, onSelect, onSignedOu
   const [previewEnabled, setPreviewEnabled] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [favoritesToken, setFavoritesToken] = useState(0);
+  const [showingSources, setShowingSources] = useState(false);
 
   // Deles af alle faneblade: kun ét preview maa nogensinde vaere i luften.
   const previewHandle = useRef<PreviewHandle | null>(null);
@@ -216,11 +227,24 @@ export function HomeScreen({ session, place, onPlaceChange, onSelect, onSignedOu
         )}
         {tab === 'recordings' && <RecordingsScreen session={session} />}
 
-        {tab === 'settings' && (
+        {tab === 'settings' && showingSources && (
+          <SourcesScreen
+            session={session}
+            onSourcesChanged={() => {
+              // Kilderne er skiftet; kanallisten skal hentes forfra, og
+              // sessionen skal laese legitimation for den nye kilde.
+              onSourcesChanged();
+              void refresh();
+            }}
+          />
+        )}
+
+        {tab === 'settings' && !showingSources && (
           <SettingsScreen
             session={session}
             previewEnabled={previewEnabled}
             onPreviewEnabledChange={setPreviewEnabled}
+            onOpenSources={() => setShowingSources(true)}
             onSignedOut={onSignedOut}
           />
         )}
@@ -237,6 +261,7 @@ export function HomeScreen({ session, place, onPlaceChange, onSelect, onSignedOu
               if (item.id !== tab) {
                 void previewHandle.current?.release().catch(() => undefined);
               }
+              if (item.id !== 'settings') setShowingSources(false);
               setTab(item.id);
             }}
           >
