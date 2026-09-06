@@ -19,10 +19,15 @@ jobs:
     #
     # Faldback-kaeden findes fordi et forkert secret-navn ellers giver praecis
     # den samme tomme vaerdi som et manglende: workflows kan ikke opremse
-    # secrets, saa hvert navn skal staa eksplicit.
+    # secrets i en betingelse, saa hvert navn skal staa eksplicit.
+    #
+    # `EXPO` staar med fordi det er det navn hemmeligheden faktisk har i dette
+    # repo. Fire koersler meldte alle tre foerste navne tomme; det var foerst
+    # en opremsning af secrets-konteksten der viste hvorfor.
     env:
       EXPO_TOKEN: >-
-        ${{ secrets.EXPO_TOKEN || secrets.EXPO_ACCESS_TOKEN || secrets.EAS_TOKEN }}
+        ${{ secrets.EXPO_TOKEN || secrets.EXPO_ACCESS_TOKEN || secrets.EAS_TOKEN
+        || secrets.EXPO }}
     steps:
       - uses: actions/checkout@v5
 
@@ -33,23 +38,6 @@ jobs:
 
       # Uden tokenet fejler eas-cli med en uigennemskuelig GraphQL-fejl et par
       # minutter senere. Bedre at stoppe her og sige hvad der skal tjekkes.
-      # Sidste udvej naar navnene ovenfor alle melder tomt: spoerg GitHub hvad
-      # jobbet overhovedet kan se. Kun noeglerne skrives ud — vaerdierne naar
-      # aldrig loggen, og runneren maskerer dem i forvejen.
-      #
-      # github_token staar der altid. Er den den eneste, er der ingen
-      # repository secrets paa Actions-fanebladet, og saa er vaerdien lagt et
-      # andet sted end der hvor workflows kan naa den.
-      - name: Hvilke hemmeligheder kan jobbet se
-        env:
-          ALL_SECRETS: ${{ toJSON(secrets) }}
-        run: |
-          node -e '
-            const names = Object.keys(JSON.parse(process.env.ALL_SECRETS)).sort();
-            console.log("Hemmeligheder synlige for dette job:");
-            for (const name of names) console.log("  " + name);
-          '
-
       - name: Tjek at EXPO_TOKEN findes
         run: |
           # Siger hvilke navne der er sat, uden at afsloere nogen vaerdi.
@@ -58,6 +46,7 @@ jobs:
           echo "secret EXPO_TOKEN:        ${{ secrets.EXPO_TOKEN != '' }}"
           echo "secret EXPO_ACCESS_TOKEN: ${{ secrets.EXPO_ACCESS_TOKEN != '' }}"
           echo "secret EAS_TOKEN:         ${{ secrets.EAS_TOKEN != '' }}"
+          echo "secret EXPO:              ${{ secrets.EXPO != '' }}"
           # "Repository variables" ligger paa den samme side som secrets, lige
           # under dem, og en vaerdi lagt der ser fuldstaendig rigtig ud paa
           # siden. Er den her true og secret'en false, er det hele forklaringen.
@@ -80,8 +69,10 @@ jobs:
              samme side under hinanden. Linjen "variable EXPO_TOKEN" ovenfor
              siger det: er den true, ligger vaerdien som en variabel.
 
-          3. Navnet. Workflowen accepterer EXPO_TOKEN, EXPO_ACCESS_TOKEN
-             eller EAS_TOKEN.
+          3. Navnet. Workflowen accepterer EXPO_TOKEN, EXPO_ACCESS_TOKEN,
+             EAS_TOKEN eller EXPO. Hedder hemmeligheden noget femte, kan
+             navnene opremses med et trin der skriver noeglerne fra
+             toJSON(secrets) — kun noegler, aldrig vaerdier.
 
           4. Er den lagt paa et *environment* frem for paa repoet, skal jobbet
              erklaere det environment for at kunne se den.
