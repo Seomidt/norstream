@@ -1,4 +1,4 @@
-import { createXmltvParser } from '@norstream/core';
+import { createXmltvParser, normaliseChannelName } from '@norstream/core';
 import type { FetchLike, Programme, Source } from '@norstream/core';
 import { upsertProgrammes } from '../storage/programmes.js';
 import type { SqlDatabase } from '../storage/types.js';
@@ -59,14 +59,14 @@ export async function syncXmltv(
     throw new Error('Programoversigten er for stor til at hente på en telefon.');
   }
 
-  // Kanalens noegle slaas op paa tvg-id. Ét opslag for hele kilden: en
-  // forespoergsel per programme ville vaere titusinder af dem.
-  const byEpgId = await epgIdIndex(db, source.id);
+  // Ét opslag for hele kilden: en forespoergsel per programme ville vaere
+  // titusinder af dem.
+  const index = await channelIndex(db, source.id);
 
   const programmes: Programme[] = [];
   const matched = new Set<string>();
   const parser = createXmltvParser((programme) => {
-    const key = byEpgId.get(programme.channelId);
+    const key = lookup(index, programme.channelId);
     if (key === undefined) return;
     matched.add(key);
     programmes.push({ ...programme, channelId: key });
@@ -78,15 +78,59 @@ export async function syncXmltv(
   return { programmes: programmes.length, matched: matched.size };
 }
 
-async function epgIdIndex(db: SqlDatabase, sourceId: string): Promise<Map<string, string>> {
-  const rows = await db.getAllAsync<{ id: string; epg_channel_id: string }>(
-    `SELECT id, epg_channel_id FROM channels
-     WHERE source_id = ? AND epg_channel_id IS NOT NULL AND epg_channel_id <> ''`,
-    [sourceId],
-  );
-  const index = new Map<string, string>();
-  for (const row of rows) index.set(row.epg_channel_id, row.id);
-  return index;
+interface ChannelIndex {
+  /** Kanaler slaaet op paa deres `tvg-id` / `epg_channel_id`. */
+  byEpgId: Map<string, string>;
+  /** Kanaler slaaet op paa deres normaliserede navn. */
+  byName: Map<string, string>;
+  /** Navne der gaar igen paa flere kanaler og derfor ikke maa bruges. */
+  ambiguous: Set<string>;
+}
+
+/**
+ * Opslag fra en XMLTV-kanal til appens kanalnoegle.
+ *
+ * `epg_channel_id` er den rigtige vej, men **87 % af panelets kanaler har
+ * ingen**. Derfor er navnet med som anden vej: en XMLTV-fil skriver typisk
+ * `channel="DR1.dk"`, og landeendelsen sat til side er det det samme som
+ * kanalens navn renset for praefiks og kvalitetsmaerker.
+ *
+ * Navne der gaar igen paa flere kanaler i samme kilde bruges ikke. Panelet
+ * har `DR1 HD` og `DR1 HEVC` som to raekker med samme normaliserede navn, og
+ * programmerne ville ellers lande paa en tilfaeldig af dem.
+ */
+async function channelIndex(db: SqlDatabase, sourceId: string): Promise<ChannelIndex> {
+  const rows = await db.getAllAsync<{
+    id: string;
+    epg_channel_id: string | null;
+    match_key: string;
+  }>('SELECT id, epg_channel_id, match_key FROM channels WHERE source_id = ?', [sourceId]);
+
+  const byEpgId = new Map<string, string>();
+  const byName = new Map<string, string>();
+  const ambiguous = new Set<string>();
+
+  for (const row of rows) {
+    if (row.epg_channel_id !== null && row.epg_channel_id !== '') {
+      byEpgId.set(row.epg_channel_id, row.id);
+    }
+    if (row.match_key === '') continue;
+    if (byName.has(row.match_key)) ambiguous.add(row.match_key);
+    else byName.set(row.match_key, row.id);
+  }
+
+  for (const key of ambiguous) byName.delete(key);
+  return { byEpgId, byName, ambiguous };
+}
+
+/** XMLTV-kanalen til en kanalnoegle, eller `undefined`. */
+function lookup(index: ChannelIndex, xmltvChannel: string): string | undefined {
+  const direct = index.byEpgId.get(xmltvChannel);
+  if (direct !== undefined) return direct;
+
+  // `DR1.dk` -> `DR1`. Landeendelsen er ikke en del af kanalens navn.
+  const withoutSuffix = xmltvChannel.replace(/\.[a-z]{2}$/i, '');
+  return index.byName.get(normaliseChannelName(withoutSuffix));
 }
 
 function contentLength(response: unknown): number | null {

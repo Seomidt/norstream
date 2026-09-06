@@ -103,3 +103,57 @@ describe('syncXmltv', () => {
     ).rejects.toThrow('404');
   });
 });
+
+describe('naar kanalen ingen tvg-id har', () => {
+  /** Sadan ser panelets kanaler ud: 87 % har intet epg_channel_id. */
+  async function panelChannel(name: string, matchKey: string, id = 'p1:1'): Promise<void> {
+    await db.runAsync(
+      `INSERT INTO channels (id, source_id, stream_id, name, match_key, country)
+       VALUES (?, 'p1', '1', ?, ?, 'DK')`,
+      [id, name, matchKey],
+    );
+  }
+
+  const PANEL = (): Source => source({ id: 'p1', kind: 'xtream' });
+
+  it('matcher paa navnet naar XMLTV skriver DR1.dk', async () => {
+    // Landeendelsen er ikke en del af kanalens navn.
+    await panelChannel('DNK| DR1 HD', 'DR1');
+    const result = await syncXmltv(db, PANEL(), serving(XMLTV));
+    expect(result.matched).toBe(1);
+    const stored = await listProgrammes(
+      db,
+      'p1:1',
+      new Date('2026-09-06T17:00:00Z'),
+      new Date('2026-09-06T20:00:00Z'),
+    );
+    expect(stored.map((p) => p.title)).toEqual(['TV Avisen']);
+  });
+
+  it('lader vaere naar to kanaler deler navn', async () => {
+    // Panelet har baade DR1 HD og DR1 HEVC. Programmerne ville ellers lande
+    // paa en tilfaeldig af dem, og den anden staa tom.
+    await panelChannel('DNK| DR1 HD', 'DR1', 'p1:1');
+    await panelChannel('DNK| DR1 HEVC', 'DR1', 'p1:2');
+    const result = await syncXmltv(db, PANEL(), serving(XMLTV));
+    expect(result.matched).toBe(0);
+  });
+
+  it('lader tvg-id vinde over navnet', async () => {
+    await db.runAsync(
+      `INSERT INTO channels (id, source_id, stream_id, name, match_key, epg_channel_id, country)
+       VALUES ('p1:9', 'p1', '9', 'Noget andet', 'NOGETANDET', 'dr1.dk', 'DK')`,
+    );
+    await panelChannel('DNK| DR1 HD', 'DR1', 'p1:1');
+
+    await syncXmltv(db, PANEL(), serving(XMLTV));
+
+    const stored = await listProgrammes(
+      db,
+      'p1:9',
+      new Date('2026-09-06T17:00:00Z'),
+      new Date('2026-09-06T20:00:00Z'),
+    );
+    expect(stored).toHaveLength(1);
+  });
+});

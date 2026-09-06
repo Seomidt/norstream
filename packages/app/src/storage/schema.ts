@@ -42,6 +42,11 @@ CREATE TABLE IF NOT EXISTS channels (
   source_id      TEXT NOT NULL,
   stream_id      TEXT NOT NULL,
   stream_url     TEXT,
+  -- Kanalnavnet renset for landepraefiks og kvalitetsmaerker, plus landet
+  -- udledt af kategorien. De to er noeglen ind i det aabne logo-register;
+  -- de beregnes ved synkronisering, fordi SQL ikke kan normalisere et navn.
+  match_key      TEXT NOT NULL DEFAULT '',
+  country        TEXT NOT NULL DEFAULT '',
   name           TEXT NOT NULL,
   number         INTEGER,
   logo_url       TEXT,
@@ -129,6 +134,15 @@ CREATE TABLE IF NOT EXISTS recordings (
 
 CREATE INDEX IF NOT EXISTS idx_recordings_start ON recordings (start_ms);
 
+-- Logoer fra det aabne kanalregister, som reserve for de kanaler hvor
+-- udbyderens egen logo-adresse mangler eller ikke kan naas. Ren cache: den
+-- kan altid hentes igen, og den ryddes ved hver opdatering.
+CREATE TABLE IF NOT EXISTS registry_logos (
+  key     TEXT PRIMARY KEY,
+  country TEXT NOT NULL,
+  url     TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -146,10 +160,11 @@ const TABLES = [
   'epg_archive_fetch',
   'hidden_countries',
   'recordings',
+  'registry_logos',
   'settings',
 ] as const;
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -269,6 +284,8 @@ async function addV5Columns(db: SqlDatabase): Promise<void> {
     "ALTER TABLE channels ADD COLUMN stream_id TEXT NOT NULL DEFAULT ''",
     'ALTER TABLE channels ADD COLUMN stream_url TEXT',
     "ALTER TABLE categories ADD COLUMN source_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channels ADD COLUMN match_key TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channels ADD COLUMN country TEXT NOT NULL DEFAULT ''",
   ];
   for (const sql of additions) {
     try {
@@ -320,7 +337,9 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     await db.execAsync(SCHEMA);
     await restorePreserved(db, preserved);
   } else {
-    const toV5 = version >= REBUILD_BELOW_VERSION && version < 5;
+    // v6 tilfoejer to kolonner mere til channels; samme ALTER-trin klarer
+    // begge spring, og cachen ryddes alligevel.
+    const toV5 = version >= REBUILD_BELOW_VERSION && version < 6;
     if (toV5) await addV5Columns(db);
     await db.execAsync(SCHEMA);
     if (toV5) await clearV5Cache(db);

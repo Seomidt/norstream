@@ -1,4 +1,4 @@
-import { parseM3u } from '@norstream/core';
+import { deriveCountryLoose, parseM3u } from '@norstream/core';
 import type { Category, Channel, FetchLike, Source } from '@norstream/core';
 import { replaceCategories, replaceChannels } from '../storage/channels.js';
 import { setLastSyncMs } from '../storage/settings.js';
@@ -42,8 +42,14 @@ export async function syncM3u(
     }
   }
 
+  const countryByCategory = new Map<string, string>();
+  for (const category of categories.values()) {
+    const country = deriveCountryLoose(category.name);
+    if (country !== null) countryByCategory.set(category.id, country.code);
+  }
+
   await replaceCategories(db, source.id, [...categories.values()]);
-  await replaceChannels(db, source.id, channels, urls);
+  await replaceChannels(db, source.id, channels, urls, countryByCategory);
   await setLastSyncMs(db, now.getTime(), source.id);
 
   return { categories: categories.size, channels: channels.length };

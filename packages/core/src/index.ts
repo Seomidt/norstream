@@ -48,4 +48,11 @@ export { panelOffsetFromServerInfo } from './xtream/serverInfo.js';
 
 export { channelKey, isValidSourceId, parseChannelKey } from './source/source.js';
 export { logoCandidates } from './source/logo.js';
+export { parseCsv, parseCsvRecords } from './source/csv.js';
+export {
+  buildNameIndex,
+  matchRegistryChannel,
+  normaliseChannelName,
+} from './source/match.js';
+export type { RegistryChannel } from './source/match.js';
 export type { ChannelKeyParts, Source, SourceKind } from './source/source.js';

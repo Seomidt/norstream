@@ -1,0 +1,103 @@
+/**
+ * Sammenligningsnavn for en kanal.
+ *
+ * Panelet skriver `DNK| DR1 HD`, `VIP DR1 HEVC`, `DR 1 FHD`. Det aabne
+ * register skriver `DR1`. Uden en faelles form matcher intet, og de 22.000
+ * kanaler ville staa uden logo selv om registret har dem.
+ *
+ * Der fjernes: landepraefiks, kvalitetsmaerker, tegnsaetning og mellemrum.
+ * Tallet bliver staaende — `DR1` og `DR2` er ikke den samme kanal, og en
+ * normalisering der blandede dem ville give forkerte logoer paa kanaler der
+ * ser rigtige ud.
+ */
+const QUALITY = new Set([
+  'HD',
+  'FHD',
+  'UHD',
+  'SD',
+  'HEVC',
+  'H265',
+  'H264',
+  '4K',
+  '8K',
+  'VIP',
+  '1080P',
+  '1080',
+  '720P',
+  '720',
+  '2160P',
+  'RAW',
+  'BACKUP',
+  'ALT',
+]);
+
+export function normaliseChannelName(name: string): string {
+  // Alt foer en lodret streg er panelets eget praefiks: `DNK|`, `DK |`.
+  const withoutPrefix = name.includes('|') ? name.slice(name.lastIndexOf('|') + 1) : name;
+
+  const words = withoutPrefix
+    .toUpperCase()
+    .replace(/[^A-Z0-9ÆØÅ]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter((word) => word.length > 0 && !QUALITY.has(word));
+
+  return words.join('');
+}
+
+/** En kanal i det aabne register, reduceret til det der skal bruges. */
+export interface RegistryChannel {
+  /** Registrets eget id, fx `DR1.dk`. */
+  id: string;
+  name: string;
+  altNames: string[];
+  /** ISO 3166-1 alpha-2, store bogstaver. */
+  country: string;
+}
+
+/**
+ * Opslag fra normaliseret navn til registrets kanaler.
+ *
+ * Flere kanaler kan dele navn — `TV 2` findes i baade Danmark, Norge og
+ * Sverige — saa opslaget giver en liste, og landet afgoer. Uden det ville en
+ * dansk TV 2 lige saa godt kunne faa det norske logo.
+ */
+export function buildNameIndex(
+  channels: readonly RegistryChannel[],
+): Map<string, RegistryChannel[]> {
+  const index = new Map<string, RegistryChannel[]>();
+  const add = (key: string, channel: RegistryChannel): void => {
+    if (key.length === 0) return;
+    const existing = index.get(key);
+    if (existing === undefined) index.set(key, [channel]);
+    else if (!existing.includes(channel)) existing.push(channel);
+  };
+
+  for (const channel of channels) {
+    add(normaliseChannelName(channel.name), channel);
+    for (const alt of channel.altNames) add(normaliseChannelName(alt), channel);
+  }
+  return index;
+}
+
+/**
+ * Finder registrets kanal for et panelnavn.
+ *
+ * `country` er landet udledt af kategorien. Er der flere kandidater, vinder
+ * den fra samme land; er der ingen fra landet, gives der **op** frem for at
+ * gaette. Et forkert logo paa en kanal der ser rigtig ud er vaerre end intet
+ * logo — man opdager det aldrig.
+ */
+export function matchRegistryChannel(
+  index: ReadonlyMap<string, RegistryChannel[]>,
+  name: string,
+  country: string | null,
+): RegistryChannel | null {
+  const candidates = index.get(normaliseChannelName(name));
+  if (candidates === undefined || candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0] ?? null;
+  if (country === null) return null;
+
+  const fromCountry = candidates.filter((c) => c.country === country.toUpperCase());
+  return fromCountry.length === 1 ? (fromCountry[0] ?? null) : null;
+}

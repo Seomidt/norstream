@@ -200,3 +200,68 @@ describe('search escaping', () => {
     expect(await listChannels(db, { search: '_' })).toHaveLength(0);
   });
 });
+
+describe('logoer fra det aabne register', () => {
+  it('bruger registrets logo naar udbyderen ikke har et', async () => {
+    await db.runAsync("INSERT INTO sources VALUES ('src1','xtream','P','http://p:8080',NULL,NULL,1,0,0)");
+    await db.runAsync("INSERT INTO registry_logos VALUES ('DR1:DK','DK','https://logo/dr1.png')");
+    await replaceCategories(db, SOURCE, [{ id: '1', name: 'DENMARK HD' }]);
+    await replaceChannels(
+      db,
+      SOURCE,
+      [channel({ id: 'a', name: 'DNK| DR1 HD', categoryId: '1' })],
+      undefined,
+      new Map([['1', 'DK']]),
+    );
+
+    const [stored] = await listChannels(db);
+    expect(stored?.logoUrls).toEqual(['https://logo/dr1.png']);
+  });
+
+  it('lader udbyderens eget logo staa foerst', async () => {
+    // Registret er en reserve, ikke en erstatning: udbyderens eget logo er
+    // det rigtige for netop den kanal, naar det kan hentes.
+    await db.runAsync("INSERT INTO sources VALUES ('src1','xtream','P','http://p:8080',NULL,NULL,1,0,0)");
+    await db.runAsync("INSERT INTO registry_logos VALUES ('DR1:DK','DK','https://logo/dr1.png')");
+    await replaceCategories(db, SOURCE, [{ id: '1', name: 'DENMARK HD' }]);
+    await replaceChannels(
+      db,
+      SOURCE,
+      [
+        channel({
+          id: 'a',
+          name: 'DNK| DR1 HD',
+          categoryId: '1',
+          logoUrl: 'http://103.176.90.95/images/1.png',
+        }),
+      ],
+      undefined,
+      new Map([['1', 'DK']]),
+    );
+
+    const [stored] = await listChannels(db);
+    expect(stored?.logoUrls).toEqual([
+      // Udbyderens egen adresse.
+      'http://103.176.90.95/images/1.png',
+      // Den samme sti paa panelets vaert, som ofte kan naas naar den anden ikke kan.
+      'http://p:8080/images/1.png',
+      // Og til sidst registrets.
+      'https://logo/dr1.png',
+    ]);
+  });
+
+  it('tager ikke et logo fra et andet land', async () => {
+    await db.runAsync("INSERT INTO sources VALUES ('src1','xtream','P','http://p:8080',NULL,NULL,1,0,0)");
+    await db.runAsync("INSERT INTO registry_logos VALUES ('TV2:NO','NO','https://logo/tv2no.png')");
+    await replaceCategories(db, SOURCE, [{ id: '1', name: 'DENMARK HD' }]);
+    await replaceChannels(
+      db,
+      SOURCE,
+      [channel({ id: 'a', name: 'DNK| TV 2 HD', categoryId: '1' })],
+      undefined,
+      new Map([['1', 'DK']]),
+    );
+
+    expect((await listChannels(db))[0]?.logoUrls).toEqual([]);
+  });
+});

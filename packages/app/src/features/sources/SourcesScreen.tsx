@@ -304,6 +304,7 @@ function AddSource({
           name: label,
           url: trimmedUrl,
           username: creds.username,
+          xmltvUrl: xmltvUrl.trim().length > 0 ? xmltvUrl.trim() : null,
         });
         await saveSourceCredentials(source.id, creds);
 
@@ -361,26 +362,25 @@ function AddSource({
         keyboardType="url"
       />
 
-      {isXtream ? (
+      {isXtream && (
         <>
           <Field label="Brugernavn" value={username} onChange={setUsername} />
           <Field label="Adgangskode" value={password} onChange={setPassword} secure />
         </>
-      ) : (
-        <>
-          <Field
-            label="XMLTV-adresse (valgfrit)"
-            value={xmltvUrl}
-            onChange={setXmltvUrl}
-            placeholder="http://.../epg.xml"
-            keyboardType="url"
-          />
-          <Text style={styles.hint}>
-            En M3U-liste rummer ingen programoversigt. Uden en XMLTV-adresse
-            står guiden tom for kanalerne herfra.
-          </Text>
-        </>
       )}
+
+      <Field
+        label="XMLTV-adresse (valgfrit)"
+        value={xmltvUrl}
+        onChange={setXmltvUrl}
+        placeholder="http://.../epg.xml"
+        keyboardType="url"
+      />
+      <Text style={styles.hint}>
+        {isXtream
+          ? 'Panelet leverer selv programoversigt. En XMLTV-adresse her fylder hullerne for de kanaler panelet ikke har data til.'
+          : 'En M3U-liste rummer ingen programoversigt. Uden en XMLTV-adresse står guiden tom for kanalerne herfra.'}
+      </Text>
 
       {error !== null && <Text style={styles.error}>{error}</Text>}
 

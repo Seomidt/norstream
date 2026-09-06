@@ -1,4 +1,4 @@
-import { channelKey, logoCandidates } from '@norstream/core';
+import { channelKey, logoCandidates, normaliseChannelName } from '@norstream/core';
 import type { Category, Channel } from '@norstream/core';
 import type { SqlDatabase, SqlValue } from './types.js';
 
@@ -24,6 +24,7 @@ interface ChannelRow {
   id: string;
   source_id: string;
   source_url: string | null;
+  registry_logo_url: string | null;
   stream_id: string;
   stream_url: string | null;
   name: string;
@@ -42,7 +43,14 @@ function toStoredChannel(row: ChannelRow): StoredChannel {
     sourceId: row.source_id,
     streamId: row.stream_id,
     streamUrl: row.stream_url,
-    logoUrls: logoCandidates(row.logo_url, row.source_url ?? ''),
+    // Registrets logo staar sidst: udbyderens eget forsoeges foerst, ogsaa
+    // paa panelets egen vaert, og faerdigt register-logo er sidste udvej.
+    logoUrls: [
+      ...logoCandidates(row.logo_url, row.source_url ?? ''),
+      ...(row.registry_logo_url === null || row.registry_logo_url === undefined
+        ? []
+        : [row.registry_logo_url]),
+    ],
     name: row.name,
     number: row.number,
     logoUrl: row.logo_url,
@@ -91,6 +99,8 @@ export async function replaceChannels(
   channels: Channel[],
   /** Kun M3U: kanalens faerdige adresse, slaaet op paa kanalens eget id. */
   streamUrls?: ReadonlyMap<string, string>,
+  /** Landet for hver kategori, saa kanalen kan slaas op i logo-registret. */
+  countryByCategory?: ReadonlyMap<string, string>,
 ): Promise<void> {
   // Trin 1: Mark denne kildes kanaler som stale. De andre kilders roeres ikke.
   await db.runAsync('UPDATE channels SET is_stale = 1 WHERE source_id = ?', [sourceId]);
@@ -101,11 +111,14 @@ export async function replaceChannels(
   for (const channel of channels) {
     await db.runAsync(
       `INSERT INTO channels
-         (id, source_id, stream_id, stream_url, name, number, logo_url, category_id,
-          epg_channel_id, has_archive, archive_days, is_stale, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+         (id, source_id, stream_id, stream_url, match_key, country, name, number,
+          logo_url, category_id, epg_channel_id, has_archive, archive_days,
+          is_stale, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
        ON CONFLICT(id) DO UPDATE SET
          stream_url     = excluded.stream_url,
+         match_key      = excluded.match_key,
+         country        = excluded.country,
          name           = excluded.name,
          number         = excluded.number,
          logo_url       = excluded.logo_url,
@@ -120,6 +133,10 @@ export async function replaceChannels(
         sourceId,
         channel.id,
         streamUrls?.get(channel.id) ?? null,
+        normaliseChannelName(channel.name),
+        (channel.categoryId === null
+          ? undefined
+          : countryByCategory?.get(channel.categoryId)) ?? '',
         channel.name,
         channel.number,
         channel.logoUrl,
@@ -197,10 +214,13 @@ export async function listChannels(
     `SELECT c.id, c.source_id, c.stream_id, c.stream_url, c.name, c.number, c.logo_url,
             c.category_id, c.epg_channel_id, c.has_archive, c.archive_days, c.sort_order,
             s.url AS source_url,
+            COALESCE(rc.url, ra.url) AS registry_logo_url,
             CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE NULL END AS is_favorite
      FROM channels c
      LEFT JOIN favorites f ON f.channel_id = c.id
      LEFT JOIN sources s ON s.id = c.source_id
+     LEFT JOIN registry_logos rc ON rc.key = c.match_key || ':' || c.country
+     LEFT JOIN registry_logos ra ON ra.key = c.match_key || ':*'
      ${clause}
      ORDER BY c.sort_order
      ${limitClause}`,
@@ -217,10 +237,13 @@ export async function getChannel(
     `SELECT c.id, c.source_id, c.stream_id, c.stream_url, c.name, c.number, c.logo_url,
             c.category_id, c.epg_channel_id, c.has_archive, c.archive_days, c.sort_order,
             s.url AS source_url,
+            COALESCE(rc.url, ra.url) AS registry_logo_url,
             CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE NULL END AS is_favorite
      FROM channels c
      LEFT JOIN favorites f ON f.channel_id = c.id
      LEFT JOIN sources s ON s.id = c.source_id
+     LEFT JOIN registry_logos rc ON rc.key = c.match_key || ':' || c.country
+     LEFT JOIN registry_logos ra ON ra.key = c.match_key || ':*'
      WHERE c.id = ?`,
     [id],
   );

@@ -5,10 +5,12 @@ import type { SqlDatabase } from '../storage/types.js';
 import {
   getLastSyncMs,
   getLastXmltvMs,
+  setLastSyncMs,
   setLastXmltvMs,
 } from '../storage/settings.js';
 import { syncChannels } from './syncChannels.js';
 import { syncM3u } from './syncM3u.js';
+import { syncLogoRegistry } from './syncLogoRegistry.js';
 import { syncXmltv } from './syncXmltv.js';
 
 /** Kanallisten hentes hoejst én gang i doegnet af sig selv. */
@@ -23,6 +25,18 @@ export const CHANNEL_SYNC_INTERVAL_MS = 24 * 60 * 60_000;
  * ingen grund til at hente den oftere end programmerne aendrer sig.
  */
 export const XMLTV_INTERVAL_MS = 24 * 60 * 60_000;
+
+/**
+ * Logo-registret hentes hoejst én gang om ugen.
+ *
+ * Det er to filer paa tre megabyte hver, og kanallogoer aendrer sig ikke fra
+ * dag til dag. En uge er rigeligt, og det holder hentningen ude af den
+ * daglige rytme hvor den ville koste baandbredde uden at give noget.
+ */
+export const REGISTRY_INTERVAL_MS = 7 * 24 * 60 * 60_000;
+
+/** Noeglen registrets hentetid gemmes under. */
+const REGISTRY_SOURCE = '__registry__';
 
 export interface SyncAllResult {
   /** Kilder der blev hentet uden problemer. */
@@ -56,6 +70,10 @@ export async function syncAllSources(
   const force = options.force === true;
   const result: SyncAllResult = { synced: 0, skipped: 0, rejected: [], failed: [] };
 
+  // Foer kilderne: naar kanalerne skrives, skal registret gerne staa klar, saa
+  // logoerne er der fra foerste tegning frem for efter naeste opdatering.
+  await maybeRegistry(db, fetchImpl, now, force);
+
   for (const access of sources) {
     // Hver kilde har sin egen doegnrytme. Med én faelles ville en nyligt
     // tilfoejet kilde arve de andres hentetid og staa tom i op til et doegn.
@@ -73,6 +91,7 @@ export async function syncAllSources(
         await maybeXmltv(db, access, fetchImpl, now, true);
       } else if (access.creds !== null) {
         await syncChannels(db, access.source.id, access.creds, fetchImpl, now);
+        await maybeXmltv(db, access, fetchImpl, now, true);
       } else {
         // Kilden findes, men adgangsoplysningerne er vaek fra Keychain.
         result.rejected.push(access.source.name);
@@ -102,8 +121,10 @@ async function maybeXmltv(
   now: Date,
   force: boolean,
 ): Promise<void> {
+  // Ogsaa for Xtream-kilder: et panel kan sagtens have kanaler uden EPG, og
+  // en XMLTV-adresse ved siden af er den eneste vej til at fylde hullerne.
   const { source } = access;
-  if (source.kind !== 'm3u' || source.xmltvUrl === null) return;
+  if (source.xmltvUrl === null || source.xmltvUrl.length === 0) return;
 
   const last = await getLastXmltvMs(db, source.id);
   if (!force && last !== null && now.getTime() - last < XMLTV_INTERVAL_MS) return;
@@ -113,5 +134,29 @@ async function maybeXmltv(
     await setLastXmltvMs(db, source.id, now.getTime());
   } catch {
     // Med vilje: se kommentaren ovenfor. Kanalerne virker uden.
+  }
+}
+
+/**
+ * Henter det aabne logo-register hvis det er blevet gammelt.
+ *
+ * Fejler det, gaar det ikke ud over noget: registret er en **reserve** for de
+ * kanaler hvor udbyderens egen logo-adresse mangler eller ikke kan naas. Uden
+ * det staar kanalens forbogstaver, som foer.
+ */
+async function maybeRegistry(
+  db: SqlDatabase,
+  fetchImpl: FetchLike,
+  now: Date,
+  force: boolean,
+): Promise<void> {
+  const last = await getLastSyncMs(db, REGISTRY_SOURCE);
+  if (!force && last !== null && now.getTime() - last < REGISTRY_INTERVAL_MS) return;
+
+  try {
+    await syncLogoRegistry(db, fetchImpl);
+    await setLastSyncMs(db, now.getTime(), REGISTRY_SOURCE);
+  } catch {
+    // Med vilje: se kommentaren ovenfor.
   }
 }
