@@ -38,9 +38,13 @@ jobs:
           # Siger hvilke navne der er sat, uden at afsloere nogen vaerdi.
           # Uden det kan "tom" lige saa godt vaere en fejl i udtrykket ovenfor
           # som en manglende hemmelighed, og de to kraever hver sin rettelse.
-          echo "EXPO_TOKEN sat:        ${{ secrets.EXPO_TOKEN != '' }}"
-          echo "EXPO_ACCESS_TOKEN sat: ${{ secrets.EXPO_ACCESS_TOKEN != '' }}"
-          echo "EAS_TOKEN sat:         ${{ secrets.EAS_TOKEN != '' }}"
+          echo "secret EXPO_TOKEN:        ${{ secrets.EXPO_TOKEN != '' }}"
+          echo "secret EXPO_ACCESS_TOKEN: ${{ secrets.EXPO_ACCESS_TOKEN != '' }}"
+          echo "secret EAS_TOKEN:         ${{ secrets.EAS_TOKEN != '' }}"
+          # "Repository variables" ligger paa den samme side som secrets, lige
+          # under dem, og en vaerdi lagt der ser fuldstaendig rigtig ud paa
+          # siden. Er den her true og secret'en false, er det hele forklaringen.
+          echo "variable EXPO_TOKEN:      ${{ vars.EXPO_TOKEN != '' }}"
 
           if [ -n "$EXPO_TOKEN" ]; then
             echo "EXPO_TOKEN er sat (${#EXPO_TOKEN} tegn)"
@@ -56,7 +60,8 @@ jobs:
              under Codespaces eller Dependabot ser rigtig ud og virker ikke.
 
           2. "Repository secrets", ikke "Repository variables". De ligger paa
-             samme side under hinanden.
+             samme side under hinanden. Linjen "variable EXPO_TOKEN" ovenfor
+             siger det: er den true, ligger vaerdien som en variabel.
 
           3. Navnet. Workflowen accepterer EXPO_TOKEN, EXPO_ACCESS_TOKEN
              eller EAS_TOKEN.
