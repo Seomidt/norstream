@@ -11,7 +11,9 @@ import {
   getTimeshiftDialect,
   setTimeshiftDialect,
 } from '../../storage/settings.js';
+import { isScheduled, scheduleRecording } from '../../storage/recordings.js';
 import { ensureEpg } from '../../sync/epgCache.js';
+import { canRecord } from '../recordings/plan.js';
 import { theme } from '../../ui/theme.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback } from './format.js';
 import { restartBlockFor, restartHint } from './restart.js';
@@ -60,6 +62,8 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
    */
   const [restartBlock, setRestartBlock] = useState<RestartBlock | null | undefined>(undefined);
   const [repairing, setRepairing] = useState(false);
+  /** Er den udsendelse der staar paa skaermen allerede bestilt til optagelse? */
+  const [recorded, setRecorded] = useState(false);
   // Kommer vi fra guiden med et program, er afspilningen en start-forfra fra
   // foerste billede — ogsaa foer dialekten er laest, saa format-fallbacket
   // aldrig naar at slaa til paa en timeshift-URL.
@@ -87,13 +91,19 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
       const dialect = await getTimeshiftDialect(session.db);
       if (cancelled) return;
       setRestartBlock(restartBlockFor(channel.hasArchive, dialect !== null, result.now !== null));
+
+      const shown = startFrom ?? result.now;
+      if (shown !== null && shown !== undefined) {
+        const already = await isScheduled(session.db, channel.id, shown.start);
+        if (!cancelled) setRecorded(already);
+      }
     }
 
     void loadEpg();
     return () => {
       cancelled = true;
     };
-  }, [session.db, channel]);
+  }, [session.db, channel, startFrom]);
 
   useEffect(() => {
     if (source === null) return;
@@ -265,6 +275,25 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
     }
   }, [restartBlock, session, channel]);
 
+  /**
+   * Bestiller udsendelsen til optagelse.
+   *
+   * "Optag" er et loefte om en *hentning*, ikke en optagelse der gaar i gang:
+   * panelet har ingen optagefunktion, og udsendelsen kan foerst hentes fra
+   * arkivet naar den er sendt. Derfor gemmes den bare her, og selve hentningen
+   * sker paa Optagelser-fanen naar brugeren ikke ser tv.
+   */
+  const record = useCallback(async (): Promise<void> => {
+    const shown = startFrom ?? now;
+    if (shown === null || shown === undefined) return;
+    await scheduleRecording(
+      session.db,
+      { id: channel.id, name: channel.name, archiveDays: channel.archiveDays },
+      shown,
+    );
+    setRecorded(true);
+  }, [session.db, channel, startFrom, now]);
+
   // Guiden aabner afspilleren med et afsluttet program: byg arkiv-URLen med
   // det samme, i stedet for at vente paa at brugeren finder en knap.
   const startFromHandled = useRef(false);
@@ -310,6 +339,17 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
         <Pressable style={styles.button} onPress={onBack}>
           <Text style={styles.buttonText}>Tilbage</Text>
         </Pressable>
+        {canRecord(channel) && (startFrom ?? now) !== null && (
+          <Pressable
+            style={[styles.button, recorded && styles.buttonDone]}
+            disabled={recorded}
+            onPress={() => {
+              void record();
+            }}
+          >
+            <Text style={styles.buttonText}>{recorded ? '● Optages' : '● Optag'}</Text>
+          </Pressable>
+        )}
         {!restarted && restartBlock === null && now !== null && (
           <Pressable
             style={[styles.button, styles.buttonAccent]}
@@ -410,5 +450,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.lg,
   },
   buttonAccent: { backgroundColor: theme.colors.accent },
+  buttonDone: { backgroundColor: theme.colors.surface },
   buttonText: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
 });

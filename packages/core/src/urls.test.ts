@@ -112,3 +112,23 @@ describe('buildXmltvUrl', () => {
     );
   });
 });
+
+describe('buildTimeshiftUrl og filformatet', () => {
+  const creds = { baseUrl: 'http://panel.example:8080', username: 'u', password: 'p' };
+  const start = new Date('2026-09-06T20:00:00.000Z');
+
+  it('giver m3u8 som standard, som en afspiller vil have', () => {
+    expect(buildTimeshiftUrl(creds, '1', start, 60, 'path')).toContain('/1.m3u8');
+  });
+
+  it('kan give ts, som er det man kan gemme som fil', () => {
+    // En hentet .m3u8 er spillelisten, ikke udsendelsen.
+    expect(buildTimeshiftUrl(creds, '1', start, 60, 'path', 0, 'ts')).toContain('/1.ts');
+  });
+
+  it('rører ikke php-dialekten, som ingen filendelse har', () => {
+    const asTs = buildTimeshiftUrl(creds, '1', start, 60, 'php', 0, 'ts');
+    expect(asTs).toBe(buildTimeshiftUrl(creds, '1', start, 60, 'php', 0, 'm3u8'));
+    expect(asTs).toContain('timeshift.php?');
+  });
+});

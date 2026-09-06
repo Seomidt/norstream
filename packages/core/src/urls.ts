@@ -42,6 +42,18 @@ export function formatTimeshiftStart(date: Date, panelOffsetMinutes = 0): string
   return `${y}-${mo}-${d}:${h}-${mi}`;
 }
 
+/**
+ * Bygger URL'en til et udsnit af panelets arkiv.
+ *
+ * `format` gaelder kun `path`-dialekten, som lægger et filnavn i stien.
+ * Standarden er `m3u8`, fordi det er en spilleliste en afspiller vil have.
+ * Til **optagelse** skal der `ts`: henter man `.m3u8` ned som fil, faar man
+ * spillelisten — nogle faa kilobyte tekst der peger paa segmenter der ikke
+ * findes i morgen — og ikke udsendelsen.
+ *
+ * `php`-dialekten har intet filnavn at aendre; den leverer transportstroemmen
+ * direkte, og `format` er uden betydning der.
+ */
 export function buildTimeshiftUrl(
   creds: XtreamCredentials,
   streamId: string,
@@ -49,6 +61,7 @@ export function buildTimeshiftUrl(
   durationMinutes: number,
   dialect: TimeshiftDialect,
   panelOffsetMinutes = 0,
+  format: StreamFormat = 'm3u8',
 ): string {
   const base = normaliseBaseUrl(creds.baseUrl);
   const startStr = formatTimeshiftStart(start, panelOffsetMinutes);
@@ -67,5 +80,5 @@ export function buildTimeshiftUrl(
     return `${base}/streaming/timeshift.php?${query}`;
   }
 
-  return `${base}/timeshift/${user}/${pass}/${duration}/${startStr}/${encodeURIComponent(streamId)}.m3u8`;
+  return `${base}/timeshift/${user}/${pass}/${duration}/${startStr}/${encodeURIComponent(streamId)}.${format}`;
 }

@@ -79,6 +79,31 @@ CREATE TABLE IF NOT EXISTS hidden_countries (
   name TEXT PRIMARY KEY
 );
 
+-- Optagelser. Panelet har ingen optagefunktion; det appen kan, er at hente
+-- udsendelsen ned fra panelets *arkiv* efter den er sendt. En optagelse er
+-- derfor et loefte om en hentning, ikke en igangvaerende optagelse.
+--
+-- Kanalnavn og arkivlaengde staar med her frem for at blive slaaet op i
+-- channels: en optaget udsendelse skal overleve at kanalen forsvinder fra
+-- panelet, og skal stadig kunne vise hvad den er.
+CREATE TABLE IF NOT EXISTS recordings (
+  id           TEXT PRIMARY KEY,
+  channel_id   TEXT NOT NULL,
+  channel_name TEXT NOT NULL,
+  title        TEXT NOT NULL,
+  description  TEXT,
+  start_ms     INTEGER NOT NULL,
+  stop_ms      INTEGER NOT NULL,
+  archive_days INTEGER NOT NULL,
+  state        TEXT NOT NULL,
+  file_uri     TEXT,
+  bytes        INTEGER NOT NULL DEFAULT 0,
+  error        TEXT,
+  created_at   INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_recordings_start ON recordings (start_ms);
+
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -94,10 +119,11 @@ const TABLES = [
   'epg_fetch',
   'epg_archive_fetch',
   'hidden_countries',
+  'recordings',
   'settings',
 ] as const;
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /**
  * Foerste version der kan opgraderes additivt.

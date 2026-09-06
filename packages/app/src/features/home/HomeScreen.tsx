@@ -15,6 +15,7 @@ import { theme } from '../../ui/theme.js';
 import { BrowseScreen } from '../browse/BrowseScreen.js';
 import { FavoritesScreen } from '../favorites/FavoritesScreen.js';
 import { GuideScreen } from '../guide/GuideScreen.js';
+import { RecordingsScreen } from '../recordings/RecordingsScreen.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { SettingsScreen } from '../settings/SettingsScreen.js';
 
@@ -24,13 +25,14 @@ interface Props {
   onSignedOut: (notice: string) => void;
 }
 
-type Tab = 'favorites' | 'browse' | 'guide' | 'settings';
+type Tab = 'favorites' | 'browse' | 'guide' | 'recordings' | 'settings';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'favorites', label: 'Favoritter', icon: '★' },
   { id: 'browse', label: 'Kanaler', icon: '☰' },
   { id: 'guide', label: 'Guide', icon: '▦' },
-  { id: 'settings', label: 'Indstillinger', icon: '⚙' },
+  { id: 'recordings', label: 'Optagelser', icon: '●' },
+  { id: 'settings', label: 'Indstil.', icon: '⚙' },
 ];
 
 /** Kanallisten henter sig selv hoejst en gang i doegnet uden brugerens hjaelp. */
@@ -183,6 +185,8 @@ export function HomeScreen({ session, onSelect, onSignedOut }: Props) {
             onBrowse={() => setTab('browse')}
           />
         )}
+        {tab === 'recordings' && <RecordingsScreen session={session} />}
+
         {tab === 'settings' && (
           <SettingsScreen
             session={session}

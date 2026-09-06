@@ -44,7 +44,7 @@ async function userVersion(db: SqlDatabase): Promise<number> {
 }
 
 describe('migrate paa en frisk database', () => {
-  it('opretter alle ni tabeller', async () => {
+  it('opretter alle ti tabeller', async () => {
     const db = createTestDatabase();
     await migrate(db);
     const names = await tableNames(db);
@@ -57,16 +57,17 @@ describe('migrate paa en frisk database', () => {
       'epg_fetch',
       'epg_archive_fetch',
       'hidden_countries',
+      'recordings',
       'settings',
     ]) {
       expect(names).toContain(table);
     }
   });
 
-  it('stempler skemaversion 3', async () => {
+  it('stempler skemaversion 4', async () => {
     const db = createTestDatabase();
     await migrate(db);
-    expect(await userVersion(db)).toBe(3);
+    expect(await userVersion(db)).toBe(4);
   });
 
   it('er idempotent og sletter ikke data ved anden koersel', async () => {
@@ -190,7 +191,7 @@ describe('migrate fra v1', () => {
   it('stempler den nuvaerende version og opretter de nye tabeller', async () => {
     const db = await createV1Database();
     await migrate(db);
-    expect(await userVersion(db)).toBe(3);
+    expect(await userVersion(db)).toBe(4);
     const names = await tableNames(db);
     expect(names).toContain('epg_fetch');
     expect(names).toContain('hidden_countries');
@@ -204,7 +205,7 @@ describe('migrate fra v1', () => {
     await db.execAsync('PRAGMA user_version = 1');
 
     await expect(migrate(db)).resolves.toBeUndefined();
-    expect(await userVersion(db)).toBe(3);
+    expect(await userVersion(db)).toBe(4);
     expect(await tableNames(db)).toContain('favorites');
   });
 });
@@ -249,7 +250,7 @@ describe('migrate fra v2', () => {
 
     await migrate(db);
 
-    expect(await userVersion(db)).toBe(3);
+    expect(await userVersion(db)).toBe(4);
     expect(await tableNames(db)).toContain('epg_archive_fetch');
 
     // v2 -> v3 tilfoejer kun en tabel. Bygger den om alligevel, mister
@@ -277,7 +278,7 @@ describe('migrate fra v2', () => {
     expect(hidden.map((row) => row.name)).toEqual(['__other__']);
   });
 
-  it('er idempotent paa v3', async () => {
+  it('er idempotent paa v4', async () => {
     const db = createTestDatabase();
     await migrate(db);
     await db.runAsync("INSERT INTO epg_archive_fetch VALUES ('247634', 42)");

@@ -231,8 +231,8 @@ describe('layoutRow', () => {
 
 describe('guideAction', () => {
   const NOW = new Date('2026-09-05T19:15:00.000Z');
-  const withArchive = { hasArchive: true };
-  const withoutArchive = { hasArchive: false };
+  const withArchive = { hasArchive: true, archiveDays: 7 };
+  const withoutArchive = { hasArchive: false, archiveDays: 0 };
 
   function cellFor(startIso: string, stopIso: string) {
     const cells = layoutRow([programme(startIso, stopIso)], WINDOW_START, WINDOW_END, NOW);
@@ -265,9 +265,25 @@ describe('guideAction', () => {
     expect(guideAction(cell, withArchive, false)).toBe('none');
   });
 
-  it('kommer senere: ingenting', () => {
+  it('kommer senere, og kanalen har arkiv: bestil optagelse', () => {
     const cell = cellFor('2026-09-05T20:00:00.000Z', '2026-09-05T20:30:00.000Z');
-    expect(guideAction(cell, withArchive, true)).toBe('none');
+    expect(guideAction(cell, withArchive, true)).toBe('record');
+  });
+
+  it('kommer senere, uden arkiv: ingenting', () => {
+    // Der findes ingen vej til udsendelsen bagefter, saa der er intet at love.
+    const cell = cellFor('2026-09-05T20:00:00.000Z', '2026-09-05T20:30:00.000Z');
+    expect(guideAction(cell, withoutArchive, true)).toBe('none');
+  });
+
+  it('kommer senere, men dialekten er ukendt: ingenting', () => {
+    const cell = cellFor('2026-09-05T20:00:00.000Z', '2026-09-05T20:30:00.000Z');
+    expect(guideAction(cell, withArchive, false)).toBe('none');
+  });
+
+  it('kommer senere paa en kanal med arkivflag men nul dage: ingenting', () => {
+    const cell = cellFor('2026-09-05T20:00:00.000Z', '2026-09-05T20:30:00.000Z');
+    expect(guideAction(cell, { hasArchive: true, archiveDays: 0 }, true)).toBe('none');
   });
 
   it('hul: ingenting', () => {

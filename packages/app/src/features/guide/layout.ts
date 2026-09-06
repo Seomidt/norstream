@@ -1,4 +1,5 @@
 import type { Programme } from '@norstream/core';
+import { canRecord } from '../recordings/plan.js';
 
 /**
  * Guidens tidsgitter, som ren beregning.
@@ -130,6 +131,8 @@ export type GuideAction =
   | 'play'
   /** Start programmet forfra fra arkivet. */
   | 'restart'
+  /** Bestil udsendelsen til hentning fra arkivet naar den er sendt. */
+  | 'record'
   /** Feltet er inaktivt. */
   | 'none';
 
@@ -141,18 +144,23 @@ export type GuideAction =
  * | sendes nu | afspil kanalen |
  * | er slut, og kanalen har arkiv | start forfra fra programmets starttidspunkt |
  * | er slut, uden arkiv | ingenting |
- * | kommer senere | ingenting |
+ * | kommer senere, og kanalen har arkiv | bestil optagelse |
+ * | kommer senere, uden arkiv | ingenting |
  *
  * `hasDialect` er om panelets timeshift-dialekt er fundet. Uden den kan der
  * ikke bygges en arkiv-URL, uanset hvad kanalen paastaar om sit arkiv.
  */
 export function guideAction(
   cell: GuideCell,
-  channel: { hasArchive: boolean },
+  channel: { hasArchive: boolean; archiveDays: number },
   hasDialect: boolean,
 ): GuideAction {
   if (cell.programme === null) return 'none';
   if (cell.state === 'live') return 'play';
   if (cell.state === 'past' && channel.hasArchive && hasDialect) return 'restart';
+  // Fremtiden var doed foer. Den er det eneste sted en optagelse kan bestilles
+  // paa forhaand, og et tryk paa en celle der ikke gør noget laerer folk at
+  // lade vaere med at trykke.
+  if (cell.state === 'future' && canRecord(channel) && hasDialect) return 'record';
   return 'none';
 }

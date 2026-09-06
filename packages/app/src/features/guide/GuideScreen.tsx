@@ -14,8 +14,11 @@ import type { AppSession } from '../../session.js';
 import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { listProgrammes } from '../../storage/programmes.js';
+import { deleteRecording, scheduleRecording } from '../../storage/recordings.js';
 import { getTimeshiftDialect } from '../../storage/settings.js';
 import { ensureArchiveEpg, ensureEpg } from '../../sync/epgCache.js';
+import { Notice } from '../../ui/Notice.js';
+import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
 import { WINDOW_MINUTES, guideAction, guideWindow, layoutRow } from './layout.js';
 import type { GuideCell } from './layout.js';
@@ -51,6 +54,7 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
   const [dialect, setDialect] = useState<boolean>(false);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState<NoticeState | null>(null);
 
   // Nu-tidspunktet fastholdes mens skaermen er aaben, saa cellerne ikke
   // hopper mellem tilstande midt i et tryk. Det opdateres hvert minut.
@@ -81,6 +85,28 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
       cancelled = true;
     };
   }, [session.db]);
+
+  /**
+   * Bestiller en kommende udsendelse til optagelse.
+   *
+   * Bekraeftelsen staar i skaermen og ikke i en Alert: react-native-web
+   * implementerer ikke Alert, og et tryk der ikke kvitterer for sig foeles
+   * som et tryk der ikke virkede.
+   */
+  const record = useCallback(
+    async (channel: StoredChannel, programme: Programme): Promise<void> => {
+      const id = await scheduleRecording(session.db, channel, programme);
+      setNotice({
+        text: `“${programme.title}” hentes fra arkivet når den er sendt.`,
+        actionLabel: 'Fortryd',
+        onAction: () => {
+          void deleteRecording(session.db, id);
+          setNotice(null);
+        },
+      });
+    },
+    [session.db],
+  );
 
   const runId = useRef(0);
 
@@ -184,6 +210,7 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
 
   return (
     <View style={styles.container}>
+      {notice !== null && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
       <View style={styles.toolbar}>
         <Pressable hitSlop={12} onPress={() => setPage((value) => value - 1)}>
           <Text style={styles.pager}>‹</Text>
@@ -223,6 +250,9 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
             hasDialect={dialect}
             onPlay={onPlay}
             onRestart={onRestart}
+            onRecord={(channel, programme) => {
+              void record(channel, programme);
+            }}
           />
         )}
       />
@@ -236,12 +266,14 @@ function GuideRow({
   hasDialect,
   onPlay,
   onRestart,
+  onRecord,
 }: {
   channel: StoredChannel;
   cells: GuideCell[];
   hasDialect: boolean;
   onPlay: (channel: StoredChannel) => void;
   onRestart: (channel: StoredChannel, programme: Programme) => void;
+  onRecord: (channel: StoredChannel, programme: Programme) => void;
 }) {
   return (
     <View style={styles.row}>
@@ -268,6 +300,7 @@ function GuideRow({
                 { flexGrow: cell.weight, flexShrink: cell.weight, flexBasis: 0 },
                 cell.state === 'live' && styles.cellLive,
                 action === 'restart' && styles.cellRestartable,
+                action === 'record' && styles.cellRecordable,
                 action === 'none' && styles.cellInactive,
               ]}
               disabled={action === 'none'}
@@ -276,6 +309,9 @@ function GuideRow({
                 if (action === 'restart' && cell.programme !== null) {
                   onRestart(channel, cell.programme);
                 }
+                if (action === 'record' && cell.programme !== null) {
+                  onRecord(channel, cell.programme);
+                }
               }}
             >
               {/* Uden maerket kan man ikke se hvilke afsluttede udsendelser
@@ -283,6 +319,7 @@ function GuideRow({
                   om kanalen har arkiv — er usynlig indtil man har trykket. */}
               <Text style={styles.cellText} numberOfLines={2}>
                 {action === 'restart' ? '▶ ' : ''}
+                {action === 'record' ? '● ' : ''}
                 {cell.programme?.title ?? ''}
               </Text>
             </Pressable>
@@ -380,6 +417,7 @@ const styles = StyleSheet.create({
   },
   cellLive: { backgroundColor: theme.colors.surfaceRaised },
   cellRestartable: { borderLeftColor: theme.colors.accent, borderLeftWidth: 2 },
+  cellRecordable: { borderLeftColor: theme.colors.textMuted, borderLeftWidth: 2 },
   cellInactive: { opacity: 0.45 },
   cellText: { color: theme.colors.text, fontSize: 11 },
 });
