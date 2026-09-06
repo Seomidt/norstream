@@ -44,7 +44,7 @@ async function userVersion(db: SqlDatabase): Promise<number> {
 }
 
 describe('migrate paa en frisk database', () => {
-  it('opretter alle otte tabeller', async () => {
+  it('opretter alle ni tabeller', async () => {
     const db = createTestDatabase();
     await migrate(db);
     const names = await tableNames(db);
@@ -55,6 +55,7 @@ describe('migrate paa en frisk database', () => {
       'favorite_exclusions',
       'programmes',
       'epg_fetch',
+      'epg_archive_fetch',
       'hidden_countries',
       'settings',
     ]) {
@@ -62,10 +63,10 @@ describe('migrate paa en frisk database', () => {
     }
   });
 
-  it('stempler skemaversion 2', async () => {
+  it('stempler skemaversion 3', async () => {
     const db = createTestDatabase();
     await migrate(db);
-    expect(await userVersion(db)).toBe(2);
+    expect(await userVersion(db)).toBe(3);
   });
 
   it('er idempotent og sletter ikke data ved anden koersel', async () => {
@@ -186,10 +187,10 @@ describe('migrate fra v1', () => {
     expect(rows).toEqual([]);
   });
 
-  it('stempler v2 og opretter de nye tabeller', async () => {
+  it('stempler den nuvaerende version og opretter de nye tabeller', async () => {
     const db = await createV1Database();
     await migrate(db);
-    expect(await userVersion(db)).toBe(2);
+    expect(await userVersion(db)).toBe(3);
     const names = await tableNames(db);
     expect(names).toContain('epg_fetch');
     expect(names).toContain('hidden_countries');
@@ -203,7 +204,87 @@ describe('migrate fra v1', () => {
     await db.execAsync('PRAGMA user_version = 1');
 
     await expect(migrate(db)).resolves.toBeUndefined();
-    expect(await userVersion(db)).toBe(2);
+    expect(await userVersion(db)).toBe(3);
     expect(await tableNames(db)).toContain('favorites');
+  });
+});
+
+/**
+ * v2 som den stod paa enheder der naaede at faa den forrige udgave. Igen
+ * kopieret frem for afledt: pointen med testen nedenfor er at v2 -> v3 *ikke*
+ * maa bygge om, og en test der laaner sit udgangspunkt fra produktionskoden
+ * ville ikke kunne se forskellen.
+ */
+const V2_SCHEMA = `
+CREATE TABLE categories (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE channels (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, number INTEGER, logo_url TEXT,
+  category_id TEXT, epg_channel_id TEXT,
+  has_archive INTEGER NOT NULL DEFAULT 0, archive_days INTEGER NOT NULL DEFAULT 0,
+  is_stale INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE favorites (channel_id TEXT PRIMARY KEY, source_category_id TEXT);
+CREATE TABLE favorite_exclusions (channel_id TEXT PRIMARY KEY, category_id TEXT NOT NULL);
+CREATE TABLE programmes (
+  channel_id TEXT NOT NULL, start_ms INTEGER NOT NULL, stop_ms INTEGER NOT NULL,
+  title TEXT NOT NULL, description TEXT, PRIMARY KEY (channel_id, start_ms)
+);
+CREATE TABLE epg_fetch (stream_id TEXT PRIMARY KEY, fetched_at INTEGER NOT NULL);
+CREATE TABLE hidden_countries (name TEXT PRIMARY KEY);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+PRAGMA user_version = 2;
+`;
+
+describe('migrate fra v2', () => {
+  it('tilfoejer arkivtabellen uden at roere det der stod i forvejen', async () => {
+    const db = createTestDatabase();
+    await db.execAsync(V2_SCHEMA);
+    await db.runAsync("INSERT INTO favorites VALUES ('247634', 'dk-hd')");
+    await db.runAsync("INSERT INTO favorite_exclusions VALUES ('99', 'dk-hd')");
+    await db.runAsync(
+      "INSERT INTO programmes VALUES ('247634', 1000, 2000, 'TV Avisen', NULL)",
+    );
+    await db.runAsync("INSERT INTO epg_fetch VALUES ('247634', 1500)");
+    await db.runAsync("INSERT INTO hidden_countries VALUES ('__other__')");
+
+    await migrate(db);
+
+    expect(await userVersion(db)).toBe(3);
+    expect(await tableNames(db)).toContain('epg_archive_fetch');
+
+    // v2 -> v3 tilfoejer kun en tabel. Bygger den om alligevel, mister
+    // brugeren sin oprydning i favoritterne og hele programcachen uden at
+    // have faaet noget for det.
+    const favorites = await db.getAllAsync<{ channel_id: string }>(
+      'SELECT channel_id FROM favorites',
+    );
+    expect(favorites.map((row) => row.channel_id)).toEqual(['247634']);
+
+    const exclusions = await db.getAllAsync<{ channel_id: string }>(
+      'SELECT channel_id FROM favorite_exclusions',
+    );
+    expect(exclusions).toHaveLength(1);
+
+    const programmes = await db.getAllAsync<{ title: string }>('SELECT title FROM programmes');
+    expect(programmes.map((row) => row.title)).toEqual(['TV Avisen']);
+
+    const fetches = await db.getAllAsync<{ stream_id: string }>(
+      'SELECT stream_id FROM epg_fetch',
+    );
+    expect(fetches).toHaveLength(1);
+
+    const hidden = await db.getAllAsync<{ name: string }>('SELECT name FROM hidden_countries');
+    expect(hidden.map((row) => row.name)).toEqual(['__other__']);
+  });
+
+  it('er idempotent paa v3', async () => {
+    const db = createTestDatabase();
+    await migrate(db);
+    await db.runAsync("INSERT INTO epg_archive_fetch VALUES ('247634', 42)");
+    await migrate(db);
+    const rows = await db.getAllAsync<{ fetched_at: number }>(
+      'SELECT fetched_at FROM epg_archive_fetch',
+    );
+    expect(rows.map((row) => row.fetched_at)).toEqual([42]);
   });
 });

@@ -73,3 +73,45 @@ export async function markEpgFetched(
     [streamId, now.getTime()],
   );
 }
+
+/**
+ * Hvor laenge en hentet programtabel regnes for frisk.
+ *
+ * Seks timer, ikke tredive minutter som "nu og naeste": det denne tabel bruges
+ * til er fortiden, og den aendrer sig ikke. Det eneste der loeber fra os er
+ * fremtiden i den anden ende, og et halvt doegn er rigeligt til at faa den med.
+ */
+export const ARCHIVE_EPG_MAX_AGE_MS = 6 * 60 * 60_000;
+
+interface ArchiveFetchRow {
+  fetched_at: number | null;
+}
+
+/** Hvornaar den fulde programtabel sidst blev hentet for kanalen. */
+export async function getArchiveFetchedAt(
+  db: SqlDatabase,
+  streamId: string,
+): Promise<number | null> {
+  const row = await db.getFirstAsync<ArchiveFetchRow>(
+    'SELECT fetched_at FROM epg_archive_fetch WHERE stream_id = ?',
+    [streamId],
+  );
+  return row?.fetched_at ?? null;
+}
+
+export function needsArchiveFetch(fetchedAt: number | null, now: Date): boolean {
+  if (fetchedAt === null) return true;
+  return now.getTime() - fetchedAt >= ARCHIVE_EPG_MAX_AGE_MS;
+}
+
+export async function markArchiveFetched(
+  db: SqlDatabase,
+  streamId: string,
+  now: Date,
+): Promise<void> {
+  await db.runAsync(
+    `INSERT INTO epg_archive_fetch (stream_id, fetched_at) VALUES (?, ?)
+     ON CONFLICT(stream_id) DO UPDATE SET fetched_at = excluded.fetched_at`,
+    [streamId, now.getTime()],
+  );
+}

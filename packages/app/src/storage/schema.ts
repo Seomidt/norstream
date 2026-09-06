@@ -63,6 +63,15 @@ CREATE TABLE IF NOT EXISTS epg_fetch (
   fetched_at INTEGER NOT NULL
 );
 
+-- Hentetid for den fulde programtabel (get_simple_data_table), som er den
+-- eneste kilde til programmer der allerede er sendt. Den ligger for sig selv,
+-- fordi de to hentninger har hver sit formaal og hver sin levetid: "nu og
+-- naeste" forældes paa en halv time, mens fortiden ikke aendrer sig.
+CREATE TABLE IF NOT EXISTS epg_archive_fetch (
+  stream_id  TEXT    PRIMARY KEY,
+  fetched_at INTEGER NOT NULL
+);
+
 -- Landet gemmes som sin noegle — ISO-koden, eller '__other__' for de
 -- kategorier hvis navn ikke rummer et genkendeligt land. Noeglen er stabil;
 -- det viste navn er dansk tekst der kan aendre sig.
@@ -83,11 +92,23 @@ const TABLES = [
   'favorite_exclusions',
   'programmes',
   'epg_fetch',
+  'epg_archive_fetch',
   'hidden_countries',
   'settings',
 ] as const;
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
+
+/**
+ * Foerste version der kan opgraderes additivt.
+ *
+ * v1 -> v2 aendrede betydningen af `programmes.channel_id` og formen paa
+ * `favorites`, og maatte derfor bygges om. v2 -> v3 *tilfoejer* kun en tabel,
+ * og `CREATE TABLE IF NOT EXISTS` klarer det alene — at slette brugerens
+ * favoritter og hele programcachen for at tilfoeje en tom tabel ville vaere
+ * skade uden formaal.
+ */
+const REBUILD_BELOW_VERSION = 2;
 
 /**
  * Settings der overlever en genopbygning.
@@ -183,7 +204,7 @@ async function restorePreserved(
 export async function migrate(db: SqlDatabase): Promise<void> {
   const version = await readUserVersion(db);
 
-  if (version > 0 && version < SCHEMA_VERSION) {
+  if (version > 0 && version < REBUILD_BELOW_VERSION) {
     const preserved = await readPreserved(db);
     for (const table of TABLES) {
       await db.execAsync(`DROP TABLE IF EXISTS ${table}`);

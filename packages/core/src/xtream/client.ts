@@ -3,7 +3,7 @@ import { normaliseBaseUrl } from '../urls.js';
 import { truthyFlag } from './coerce.js';
 import { mapCategories, mapChannels } from './mapping.js';
 import { panelOffsetFromServerInfo } from './serverInfo.js';
-import { mapShortEpg } from './shortEpg.js';
+import { mapEpgListings } from './epgListings.js';
 
 export interface FetchLikeResponse {
   ok: boolean;
@@ -110,7 +110,7 @@ export class XtreamClient {
    * aldrig naar frem inden for en rimelig timeout. Svaret her er faa kilobyte.
    *
    * Bruger `request`, ikke `requestList`: svaret er et objekt med
-   * `epg_listings`, ikke et bart array. `mapShortEpg` er tolerant over for
+   * `epg_listings`, ikke et bart array. `mapEpgListings` er tolerant over for
    * begge former og over for beskadigede poster.
    */
   async getShortEpg(streamId: string, limit = 12): Promise<Programme[]> {
@@ -118,7 +118,24 @@ export class XtreamClient {
       stream_id: streamId,
       limit: String(Math.max(1, Math.trunc(limit))),
     });
-    return mapShortEpg(streamId, body);
+    return mapEpgListings(streamId, body);
+  }
+
+  /**
+   * Hele programtabellen for een kanal — ogsaa bagud i tid.
+   *
+   * `get_short_epg` giver kun de naeste faa programmer. Det er nok til at vise
+   * "nu og naeste", men ikke til arkivet: skal brugeren kunne starte gaars
+   * aftenudsendelse, skal guiden kunne *vise* den foerst, og de programmer
+   * findes kun her.
+   *
+   * Svaret er stoerre — typisk et par hundrede kilobyte for en kanal med en
+   * uges tabel — saa det hentes per kanal og kun naar der er brug for det,
+   * ikke for alle 22.142 kanaler.
+   */
+  async getFullEpg(streamId: string): Promise<Programme[]> {
+    const body = await this.request('get_simple_data_table', { stream_id: streamId });
+    return mapEpgListings(streamId, body);
   }
 
   /**

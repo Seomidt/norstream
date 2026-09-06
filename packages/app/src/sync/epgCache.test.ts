@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
 import { XtreamAuthError } from '@norstream/core';
 import { getEpgFreshness, markEpgFetched } from '../storage/epgFetch.js';
-import { listProgrammes } from '../storage/programmes.js';
+import { listProgrammes, upsertProgrammes } from '../storage/programmes.js';
 import { migrate } from '../storage/schema.js';
 import { createTestDatabase } from '../storage/testDb.js';
 import type { SqlDatabase } from '../storage/types.js';
-import { ensureEpg } from './epgCache.js';
+import { ensureArchiveEpg, ensureEpg, retentionCutoff } from './epgCache.js';
 
 const creds: XtreamCredentials = {
   baseUrl: 'http://panel.example:8080',
@@ -217,5 +217,165 @@ describe('ensureEpg', () => {
 
     expect(result).toEqual({ fetched: 0, programmes: 0 });
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+const HOUR_MS = 60 * 60_000;
+const DAY_MS = 24 * HOUR_MS;
+
+describe('retentionCutoff', () => {
+  it('holder tolv timer naar ingen kanal har arkiv', () => {
+    expect(retentionCutoff(NOW, 0)).toEqual(new Date(NOW.getTime() - 12 * HOUR_MS));
+  });
+
+  it('foelger arkivet med en dags luft', () => {
+    expect(retentionCutoff(NOW, 7)).toEqual(new Date(NOW.getTime() - 8 * DAY_MS));
+  });
+
+  it('gaar aldrig under tolv timer', () => {
+    // Et arkiv paa nul dage paa en kanal der ellers har flaget sat.
+    expect(retentionCutoff(NOW, 0).getTime()).toBeLessThanOrEqual(NOW.getTime() - 12 * HOUR_MS);
+  });
+});
+
+/** Panel der svarer paa den fulde programtabel og noterer hvilke actions der kaldes. */
+function archivePanel(
+  listings: Record<string, unknown[]> = {},
+  failWith: Record<string, number> = {},
+): FetchLike & { actions: string[] } {
+  const actions: string[] = [];
+  const impl = (async (url: string) => {
+    const params = new URL(url).searchParams;
+    actions.push(params.get('action') ?? '');
+    const streamId = params.get('stream_id') ?? '';
+    const status = failWith[streamId];
+    if (status !== undefined) return { ok: false, status, json: async () => ({}) };
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ epg_listings: listings[streamId] ?? [] }),
+    };
+  }) as FetchLike & { actions: string[] };
+  impl.actions = actions;
+  return impl;
+}
+
+const WITH_ARCHIVE = { id: '247634', hasArchive: true };
+const WITHOUT_ARCHIVE = { id: '999', hasArchive: false };
+
+describe('ensureArchiveEpg', () => {
+  it('henter den fulde tabel og gemmer programmer der allerede er sendt', async () => {
+    // Tre timer tilbage i tiden: praecis det get_short_epg aldrig ville give os.
+    const fetchImpl = archivePanel({ '247634': [listing(-180), listing(-150)] });
+
+    const result = await ensureArchiveEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
+
+    expect(result).toEqual({ fetched: 1, programmes: 2 });
+    expect(fetchImpl.actions).toEqual(['get_simple_data_table']);
+
+    const stored = await listProgrammes(
+      db,
+      '247634',
+      new Date(NOW.getTime() - 4 * HOUR_MS),
+      NOW,
+    );
+    expect(stored).toHaveLength(2);
+  });
+
+  it('springer kanaler uden arkiv over', async () => {
+    const fetchImpl = archivePanel();
+    const result = await ensureArchiveEpg(db, creds, fetchImpl, [WITHOUT_ARCHIVE], NOW);
+    expect(result).toEqual({ fetched: 0, programmes: 0 });
+    expect(fetchImpl.actions).toEqual([]);
+  });
+
+  it('henter ikke igen inden for seks timer', async () => {
+    const fetchImpl = archivePanel({ '247634': [listing(-180)] });
+    await ensureArchiveEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
+
+    await ensureArchiveEpg(
+      db,
+      creds,
+      fetchImpl,
+      [WITH_ARCHIVE],
+      new Date(NOW.getTime() + 5 * HOUR_MS),
+    );
+
+    expect(fetchImpl.actions).toHaveLength(1);
+  });
+
+  it('henter igen efter seks timer', async () => {
+    const fetchImpl = archivePanel({ '247634': [listing(-180)] });
+    await ensureArchiveEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
+
+    await ensureArchiveEpg(
+      db,
+      creds,
+      fetchImpl,
+      [WITH_ARCHIVE],
+      new Date(NOW.getTime() + 7 * HOUR_MS),
+    );
+
+    expect(fetchImpl.actions).toHaveLength(2);
+  });
+
+  it('markerer ogsaa en kanal panelet svarer tomt for', async () => {
+    const fetchImpl = archivePanel();
+    await ensureArchiveEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
+    await ensureArchiveEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
+    expect(fetchImpl.actions).toHaveLength(1);
+  });
+
+  it('kaster afvist login videre', async () => {
+    const fetchImpl = archivePanel({}, { '247634': 401 });
+    await expect(
+      ensureArchiveEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW),
+    ).rejects.toBeInstanceOf(XtreamAuthError);
+  });
+
+  it('lader en enkelt doed kanal staa uden at tage resten med', async () => {
+    const fetchImpl = archivePanel({ '2': [listing(-60)] }, { '1': 500 });
+    const result = await ensureArchiveEpg(
+      db,
+      creds,
+      fetchImpl,
+      [
+        { id: '1', hasArchive: true },
+        { id: '2', hasArchive: true },
+      ],
+      NOW,
+    );
+    expect(result.fetched).toBe(1);
+  });
+});
+
+describe('oprydningen og arkivet', () => {
+  it('sletter ikke gaars udsendelser naar panelet har et arkiv', async () => {
+    // Kanal med syv dages arkiv, og et program fra i gaar aftes gemt.
+    await db.runAsync(
+      `INSERT INTO channels (id, name, has_archive, archive_days)
+       VALUES ('247634', 'DR1', 1, 7)`,
+    );
+    const yesterday = new Date(NOW.getTime() - 20 * HOUR_MS);
+    await upsertProgrammes(db, [
+      {
+        channelId: '247634',
+        title: 'Bjerget',
+        description: null,
+        start: yesterday,
+        stop: new Date(yesterday.getTime() + 30 * 60_000),
+      },
+    ]);
+
+    // En helt almindelig opdatering af "nu og naeste" rydder op bagefter.
+    await ensureEpg(db, creds, panel({ listings: { '247634': [listing(0)] } }), ['247634'], NOW);
+
+    const stored = await listProgrammes(
+      db,
+      '247634',
+      new Date(NOW.getTime() - 2 * DAY_MS),
+      NOW,
+    );
+    expect(stored.map((p) => p.title)).toEqual(['Bjerget']);
   });
 });

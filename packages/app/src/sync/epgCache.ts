@@ -1,6 +1,14 @@
 import { XtreamAuthError, XtreamClient } from '@norstream/core';
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
-import { getEpgFreshness, markEpgFetched, needsEpgFetch } from '../storage/epgFetch.js';
+import { maxArchiveDays } from '../storage/channels.js';
+import {
+  getArchiveFetchedAt,
+  getEpgFreshness,
+  markArchiveFetched,
+  markEpgFetched,
+  needsArchiveFetch,
+  needsEpgFetch,
+} from '../storage/epgFetch.js';
 import { deleteProgrammesBefore, upsertProgrammes } from '../storage/programmes.js';
 import type { SqlDatabase } from '../storage/types.js';
 
@@ -19,8 +27,29 @@ const DEFAULT_LIMIT = 12;
  */
 const MAX_PARALLEL = 4;
 
-/** Som i XMLTV-vejen: programmer der sluttede for over 12 timer siden ryddes. */
-const RETENTION_HOURS = 12;
+/**
+ * Hvor lidt vi altid beholder, ogsaa naar ingen kanal har arkiv. Tolv timer
+ * daekker "hvad var det jeg saa i aftes" i guiden.
+ */
+const MIN_RETENTION_HOURS = 12;
+
+/** En dags luft oven i arkivet, saa graensetilfaeldet ikke ryger paa gulvet. */
+const RETENTION_MARGIN_DAYS = 1;
+
+/**
+ * Hvor langt tilbage programdata skal beholdes.
+ *
+ * Reglen foelger arkivet, ikke et fast tal: et program uden for panelets
+ * arkivperiode kan alligevel ikke startes, saa det er doed vaegt i databasen.
+ * Omvendt ville den gamle faste 12-timers graense slette praecis de
+ * udsendelser arkivet lever af — for saa vidt de overhovedet naaede at blive
+ * gemt.
+ */
+export function retentionCutoff(now: Date, archiveDays: number): Date {
+  const fromArchive = (archiveDays + RETENTION_MARGIN_DAYS) * 24;
+  const hours = Math.max(MIN_RETENTION_HOURS, archiveDays > 0 ? fromArchive : 0);
+  return new Date(now.getTime() - hours * 60 * 60_000);
+}
 
 export interface EnsureEpgResult {
   /** Antal kanaler der faktisk blev hentet for. */
@@ -115,8 +144,64 @@ export async function ensureEpg(
   // Ryd kun naar vi faktisk fik noget. Ellers ville en tur hvor panelet var
   // nede slette den EPG appen allerede havde, uden noget at saette i stedet.
   if (programmes > 0) {
-    await deleteProgrammesBefore(db, new Date(now.getTime() - RETENTION_HOURS * 60 * 60_000));
+    await deleteProgrammesBefore(db, retentionCutoff(now, await maxArchiveDays(db)));
   }
 
+  return { fetched, programmes };
+}
+
+/**
+ * Henter hele programtabellen for de kanaler der har arkiv, saa guiden kan
+ * vise fortiden.
+ *
+ * Uden dette er cellerne bag "nu" tomme, og en udsendelse der allerede er
+ * sendt kan ikke startes — ikke fordi arkivet mangler, men fordi appen ikke
+ * ved at udsendelsen har fundet sted. `get_short_epg` peger kun fremad.
+ *
+ * Kun kanaler med `hasArchive` hentes: for de oevrige ville fortiden alligevel
+ * ikke kunne afspilles, og svaret er stort nok til at det ikke skal hentes for
+ * ingenting.
+ *
+ * Fejl per kanal sluges som i `ensureEpg`; `XtreamAuthError` kastes videre.
+ */
+export async function ensureArchiveEpg(
+  db: SqlDatabase,
+  creds: XtreamCredentials,
+  fetchImpl: FetchLike,
+  channels: readonly { id: string; hasArchive: boolean }[],
+  now: Date = new Date(),
+): Promise<EnsureEpgResult> {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  for (const channel of channels) {
+    if (!channel.hasArchive || channel.id.length === 0 || seen.has(channel.id)) continue;
+    seen.add(channel.id);
+    if (needsArchiveFetch(await getArchiveFetchedAt(db, channel.id), now)) {
+      candidates.push(channel.id);
+    }
+  }
+  if (candidates.length === 0) return { fetched: 0, programmes: 0 };
+
+  const client = new XtreamClient(creds, fetchImpl);
+  let authFailure: XtreamAuthError | null = null;
+  let fetched = 0;
+  let programmes = 0;
+
+  await runBounded(candidates, MAX_PARALLEL, () => authFailure !== null, async (streamId) => {
+    let batch;
+    try {
+      batch = await client.getFullEpg(streamId);
+    } catch (cause) {
+      if (cause instanceof XtreamAuthError) authFailure = cause;
+      return;
+    }
+
+    await upsertProgrammes(db, batch);
+    await markArchiveFetched(db, streamId, now);
+    fetched += 1;
+    programmes += batch.length;
+  });
+
+  if (authFailure !== null) throw authFailure;
   return { fetched, programmes };
 }

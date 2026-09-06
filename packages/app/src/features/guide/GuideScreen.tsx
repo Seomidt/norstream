@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -14,7 +15,7 @@ import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { listProgrammes } from '../../storage/programmes.js';
 import { getTimeshiftDialect } from '../../storage/settings.js';
-import { ensureEpg } from '../../sync/epgCache.js';
+import { ensureArchiveEpg, ensureEpg } from '../../sync/epgCache.js';
 import { theme } from '../../ui/theme.js';
 import { WINDOW_MINUTES, guideAction, guideWindow, layoutRow } from './layout.js';
 import type { GuideCell } from './layout.js';
@@ -84,10 +85,22 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
   const runId = useRef(0);
 
   const loadVisible = useCallback(
-    async (streamIds: string[], from: Date, to: Date): Promise<void> => {
-      if (streamIds.length === 0) return;
+    async (visible: StoredChannel[], from: Date, to: Date): Promise<void> => {
+      if (visible.length === 0) return;
       const id = runId.current + 1;
       runId.current = id;
+      const streamIds = visible.map((channel) => channel.id);
+
+      /** Tegner det cachen har lige nu. Kaldes to gange: efter hver hentning. */
+      const draw = async (): Promise<boolean> => {
+        const loaded: Record<string, Programme[]> = {};
+        for (const streamId of streamIds) {
+          loaded[streamId] = await listProgrammes(session.db, streamId, from, to);
+        }
+        if (runId.current !== id) return false;
+        setRows((previous) => ({ ...previous, ...loaded }));
+        return true;
+      };
 
       try {
         await ensureEpg(session.db, session.creds, session.fetchImpl, streamIds);
@@ -98,14 +111,24 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
         }
         // Panelet kunne ikke naas; vi tegner hvad cachen har.
       }
-      if (runId.current !== id) return;
+      if (!(await draw())) return;
 
-      const loaded: Record<string, Programme[]> = {};
-      for (const streamId of streamIds) {
-        loaded[streamId] = await listProgrammes(session.db, streamId, from, to);
+      // Foerst nu den fulde programtabel. Den er stoerre og langsommere, og
+      // guiden skal ikke staa tom imens — men uden den er cellerne bag "nu"
+      // tomme, og en udsendelse der allerede er sendt kan ikke startes.
+      try {
+        const result = await ensureArchiveEpg(
+          session.db,
+          session.creds,
+          session.fetchImpl,
+          visible,
+        );
+        if (result.programmes === 0) return;
+      } catch (cause) {
+        if (cause instanceof XtreamAuthError) onAuthError();
+        return;
       }
-      if (runId.current !== id) return;
-      setRows((previous) => ({ ...previous, ...loaded }));
+      await draw();
     },
     [session, onAuthError],
   );
@@ -120,21 +143,21 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
   const windowStartMs = window.start.getTime();
   const windowEndMs = window.end.getTime();
 
-  const visibleIds = useRef<string[]>([]);
+  const visibleChannels = useRef<StoredChannel[]>([]);
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 30 }).current;
   const onViewableItemsChanged = useRef(
     (info: { viewableItems: { item: StoredChannel }[] }): void => {
-      visibleIds.current = info.viewableItems.map((entry) => entry.item?.id).filter(Boolean);
+      visibleChannels.current = info.viewableItems
+        .map((entry) => entry.item)
+        .filter((channel): channel is StoredChannel => channel !== undefined);
     },
   ).current;
 
   // Foerste skaermfuld og hvert sideskift: hent for de raekker der er fremme.
   useEffect(() => {
-    const ids =
-      visibleIds.current.length > 0
-        ? visibleIds.current
-        : channels.slice(0, 12).map((channel) => channel.id);
-    void loadVisibleRef.current(ids, new Date(windowStartMs), new Date(windowEndMs));
+    const visible =
+      visibleChannels.current.length > 0 ? visibleChannels.current : channels.slice(0, 12);
+    void loadVisibleRef.current(visible, new Date(windowStartMs), new Date(windowEndMs));
   }, [channels, windowStartMs, windowEndMs]);
 
   if (loading) {
@@ -223,6 +246,13 @@ function GuideRow({
   return (
     <View style={styles.row}>
       <View style={styles.channelCell}>
+        {channel.logoUrl !== null && (
+          <Image
+            source={{ uri: channel.logoUrl }}
+            style={styles.channelLogo}
+            resizeMode="contain"
+          />
+        )}
         <Text style={styles.channelName} numberOfLines={2}>
           {channel.name}
         </Text>
@@ -325,12 +355,14 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', height: ROW_HEIGHT },
   channelCell: {
     width: CHANNEL_COLUMN,
-    justifyContent: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: theme.spacing.sm,
     borderRightColor: theme.colors.border,
     borderRightWidth: StyleSheet.hairlineWidth,
   },
-  channelName: { color: theme.colors.text, fontSize: 12 },
+  channelLogo: { width: 28, height: 20, marginRight: theme.spacing.xs },
+  channelName: { color: theme.colors.text, fontSize: 12, flex: 1 },
   cells: { flex: 1, flexDirection: 'row' },
   cell: {
     justifyContent: 'center',

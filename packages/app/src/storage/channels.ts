@@ -206,3 +206,19 @@ export async function setFavorite(
   }
   await db.runAsync('DELETE FROM favorites WHERE channel_id = ?', [id]);
 }
+
+/**
+ * Den laengste arkivperiode blandt kanalerne, i dage. 0 hvis ingen kanal har
+ * arkiv.
+ *
+ * Bruges til at afgoere hvor langt tilbage programdata er *brugbare*: et
+ * program der ligger uden for panelets arkiv kan ikke startes, saa der er
+ * ingen grund til at gemme det.
+ */
+export async function maxArchiveDays(db: SqlDatabase): Promise<number> {
+  const row = await db.getFirstAsync<{ days: number | null }>(
+    'SELECT MAX(archive_days) AS days FROM channels WHERE has_archive = 1',
+  );
+  const days = row?.days;
+  return typeof days === 'number' && Number.isFinite(days) && days > 0 ? days : 0;
+}

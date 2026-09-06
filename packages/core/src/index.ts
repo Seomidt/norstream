@@ -41,7 +41,7 @@ export type { FetchLike, FetchLikeResponse } from './xtream/client.js';
 
 export { detectTimeshiftDialect } from './xtream/probe.js';
 
-export { mapShortEpg } from './xtream/shortEpg.js';
-export type { RawShortEpgListing } from './xtream/shortEpg.js';
+export { mapEpgListings } from './xtream/epgListings.js';
+export type { RawEpgListing } from './xtream/epgListings.js';
 
 export { panelOffsetFromServerInfo } from './xtream/serverInfo.js';
