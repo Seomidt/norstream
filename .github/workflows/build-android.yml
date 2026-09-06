@@ -1,12 +1,29 @@
 name: Byg Android-APK
 
-# Kun manuelt. Et EAS-build koster byggetid, saa det maa ikke fyre af ved
-# hvert push — det skal vaere en beslutning, ikke en bivirkning.
+# Kun manuelt. Et build koster byggetid, saa det maa ikke fyre af ved hvert
+# push — det skal vaere en beslutning, ikke en bivirkning.
 on:
   workflow_dispatch:
     inputs:
+      motor:
+        description: 'Hvor APK-en bygges'
+        required: true
+        default: runner
+        type: choice
+        # `runner` bygger med Gradle her paa maskinen og laegger APK-en som en
+        # artefakt paa koerslen. Den findes fordi EAS' gratis-plan har et loft
+        # per maaned, og da det blev naaet, kunne der ikke bygges en eneste
+        # APK — hverken til en rettelse eller til at proeve noget af. Et
+        # projekt maa ikke kunne staa stille paa den maade.
+        #
+        # APK-en signeres med Androids almindelige debug-noegle, som er den
+        # samme paa alle maskiner (SHA1 5E:8F:16:06:...). Derfor kan builds
+        # herfra opgraderes oven i hinanden. **Den foerste** kan ikke laegges
+        # oven i en APK fra EAS: den er signeret med en anden noegle, og
+        # Android naegter at opgradere paa tvaers af signaturer.
+        options: [runner, eas]
       profile:
-        description: 'EAS-byggeprofil'
+        description: 'EAS-byggeprofil (kun naar motor er eas)'
         required: true
         default: preview
         type: choice
@@ -39,6 +56,7 @@ jobs:
       # Uden tokenet fejler eas-cli med en uigennemskuelig GraphQL-fejl et par
       # minutter senere. Bedre at stoppe her og sige hvad der skal tjekkes.
       - name: Tjek at EXPO_TOKEN findes
+        if: inputs.motor == 'eas'
         run: |
           # Siger hvilke navne der er sat, uden at afsloere nogen vaerdi.
           # Uden det kan "tom" lige saa godt vaere en fejl i udtrykket ovenfor
@@ -121,7 +139,62 @@ jobs:
           }
           exit $fail
 
+      # --- Vej 1: byg her paa maskinen ---
+
+      - name: Java til Gradle
+        if: inputs.motor == 'runner'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle-cache
+        if: inputs.motor == 'runner'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('packages/app/package.json') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Byg APK med Gradle
+        if: inputs.motor == 'runner'
+        working-directory: packages/app/android
+        run: |
+          chmod +x gradlew
+          # `release` frem for `debug`: en debug-APK forventer en Metro-server
+          # i den anden ende og viser en roed skaerm uden. Release-varianten
+          # har JavaScript-bundtet med i filen.
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Læg APK'en op
+        if: inputs.motor == 'runner'
+        uses: actions/upload-artifact@v4
+        with:
+          name: norstream-apk
+          path: packages/app/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      - name: Hvor ligger APK'en (runner)
+        if: inputs.motor == 'runner'
+        run: |
+          {
+            echo "### APK'en er bygget her"
+            echo ""
+            echo "Hent den under **Artifacts** nederst paa denne side:"
+            echo "\`norstream-apk\` — pak zip-filen ud, og aabn APK'en paa telefonen."
+            echo ""
+            echo "**Afinstallér den nuvaerende app foerst.** Den her er signeret med"
+            echo "Androids almindelige debug-noegle og ikke med EAS-noeglen, og Android"
+            echo "naegter at opgradere paa tvaers af signaturer. Kun den ene gang:"
+            echo "senere builds herfra kan laegges oven i hinanden."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # --- Vej 2: byg paa EAS ---
+
       - name: Byg APK paa EAS
+        if: inputs.motor == 'eas'
         working-directory: packages/app
         run: |
           npx eas-cli@latest build \
@@ -130,13 +203,13 @@ jobs:
             --non-interactive \
             --no-wait
 
-      - name: Hvor ligger APK'en
+      - name: Hvor ligger APK'en (EAS)
+        if: inputs.motor == 'eas'
         run: |
-          echo "### Build sendt til EAS" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Foelg det her, og hent APK'en naar den er faerdig:" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "https://expo.dev/accounts/seomidts-team/projects/iptv-norlys/builds" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Afinstallér den gamle app foerst** — pakkenavnet skiftede ved omdoebningen," >> "$GITHUB_STEP_SUMMARY"
-          echo "saa Android ser den nye som en anden app og kan ikke opgradere oven i." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Build sendt til EAS"
+            echo ""
+            echo "Foelg det her, og hent APK'en naar den er faerdig:"
+            echo ""
+            echo "https://expo.dev/accounts/seomidts-team/projects/iptv-norlys/builds"
+          } >> "$GITHUB_STEP_SUMMARY"
