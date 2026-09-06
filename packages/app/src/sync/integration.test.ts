@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { channelKey } from '@norstream/core';
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
 import { listChannels } from '../storage/channels.js';
 import { getNowNext } from '../storage/programmes.js';
@@ -7,6 +8,10 @@ import { createTestDatabase } from '../storage/testDb.js';
 import type { SqlDatabase } from '../storage/types.js';
 import { ensureEpg } from './epgCache.js';
 import { syncChannels } from './syncChannels.js';
+
+/** Alt her kommer fra én kilde; noeglen er kilde + kanalens eget id. */
+const SOURCE = 'src1';
+const key = (streamId: string): string => channelKey(SOURCE, streamId);
 
 /**
  * Sammenkoblingen mellem kanal- og EPG-synkroniseringen er det eneste sted hvor
@@ -28,6 +33,8 @@ const creds: XtreamCredentials = {
   username: 'USER',
   password: 'PASS',
 };
+
+const sources = new Map([[SOURCE, creds]]);
 
 const NOW = new Date(Date.UTC(2026, 8, 4, 20, 30));
 const NOW_SECONDS = NOW.getTime() / 1000;
@@ -114,14 +121,14 @@ beforeEach(async () => {
 describe('kanal- og EPG-synkronisering sammen', () => {
   it('finder programdata paa kanalens eget id, uden et epg_channel_id', async () => {
     const fetchImpl = panel();
-    await syncChannels(db, creds, fetchImpl, NOW);
+    await syncChannels(db, SOURCE, creds, fetchImpl, NOW);
 
     const channel = (await listChannels(db))[0];
     expect(channel?.name).toBe('DNK| DR1 HD');
     // Kanalen har intet EPG-id. I v1 var det nok til at gøre den blind.
     expect(channel?.epgChannelId).toBeNull();
 
-    await ensureEpg(db, creds, fetchImpl, [channel?.id ?? ''], NOW);
+    await ensureEpg(db, sources, fetchImpl, [channel?.id ?? ''], NOW);
 
     const result = await getNowNext(db, channel?.id ?? '', NOW);
     expect(result.now?.title).toBe('TV Avisen');
@@ -134,9 +141,9 @@ describe('kanal- og EPG-synkronisering sammen', () => {
     // Kontrolgruppen: uden den ville testen ovenfor ogsaa bestaa hvis
     // opslaget matchede alt.
     const fetchImpl = panel();
-    await syncChannels(db, creds, fetchImpl, NOW);
+    await syncChannels(db, SOURCE, creds, fetchImpl, NOW);
     const channel = (await listChannels(db))[0];
-    await ensureEpg(db, creds, fetchImpl, [channel?.id ?? ''], NOW);
+    await ensureEpg(db, sources, fetchImpl, [channel?.id ?? ''], NOW);
 
     const result = await getNowNext(db, 'et-andet-id', NOW);
     expect(result.now).toBeNull();

@@ -10,9 +10,9 @@ import { HomeScreen } from './src/features/home/HomeScreen.js';
 import type { HomePlace } from './src/features/home/HomeScreen.js';
 import { OnboardingScreen } from './src/features/onboarding/OnboardingScreen.js';
 import { PlayerScreen } from './src/features/player/PlayerScreen.js';
-import { createSession } from './src/session.js';
+import { createSession, reloadSources } from './src/session.js';
 import type { AppSession } from './src/session.js';
-import { loadCredentials } from './src/storage/credentials.js';
+
 import type { StoredChannel } from './src/storage/channels.js';
 import { theme } from './src/ui/theme.js';
 
@@ -52,16 +52,13 @@ export default function App() {
     let cancelled = false;
 
     async function boot(): Promise<void> {
-      const creds = await loadCredentials();
-      if (cancelled) return;
-      if (creds === null) {
-        setRoute({ name: 'onboarding' });
-        return;
-      }
-      const created = await createSession(creds);
+      // Sessionen aabnes altid: den er ogsaa det der flytter en installation
+      // fra tiden med ét panel over paa kilder. Foerst bagefter kan vi vide
+      // om der er noget at vise.
+      const created = await createSession();
       if (cancelled) return;
       setSession(created);
-      setRoute({ name: 'home' });
+      setRoute(created.sources.length === 0 ? { name: 'onboarding' } : { name: 'home' });
     }
 
     boot().catch(() => {
@@ -76,9 +73,9 @@ export default function App() {
 
   async function afterOnboarding(): Promise<void> {
     try {
-      const creds = await loadCredentials();
-      if (creds === null) return;
-      setSession(await createSession(creds));
+      const created = session === null ? await createSession() : await reloadSources(session);
+      if (created.sources.length === 0) return;
+      setSession(created);
       setRoute({ name: 'home' });
     } catch {
       // Samme grund som i boot(): databasen kan kaste, og en spinner uden

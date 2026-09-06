@@ -13,6 +13,7 @@ import type { SqlDatabase } from '../storage/types.js';
  */
 export async function syncChannels(
   db: SqlDatabase,
+  sourceId: string,
   creds: XtreamCredentials,
   fetchImpl: FetchLike,
   now: Date = new Date(),
@@ -22,8 +23,8 @@ export async function syncChannels(
   const categories = await client.getLiveCategories();
   const channels = await client.getLiveStreams();
 
-  await replaceCategories(db, categories);
-  await replaceChannels(db, channels);
+  await replaceCategories(db, sourceId, categories);
+  await replaceChannels(db, sourceId, channels);
   await setLastSyncMs(db, now.getTime());
 
   return { categories: categories.length, channels: channels.length };

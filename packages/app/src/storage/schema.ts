@@ -12,13 +12,36 @@ import type { SqlDatabase } from './types.js';
  * som noegle ville de aldrig kunne faa programdata.
  */
 const SCHEMA = `
-CREATE TABLE IF NOT EXISTS categories (
-  id   TEXT PRIMARY KEY,
-  name TEXT NOT NULL
+-- Hvert sted kanaler kommer fra: et Xtream-panel eller en M3U-liste.
+-- Adgangskoder staar her **ikke**; de ligger i Keychain under kildens id.
+CREATE TABLE IF NOT EXISTS sources (
+  id         TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  url        TEXT NOT NULL,
+  username   TEXT,
+  xmltv_url  TEXT,
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS categories (
+  id        TEXT PRIMARY KEY,
+  source_id TEXT NOT NULL,
+  name      TEXT NOT NULL
+);
+
+-- id er kildens id og kanalens eget id sat sammen; stream_id er kanalens eget.
+-- To udbydere har begge en kanal 1, og uden den sammensatte noegle ville den
+-- ene overskrive den anden ved naeste synkronisering.
+--
+-- stream_url er kun for M3U-kanaler, som ikke har et API at bygge en URL med.
 CREATE TABLE IF NOT EXISTS channels (
   id             TEXT PRIMARY KEY,
+  source_id      TEXT NOT NULL,
+  stream_id      TEXT NOT NULL,
+  stream_url     TEXT,
   name           TEXT NOT NULL,
   number         INTEGER,
   logo_url       TEXT,
@@ -29,6 +52,8 @@ CREATE TABLE IF NOT EXISTS channels (
   is_stale       INTEGER NOT NULL DEFAULT 0,
   sort_order     INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE INDEX IF NOT EXISTS idx_channels_source ON channels (source_id);
 
 CREATE TABLE IF NOT EXISTS favorites (
   channel_id         TEXT PRIMARY KEY,
@@ -111,6 +136,7 @@ CREATE TABLE IF NOT EXISTS settings (
 `;
 
 const TABLES = [
+  'sources',
   'categories',
   'channels',
   'favorites',
@@ -123,7 +149,7 @@ const TABLES = [
   'settings',
 ] as const;
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -227,6 +253,62 @@ async function restorePreserved(
  * Det brugeren selv har skabt — favoritter — og det der ikke kan genskabes
  * uden onboarding — timeshift-dialekten — loeftes med over.
  */
+/**
+ * v5 tilfoejer en kilde til kanaler og kategorier.
+ *
+ * Kolonnerne skal ind **foer** skemaet koeres: skemaet laegger et indeks paa
+ * `channels.source_id`, og det kan ikke oprettes paa en tabel hvor kolonnen
+ * ikke findes endnu.
+ *
+ * `CREATE TABLE IF NOT EXISTS` kan ikke tilfoeje kolonner til en tabel der
+ * allerede findes, saa det maa vaere ALTER.
+ */
+async function addV5Columns(db: SqlDatabase): Promise<void> {
+  const additions = [
+    "ALTER TABLE channels ADD COLUMN source_id TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE channels ADD COLUMN stream_id TEXT NOT NULL DEFAULT ''",
+    'ALTER TABLE channels ADD COLUMN stream_url TEXT',
+    "ALTER TABLE categories ADD COLUMN source_id TEXT NOT NULL DEFAULT ''",
+  ];
+  for (const sql of additions) {
+    try {
+      await db.execAsync(sql);
+    } catch {
+      // Kolonnen fandtes allerede. Migreringen skal kunne koere igen paa en
+      // database der naaede halvvejs foer appen blev lukket.
+    }
+  }
+}
+
+/**
+ * Rydder den cache hvis id'er skifter betydning ved v5.
+ *
+ * Kanalens id gaar fra at vaere panelets eget til ogsaa at sige hvorfra. En
+ * halv cache med gamle noegler ville se rigtig ud og pege forkert.
+ *
+ * Koeres **efter** skemaet: en aeldre database mangler nogle af tabellerne,
+ * og et DELETE fra en tabel der ikke findes stopper migreringen.
+ *
+ * Favoritter, optagelser og skjulte lande roeres ikke. De er brugerens eget
+ * arbejde, og de faar deres nye noegle naar appen ved hvilken kilde de hoerer
+ * til; det ved den foerst naar adgangsoplysningerne er laest, og de ligger i
+ * Keychain, ikke i databasen.
+ */
+async function clearV5Cache(db: SqlDatabase): Promise<void> {
+  for (const table of [
+    'channels',
+    'categories',
+    'programmes',
+    'epg_fetch',
+    'epg_archive_fetch',
+  ]) {
+    await db.execAsync(`DELETE FROM ${table}`);
+  }
+  // Uden dette springes kanal-synken over i et doegn, og appen ville staa med
+  // en tom liste den ikke selv fyldte op igen.
+  await db.execAsync("DELETE FROM settings WHERE key = 'last_sync_ms'");
+}
+
 export async function migrate(db: SqlDatabase): Promise<void> {
   const version = await readUserVersion(db);
 
@@ -238,7 +320,10 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     await db.execAsync(SCHEMA);
     await restorePreserved(db, preserved);
   } else {
+    const toV5 = version >= REBUILD_BELOW_VERSION && version < 5;
+    if (toV5) await addV5Columns(db);
     await db.execAsync(SCHEMA);
+    if (toV5) await clearV5Cache(db);
   }
 
   await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);

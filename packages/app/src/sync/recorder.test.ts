@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Programme, XtreamCredentials } from '@norstream/core';
+import { channelKey } from '@norstream/core';
 import { migrate } from '../storage/schema.js';
+import { setPanelOffsetMinutes, setTimeshiftDialect } from '../storage/settings.js';
 import {
   getRecording,
   listRecordings,
@@ -22,7 +24,10 @@ const NOW = new Date('2026-09-06T20:00:00.000Z');
 const HOUR = 60 * 60_000;
 const DAY = 24 * HOUR;
 
-const CHANNEL = { id: '247634', name: 'DR1', archiveDays: 7 };
+/** Alt her kommer fra én kilde; noeglen er kilde + kanalens eget id. */
+const SOURCE = 'src1';
+const sources = new Map([[SOURCE, creds]]);
+const CHANNEL = { id: channelKey(SOURCE, '247634'), name: 'DR1', archiveDays: 7 };
 
 function programme(startMs: number, lengthMs = HOUR): Programme {
   return {
@@ -54,6 +59,9 @@ let db: SqlDatabase;
 beforeEach(async () => {
   db = createTestDatabase();
   await migrate(db);
+  // Dialekt og tidszone hoerer til kilden nu, og optageren laeser dem derfra.
+  await setTimeshiftDialect(db, 'php', SOURCE);
+  await setPanelOffsetMinutes(db, 120, SOURCE);
 });
 
 describe('runRecordings', () => {
@@ -61,7 +69,7 @@ describe('runRecordings', () => {
     const id = await scheduleRecording(db, CHANNEL, programme(NOW.getTime() - 2 * HOUR), NOW);
     const files = store();
 
-    const result = await runRecordings(db, creds, 'php', 120, files, NOW);
+    const result = await runRecordings(db, sources, files, NOW);
 
     expect(result).toEqual({ fetched: 1, failed: 0, expired: 0 });
     const recording = await getRecording(db, id);
@@ -74,7 +82,7 @@ describe('runRecordings', () => {
     await scheduleRecording(db, CHANNEL, programme(NOW.getTime() - 2 * HOUR), NOW);
     const files = store();
 
-    await runRecordings(db, creds, 'php', 120, files, NOW);
+    await runRecordings(db, sources, files, NOW);
 
     // 18:00 UTC + 120 minutters paneloffset = 20:00 paa panelets ur.
     expect(files.urls[0]).toContain('start=2026-09-06%3A20-00');
@@ -86,7 +94,7 @@ describe('runRecordings', () => {
     await scheduleRecording(db, CHANNEL, programme(NOW.getTime() + HOUR), NOW);
     const files = store();
 
-    const result = await runRecordings(db, creds, 'php', 0, files, NOW);
+    const result = await runRecordings(db, sources, files, NOW);
 
     expect(result.fetched).toBe(0);
     expect(files.download).not.toHaveBeenCalled();
@@ -103,7 +111,7 @@ describe('runRecordings', () => {
       }),
     });
 
-    const result = await runRecordings(db, creds, 'php', 0, files, NOW);
+    const result = await runRecordings(db, sources, files, NOW);
 
     expect(result).toEqual({ fetched: 0, failed: 1, expired: 0 });
     const recording = await getRecording(db, id);
@@ -116,7 +124,7 @@ describe('runRecordings', () => {
     const id = await scheduleRecording(db, CHANNEL, programme(NOW.getTime() - 2 * HOUR), NOW);
     await updateRecording(db, id, { state: 'failed', error: 'noget gik galt' });
 
-    const result = await runRecordings(db, creds, 'php', 0, store(), NOW);
+    const result = await runRecordings(db, sources, store(), NOW);
 
     expect(result.fetched).toBe(1);
     expect((await getRecording(db, id))?.error).toBeNull();
@@ -126,7 +134,7 @@ describe('runRecordings', () => {
     const id = await scheduleRecording(db, CHANNEL, programme(NOW.getTime() - 9 * DAY), NOW);
     const files = store();
 
-    const result = await runRecordings(db, creds, 'php', 0, files, NOW);
+    const result = await runRecordings(db, sources, files, NOW);
 
     expect(result).toEqual({ fetched: 0, failed: 0, expired: 1 });
     expect(files.download).not.toHaveBeenCalled();
@@ -149,7 +157,7 @@ describe('runRecordings', () => {
       }),
     });
 
-    const result = await runRecordings(db, creds, 'php', 0, files, NOW);
+    const result = await runRecordings(db, sources, files, NOW);
 
     expect(result.fetched).toBe(2);
     expect(peak).toBe(1);
@@ -160,7 +168,7 @@ describe('runRecordings', () => {
     await updateRecording(db, id, { state: 'done', fileUri: 'file:///a.ts' });
     const files = store();
 
-    await runRecordings(db, creds, 'php', 0, files, NOW);
+    await runRecordings(db, sources, files, NOW);
 
     expect(files.download).not.toHaveBeenCalled();
   });
@@ -176,7 +184,7 @@ describe('runRecordings', () => {
     });
     const seen: [string, number][] = [];
 
-    await runRecordings(db, creds, 'php', 0, files, NOW, undefined, (recordingId, bytes) => {
+    await runRecordings(db, sources, files, NOW, undefined, (recordingId, bytes) => {
       seen.push([recordingId, bytes]);
     });
 
@@ -220,7 +228,7 @@ describe('svar der ikke er en udsendelse', () => {
       }),
     });
 
-    const result = await runRecordings(db, creds, 'php', 0, files, NOW);
+    const result = await runRecordings(db, sources, files, NOW);
 
     expect(result).toEqual({ fetched: 0, failed: 1, expired: 0 });
     const recording = await getRecording(db, id);
@@ -232,10 +240,12 @@ describe('svar der ikke er en udsendelse', () => {
   });
 
   it('henter arkivet som ts, ikke som spilleliste', async () => {
+    // Sti-dialekten er den eneste der har et filnavn at aendre.
+    await setTimeshiftDialect(db, 'path', SOURCE);
     await scheduleRecording(db, CHANNEL, programme(NOW.getTime() - 2 * HOUR), NOW);
     const files = store();
 
-    await runRecordings(db, creds, 'path', 0, files, NOW);
+    await runRecordings(db, sources, files, NOW);
 
     expect(files.urls[0]).toContain('/247634.ts');
     expect(files.urls[0]).not.toContain('.m3u8');

@@ -1,5 +1,6 @@
-import { XtreamAuthError, XtreamClient } from '@norstream/core';
+import { XtreamAuthError, XtreamClient, parseChannelKey } from '@norstream/core';
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
+import { groupBySource } from '../sources/access.js';
 import { maxArchiveDays } from '../storage/channels.js';
 import {
   getArchiveFetchedAt,
@@ -101,26 +102,36 @@ async function runBounded<T>(
  */
 export async function ensureEpg(
   db: SqlDatabase,
-  creds: XtreamCredentials,
+  credsBySource: ReadonlyMap<string, XtreamCredentials>,
   fetchImpl: FetchLike,
-  streamIds: readonly string[],
+  channelKeys: readonly string[],
   now: Date = new Date(),
   limit: number = DEFAULT_LIMIT,
 ): Promise<EnsureEpgResult> {
-  const unique = [...new Set(streamIds)].filter((id) => id.length > 0);
+  const unique = [...new Set(channelKeys)].filter((id) => id.length > 0);
 
   const stale: string[] = [];
-  for (const streamId of unique) {
-    if (needsEpgFetch(await getEpgFreshness(db, streamId), now)) stale.push(streamId);
+  for (const key of unique) {
+    if (needsEpgFetch(await getEpgFreshness(db, key), now)) stale.push(key);
   }
   if (stale.length === 0) return { fetched: 0, programmes: 0 };
 
-  const client = new XtreamClient(creds, fetchImpl);
   let authFailure: XtreamAuthError | null = null;
   let fetched = 0;
   let programmes = 0;
 
-  await runBounded(stale, MAX_PARALLEL, () => authFailure !== null, async (streamId) => {
+  // Noeglerne kan komme fra flere paneler ad gangen — guiden viser favoritter,
+  // og de ligger ikke noedvendigvis samme sted. Spurgte vi det ene panel om
+  // det andets kanaler, ville svaret vaere tomt og ikke til at skelne fra
+  // "ingen programdata".
+  for (const [sourceId, keys] of groupBySource(stale)) {
+    const creds = credsBySource.get(sourceId);
+    // M3U-kilder har ingen EPG-API. Deres programdata kommer fra XMLTV.
+    if (creds === undefined) continue;
+    const client = new XtreamClient(creds, fetchImpl);
+
+  await runBounded(keys, MAX_PARALLEL, () => authFailure !== null, async (key) => {
+    const streamId = parseChannelKey(key)?.streamId ?? key;
     let batch;
     try {
       batch = await client.getShortEpg(streamId, limit);
@@ -131,13 +142,16 @@ export async function ensureEpg(
       return;
     }
 
-    await upsertProgrammes(db, batch);
+    // Programmerne gemmes under den sammensatte noegle, ikke under panelets
+    // eget id: to paneler har begge en kanal 1.
+    await upsertProgrammes(db, batch.map((p) => ({ ...p, channelId: key })));
     // Ogsaa naar batch er tom: se needsEpgFetch's regel 1. Uden dette ville
     // en kanal uden programdata blive hentet igen ved hver rendering.
-    await markEpgFetched(db, streamId, now);
+    await markEpgFetched(db, key, now);
     fetched += 1;
     programmes += batch.length;
   });
+  }
 
   if (authFailure !== null) throw authFailure;
 
@@ -169,7 +183,7 @@ export async function ensureEpg(
  */
 export async function ensureFullEpg(
   db: SqlDatabase,
-  creds: XtreamCredentials,
+  credsBySource: ReadonlyMap<string, XtreamCredentials>,
   fetchImpl: FetchLike,
   channels: readonly { id: string }[],
   now: Date = new Date(),
@@ -185,25 +199,31 @@ export async function ensureFullEpg(
   }
   if (candidates.length === 0) return { fetched: 0, programmes: 0 };
 
-  const client = new XtreamClient(creds, fetchImpl);
   let authFailure: XtreamAuthError | null = null;
   let fetched = 0;
   let programmes = 0;
 
-  await runBounded(candidates, MAX_PARALLEL, () => authFailure !== null, async (streamId) => {
-    let batch;
-    try {
-      batch = await client.getFullEpg(streamId);
-    } catch (cause) {
-      if (cause instanceof XtreamAuthError) authFailure = cause;
-      return;
-    }
+  for (const [sourceId, keys] of groupBySource(candidates)) {
+    const creds = credsBySource.get(sourceId);
+    if (creds === undefined) continue;
+    const client = new XtreamClient(creds, fetchImpl);
 
-    await upsertProgrammes(db, batch);
-    await markArchiveFetched(db, streamId, now);
-    fetched += 1;
-    programmes += batch.length;
-  });
+    await runBounded(keys, MAX_PARALLEL, () => authFailure !== null, async (key) => {
+      const streamId = parseChannelKey(key)?.streamId ?? key;
+      let batch;
+      try {
+        batch = await client.getFullEpg(streamId);
+      } catch (cause) {
+        if (cause instanceof XtreamAuthError) authFailure = cause;
+        return;
+      }
+
+      await upsertProgrammes(db, batch.map((p) => ({ ...p, channelId: key })));
+      await markArchiveFetched(db, key, now);
+      fetched += 1;
+      programmes += batch.length;
+    });
+  }
 
   if (authFailure !== null) throw authFailure;
   return { fetched, programmes };

@@ -4,13 +4,14 @@ import { XtreamAuthError } from '@norstream/core';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
-import { clearCredentials } from '../../storage/credentials.js';
+import { clearSourceCredentials } from '../../storage/credentials.js';
+import { deleteSource, listSources } from '../../storage/sources.js';
 import {
   clearLastSyncMs,
   getLastSyncMs,
   getMiniPreviewEnabled,
 } from '../../storage/settings.js';
-import { syncChannels } from '../../sync/syncChannels.js';
+import { syncAllSources } from '../../sync/syncAll.js';
 import { theme } from '../../ui/theme.js';
 import { BrowseScreen } from '../browse/BrowseScreen.js';
 import type { Level } from '../browse/BrowseScreen.js';
@@ -97,7 +98,12 @@ export function HomeScreen({ session, place, onPlaceChange, onSelect, onSignedOu
     // til onboarding. Et skiftet panel-kodeord maa ikke laase installationen.
     // Begge oprydninger koeres uanset om den anden fejler; en fejlende
     // keychain-sletning maa ikke afbryde udlogningen stille.
-    await Promise.allSettled([clearCredentials(), clearLastSyncMs(session.db)]);
+    const sources = await listSources(session.db);
+    await Promise.allSettled([
+      ...sources.map((source) => clearSourceCredentials(source.id)),
+      ...sources.map((source) => deleteSource(session.db, source.id)),
+      clearLastSyncMs(session.db),
+    ]);
     onSignedOut(SIGNED_OUT_MESSAGE);
   }, [session.db, onSignedOut]);
 
@@ -118,14 +124,13 @@ export function HomeScreen({ session, place, onPlaceChange, onSelect, onSignedOu
       const ageMs = lastSync === null ? Number.POSITIVE_INFINITY : Date.now() - lastSync;
       if (!force && ageMs < CHANNEL_SYNC_INTERVAL_MS) return;
 
-      try {
-        await syncChannels(session.db, session.creds, session.fetchImpl);
-      } catch (cause) {
-        if (cause instanceof XtreamAuthError) {
-          await signOutFromPanel();
-          return;
-        }
-        // Spec sec.9: panelet nede maa ikke toemme skaermen — vi viser cachen.
+      // Hver kilde for sig: er det ene panel nede, skal de oevrige kanaler
+      // stadig hentes. Et afvist kodeord paa én kilde logger heller ikke
+      // brugeren ud af de andre.
+      const result = await syncAllSources(session.db, session.sources, session.fetchImpl);
+      if (result.synced === 0 && result.rejected.length > 0) {
+        await signOutFromPanel();
+        return;
       }
       setFavoritesToken((value) => value + 1);
     },

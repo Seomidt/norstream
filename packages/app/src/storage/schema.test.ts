@@ -44,11 +44,12 @@ async function userVersion(db: SqlDatabase): Promise<number> {
 }
 
 describe('migrate paa en frisk database', () => {
-  it('opretter alle ti tabeller', async () => {
+  it('opretter alle elleve tabeller', async () => {
     const db = createTestDatabase();
     await migrate(db);
     const names = await tableNames(db);
     for (const table of [
+      'sources',
       'categories',
       'channels',
       'favorites',
@@ -64,10 +65,10 @@ describe('migrate paa en frisk database', () => {
     }
   });
 
-  it('stempler skemaversion 4', async () => {
+  it('stempler skemaversion 5', async () => {
     const db = createTestDatabase();
     await migrate(db);
-    expect(await userVersion(db)).toBe(4);
+    expect(await userVersion(db)).toBe(5);
   });
 
   it('er idempotent og sletter ikke data ved anden koersel', async () => {
@@ -191,7 +192,7 @@ describe('migrate fra v1', () => {
   it('stempler den nuvaerende version og opretter de nye tabeller', async () => {
     const db = await createV1Database();
     await migrate(db);
-    expect(await userVersion(db)).toBe(4);
+    expect(await userVersion(db)).toBe(5);
     const names = await tableNames(db);
     expect(names).toContain('epg_fetch');
     expect(names).toContain('hidden_countries');
@@ -205,7 +206,7 @@ describe('migrate fra v1', () => {
     await db.execAsync('PRAGMA user_version = 1');
 
     await expect(migrate(db)).resolves.toBeUndefined();
-    expect(await userVersion(db)).toBe(4);
+    expect(await userVersion(db)).toBe(5);
     expect(await tableNames(db)).toContain('favorites');
   });
 });
@@ -250,7 +251,7 @@ describe('migrate fra v2', () => {
 
     await migrate(db);
 
-    expect(await userVersion(db)).toBe(4);
+    expect(await userVersion(db)).toBe(5);
     expect(await tableNames(db)).toContain('epg_archive_fetch');
 
     // v2 -> v3 tilfoejer kun en tabel. Bygger den om alligevel, mister
@@ -266,19 +267,17 @@ describe('migrate fra v2', () => {
     );
     expect(exclusions).toHaveLength(1);
 
-    const programmes = await db.getAllAsync<{ title: string }>('SELECT title FROM programmes');
-    expect(programmes.map((row) => row.title)).toEqual(['TV Avisen']);
-
-    const fetches = await db.getAllAsync<{ stream_id: string }>(
-      'SELECT stream_id FROM epg_fetch',
-    );
-    expect(fetches).toHaveLength(1);
+    // Programcachen ryddes derimod: fra v5 er kanalens id ogsaa dens kilde, og
+    // en halv cache med gamle noegler ville se rigtig ud og pege forkert. Den
+    // hentes paa faa sekunder, favoritterne kan ikke.
+    expect(await db.getAllAsync('SELECT * FROM programmes')).toHaveLength(0);
+    expect(await db.getAllAsync('SELECT * FROM epg_fetch')).toHaveLength(0);
 
     const hidden = await db.getAllAsync<{ name: string }>('SELECT name FROM hidden_countries');
     expect(hidden.map((row) => row.name)).toEqual(['__other__']);
   });
 
-  it('er idempotent paa v4', async () => {
+  it('er idempotent paa v5', async () => {
     const db = createTestDatabase();
     await migrate(db);
     await db.runAsync("INSERT INTO epg_archive_fetch VALUES ('247634', 42)");
@@ -287,5 +286,104 @@ describe('migrate fra v2', () => {
       'SELECT fetched_at FROM epg_archive_fetch',
     );
     expect(rows.map((row) => row.fetched_at)).toEqual([42]);
+  });
+});
+
+describe('migrate fra v4', () => {
+  /** v4 som den stod paa enheder der naaede optagelses-udgaven. */
+  const V4_CHANNELS = `
+CREATE TABLE channels (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, number INTEGER, logo_url TEXT,
+  category_id TEXT, epg_channel_id TEXT,
+  has_archive INTEGER NOT NULL DEFAULT 0, archive_days INTEGER NOT NULL DEFAULT 0,
+  is_stale INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE categories (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+CREATE TABLE favorites (channel_id TEXT PRIMARY KEY, source_category_id TEXT);
+CREATE TABLE favorite_exclusions (channel_id TEXT PRIMARY KEY, category_id TEXT NOT NULL);
+CREATE TABLE programmes (
+  channel_id TEXT NOT NULL, start_ms INTEGER NOT NULL, stop_ms INTEGER NOT NULL,
+  title TEXT NOT NULL, description TEXT, PRIMARY KEY (channel_id, start_ms)
+);
+CREATE TABLE epg_fetch (stream_id TEXT PRIMARY KEY, fetched_at INTEGER NOT NULL);
+CREATE TABLE epg_archive_fetch (stream_id TEXT PRIMARY KEY, fetched_at INTEGER NOT NULL);
+CREATE TABLE hidden_countries (name TEXT PRIMARY KEY);
+CREATE TABLE recordings (
+  id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, channel_name TEXT NOT NULL,
+  title TEXT NOT NULL, description TEXT, start_ms INTEGER NOT NULL,
+  stop_ms INTEGER NOT NULL, archive_days INTEGER NOT NULL, state TEXT NOT NULL,
+  file_uri TEXT, bytes INTEGER NOT NULL DEFAULT 0, error TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+PRAGMA user_version = 4;
+`;
+
+  async function createV4(): Promise<SqlDatabase> {
+    const db = createTestDatabase();
+    await db.execAsync(V4_CHANNELS);
+    return db;
+  }
+
+  it('giver kanaler og kategorier en kilde', async () => {
+    const db = await createV4();
+    await migrate(db);
+
+    expect(await userVersion(db)).toBe(5);
+    expect(await tableNames(db)).toContain('sources');
+
+    const channelColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(channels)');
+    expect(channelColumns.map((c) => c.name)).toEqual(
+      expect.arrayContaining(['source_id', 'stream_id', 'stream_url']),
+    );
+    const categoryColumns = await db.getAllAsync<{ name: string }>(
+      'PRAGMA table_info(categories)',
+    );
+    expect(categoryColumns.map((c) => c.name)).toContain('source_id');
+  });
+
+  it('beholder favoritter, optagelser og skjulte lande', async () => {
+    const db = await createV4();
+    await db.runAsync("INSERT INTO favorites VALUES ('247634', 'dk-hd')");
+    await db.runAsync("INSERT INTO hidden_countries VALUES ('__other__')");
+    await db.runAsync(
+      `INSERT INTO recordings
+         (id, channel_id, channel_name, title, start_ms, stop_ms, archive_days, state, bytes, created_at)
+       VALUES ('247634:1000', '247634', 'DR1', 'Bjerget', 1000, 2000, 7, 'planned', 0, 1)`,
+    );
+
+    await migrate(db);
+
+    // Brugerens eget arbejde overlever. Noeglen faar sin kilde senere, naar
+    // appen ved hvilken den hoerer til — den viden ligger i Keychain.
+    expect(await db.getAllAsync('SELECT * FROM favorites')).toHaveLength(1);
+    expect(await db.getAllAsync('SELECT * FROM recordings')).toHaveLength(1);
+    expect(await db.getAllAsync('SELECT * FROM hidden_countries')).toHaveLength(1);
+  });
+
+  it('rydder kanalcachen, hvis id skifter betydning', async () => {
+    const db = await createV4();
+    await db.runAsync("INSERT INTO channels (id, name) VALUES ('247634', 'DR1')");
+    await db.runAsync("INSERT INTO categories (id, name) VALUES ('1', 'DENMARK')");
+    await db.runAsync("INSERT INTO programmes VALUES ('247634', 1, 2, 'Bjerget', NULL)");
+    await db.runAsync("INSERT INTO settings VALUES ('last_sync_ms', '1000')");
+
+    await migrate(db);
+
+    // En halv cache med gamle noegler ville se rigtig ud og pege forkert.
+    expect(await db.getAllAsync('SELECT * FROM channels')).toHaveLength(0);
+    expect(await db.getAllAsync('SELECT * FROM categories')).toHaveLength(0);
+    expect(await db.getAllAsync('SELECT * FROM programmes')).toHaveLength(0);
+    // Og synken maa ikke springes over i et doegn bagefter.
+    expect(await db.getAllAsync("SELECT * FROM settings WHERE key = 'last_sync_ms'")).toHaveLength(
+      0,
+    );
+  });
+
+  it('kan koere igen paa en database der naaede halvvejs', async () => {
+    const db = await createV4();
+    await db.execAsync("ALTER TABLE channels ADD COLUMN source_id TEXT NOT NULL DEFAULT ''");
+    await expect(migrate(db)).resolves.toBeUndefined();
+    expect(await userVersion(db)).toBe(5);
   });
 });

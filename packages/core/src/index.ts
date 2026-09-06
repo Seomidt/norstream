@@ -45,3 +45,6 @@ export { mapEpgListings } from './xtream/epgListings.js';
 export type { RawEpgListing } from './xtream/epgListings.js';
 
 export { panelOffsetFromServerInfo } from './xtream/serverInfo.js';
+
+export { channelKey, isValidSourceId, parseChannelKey } from './source/source.js';
+export type { ChannelKeyParts, Source, SourceKind } from './source/source.js';

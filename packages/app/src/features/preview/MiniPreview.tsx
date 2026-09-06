@@ -5,6 +5,7 @@ import { buildLiveUrl } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { theme } from '../../ui/theme.js';
+import { liveUrlFor } from '../../sources/access.js';
 import { formatForPlatform } from '../player/format.js';
 
 /**
@@ -109,7 +110,11 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
       await player.replaceAsync(null);
       if (cancelled || target === null) return;
 
-      await player.replaceAsync(buildLiveUrl(session.creds, target.id, formatForPlatform()));
+      const url = liveUrlFor(session.access(target.sourceId), target, formatForPlatform());
+      // Uden adresse er der intet at vise. Et forsoeg paa at aabne null ville
+      // efterlade et sort felt der ligner en stream der ikke ville starte.
+      if (url === null) return;
+      await player.replaceAsync(url);
       if (cancelled) return;
       player.muted = muted;
       player.play();
@@ -164,7 +169,7 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
     // effekt ovenfor, og et tryk paa lydknappen maa ikke starte streamen
     // forfra — det ville koste en nedlukning og en genaabning paa et panel
     // der kun har én forbindelse.
-  }, [player, target, session.creds]);
+  }, [player, target, session]);
 
   if (!enabled) return null;
 

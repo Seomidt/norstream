@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { channelKey } from '@norstream/core';
 import type { Category, Channel } from '@norstream/core';
 import { replaceCategories, replaceChannels, listChannels } from './channels.js';
 import {
@@ -14,6 +15,11 @@ import {
 import { migrate } from './schema.js';
 import { createTestDatabase } from './testDb.js';
 import type { SqlDatabase } from './types.js';
+
+/** Alt i disse tests kommer fra én kilde; noeglen er kilde + kanalens eget id. */
+const SOURCE = 'src1';
+const key = (streamId: string): string => channelKey(SOURCE, streamId);
+
 
 const CATEGORIES: Category[] = [
   { id: '1', name: 'DENMARK HD & HEVC' },
@@ -48,8 +54,8 @@ let db: SqlDatabase;
 beforeEach(async () => {
   db = createTestDatabase();
   await migrate(db);
-  await replaceCategories(db, CATEGORIES);
-  await replaceChannels(db, CHANNELS);
+  await replaceCategories(db, SOURCE, CATEGORIES);
+  await replaceChannels(db, SOURCE, CHANNELS);
 });
 
 describe('listCategorySummaries', () => {
@@ -59,20 +65,29 @@ describe('listCategorySummaries', () => {
     const SE = { code: 'SE', name: 'Sverige', flag: '🇸🇪' };
     expect(summaries).toEqual([
       {
-        id: '4',
+        id: key('4'),
         name: '4K UHD 3840P',
         channelCount: 1,
         countryKey: OTHER_COUNTRY_KEY,
         country: null,
       },
-      { id: '1', name: 'DENMARK HD & HEVC', channelCount: 2, countryKey: 'DK', country: DK },
-      { id: '2', name: 'DENMARK SPORT HD', channelCount: 1, countryKey: 'DK', country: DK },
-      { id: '3', name: 'SWEDEN SPORT', channelCount: 1, countryKey: 'SE', country: SE },
+      {
+        id: key('1'),
+        name: 'DENMARK HD & HEVC',
+        channelCount: 2, countryKey: 'DK', country: DK },
+      {
+        id: key('2'),
+        name: 'DENMARK SPORT HD',
+        channelCount: 1, countryKey: 'DK', country: DK },
+      {
+        id: key('3'),
+        name: 'SWEDEN SPORT',
+        channelCount: 1, countryKey: 'SE', country: SE },
     ]);
   });
 
   it('giver nul for en kategori uden kanaler', async () => {
-    await replaceChannels(db, []);
+    await replaceChannels(db, SOURCE, []);
     const summaries = await listCategorySummaries(db);
     expect(summaries.every((s) => s.channelCount === 0)).toBe(true);
     expect(summaries).toHaveLength(4);
@@ -98,7 +113,7 @@ describe('listCountryGroups', () => {
   it('holder Øvrige nederst uanset navnenes orden', async () => {
     // Ø sorterer sidst paa dansk i forvejen; testen skal ikke kunne bestaa
     // ved et tilfaelde, saa vi tilfoejer et land der sorterer efter Ø.
-    await replaceCategories(db, [...CATEGORIES, { id: '5', name: 'AUSTRIA HD' }]);
+    await replaceCategories(db, SOURCE, [...CATEGORIES, { id: '5', name: 'AUSTRIA HD' }]);
     const groups = await listCountryGroups(db);
     expect(groups[groups.length - 1]?.key).toBe(OTHER_COUNTRY_KEY);
     expect(groups.map((g) => g.name)).toEqual(['Danmark', 'Sverige', 'Østrig', 'Øvrige']);
@@ -114,7 +129,7 @@ describe('listCountryGroups', () => {
     // Spec sec.5: skjulte lande forsvinder fra listen, ikke fra databasen.
     await hideCountry(db, 'SE');
     const found = await listChannels(db, { search: 'SVT1' });
-    expect(found.map((c) => c.id)).toEqual(['13']);
+    expect(found.map((c) => c.id)).toEqual([key('13')]);
   });
 
   it('viser et land igen efter unhide', async () => {
@@ -163,8 +178,8 @@ describe('landet udledt af kanalnavnene', () => {
   it('finder landet naar kategorinavnet ikke rummer det', async () => {
     // Panelet doeber kategorien efter indhold, ikke efter land — men skriver
     // landet paa hver eneste kanal i den.
-    await replaceCategories(db, [{ id: '9', name: 'SPORT 1080P' }]);
-    await replaceChannels(db, [
+    await replaceCategories(db, SOURCE, [{ id: '9', name: 'SPORT 1080P' }]);
+    await replaceChannels(db, SOURCE, [
       channel('90', '9', 'DNK| TV3 SPORT'),
       channel('91', '9', 'DNK| TV3 SPORT 2'),
     ]);
@@ -175,8 +190,8 @@ describe('landet udledt af kanalnavnene', () => {
   });
 
   it('lader flertallet afgoere det naar kanalerne ikke er enige', async () => {
-    await replaceCategories(db, [{ id: '9', name: 'SPORT 1080P' }]);
-    await replaceChannels(db, [
+    await replaceCategories(db, SOURCE, [{ id: '9', name: 'SPORT 1080P' }]);
+    await replaceChannels(db, SOURCE, [
       channel('90', '9', 'SWE| SVT SPORT'),
       channel('91', '9', 'DNK| TV3 SPORT'),
       channel('92', '9', 'DNK| TV2 SPORT'),
@@ -188,8 +203,8 @@ describe('landet udledt af kanalnavnene', () => {
   it('lader kategorinavnet vinde over kanalerne', async () => {
     // Kategorinavnet er panelets egen gruppering. En enkelt fejlmaerket kanal
     // maa ikke kunne flytte hele kategorien under et andet flag.
-    await replaceCategories(db, [{ id: '9', name: 'SWEDEN SPORT' }]);
-    await replaceChannels(db, [
+    await replaceCategories(db, SOURCE, [{ id: '9', name: 'SWEDEN SPORT' }]);
+    await replaceChannels(db, SOURCE, [
       channel('90', '9', 'DNK| TV3 SPORT'),
       channel('91', '9', 'DNK| TV2 SPORT'),
     ]);
@@ -198,8 +213,8 @@ describe('landet udledt af kanalnavnene', () => {
   });
 
   it('bliver i Øvrige naar hverken kategori eller kanaler siger noget', async () => {
-    await replaceCategories(db, [{ id: '9', name: 'RELAX 1920P' }]);
-    await replaceChannels(db, [channel('90', '9', 'Fireplace 4K')]);
+    await replaceCategories(db, SOURCE, [{ id: '9', name: 'RELAX 1920P' }]);
+    await replaceChannels(db, SOURCE, [channel('90', '9', 'Fireplace 4K')]);
 
     const [summary] = await listCategorySummaries(db);
     expect(summary?.countryKey).toBe(OTHER_COUNTRY_KEY);

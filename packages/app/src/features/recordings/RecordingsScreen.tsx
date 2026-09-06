@@ -10,8 +10,8 @@ import {
 import { VideoView, useVideoPlayer } from 'expo-video';
 import type { AppSession } from '../../session.js';
 import { deleteRecording, listRecordings, updateRecording } from '../../storage/recordings.js';
+import { getTimeshiftDialect } from '../../storage/settings.js';
 import type { Recording } from '../../storage/recordings.js';
-import { getPanelOffsetMinutes, getTimeshiftDialect } from '../../storage/settings.js';
 import { runRecordings } from '../../sync/recorder.js';
 import { theme } from '../../ui/theme.js';
 import { describeRecording, formatBytes } from './plan.js';
@@ -41,14 +41,18 @@ export function RecordingsScreen({ session }: Props) {
   const store = useRef(createRecordingStore()).current;
 
   const reload = useCallback(async (): Promise<void> => {
-    const [rows, storedDialect] = await Promise.all([
-      listRecordings(session.db),
-      getTimeshiftDialect(session.db),
-    ]);
-    setRecordings(rows);
-    setDialect(storedDialect);
+    setRecordings(await listRecordings(session.db));
+    // "Kan der overhovedet hentes?" er sandt saa snart én kilde har fundet
+    // vejen til sit arkiv. Optagelser fra en kilde uden faar deres egen
+    // besked naar de proeves.
+    let anyDialect: 'php' | 'path' | null = null;
+    for (const access of session.sources) {
+      const found = await getTimeshiftDialect(session.db, access.source.id);
+      if (found !== null) anyDialect = found;
+    }
+    setDialect(anyDialect);
     setNow(new Date());
-  }, [session.db]);
+  }, [session]);
 
   useEffect(() => {
     void (async () => {
@@ -68,15 +72,11 @@ export function RecordingsScreen({ session }: Props) {
    * og det ville se ud som et netvaerksproblem, ikke som noget appen gjorde.
    */
   const fetchNow = useCallback(async (): Promise<void> => {
-    const storedDialect = await getTimeshiftDialect(session.db);
-    if (storedDialect === null) return;
     setRunning(true);
     try {
       await runRecordings(
         session.db,
-        session.creds,
-        storedDialect,
-        await getPanelOffsetMinutes(session.db),
+        session.credsBySource,
         store,
         new Date(),
         () => {

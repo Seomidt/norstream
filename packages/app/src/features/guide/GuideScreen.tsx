@@ -164,7 +164,7 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
       };
 
       try {
-        await ensureEpg(session.db, session.creds, session.fetchImpl, streamIds);
+        await ensureEpg(session.db, session.credsBySource, session.fetchImpl, streamIds);
       } catch (cause) {
         if (cause instanceof XtreamAuthError) {
           onAuthError();
@@ -180,7 +180,7 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
       try {
         const result = await ensureFullEpg(
           session.db,
-          session.creds,
+          session.credsBySource,
           session.fetchImpl,
           visible,
         );

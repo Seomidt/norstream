@@ -1,12 +1,22 @@
+import { channelKey } from '@norstream/core';
 import type { Category, Channel } from '@norstream/core';
 import type { SqlDatabase, SqlValue } from './types.js';
 
 export interface StoredChannel extends Channel {
   isFavorite: boolean;
+  /** Kilden kanalen kom fra. */
+  sourceId: string;
+  /** Kanalens id hos kilden. `id` er den sammensatte noegle. */
+  streamId: string;
+  /** Kun M3U: den faerdige adresse. Xtream-kanaler bygger deres selv. */
+  streamUrl: string | null;
 }
 
 interface ChannelRow {
   id: string;
+  source_id: string;
+  stream_id: string;
+  stream_url: string | null;
   name: string;
   number: number | null;
   logo_url: string | null;
@@ -20,6 +30,9 @@ interface ChannelRow {
 function toStoredChannel(row: ChannelRow): StoredChannel {
   return {
     id: row.id,
+    sourceId: row.source_id,
+    streamId: row.stream_id,
+    streamUrl: row.stream_url,
     name: row.name,
     number: row.number,
     logoUrl: row.logo_url,
@@ -31,14 +44,22 @@ function toStoredChannel(row: ChannelRow): StoredChannel {
   };
 }
 
+/**
+ * Erstatter **denne kildes** kategorier. De andres bliver staaende.
+ *
+ * Kategori-id'et er sammensat af kilde og kategoriens eget id, af samme grund
+ * som kanalernes: to paneler har begge en kategori 1.
+ */
 export async function replaceCategories(
   db: SqlDatabase,
+  sourceId: string,
   categories: Category[],
 ): Promise<void> {
-  await db.runAsync('DELETE FROM categories');
+  await db.runAsync('DELETE FROM categories WHERE source_id = ?', [sourceId]);
   for (const category of categories) {
-    await db.runAsync('INSERT INTO categories (id, name) VALUES (?, ?)', [
-      category.id,
+    await db.runAsync('INSERT INTO categories (id, source_id, name) VALUES (?, ?, ?)', [
+      channelKey(sourceId, category.id),
+      sourceId,
       category.name,
     ]);
   }
@@ -56,20 +77,25 @@ export async function listCategories(db: SqlDatabase): Promise<Category[]> {
  */
 export async function replaceChannels(
   db: SqlDatabase,
+  sourceId: string,
   channels: Channel[],
+  /** Kun M3U: kanalens faerdige adresse, slaaet op paa kanalens eget id. */
+  streamUrls?: ReadonlyMap<string, string>,
 ): Promise<void> {
-  // Trin 1: Mark alle kanaler som stale
-  await db.runAsync('UPDATE channels SET is_stale = 1');
+  // Trin 1: Mark denne kildes kanaler som stale. De andre kilders roeres ikke.
+  await db.runAsync('UPDATE channels SET is_stale = 1 WHERE source_id = ?', [sourceId]);
 
-  // Trin 2: Upsert hver kanal fra panelet, marker som ikke-stale
+  // Trin 2: Upsert hver kanal fra kilden, marker som ikke-stale
+  const base = await nextSortOrderFor(db, sourceId);
   let order = 0;
   for (const channel of channels) {
     await db.runAsync(
       `INSERT INTO channels
-         (id, name, number, logo_url, category_id, epg_channel_id,
-          has_archive, archive_days, is_stale, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+         (id, source_id, stream_id, stream_url, name, number, logo_url, category_id,
+          epg_channel_id, has_archive, archive_days, is_stale, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
        ON CONFLICT(id) DO UPDATE SET
+         stream_url     = excluded.stream_url,
          name           = excluded.name,
          number         = excluded.number,
          logo_url       = excluded.logo_url,
@@ -80,21 +106,44 @@ export async function replaceChannels(
          is_stale       = 0,
          sort_order     = excluded.sort_order`,
       [
+        channelKey(sourceId, channel.id),
+        sourceId,
         channel.id,
+        streamUrls?.get(channel.id) ?? null,
         channel.name,
         channel.number,
         channel.logoUrl,
-        channel.categoryId,
+        channel.categoryId === null ? null : channelKey(sourceId, channel.categoryId),
         channel.epgChannelId,
         channel.hasArchive ? 1 : 0,
         channel.archiveDays,
-        order++,
+        base + order++,
       ],
     );
   }
 
-  // Trin 3: Slet kanaler der stadig er marked som stale (fandtes ikke i det nye panel)
-  await db.runAsync('DELETE FROM channels WHERE is_stale = 1');
+  // Trin 3: Slet denne kildes kanaler der stadig er stale — de fandtes ikke i
+  // den nye liste. En anden kildes kanaler maa ikke ryge med.
+  await db.runAsync('DELETE FROM channels WHERE is_stale = 1 AND source_id = ?', [sourceId]);
+}
+
+/**
+ * Hvor denne kildes kanaler skal begynde i den samlede raekkefoelge.
+ *
+ * Kilderne staar efter hinanden frem for blandet imellem hinanden: rakte de
+ * ind over hinanden, ville en synkronisering af den ene flytte rundt paa den
+ * andens kanaler midt i listen.
+ */
+async function nextSortOrderFor(db: SqlDatabase, sourceId: string): Promise<number> {
+  const row = await db.getFirstAsync<{ base: number | null }>(
+    'SELECT MIN(sort_order) AS base FROM channels WHERE source_id = ?',
+    [sourceId],
+  );
+  if (row?.base !== null && row?.base !== undefined) return row.base;
+  const max = await db.getFirstAsync<{ next: number | null }>(
+    'SELECT MAX(sort_order) + 1 AS next FROM channels',
+  );
+  return max?.next ?? 0;
 }
 
 export async function listChannels(
@@ -135,8 +184,8 @@ export async function listChannels(
   }
 
   const rows = await db.getAllAsync<ChannelRow>(
-    `SELECT c.id, c.name, c.number, c.logo_url, c.category_id, c.epg_channel_id,
-            c.has_archive, c.archive_days, c.sort_order,
+    `SELECT c.id, c.source_id, c.stream_id, c.stream_url, c.name, c.number, c.logo_url,
+            c.category_id, c.epg_channel_id, c.has_archive, c.archive_days, c.sort_order,
             CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE NULL END AS is_favorite
      FROM channels c
      LEFT JOIN favorites f ON f.channel_id = c.id
@@ -153,8 +202,8 @@ export async function getChannel(
   id: string,
 ): Promise<StoredChannel | null> {
   const row = await db.getFirstAsync<ChannelRow>(
-    `SELECT c.id, c.name, c.number, c.logo_url, c.category_id, c.epg_channel_id,
-            c.has_archive, c.archive_days, c.sort_order,
+    `SELECT c.id, c.source_id, c.stream_id, c.stream_url, c.name, c.number, c.logo_url,
+            c.category_id, c.epg_channel_id, c.has_archive, c.archive_days, c.sort_order,
             CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE NULL END AS is_favorite
      FROM channels c
      LEFT JOIN favorites f ON f.channel_id = c.id

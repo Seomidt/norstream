@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
-import { XtreamAuthError } from '@norstream/core';
+import { XtreamAuthError, channelKey } from '@norstream/core';
 import { getEpgFreshness, markEpgFetched } from '../storage/epgFetch.js';
 import { listProgrammes, upsertProgrammes } from '../storage/programmes.js';
 import { migrate } from '../storage/schema.js';
@@ -13,6 +13,11 @@ const creds: XtreamCredentials = {
   username: 'USER',
   password: 'PASS',
 };
+
+/** Alt her kommer fra én kilde; noeglen er kilde + kanalens eget id. */
+const SOURCE = 'src1';
+const sources = new Map([[SOURCE, creds]]);
+const key = (streamId: string): string => channelKey(SOURCE, streamId);
 
 const NOW = new Date('2026-09-05T18:00:00.000Z');
 const NOW_SECONDS = NOW.getTime() / 1000;
@@ -71,12 +76,12 @@ describe('ensureEpg', () => {
   it('henter og gemmer programmer noeglet paa stream_id', async () => {
     const fetchImpl = panel({ listings: { '247634': [listing(0), listing(30)] } });
 
-    const result = await ensureEpg(db, creds, fetchImpl, ['247634'], NOW);
+    const result = await ensureEpg(db, sources, fetchImpl, [key('247634')], NOW);
 
     expect(result).toEqual({ fetched: 1, programmes: 2 });
     const stored = await listProgrammes(
       db,
-      '247634',
+      key('247634'),
       NOW,
       new Date(NOW.getTime() + 3600_000),
     );
@@ -85,32 +90,32 @@ describe('ensureEpg', () => {
 
   it('rammer cachen og henter ikke igen for en frisk kanal', async () => {
     const fetchImpl = panel({ listings: { '247634': [listing(0, 120)] } });
-    await ensureEpg(db, creds, fetchImpl, ['247634'], NOW);
+    await ensureEpg(db, sources, fetchImpl, [key('247634')], NOW);
     const callsAfterFirst = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls.length;
 
     // Fem minutter senere, midt i et program der varer to timer.
-    await ensureEpg(db, creds, fetchImpl, ['247634'], new Date(NOW.getTime() + 300_000));
+    await ensureEpg(db, sources, fetchImpl, [key('247634')], new Date(NOW.getTime() + 300_000));
 
     expect((fetchImpl as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsAfterFirst);
   });
 
   it('henter igen naar hentningen er over 30 minutter gammel', async () => {
     const fetchImpl = panel({ listings: { '247634': [listing(0, 240)] } });
-    await ensureEpg(db, creds, fetchImpl, ['247634'], NOW);
+    await ensureEpg(db, sources, fetchImpl, [key('247634')], NOW);
 
     const later = new Date(NOW.getTime() + 31 * 60_000);
-    const result = await ensureEpg(db, creds, fetchImpl, ['247634'], later);
+    const result = await ensureEpg(db, sources, fetchImpl, [key('247634')], later);
 
     expect(result.fetched).toBe(1);
   });
 
   it('henter igen naar det nyeste gemte program er slut', async () => {
     const fetchImpl = panel({ listings: { '247634': [listing(0, 20)] } });
-    await ensureEpg(db, creds, fetchImpl, ['247634'], NOW);
+    await ensureEpg(db, sources, fetchImpl, [key('247634')], NOW);
 
     // Ti minutter senere er programmet slut, selv om hentningen er frisk.
     const later = new Date(NOW.getTime() + 25 * 60_000);
-    const result = await ensureEpg(db, creds, fetchImpl, ['247634'], later);
+    const result = await ensureEpg(db, sources, fetchImpl, [key('247634')], later);
 
     expect(result.fetched).toBe(1);
   });
@@ -119,10 +124,10 @@ describe('ensureEpg', () => {
     // Regel 1 er "ikke hentet", ikke "ingen programmer". Ellers ville de
     // 87 % uden EPG give et kald ved hver rendering.
     const fetchImpl = panel({});
-    await ensureEpg(db, creds, fetchImpl, ['247634'], NOW);
+    await ensureEpg(db, sources, fetchImpl, [key('247634')], NOW);
     const calls = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls.length;
 
-    await ensureEpg(db, creds, fetchImpl, ['247634'], new Date(NOW.getTime() + 60_000));
+    await ensureEpg(db, sources, fetchImpl, [key('247634')], new Date(NOW.getTime() + 60_000));
 
     expect(calls).toBe(1);
     expect((fetchImpl as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
@@ -130,22 +135,30 @@ describe('ensureEpg', () => {
 
   it('holder sig til fire samtidige kald', async () => {
     let peak = 0;
-    const ids = Array.from({ length: 20 }, (_, i) => `chan-${i}`);
+    const ids = Array.from({ length: 20 }, (_, i) => key(`chan-${i}`));
     const fetchImpl = panel({
       onConcurrency: (inFlight) => {
         peak = Math.max(peak, inFlight);
       },
     });
 
-    await ensureEpg(db, creds, fetchImpl, ids, NOW);
+    await ensureEpg(db, sources, fetchImpl, ids, NOW);
 
     expect(peak).toBeGreaterThan(1);
     expect(peak).toBeLessThanOrEqual(4);
   });
 
-  it('afduplikerer stream-id og springer tomme over', async () => {
+  it('afduplikerer noegler og springer ubrugelige over', async () => {
     const fetchImpl = panel({ listings: { '247634': [listing(0)] } });
-    const result = await ensureEpg(db, creds, fetchImpl, ['247634', '247634', ''], NOW);
+    // '247634' uden kilde er en raekke fra foer kilderne fandtes. Den maa
+    // ikke faa appen til at spoerge et panel om en kanal det aldrig har haft.
+    const result = await ensureEpg(
+      db,
+      sources,
+      fetchImpl,
+      [key('247634'), key('247634'), '', '247634'],
+      NOW,
+    );
     expect(result.fetched).toBe(1);
     expect((fetchImpl as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
   });
@@ -156,16 +169,16 @@ describe('ensureEpg', () => {
       failWith: { '2': 500 },
     });
 
-    const result = await ensureEpg(db, creds, fetchImpl, ['1', '2', '3'], NOW);
+    const result = await ensureEpg(db, sources, fetchImpl, [key('1'), key('2'), key('3')], NOW);
 
     expect(result.fetched).toBe(2);
     // Den fejlende kanal faar ingen hentetid og proeves igen naeste gang.
-    await expect(getEpgFreshness(db, '2')).resolves.toMatchObject({ fetchedAt: null });
+    await expect(getEpgFreshness(db, key('2'))).resolves.toMatchObject({ fetchedAt: null });
   });
 
   it('kaster XtreamAuthError videre, saa appen kan logge brugeren ud', async () => {
     const fetchImpl = panel({ failWith: { '1': 401 } });
-    await expect(ensureEpg(db, creds, fetchImpl, ['1'], NOW)).rejects.toBeInstanceOf(
+    await expect(ensureEpg(db, sources, fetchImpl, [key('1')], NOW)).rejects.toBeInstanceOf(
       XtreamAuthError,
     );
   });
@@ -174,15 +187,15 @@ describe('ensureEpg', () => {
     const longAgo = NOW.getTime() - 20 * 60 * 60_000;
     await db.runAsync(
       'INSERT INTO programmes (channel_id, start_ms, stop_ms, title) VALUES (?, ?, ?, ?)',
-      ['247634', longAgo, longAgo + 1800_000, 'Forrige doegn'],
+      [key('247634'), longAgo, longAgo + 1800_000, 'Forrige doegn'],
     );
     const fetchImpl = panel({ listings: { '247634': [listing(0)] } });
 
-    await ensureEpg(db, creds, fetchImpl, ['247634'], NOW);
+    await ensureEpg(db, sources, fetchImpl, [key('247634')], NOW);
 
     const old = await listProgrammes(
       db,
-      '247634',
+      key('247634'),
       new Date(longAgo - 1000),
       new Date(longAgo + 1000),
     );
@@ -194,15 +207,15 @@ describe('ensureEpg', () => {
     const longAgo = NOW.getTime() - 20 * 60 * 60_000;
     await db.runAsync(
       'INSERT INTO programmes (channel_id, start_ms, stop_ms, title) VALUES (?, ?, ?, ?)',
-      ['247634', longAgo, longAgo + 1800_000, 'Forrige doegn'],
+      [key('247634'), longAgo, longAgo + 1800_000, 'Forrige doegn'],
     );
     const fetchImpl = panel({ failWith: { '247634': 500 } });
 
-    await ensureEpg(db, creds, fetchImpl, ['247634'], NOW);
+    await ensureEpg(db, sources, fetchImpl, [key('247634')], NOW);
 
     const old = await listProgrammes(
       db,
-      '247634',
+      key('247634'),
       new Date(longAgo - 1000),
       new Date(longAgo + 1000),
     );
@@ -210,10 +223,10 @@ describe('ensureEpg', () => {
   });
 
   it('henter intet naar alle kanaler er friske', async () => {
-    await markEpgFetched(db, '247634', NOW);
+    await markEpgFetched(db, key('247634'), NOW);
     const fetchImpl = panel({});
 
-    const result = await ensureEpg(db, creds, fetchImpl, ['247634'], NOW);
+    const result = await ensureEpg(db, sources, fetchImpl, [key('247634')], NOW);
 
     expect(result).toEqual({ fetched: 0, programmes: 0 });
     expect(fetchImpl).not.toHaveBeenCalled();
@@ -260,22 +273,22 @@ function archivePanel(
   return impl;
 }
 
-const WITH_ARCHIVE = { id: '247634' };
-const WITHOUT_ARCHIVE = { id: '999' };
+const WITH_ARCHIVE = { id: key('247634') };
+const WITHOUT_ARCHIVE = { id: key('999') };
 
 describe('ensureFullEpg', () => {
   it('henter den fulde tabel og gemmer programmer der allerede er sendt', async () => {
     // Tre timer tilbage i tiden: praecis det get_short_epg aldrig ville give os.
     const fetchImpl = archivePanel({ '247634': [listing(-180), listing(-150)] });
 
-    const result = await ensureFullEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
+    const result = await ensureFullEpg(db, sources, fetchImpl, [WITH_ARCHIVE], NOW);
 
     expect(result).toEqual({ fetched: 1, programmes: 2 });
     expect(fetchImpl.actions).toEqual(['get_simple_data_table']);
 
     const stored = await listProgrammes(
       db,
-      '247634',
+      key('247634'),
       new Date(NOW.getTime() - 4 * HOUR_MS),
       NOW,
     );
@@ -286,19 +299,18 @@ describe('ensureFullEpg', () => {
     // Det var begraensningen foer, og den kostede programdata paa hver eneste
     // kanal uden arkiv — som er de fleste. Guiden stod tom for dem.
     const fetchImpl = archivePanel({ '999': [listing(60)] });
-    const result = await ensureFullEpg(db, creds, fetchImpl, [WITHOUT_ARCHIVE], NOW);
+    const result = await ensureFullEpg(db, sources, fetchImpl, [WITHOUT_ARCHIVE], NOW);
     expect(result).toEqual({ fetched: 1, programmes: 1 });
     expect(fetchImpl.actions).toEqual(['get_simple_data_table']);
   });
 
   it('henter ikke igen inden for seks timer', async () => {
     const fetchImpl = archivePanel({ '247634': [listing(-180)] });
-    await ensureFullEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
+    await ensureFullEpg(db, sources, fetchImpl, [WITH_ARCHIVE], NOW);
 
     await ensureFullEpg(
       db,
-      creds,
-      fetchImpl,
+      sources, fetchImpl,
       [WITH_ARCHIVE],
       new Date(NOW.getTime() + 5 * HOUR_MS),
     );
@@ -308,12 +320,11 @@ describe('ensureFullEpg', () => {
 
   it('henter igen efter seks timer', async () => {
     const fetchImpl = archivePanel({ '247634': [listing(-180)] });
-    await ensureFullEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
+    await ensureFullEpg(db, sources, fetchImpl, [WITH_ARCHIVE], NOW);
 
     await ensureFullEpg(
       db,
-      creds,
-      fetchImpl,
+      sources, fetchImpl,
       [WITH_ARCHIVE],
       new Date(NOW.getTime() + 7 * HOUR_MS),
     );
@@ -323,15 +334,15 @@ describe('ensureFullEpg', () => {
 
   it('markerer ogsaa en kanal panelet svarer tomt for', async () => {
     const fetchImpl = archivePanel();
-    await ensureFullEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
-    await ensureFullEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
+    await ensureFullEpg(db, sources, fetchImpl, [WITH_ARCHIVE], NOW);
+    await ensureFullEpg(db, sources, fetchImpl, [WITH_ARCHIVE], NOW);
     expect(fetchImpl.actions).toHaveLength(1);
   });
 
   it('kaster afvist login videre', async () => {
     const fetchImpl = archivePanel({}, { '247634': 401 });
     await expect(
-      ensureFullEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW),
+      ensureFullEpg(db, sources, fetchImpl, [WITH_ARCHIVE], NOW),
     ).rejects.toBeInstanceOf(XtreamAuthError);
   });
 
@@ -339,9 +350,8 @@ describe('ensureFullEpg', () => {
     const fetchImpl = archivePanel({ '2': [listing(-60)] }, { '1': 500 });
     const result = await ensureFullEpg(
       db,
-      creds,
-      fetchImpl,
-      [{ id: '1' }, { id: '2' }],
+      sources, fetchImpl,
+      [{ id: key('1') }, { id: key('2') }],
       NOW,
     );
     expect(result.fetched).toBe(1);
@@ -352,13 +362,14 @@ describe('oprydningen og arkivet', () => {
   it('sletter ikke gaars udsendelser naar panelet har et arkiv', async () => {
     // Kanal med syv dages arkiv, og et program fra i gaar aftes gemt.
     await db.runAsync(
-      `INSERT INTO channels (id, name, has_archive, archive_days)
-       VALUES ('247634', 'DR1', 1, 7)`,
+      `INSERT INTO channels (id, source_id, stream_id, name, has_archive, archive_days)
+       VALUES (?, ?, '247634', 'DR1', 1, 7)`,
+      [key('247634'), SOURCE],
     );
     const yesterday = new Date(NOW.getTime() - 20 * HOUR_MS);
     await upsertProgrammes(db, [
       {
-        channelId: '247634',
+        channelId: key('247634'),
         title: 'Bjerget',
         description: null,
         start: yesterday,
@@ -367,11 +378,11 @@ describe('oprydningen og arkivet', () => {
     ]);
 
     // En helt almindelig opdatering af "nu og naeste" rydder op bagefter.
-    await ensureEpg(db, creds, panel({ listings: { '247634': [listing(0)] } }), ['247634'], NOW);
+    await ensureEpg(db, sources, panel({ listings: { '247634': [listing(0)] } }), [key('247634')], NOW);
 
     const stored = await listProgrammes(
       db,
-      '247634',
+      key('247634'),
       new Date(NOW.getTime() - 2 * DAY_MS),
       NOW,
     );

@@ -5,7 +5,8 @@ import type { AppSession } from '../../session.js';
 import { logoCoverage } from '../../storage/channels.js';
 import { listHiddenCountries, unhideCountry } from '../../storage/countries.js';
 import { OTHER_COUNTRY_KEY } from '../../storage/countries.js';
-import { clearCredentials } from '../../storage/credentials.js';
+import { clearSourceCredentials } from '../../storage/credentials.js';
+import { deleteSource, listSources } from '../../storage/sources.js';
 import {
   clearLastSyncMs,
   getStreamFormatSetting,
@@ -91,8 +92,10 @@ export function SettingsScreen({
     // Rydder credentials **og** tidspunktet for sidste synkronisering. Uden
     // det sidste ville et nyt panel vise det gamles kanaler i op til et doegn,
     // fordi kanal-synken springes over naar last_sync_ms er frisk.
+    const sources = await listSources(session.db);
     const results = await Promise.allSettled([
-      clearCredentials(),
+      ...sources.map((source) => clearSourceCredentials(source.id)),
+      ...sources.map((source) => deleteSource(session.db, source.id)),
       clearLastSyncMs(session.db),
     ]);
     // En fejlende keychain-sletning maa ikke afbryde udlogningen stille: vi

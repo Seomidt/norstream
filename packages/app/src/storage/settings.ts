@@ -30,23 +30,43 @@ export async function setSetting(
   );
 }
 
+/**
+ * Dialekt og tidszone hoerer til **kilden**, ikke til appen.
+ *
+ * To paneler taler ikke noedvendigvis samme timeshift-dialekt og staar ikke i
+ * samme tidszone. Med én faelles vaerdi ville det ene panels probing slaa det
+ * andets start-forfra fra, uden at nogen kunne se hvorfor.
+ *
+ * Naar `sourceId` udelades, laeses den gamle faelles vaerdi. Det er den der
+ * staar paa enheder fra tiden med ét panel, og den bliver flyttet over paa
+ * kilden ved opstart.
+ */
+function scopedKey(key: string, sourceId?: string): string {
+  return sourceId === undefined ? key : `${key}:${sourceId}`;
+}
+
 /** Null betyder enten "ikke probet endnu" eller "ingen dialekt svarede". */
 export async function getTimeshiftDialect(
   db: SqlDatabase,
+  sourceId?: string,
 ): Promise<TimeshiftDialect | null> {
-  const value = await getSetting(db, KEY_DIALECT);
+  const value = await getSetting(db, scopedKey(KEY_DIALECT, sourceId));
   return value === 'php' || value === 'path' ? value : null;
 }
 
 export async function setTimeshiftDialect(
   db: SqlDatabase,
   dialect: TimeshiftDialect | null,
+  sourceId?: string,
 ): Promise<void> {
-  await setSetting(db, KEY_DIALECT, dialect ?? 'none');
+  await setSetting(db, scopedKey(KEY_DIALECT, sourceId), dialect ?? 'none');
 }
 
-export async function getPanelOffsetMinutes(db: SqlDatabase): Promise<number> {
-  const value = await getSetting(db, KEY_OFFSET);
+export async function getPanelOffsetMinutes(
+  db: SqlDatabase,
+  sourceId?: string,
+): Promise<number> {
+  const value = await getSetting(db, scopedKey(KEY_OFFSET, sourceId));
   if (value === null) return 0;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -55,8 +75,25 @@ export async function getPanelOffsetMinutes(db: SqlDatabase): Promise<number> {
 export async function setPanelOffsetMinutes(
   db: SqlDatabase,
   minutes: number,
+  sourceId?: string,
 ): Promise<void> {
-  await setSetting(db, KEY_OFFSET, String(Math.trunc(minutes)));
+  await setSetting(db, scopedKey(KEY_OFFSET, sourceId), String(Math.trunc(minutes)));
+}
+
+/**
+ * Flytter den faelles dialekt og tidszone over paa en kilde.
+ *
+ * Enheder fra tiden med ét panel har vaerdierne uden kilde. De skal foelge med
+ * over paa den kilde de faktisk hoerer til, ellers mister installationen
+ * start-forfra og skal probe forfra — og probingen koerte kun under onboarding.
+ */
+export async function adoptLegacySettings(db: SqlDatabase, sourceId: string): Promise<void> {
+  for (const key of [KEY_DIALECT, KEY_OFFSET]) {
+    const scoped = scopedKey(key, sourceId);
+    if ((await getSetting(db, scoped)) !== null) continue;
+    const shared = await getSetting(db, key);
+    if (shared !== null) await setSetting(db, scoped, shared);
+  }
 }
 
 export async function getLastSyncMs(db: SqlDatabase): Promise<number | null> {

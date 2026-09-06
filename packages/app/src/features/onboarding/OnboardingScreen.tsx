@@ -10,7 +10,8 @@ import {
 import { XtreamAuthError, XtreamClient, detectTimeshiftDialect } from '@norstream/core';
 import type { XtreamCredentials } from '@norstream/core';
 import { createFetchImpl } from '../../net/fetchImpl.js';
-import { saveCredentials } from '../../storage/credentials.js';
+import { saveSourceCredentials } from '../../storage/credentials.js';
+import { addSource } from '../../storage/sources.js';
 import { openDatabase } from '../../storage/db.js';
 import { setPanelOffsetMinutes, setTimeshiftDialect } from '../../storage/settings.js';
 import { theme } from '../../ui/theme.js';
@@ -36,6 +37,12 @@ function describeFailure(cause: unknown, creds: XtreamCredentials): string {
   if (creds.password.length > 0) safe = safe.split(creds.password).join('***');
   if (creds.username.length > 0) safe = safe.split(creds.username).join('***');
   return safe.slice(0, 300);
+}
+
+/** Et brugbart navn til kilden, taget af adressen. */
+function hostOf(url: string): string {
+  const match = /^[a-z]+:\/\/([^/:]+)/i.exec(url.trim());
+  return match?.[1] ?? 'Panel';
 }
 
 export function OnboardingScreen({ onDone, notice }: Props) {
@@ -73,8 +80,20 @@ Detalje: ${describeFailure(cause, creds)}`,
         return;
       }
 
+      // Kilden oprettes foerst, saa dens id findes at gemme kodeordet under.
+      // Adgangskoden hoerer i Keychain; `sources`-tabellen har ingen kolonne
+      // til den, og SQLite-filen er ikke krypteret.
+      let sourceId: string;
       try {
-        await saveCredentials(creds);
+        const db = await openDatabase();
+        const source = await addSource(db, {
+          kind: 'xtream',
+          name: hostOf(creds.baseUrl),
+          url: creds.baseUrl,
+          username: creds.username,
+        });
+        sourceId = source.id;
+        await saveSourceCredentials(sourceId, creds);
       } catch {
         // Uden gemte credentials kan appen ikke fortsaette — brugeren maa
         // blive paa skærmen og proeve igen, saa vi kalder ikke onDone().
@@ -94,7 +113,7 @@ Detalje: ${describeFailure(cause, creds)}`,
         // gemte 0 minutter, og probingen daekker afvigelsen med sit
         // 13-timers forsoeg.
         const offset = await client.getPanelOffsetMinutes();
-        if (offset !== null) await setPanelOffsetMinutes(db, offset);
+        if (offset !== null) await setPanelOffsetMinutes(db, offset, sourceId);
 
         const streams = await client.getLiveStreams();
         const withArchive = streams.find((s) => s.hasArchive);
@@ -106,7 +125,7 @@ Detalje: ${describeFailure(cause, creds)}`,
             new Date(),
             offset ?? 0,
           );
-          await setTimeshiftDialect(db, dialect);
+          await setTimeshiftDialect(db, dialect, sourceId);
         }
       } catch {
         // Ignoreres med vilje — se kommentaren ovenfor.

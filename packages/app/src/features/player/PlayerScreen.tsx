@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
-import { buildLiveUrl, buildTimeshiftUrl, detectTimeshiftDialect } from '@norstream/core';
+import { buildTimeshiftUrl, detectTimeshiftDialect } from '@norstream/core';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
@@ -16,6 +16,7 @@ import { isScheduled, scheduleRecording } from '../../storage/recordings.js';
 import { ensureEpg } from '../../sync/epgCache.js';
 import { canRecord } from '../recordings/plan.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
+import { liveUrlFor } from '../../sources/access.js';
 import { theme } from '../../ui/theme.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback } from './format.js';
 import { restartBlockFor, restartHint } from './restart.js';
@@ -48,8 +49,9 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
    * skiftede bagefter, ville arkiv-streamen bede om forbindelse nummer to og
    * blive afvist — af den stream vi selv lige havde aabnet.
    */
+  const access = session.access(channel.sourceId);
   const [source, setSource] = useState<string | null>(() =>
-    startFrom !== undefined ? null : buildLiveUrl(session.creds, channel.id, formatForPlatform()),
+    startFrom !== undefined ? null : liveUrlFor(access, channel, formatForPlatform()),
   );
   const [now, setNow] = useState<Programme | null>(null);
   const [next, setNext] = useState<Programme | null>(null);
@@ -158,7 +160,7 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
       if (hasFormatFallback() && !triedFallback && !restarted) {
         setTriedFallback(true);
         attempt = 0;
-        setSource(buildLiveUrl(session.creds, channel.id, FALLBACK_FORMAT));
+        setSource(liveUrlFor(access, channel, FALLBACK_FORMAT));
         return;
       }
 
@@ -202,29 +204,27 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
       if (retryTimer !== null) clearTimeout(retryTimer);
       subscription.remove();
     };
-  }, [player, source, triedFallback, restarted, session.creds, channel.id]);
+  }, [player, source, triedFallback, restarted, access, channel]);
 
   const playFromStart = useCallback(
     async (programme: Programme): Promise<void> => {
-      const dialect = await getTimeshiftDialect(session.db);
-      if (dialect === null) {
+      const dialect = await getTimeshiftDialect(session.db, channel.sourceId);
+      if (dialect === null || access?.creds == null) {
         // Uden dialekt kan arkiv-URLen ikke bygges. Kom vi fra guiden, staar
         // skaermen sort uden dette: fald tilbage paa live frem for ingenting.
-        setSource((current) =>
-          current ?? buildLiveUrl(session.creds, channel.id, formatForPlatform()),
-        );
+        setSource((current) => current ?? liveUrlFor(access, channel, formatForPlatform()));
         setRestarted(false);
         return;
       }
-      const offset = await getPanelOffsetMinutes(session.db);
+      const offset = await getPanelOffsetMinutes(session.db, channel.sourceId);
 
       const durationMinutes = Math.ceil(
         (programme.stop.getTime() - programme.start.getTime()) / 60_000,
       );
       setSource(
         buildTimeshiftUrl(
-          session.creds,
-          channel.id,
+          access.creds,
+          channel.streamId,
           programme.start,
           durationMinutes,
           dialect,
@@ -233,7 +233,7 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
       );
       setRestarted(true);
     },
-    [session.db, session.creds, channel.id],
+    [session.db, access, channel],
   );
 
   /**
@@ -250,18 +250,21 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
     setRepairing(true);
     try {
       if (restartBlock === 'no-dialect') {
-        const offset = await getPanelOffsetMinutes(session.db);
-        const found = await detectTimeshiftDialect(
-          session.creds,
-          channel.id,
-          session.fetchImpl,
-          new Date(),
-          offset,
-        );
-        await setTimeshiftDialect(session.db, found);
+        const offset = await getPanelOffsetMinutes(session.db, channel.sourceId);
+        const found =
+          access?.creds == null
+            ? null
+            : await detectTimeshiftDialect(
+                access.creds,
+                channel.streamId,
+                session.fetchImpl,
+                new Date(),
+                offset,
+              );
+        await setTimeshiftDialect(session.db, found, channel.sourceId);
       } else {
         try {
-          await ensureEpg(session.db, session.creds, session.fetchImpl, [channel.id]);
+          await ensureEpg(session.db, session.credsBySource, session.fetchImpl, [channel.id]);
         } catch {
           // Kunne panelet ikke naas, staar beskeden bare uaendret.
         }
@@ -269,7 +272,7 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
 
       const [result, dialect] = await Promise.all([
         getNowNext(session.db, channel.id, new Date()),
-        getTimeshiftDialect(session.db),
+        getTimeshiftDialect(session.db, channel.sourceId),
       ]);
       setNow(result.now);
       setNext(result.next);
@@ -277,7 +280,7 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
     } finally {
       setRepairing(false);
     }
-  }, [restartBlock, session, channel]);
+  }, [restartBlock, session, channel, access]);
 
   /**
    * Bestiller udsendelsen til optagelse.

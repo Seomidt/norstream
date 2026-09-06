@@ -70,7 +70,7 @@ export function ChannelList({
       runId.current = id;
 
       try {
-        await ensureEpg(session.db, session.creds, session.fetchImpl, streamIds);
+        await ensureEpg(session.db, session.credsBySource, session.fetchImpl, streamIds);
       } catch (cause) {
         if (cause instanceof XtreamAuthError) {
           onAuthError();

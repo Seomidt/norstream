@@ -1,8 +1,9 @@
-import { buildTimeshiftUrl } from '@norstream/core';
-import type { TimeshiftDialect, XtreamCredentials } from '@norstream/core';
+import { buildTimeshiftUrl, parseChannelKey } from '@norstream/core';
+import type { XtreamCredentials } from '@norstream/core';
 import { recordingAction } from '../features/recordings/plan.js';
 import { listRecordings, updateRecording } from '../storage/recordings.js';
 import type { Recording } from '../storage/recordings.js';
+import { getPanelOffsetMinutes, getTimeshiftDialect } from '../storage/settings.js';
 import type { SqlDatabase } from '../storage/types.js';
 
 /**
@@ -51,9 +52,7 @@ export interface RunRecordingsResult {
  */
 export async function runRecordings(
   db: SqlDatabase,
-  creds: XtreamCredentials,
-  dialect: TimeshiftDialect,
-  panelOffsetMinutes: number,
+  credsBySource: ReadonlyMap<string, XtreamCredentials>,
   store: RecordingStore,
   now: Date = new Date(),
   onChange?: () => void,
@@ -85,11 +84,36 @@ export async function runRecordings(
       continue;
     }
 
+    const sourceId = parseChannelKey(recording.channelId)?.sourceId ?? null;
+    const creds = sourceId === null ? undefined : credsBySource.get(sourceId);
+    // Kilden kan vaere fjernet siden optagelsen blev bestilt, eller vaere en
+    // M3U-liste uden arkiv. Begge dele skal siges, ikke proeves i det uendelige.
+    if (sourceId === null || creds === undefined) {
+      await updateRecording(db, recording.id, {
+        state: 'failed',
+        error: 'Kilden findes ikke længere, så udsendelsen kan ikke hentes.',
+      });
+      result.failed += 1;
+      onChange?.();
+      continue;
+    }
+
+    const dialect = await getTimeshiftDialect(db, sourceId);
+    if (dialect === null) {
+      await updateRecording(db, recording.id, {
+        state: 'failed',
+        error: 'Appen har ikke fundet vejen til udbyderens arkiv endnu.',
+      });
+      result.failed += 1;
+      onChange?.();
+      continue;
+    }
+
     await fetchOne(
       db,
       creds,
       dialect,
-      panelOffsetMinutes,
+      await getPanelOffsetMinutes(db, sourceId),
       store,
       recording,
       result,
@@ -104,7 +128,7 @@ export async function runRecordings(
 async function fetchOne(
   db: SqlDatabase,
   creds: XtreamCredentials,
-  dialect: TimeshiftDialect,
+  dialect: 'php' | 'path',
   panelOffsetMinutes: number,
   store: RecordingStore,
   recording: Recording,
@@ -120,7 +144,7 @@ async function fetchOne(
   // listen og vaere tom naar den blev aabnet.
   const url = buildTimeshiftUrl(
     creds,
-    recording.channelId,
+    parseChannelKey(recording.channelId)?.streamId ?? recording.channelId,
     recording.start,
     durationMinutes,
     dialect,
