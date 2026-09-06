@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -14,12 +13,15 @@ import type { AppSession } from '../../session.js';
 import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { listProgrammes } from '../../storage/programmes.js';
-import { deleteRecording, scheduleRecording } from '../../storage/recordings.js';
+import { deleteRecording, isScheduled, scheduleRecording } from '../../storage/recordings.js';
 import { getTimeshiftDialect } from '../../storage/settings.js';
-import { ensureArchiveEpg, ensureEpg } from '../../sync/epgCache.js';
+import { ensureFullEpg, ensureEpg } from '../../sync/epgCache.js';
+import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
+import { canRecord } from '../recordings/plan.js';
+import { ProgrammeSheet } from './ProgrammeSheet.js';
 import { WINDOW_MINUTES, guideAction, guideWindow, layoutRow } from './layout.js';
 import type { GuideCell } from './layout.js';
 
@@ -55,6 +57,12 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  /** Den celle bladet er aabnet for, eller null naar det er lukket. */
+  const [sheet, setSheet] = useState<{
+    channel: StoredChannel;
+    cell: GuideCell;
+    recorded: boolean;
+  } | null>(null);
 
   // Nu-tidspunktet fastholdes mens skaermen er aaben, saa cellerne ikke
   // hopper mellem tilstande midt i et tryk. Det opdateres hvert minut.
@@ -93,6 +101,15 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
    * implementerer ikke Alert, og et tryk der ikke kvitterer for sig foeles
    * som et tryk der ikke virkede.
    */
+  const openSheet = useCallback(
+    async (channel: StoredChannel, cell: GuideCell): Promise<void> => {
+      if (cell.programme === null) return;
+      const recorded = await isScheduled(session.db, channel.id, cell.programme.start);
+      setSheet({ channel, cell, recorded });
+    },
+    [session.db],
+  );
+
   const record = useCallback(
     async (channel: StoredChannel, programme: Programme): Promise<void> => {
       const id = await scheduleRecording(session.db, channel, programme);
@@ -143,7 +160,7 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
       // guiden skal ikke staa tom imens — men uden den er cellerne bag "nu"
       // tomme, og en udsendelse der allerede er sendt kan ikke startes.
       try {
-        const result = await ensureArchiveEpg(
+        const result = await ensureFullEpg(
           session.db,
           session.creds,
           session.fetchImpl,
@@ -233,6 +250,31 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
         ))}
       </View>
 
+      {sheet !== null && sheet.cell.programme !== null && (
+        <ProgrammeSheet
+          channel={sheet.channel}
+          programme={sheet.cell.programme}
+          state={sheet.cell.state}
+          hasDialect={dialect}
+          alreadyRecorded={sheet.recorded}
+          onClose={() => setSheet(null)}
+          onPlay={() => {
+            setSheet(null);
+            onPlay(sheet.channel);
+          }}
+          onRestart={() => {
+            const programme = sheet.cell.programme;
+            setSheet(null);
+            if (programme !== null) onRestart(sheet.channel, programme);
+          }}
+          onRecord={() => {
+            const programme = sheet.cell.programme;
+            setSheet(null);
+            if (programme !== null) void record(sheet.channel, programme);
+          }}
+        />
+      )}
+
       <FlatList
         data={channels}
         keyExtractor={(item) => item.id}
@@ -248,10 +290,8 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
             channel={item}
             cells={layoutRow(rows[item.id] ?? [], window.start, window.end, now)}
             hasDialect={dialect}
-            onPlay={onPlay}
-            onRestart={onRestart}
-            onRecord={(channel, programme) => {
-              void record(channel, programme);
+            onOpen={(channel, cell) => {
+              void openSheet(channel, cell);
             }}
           />
         )}
@@ -264,30 +304,31 @@ function GuideRow({
   channel,
   cells,
   hasDialect,
-  onPlay,
-  onRestart,
-  onRecord,
+  onOpen,
 }: {
   channel: StoredChannel;
   cells: GuideCell[];
   hasDialect: boolean;
-  onPlay: (channel: StoredChannel) => void;
-  onRestart: (channel: StoredChannel, programme: Programme) => void;
-  onRecord: (channel: StoredChannel, programme: Programme) => void;
+  onOpen: (channel: StoredChannel, cell: GuideCell) => void;
 }) {
   return (
     <View style={styles.row}>
       <View style={styles.channelCell}>
-        {channel.logoUrl !== null && (
-          <Image
-            source={{ uri: channel.logoUrl }}
-            style={styles.channelLogo}
-            resizeMode="contain"
-          />
-        )}
-        <Text style={styles.channelName} numberOfLines={2}>
-          {channel.name}
-        </Text>
+        <ChannelLogo uri={channel.logoUrl} name={channel.name} size={26} />
+        <View style={styles.channelText}>
+          <Text style={styles.channelName} numberOfLines={2}>
+            {channel.name}
+          </Text>
+          {/* Uret siger at kanalen kan startes forfra, prikken at den kan
+              optages. Begge dele afhaenger af udbyderens arkiv, og det gaelder
+              langtfra alle kanaler — foer kunne man kun se det ved at proeve. */}
+          {hasDialect && (channel.hasArchive || canRecord(channel)) && (
+            <Text style={styles.channelBadges}>
+              {channel.hasArchive ? '⏱' : ''}
+              {canRecord(channel) ? '●' : ''}
+            </Text>
+          )}
+        </View>
       </View>
       <View style={styles.cells}>
         {cells.map((cell) => {
@@ -303,16 +344,8 @@ function GuideRow({
                 action === 'record' && styles.cellRecordable,
                 action === 'none' && styles.cellInactive,
               ]}
-              disabled={action === 'none'}
-              onPress={() => {
-                if (action === 'play') onPlay(channel);
-                if (action === 'restart' && cell.programme !== null) {
-                  onRestart(channel, cell.programme);
-                }
-                if (action === 'record' && cell.programme !== null) {
-                  onRecord(channel, cell.programme);
-                }
-              }}
+              disabled={cell.programme === null}
+              onPress={() => onOpen(channel, cell)}
             >
               {/* Uden maerket kan man ikke se hvilke afsluttede udsendelser
                   der kan startes igen. Cellerne ser ens ud, og forskellen —
@@ -403,8 +436,9 @@ const styles = StyleSheet.create({
     borderRightColor: theme.colors.border,
     borderRightWidth: StyleSheet.hairlineWidth,
   },
-  channelLogo: { width: 28, height: 20, marginRight: theme.spacing.xs },
-  channelName: { color: theme.colors.text, fontSize: 12, flex: 1 },
+  channelText: { flex: 1, marginLeft: theme.spacing.xs },
+  channelName: { color: theme.colors.text, fontSize: 11 },
+  channelBadges: { color: theme.colors.accent, fontSize: 9, marginTop: 1 },
   cells: { flex: 1, flexDirection: 'row' },
   cell: {
     justifyContent: 'center',

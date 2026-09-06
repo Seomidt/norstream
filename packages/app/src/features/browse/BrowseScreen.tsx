@@ -34,6 +34,9 @@ interface Props {
   previewHandle: { current: PreviewHandle | null };
   /** Kaldes naar favoritterne har aendret sig, saa favoritfanen kan opdatere. */
   onFavoritesChanged: () => void;
+  /** Hvor langt ned i land -> kategori -> kanaler brugeren staar. */
+  level: Level;
+  onLevelChange: (level: Level) => void;
 }
 
 /** Soegefeltet maa ikke koere en ny forespoergsel per taste-anslag. */
@@ -42,7 +45,14 @@ const SEARCH_DEBOUNCE_MS = 250;
 /** Soegning paa tvaers af 22.142 kanaler skal have en oevre graense. */
 const SEARCH_LIMIT = 200;
 
-type Level =
+/**
+ * Hvor langt man er naaet ned i land -> kategori -> kanaler.
+ *
+ * Eksporteret og styret udefra, fordi skaermen afmonteres naar afspilleren
+ * aabnes. Laa niveauet herinde, landede "tilbage" fra en kanal altid paa
+ * landelisten — uanset at man kom fra en kategori tre niveauer nede.
+ */
+export type Level =
   | { name: 'countries' }
   | { name: 'categories'; country: CountryGroup }
   | { name: 'channels'; country: CountryGroup; category: CategorySummary };
@@ -62,8 +72,10 @@ export function BrowseScreen({
   previewEnabled,
   previewHandle,
   onFavoritesChanged,
+  level,
+  onLevelChange,
 }: Props) {
-  const [level, setLevel] = useState<Level>({ name: 'countries' });
+  const setLevel = onLevelChange;
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [countries, setCountries] = useState<CountryGroup[]>([]);

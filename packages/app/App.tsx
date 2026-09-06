@@ -1,15 +1,13 @@
 import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+// Ikke react-natives egen SafeAreaView: den gør **ingenting paa Android**.
+// Telefonens navigationslinje laa derfor oven i appens fanelinje, og det saa
+// ud som et layoutproblem i appen frem for en manglende indramning.
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import type { Programme } from '@norstream/core';
 import { HomeScreen } from './src/features/home/HomeScreen.js';
+import type { HomePlace } from './src/features/home/HomeScreen.js';
 import { OnboardingScreen } from './src/features/onboarding/OnboardingScreen.js';
 import { PlayerScreen } from './src/features/player/PlayerScreen.js';
 import { createSession } from './src/session.js';
@@ -40,6 +38,15 @@ export default function App() {
   const [route, setRoute] = useState<Route>({ name: 'loading' });
   const [session, setSession] = useState<AppSession | null>(null);
   const [bootAttempt, setBootAttempt] = useState(0);
+  /**
+   * Hvor brugeren stod i Hjem, loeftet herop.
+   *
+   * HomeScreen afmonteres naar afspilleren aabnes, og med den forsvandt baade
+   * den valgte fane og hvor langt man var naaet ned i land -> kategori ->
+   * kanaler. "Tilbage" landede saa altid paa Favoritter, uanset hvor turen
+   * begyndte. Tilstanden bor her, hvor den overlever afspilleren.
+   */
+  const [place, setPlace] = useState<HomePlace>({ tab: 'favorites', browse: null });
 
   useEffect(() => {
     let cancelled = false;
@@ -87,8 +94,9 @@ export default function App() {
   }
 
   return (
-    <SafeAreaView style={styles.root}>
-      <StatusBar style="light" />
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
+        <StatusBar style="light" />
       {route.name === 'loading' && (
         <View style={styles.centered}>
           <ActivityIndicator color={theme.colors.accent} />
@@ -113,11 +121,14 @@ export default function App() {
       {route.name === 'home' && session !== null && (
         <HomeScreen
           session={session}
+          place={place}
+          onPlaceChange={setPlace}
           onSelect={(channel, startFrom) =>
             setRoute({ name: 'player', channel, startFrom })
           }
           onSignedOut={(notice) => {
             setSession(null);
+            setPlace({ tab: 'favorites', browse: null });
             setRoute({ name: 'onboarding', notice });
           }}
         />
@@ -130,7 +141,8 @@ export default function App() {
           onBack={() => setRoute({ name: 'home' })}
         />
       )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 

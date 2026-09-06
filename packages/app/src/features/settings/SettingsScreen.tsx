@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { deriveCountry } from '@norstream/core';
 import type { AppSession } from '../../session.js';
+import { logoCoverage } from '../../storage/channels.js';
 import { listHiddenCountries, unhideCountry } from '../../storage/countries.js';
 import { OTHER_COUNTRY_KEY } from '../../storage/countries.js';
 import { clearCredentials } from '../../storage/credentials.js';
@@ -41,14 +42,17 @@ export function SettingsScreen({
   // implementerer ikke Alert, saa udlogning ville doe stille paa web.
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [streamFormat, setStreamFormat] = useState<StreamFormatSetting>('auto');
+  const [logos, setLogos] = useState<{ withLogo: number; total: number } | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
-    const [hiddenCountries, format] = await Promise.all([
+    const [hiddenCountries, format, coverage] = await Promise.all([
       listHiddenCountries(session.db),
       getStreamFormatSetting(session.db),
+      logoCoverage(session.db),
     ]);
     setHidden(hiddenCountries);
     setStreamFormat(format);
+    setLogos(coverage);
   }, [session.db]);
 
   useEffect(() => {
@@ -103,6 +107,16 @@ export function SettingsScreen({
           trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
         />
       </View>
+
+      <Text style={styles.sectionTitle}>Kanallogoer</Text>
+      <Text style={styles.hint}>
+        {logos === null
+          ? 'Tæller …'
+          : logos.total === 0
+            ? 'Ingen kanaler hentet endnu.'
+            : `${logos.withLogo} af ${logos.total} kanaler har et logo fra udbyderen. ` +
+              'De øvrige vises med kanalens forbogstaver.'}
+      </Text>
 
       <Text style={styles.sectionTitle}>Streamformat</Text>
       <Text style={styles.hint}>

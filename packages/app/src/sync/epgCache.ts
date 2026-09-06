@@ -151,30 +151,33 @@ export async function ensureEpg(
 }
 
 /**
- * Henter hele programtabellen for de kanaler der har arkiv, saa guiden kan
- * vise fortiden.
+ * Henter hele programtabellen for de viste kanaler, saa guiden kan vise baade
+ * fortiden og resten af doegnet.
  *
- * Uden dette er cellerne bag "nu" tomme, og en udsendelse der allerede er
- * sendt kan ikke startes — ikke fordi arkivet mangler, men fordi appen ikke
- * ved at udsendelsen har fundet sted. `get_short_epg` peger kun fremad.
+ * `get_short_epg` giver tolv programmer fremad og intet bagud. Det raekker til
+ * "nu og naeste" og ikke til en guide: bladrer man to sider frem eller én
+ * tilbage, staar cellerne tomme, og en udsendelse der allerede er sendt kan
+ * ikke startes — ikke fordi arkivet mangler, men fordi appen ikke ved at
+ * udsendelsen har fundet sted.
  *
- * Kun kanaler med `hasArchive` hentes: for de oevrige ville fortiden alligevel
- * ikke kunne afspilles, og svaret er stort nok til at det ikke skal hentes for
- * ingenting.
+ * Hentes for **alle** viste kanaler, ikke kun dem med arkiv. Det var
+ * begraensningen foer, og den kostede programdata paa hver eneste kanal uden
+ * arkiv — som er de fleste. Kun de raekker der er fremme hentes, og hoejst hver
+ * sjette time per kanal.
  *
  * Fejl per kanal sluges som i `ensureEpg`; `XtreamAuthError` kastes videre.
  */
-export async function ensureArchiveEpg(
+export async function ensureFullEpg(
   db: SqlDatabase,
   creds: XtreamCredentials,
   fetchImpl: FetchLike,
-  channels: readonly { id: string; hasArchive: boolean }[],
+  channels: readonly { id: string }[],
   now: Date = new Date(),
 ): Promise<EnsureEpgResult> {
   const candidates: string[] = [];
   const seen = new Set<string>();
   for (const channel of channels) {
-    if (!channel.hasArchive || channel.id.length === 0 || seen.has(channel.id)) continue;
+    if (channel.id.length === 0 || seen.has(channel.id)) continue;
     seen.add(channel.id);
     if (needsArchiveFetch(await getArchiveFetchedAt(db, channel.id), now)) {
       candidates.push(channel.id);

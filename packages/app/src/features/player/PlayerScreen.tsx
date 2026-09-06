@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { buildLiveUrl, buildTimeshiftUrl, detectTimeshiftDialect } from '@norstream/core';
 import type { Programme } from '@norstream/core';
@@ -14,6 +15,7 @@ import {
 import { isScheduled, scheduleRecording } from '../../storage/recordings.js';
 import { ensureEpg } from '../../sync/epgCache.js';
 import { canRecord } from '../recordings/plan.js';
+import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback } from './format.js';
 import { restartBlockFor, restartHint } from './restart.js';
@@ -37,6 +39,8 @@ const RETRY_BACKOFF_MS = 1500;
 const STALL_TIMEOUT_MS = 15_000;
 
 export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
+  // Uden den ligger Tilbage-knappen under telefonens navigationslinje.
+  const insets = useSafeAreaInsets();
   /**
    * Null indtil arkiv-URLen er bygget, naar afspilningen kommer fra guiden.
    *
@@ -311,13 +315,7 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
 
       <View style={styles.info}>
         <View style={styles.channelLine}>
-          {channel.logoUrl !== null && (
-            <Image
-              source={{ uri: channel.logoUrl }}
-              style={styles.channelLogo}
-              resizeMode="contain"
-            />
-          )}
+          <ChannelLogo uri={channel.logoUrl} name={channel.name} size={36} />
           <Text style={styles.channelName}>{channel.name}</Text>
         </View>
         {/* Kommer vi fra guiden, er det programmet der genafspilles der staar
@@ -335,7 +333,7 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
         {streamError !== null && <Text style={styles.error}>{streamError}</Text>}
       </View>
 
-      <View style={styles.actions}>
+      <View style={[styles.actions, { paddingBottom: theme.spacing.md + insets.bottom }]}>
         <Pressable style={styles.button} onPress={onBack}>
           <Text style={styles.buttonText}>Tilbage</Text>
         </Pressable>
@@ -419,8 +417,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   video: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000000' },
   info: { padding: theme.spacing.md },
-  channelLine: { flexDirection: 'row', alignItems: 'center' },
-  channelLogo: { width: 40, height: 28, marginRight: theme.spacing.sm },
+  channelLine: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
   channelName: { color: theme.colors.text, fontSize: 20, fontWeight: '600', flexShrink: 1 },
   airtime: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
   blocked: {

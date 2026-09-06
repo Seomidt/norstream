@@ -6,7 +6,7 @@ import { listProgrammes, upsertProgrammes } from '../storage/programmes.js';
 import { migrate } from '../storage/schema.js';
 import { createTestDatabase } from '../storage/testDb.js';
 import type { SqlDatabase } from '../storage/types.js';
-import { ensureArchiveEpg, ensureEpg, retentionCutoff } from './epgCache.js';
+import { ensureFullEpg, ensureEpg, retentionCutoff } from './epgCache.js';
 
 const creds: XtreamCredentials = {
   baseUrl: 'http://panel.example:8080',
@@ -260,15 +260,15 @@ function archivePanel(
   return impl;
 }
 
-const WITH_ARCHIVE = { id: '247634', hasArchive: true };
-const WITHOUT_ARCHIVE = { id: '999', hasArchive: false };
+const WITH_ARCHIVE = { id: '247634' };
+const WITHOUT_ARCHIVE = { id: '999' };
 
-describe('ensureArchiveEpg', () => {
+describe('ensureFullEpg', () => {
   it('henter den fulde tabel og gemmer programmer der allerede er sendt', async () => {
     // Tre timer tilbage i tiden: praecis det get_short_epg aldrig ville give os.
     const fetchImpl = archivePanel({ '247634': [listing(-180), listing(-150)] });
 
-    const result = await ensureArchiveEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
+    const result = await ensureFullEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
 
     expect(result).toEqual({ fetched: 1, programmes: 2 });
     expect(fetchImpl.actions).toEqual(['get_simple_data_table']);
@@ -282,18 +282,20 @@ describe('ensureArchiveEpg', () => {
     expect(stored).toHaveLength(2);
   });
 
-  it('springer kanaler uden arkiv over', async () => {
-    const fetchImpl = archivePanel();
-    const result = await ensureArchiveEpg(db, creds, fetchImpl, [WITHOUT_ARCHIVE], NOW);
-    expect(result).toEqual({ fetched: 0, programmes: 0 });
-    expect(fetchImpl.actions).toEqual([]);
+  it('henter ogsaa for kanaler uden arkiv', async () => {
+    // Det var begraensningen foer, og den kostede programdata paa hver eneste
+    // kanal uden arkiv — som er de fleste. Guiden stod tom for dem.
+    const fetchImpl = archivePanel({ '999': [listing(60)] });
+    const result = await ensureFullEpg(db, creds, fetchImpl, [WITHOUT_ARCHIVE], NOW);
+    expect(result).toEqual({ fetched: 1, programmes: 1 });
+    expect(fetchImpl.actions).toEqual(['get_simple_data_table']);
   });
 
   it('henter ikke igen inden for seks timer', async () => {
     const fetchImpl = archivePanel({ '247634': [listing(-180)] });
-    await ensureArchiveEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
+    await ensureFullEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
 
-    await ensureArchiveEpg(
+    await ensureFullEpg(
       db,
       creds,
       fetchImpl,
@@ -306,9 +308,9 @@ describe('ensureArchiveEpg', () => {
 
   it('henter igen efter seks timer', async () => {
     const fetchImpl = archivePanel({ '247634': [listing(-180)] });
-    await ensureArchiveEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
+    await ensureFullEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
 
-    await ensureArchiveEpg(
+    await ensureFullEpg(
       db,
       creds,
       fetchImpl,
@@ -321,28 +323,25 @@ describe('ensureArchiveEpg', () => {
 
   it('markerer ogsaa en kanal panelet svarer tomt for', async () => {
     const fetchImpl = archivePanel();
-    await ensureArchiveEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
-    await ensureArchiveEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
+    await ensureFullEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
+    await ensureFullEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW);
     expect(fetchImpl.actions).toHaveLength(1);
   });
 
   it('kaster afvist login videre', async () => {
     const fetchImpl = archivePanel({}, { '247634': 401 });
     await expect(
-      ensureArchiveEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW),
+      ensureFullEpg(db, creds, fetchImpl, [WITH_ARCHIVE], NOW),
     ).rejects.toBeInstanceOf(XtreamAuthError);
   });
 
   it('lader en enkelt doed kanal staa uden at tage resten med', async () => {
     const fetchImpl = archivePanel({ '2': [listing(-60)] }, { '1': 500 });
-    const result = await ensureArchiveEpg(
+    const result = await ensureFullEpg(
       db,
       creds,
       fetchImpl,
-      [
-        { id: '1', hasArchive: true },
-        { id: '2', hasArchive: true },
-      ],
+      [{ id: '1' }, { id: '2' }],
       NOW,
     );
     expect(result.fetched).toBe(1);

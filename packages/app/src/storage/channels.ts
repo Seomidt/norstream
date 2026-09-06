@@ -222,3 +222,22 @@ export async function maxArchiveDays(db: SqlDatabase): Promise<number> {
   const days = row?.days;
   return typeof days === 'number' && Number.isFinite(days) && days > 0 ? days : 0;
 }
+
+/**
+ * Hvor mange kanaler panelet har givet et logo, og hvor mange der er i alt.
+ *
+ * Findes fordi "logoerne mangler" kan betyde to helt forskellige ting: at
+ * panelet ikke sender `stream_icon`, eller at appen ikke faar dem tegnet. De
+ * to ser ens ud paa skaermen og kraever hver sin rettelse, og uden et tal er
+ * der ingen maade at se forskel paa dem fra den anden side af en telefon.
+ */
+export async function logoCoverage(
+  db: SqlDatabase,
+): Promise<{ withLogo: number; total: number }> {
+  const row = await db.getFirstAsync<{ with_logo: number; total: number }>(
+    `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN logo_url IS NOT NULL AND logo_url <> '' THEN 1 ELSE 0 END) AS with_logo
+     FROM channels`,
+  );
+  return { withLogo: row?.with_logo ?? 0, total: row?.total ?? 0 };
+}

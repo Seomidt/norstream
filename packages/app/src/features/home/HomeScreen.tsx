@@ -13,19 +13,36 @@ import {
 import { syncChannels } from '../../sync/syncChannels.js';
 import { theme } from '../../ui/theme.js';
 import { BrowseScreen } from '../browse/BrowseScreen.js';
+import type { Level } from '../browse/BrowseScreen.js';
 import { FavoritesScreen } from '../favorites/FavoritesScreen.js';
 import { GuideScreen } from '../guide/GuideScreen.js';
 import { RecordingsScreen } from '../recordings/RecordingsScreen.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SettingsScreen } from '../settings/SettingsScreen.js';
+
+/**
+ * Hvor brugeren staar i Hjem.
+ *
+ * Ligger i App.tsx og ikke her, fordi denne skaerm afmonteres naar afspilleren
+ * aabnes. Uden det landede "tilbage" altid paa Favoritter, ogsaa naar turen
+ * begyndte tre niveauer nede i Kanaler.
+ */
+export interface HomePlace {
+  tab: Tab;
+  /** Browse-fanens niveau, eller null for dens udgangspunkt. */
+  browse: Level | null;
+}
 
 interface Props {
   session: AppSession;
+  place: HomePlace;
+  onPlaceChange: (place: HomePlace) => void;
   onSelect: (channel: StoredChannel, startFrom?: Programme) => void;
   onSignedOut: (notice: string) => void;
 }
 
-type Tab = 'favorites' | 'browse' | 'guide' | 'recordings' | 'settings';
+export type Tab = 'favorites' | 'browse' | 'guide' | 'recordings' | 'settings';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'favorites', label: 'Favoritter', icon: '★' },
@@ -50,8 +67,13 @@ const SIGNED_OUT_MESSAGE =
  * Startskaermen er **Favoritter**, som spec sec.5 beder om. EPG hentes ikke
  * her: den henter sig selv per synlig raekke gennem `epgCache`.
  */
-export function HomeScreen({ session, onSelect, onSignedOut }: Props) {
-  const [tab, setTab] = useState<Tab>('favorites');
+export function HomeScreen({ session, place, onPlaceChange, onSelect, onSignedOut }: Props) {
+  // Telefonens navigationslinje ligger oven i fanelinjen uden det her.
+  // Maalt frem for gaettet: en fast polstring rammer forkert paa baade
+  // gestus-navigation og de gammeldags tre knapper.
+  const insets = useSafeAreaInsets();
+  const tab = place.tab;
+  const setTab = (next: Tab): void => onPlaceChange({ ...place, tab: next });
   const [previewEnabled, setPreviewEnabled] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [favoritesToken, setFavoritesToken] = useState(0);
@@ -174,6 +196,8 @@ export function HomeScreen({ session, onSelect, onSignedOut }: Props) {
             previewEnabled={previewEnabled}
             previewHandle={previewHandle}
             onFavoritesChanged={() => setFavoritesToken((value) => value + 1)}
+            level={place.browse ?? { name: 'countries' }}
+            onLevelChange={(level) => onPlaceChange({ ...place, browse: level })}
           />
         )}
         {tab === 'guide' && (
@@ -197,7 +221,7 @@ export function HomeScreen({ session, onSelect, onSignedOut }: Props) {
         )}
       </View>
 
-      <View style={styles.tabBar}>
+      <View style={[styles.tabBar, { paddingBottom: theme.spacing.sm + insets.bottom }]}>
         {TABS.map((item) => (
           <Pressable
             key={item.id}

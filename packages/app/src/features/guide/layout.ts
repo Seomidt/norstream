@@ -164,3 +164,38 @@ export function guideAction(
   if (cell.state === 'future' && canRecord(channel) && hasDialect) return 'record';
   return 'none';
 }
+
+export interface ProgrammeOptions {
+  /** Se kanalen live. Altid muligt — det er bare at skifte kanal. */
+  play: boolean;
+  /** Afspil udsendelsen fra dens begyndelse via arkivet. */
+  restart: boolean;
+  /** Bestil udsendelsen hentet fra arkivet. */
+  record: boolean;
+}
+
+/**
+ * Hvad man kan goere ved en udsendelse, samlet.
+ *
+ * `guideAction` giver den **ene** handling en celle udfoerer ved et tryk, og
+ * bruges til markeringen i gitteret. Den her giver dem alle, til bladet der
+ * aabnes naar man trykker: der er plads til at vise dem, og saa skal ingen
+ * gaette paa hvad et tryk goer.
+ *
+ * En udsendelse der allerede er sendt kan baade startes forfra og optages —
+ * optagelse af noget der ligger i arkivet er bare en hentning, og den kan ske
+ * med det samme.
+ */
+export function programmeOptions(
+  state: CellState,
+  channel: { hasArchive: boolean; archiveDays: number },
+  hasDialect: boolean,
+): ProgrammeOptions {
+  const archive = channel.hasArchive && hasDialect;
+  return {
+    play: true,
+    // Fremtiden kan ikke startes forfra; den er ikke sendt endnu.
+    restart: archive && state !== 'future' && state !== 'gap',
+    record: canRecord(channel) && hasDialect && state !== 'gap',
+  };
+}

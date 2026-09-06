@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Programme } from '@norstream/core';
-import { WINDOW_MINUTES, guideAction, guideWindow, layoutRow } from './layout.js';
+import {
+  WINDOW_MINUTES,
+  guideAction,
+  guideWindow,
+  layoutRow,
+  programmeOptions,
+} from './layout.js';
 
 const WINDOW_START = new Date('2026-09-05T19:00:00.000Z');
 const WINDOW_END = new Date('2026-09-05T21:00:00.000Z');
@@ -290,5 +296,47 @@ describe('guideAction', () => {
     const [gap] = layoutRow([], WINDOW_START, WINDOW_END, NOW);
     expect(gap).toBeDefined();
     expect(guideAction(gap as NonNullable<typeof gap>, withArchive, true)).toBe('none');
+  });
+});
+
+describe('programmeOptions', () => {
+  const withArchive = { hasArchive: true, archiveDays: 7 };
+  const withoutArchive = { hasArchive: false, archiveDays: 0 };
+
+  it('lader en afsluttet udsendelse baade startes forfra og optages', () => {
+    // Optagelse af noget der ligger i arkivet er bare en hentning; den kan
+    // ske med det samme.
+    expect(programmeOptions('past', withArchive, true)).toEqual({
+      play: true,
+      restart: true,
+      record: true,
+    });
+  });
+
+  it('kan ikke starte fremtiden forfra', () => {
+    expect(programmeOptions('future', withArchive, true).restart).toBe(false);
+    expect(programmeOptions('future', withArchive, true).record).toBe(true);
+  });
+
+  it('tilbyder kun live naar kanalen ingen arkiv har', () => {
+    expect(programmeOptions('past', withoutArchive, true)).toEqual({
+      play: true,
+      restart: false,
+      record: false,
+    });
+  });
+
+  it('tilbyder kun live naar dialekten mangler', () => {
+    expect(programmeOptions('live', withArchive, false)).toEqual({
+      play: true,
+      restart: false,
+      record: false,
+    });
+  });
+
+  it('tilbyder ingenting ud over live i et hul i programdata', () => {
+    const options = programmeOptions('gap', withArchive, true);
+    expect(options.restart).toBe(false);
+    expect(options.record).toBe(false);
   });
 });

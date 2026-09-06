@@ -3,7 +3,6 @@ import type { ReactNode } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Image,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -15,6 +14,7 @@ import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { getNowNext } from '../../storage/programmes.js';
 import { ensureEpg } from '../../sync/epgCache.js';
+import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
 import { MiniPreview } from '../preview/MiniPreview.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
@@ -176,11 +176,7 @@ export function ChannelList({
               void open(item);
             }}
           >
-            {item.logoUrl !== null ? (
-              <Image source={{ uri: item.logoUrl }} style={styles.logo} />
-            ) : (
-              <View style={styles.logo} />
-            )}
+            <ChannelLogo uri={item.logoUrl} name={item.name} />
             <View style={styles.rowText}>
               <Text style={styles.channelName} numberOfLines={1}>
                 {item.name}
