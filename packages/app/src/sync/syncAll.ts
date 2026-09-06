@@ -8,6 +8,7 @@ import {
   setLastSyncMs,
   setLastXmltvMs,
 } from '../storage/settings.js';
+import { checkLogoHosts } from './logoHosts.js';
 import { syncChannels } from './syncChannels.js';
 import { syncM3u } from './syncM3u.js';
 import { syncLogoRegistry } from './syncLogoRegistry.js';
@@ -102,6 +103,15 @@ export async function syncAllSources(
       if (cause instanceof XtreamAuthError) result.rejected.push(access.source.name);
       else result.failed.push(access.source.name);
     }
+  }
+
+  // Til sidst: kanalerne skal vaere skrevet foerst, ellers er der ingen
+  // logo-adresser at finde vaerterne i. Fejler det, staar de vaerter der
+  // allerede er maalt — en manglende maaling koster kun det den kostede foer.
+  try {
+    await checkLogoHosts(db, fetchImpl, now, force);
+  } catch {
+    // Med vilje: logo-vaerter maa ikke kunne vaelte en kanal-synkronisering.
   }
 
   return result;

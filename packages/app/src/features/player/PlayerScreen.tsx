@@ -102,7 +102,7 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
       setNow(result.now);
       setNext(result.next);
 
-      const dialect = await getTimeshiftDialect(session.db);
+      const dialect = await getTimeshiftDialect(session.db, channel.sourceId);
       if (cancelled) return;
       setRestartBlock(restartBlockFor(channel.hasArchive, dialect !== null, result.now !== null));
 

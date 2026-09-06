@@ -24,6 +24,17 @@ export function logoCandidates(logoUrl: string | null, sourceUrl: string): strin
   return [logoUrl, `${source.origin}${logo.path}`];
 }
 
+/**
+ * Skema, vaert og port for en adresse, eller null naar den ikke kan laeses.
+ *
+ * Bruges til at kende de **vaerter** logoerne ligger paa. Er en vaert ude af
+ * raekkevidde fra telefonen, er alle dens adresser det, og saa er der ingen
+ * grund til at proeve dem én ad gangen paa hver eneste kanal.
+ */
+export function originOf(url: string): string | null {
+  return splitUrl(url)?.origin ?? null;
+}
+
 interface UrlParts {
   /** Skema, vaert og eventuel port — alt foer stien. */
   origin: string;

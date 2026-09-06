@@ -1,5 +1,6 @@
-import { channelKey, logoCandidates, normaliseChannelName } from '@norstream/core';
+import { channelKey, logoCandidates, normaliseChannelName, originOf } from '@norstream/core';
 import type { Category, Channel } from '@norstream/core';
+import { deadLogoOrigins } from './logoHosts.js';
 import type { SqlDatabase, SqlValue } from './types.js';
 
 export interface StoredChannel extends Channel {
@@ -37,20 +38,39 @@ interface ChannelRow {
   is_favorite: number | null;
 }
 
-function toStoredChannel(row: ChannelRow): StoredChannel {
+/**
+ * Adresserne at proeve for kanalens logo, i den raekkefoelge de skal proeves.
+ *
+ * Vaerter der er maalt uden for raekkevidde tages **ud**. `Image` falder selv
+ * tilbage naar en adresse fejler, men en vaert uden rute fejler ikke — den
+ * svarer bare aldrig, og forsoeget staar og venter til det bliver afbrudt.
+ * Saa laenge den staar foerst, naar de oevrige adresser aldrig at blive
+ * proevet, og kanalen staar med en tom firkant selv om der ligger et brugbart
+ * logo laengere nede i raekken. Brugerens panel oplyser netop saadan en vaert.
+ */
+function logoUrlsFor(row: ChannelRow, deadOrigins: ReadonlySet<string>): string[] {
+  const candidates = [
+    ...logoCandidates(row.logo_url, row.source_url ?? ''),
+    // Registrets logo staar sidst: udbyderens eget forsoeges foerst, ogsaa
+    // paa panelets egen vaert, og faerdigt register-logo er sidste udvej.
+    ...(row.registry_logo_url === null || row.registry_logo_url === undefined
+      ? []
+      : [row.registry_logo_url]),
+  ];
+  if (deadOrigins.size === 0) return candidates;
+  return candidates.filter((url) => {
+    const origin = originOf(url);
+    return origin === null || !deadOrigins.has(origin);
+  });
+}
+
+function toStoredChannel(row: ChannelRow, deadOrigins: ReadonlySet<string>): StoredChannel {
   return {
     id: row.id,
     sourceId: row.source_id,
     streamId: row.stream_id,
     streamUrl: row.stream_url,
-    // Registrets logo staar sidst: udbyderens eget forsoeges foerst, ogsaa
-    // paa panelets egen vaert, og faerdigt register-logo er sidste udvej.
-    logoUrls: [
-      ...logoCandidates(row.logo_url, row.source_url ?? ''),
-      ...(row.registry_logo_url === null || row.registry_logo_url === undefined
-        ? []
-        : [row.registry_logo_url]),
-    ],
+    logoUrls: logoUrlsFor(row, deadOrigins),
     name: row.name,
     number: row.number,
     logoUrl: row.logo_url,
@@ -226,7 +246,8 @@ export async function listChannels(
      ${limitClause}`,
     params,
   );
-  return rows.map(toStoredChannel);
+  const dead = await deadLogoOrigins(db);
+  return rows.map((row) => toStoredChannel(row, dead));
 }
 
 export async function getChannel(
@@ -247,7 +268,8 @@ export async function getChannel(
      WHERE c.id = ?`,
     [id],
   );
-  return row ? toStoredChannel(row) : null;
+  if (row === null || row === undefined) return null;
+  return toStoredChannel(row, await deadLogoOrigins(db));
 }
 
 /**
@@ -337,4 +359,29 @@ export async function logoCoverage(
     total: row?.total ?? 0,
     example: sample?.logo_url ?? null,
   };
+}
+
+/**
+ * Hvor mange kanaler der faar et logo fra det aabne register.
+ *
+ * Registret kobles paa kanalens navn, renset for landepraefiks og
+ * kvalitetsmaerker. Den kobling kan slaa fejl paa maader man ikke kan se paa
+ * skaermen — staar der en tom firkant, kan det lige saa godt vaere at
+ * registret aldrig blev hentet, at navnet ikke passede, eller at logoet ikke
+ * kunne tegnes. Tallet her skiller den foerste og den anden fra de sidste.
+ */
+export async function registryCoverage(
+  db: SqlDatabase,
+): Promise<{ rows: number; matched: number }> {
+  const rows = await db.getFirstAsync<{ count: number }>(
+    'SELECT COUNT(*) AS count FROM registry_logos',
+  );
+  const matched = await db.getFirstAsync<{ count: number }>(
+    `SELECT COUNT(*) AS count
+     FROM channels c
+     LEFT JOIN registry_logos rc ON rc.key = c.match_key || ':' || c.country
+     LEFT JOIN registry_logos ra ON ra.key = c.match_key || ':*'
+     WHERE COALESCE(rc.url, ra.url) IS NOT NULL`,
+  );
+  return { rows: rows?.count ?? 0, matched: matched?.count ?? 0 };
 }

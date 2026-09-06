@@ -48,10 +48,63 @@ export function guideWindow(
   page = 0,
   windowMinutes: number = WINDOW_MINUTES,
 ): { start: Date; end: Date } {
+  return shiftedWindow(now, page * windowMinutes, windowMinutes);
+}
+
+/**
+ * Hvor langt guiden maa traekkes bagud og fremad, i minutter.
+ *
+ * Bagud foelger arkivet: laengere tilbage end en uge har intet panel gemt, og
+ * en tom guide man kan blive ved med at traekke i, foeles som om appen har
+ * mistet sine data. Fremad foelger programoversigten, som sjaeldent raekker
+ * mere end en uge frem.
+ */
+export const DRAG_MIN_MINUTES = -7 * 24 * 60;
+export const DRAG_MAX_MINUTES = 7 * 24 * 60;
+
+/**
+ * Vinduet forskudt et vilkaarligt antal minutter fra nu.
+ *
+ * `guideWindow` flytter sig et helt vindue ad gangen, som pilene goer. Den her
+ * flytter sig lige saa langt som en finger har trukket, saa gitteret foelger
+ * med under bevaegelsen frem for at hoppe.
+ *
+ * Forankringen til den halve time bevares: traekker man tilbage til nul, staar
+ * kolonnerne igen paa 19:00 og 19:30 og ikke paa et skaevt minuttal.
+ */
+export function shiftedWindow(
+  now: Date,
+  offsetMinutes: number,
+  windowMinutes: number = WINDOW_MINUTES,
+): { start: Date; end: Date } {
   const halfHourMs = 30 * 60_000;
   const anchored = Math.floor(now.getTime() / halfHourMs) * halfHourMs;
-  const start = anchored + page * windowMinutes * 60_000;
+  const clamped = Math.min(DRAG_MAX_MINUTES, Math.max(DRAG_MIN_MINUTES, offsetMinutes));
+  const start = anchored + clamped * 60_000;
   return { start: new Date(start), end: new Date(start + windowMinutes * 60_000) };
+}
+
+/**
+ * Minutterne en vandret bevaegelse svarer til.
+ *
+ * Vinduet er praecis saa bredt som gitteret, saa en finger der flytter sig en
+ * gittterbredde skal flytte tiden et helt vindue: saa foelger programmet under
+ * fingeren med fingeren. Bevaegelsen gaar modsat — traekker man mod venstre,
+ * kommer senere programmer frem, som naar man skubber et stykke papir.
+ *
+ * Resultatet trappes til hele skridt. Uden det ville hver eneste pixel give en
+ * ny optegning af gitteret, og gevinsten ville vaere et minuttal ingen kan se
+ * forskel paa.
+ */
+export function dragMinutes(
+  dx: number,
+  gridWidth: number,
+  stepMinutes: number,
+  windowMinutes: number = WINDOW_MINUTES,
+): number {
+  if (gridWidth <= 0 || stepMinutes <= 0) return 0;
+  const minutes = (-dx / gridWidth) * windowMinutes;
+  return Math.round(minutes / stepMinutes) * stepMinutes;
 }
 
 function stateOf(programme: Programme, now: Date): CellState {

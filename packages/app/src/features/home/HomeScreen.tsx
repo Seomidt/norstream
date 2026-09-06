@@ -219,6 +219,8 @@ export function HomeScreen({
             onRestart={(channel, programme) => open(channel, programme)}
             onAuthError={handleAuthError}
             onBrowse={() => setTab('browse')}
+            previewEnabled={previewEnabled}
+            previewHandle={previewHandle}
           />
         )}
         {tab === 'recordings' && <RecordingsScreen session={session} />}

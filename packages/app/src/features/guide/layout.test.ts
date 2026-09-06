@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { Programme } from '@norstream/core';
 import {
+  DRAG_MAX_MINUTES,
+  DRAG_MIN_MINUTES,
   WINDOW_MINUTES,
+  dragMinutes,
   guideAction,
   guideWindow,
   layoutRow,
   programmeOptions,
+  shiftedWindow,
 } from './layout.js';
 
 const WINDOW_START = new Date('2026-09-05T19:00:00.000Z');
@@ -338,5 +342,60 @@ describe('programmeOptions', () => {
     const options = programmeOptions('gap', withArchive, true);
     expect(options.restart).toBe(false);
     expect(options.record).toBe(false);
+  });
+});
+
+describe('shiftedWindow', () => {
+  const now = new Date('2026-09-06T19:07:00');
+
+  it('forankrer til den halve time ved nul', () => {
+    const window = shiftedWindow(now, 0);
+    expect(window.start.getHours()).toBe(19);
+    expect(window.start.getMinutes()).toBe(0);
+    expect(window.end.getHours()).toBe(21);
+  });
+
+  it('flytter sig praecis saa mange minutter som der bliver bedt om', () => {
+    const window = shiftedWindow(now, 35);
+    expect(window.start.getHours()).toBe(19);
+    expect(window.start.getMinutes()).toBe(35);
+  });
+
+  it('flytter sig bagud paa et negativt tal', () => {
+    const window = shiftedWindow(now, -120);
+    expect(window.start.getHours()).toBe(17);
+  });
+
+  // Uden graensen kan man traekke ud i en tomhed hvor hverken arkiv eller
+  // programoversigt naar hen, og en guide man kan blive ved med at traekke i
+  // uden at der kommer noget, ligner en app der har mistet sine data.
+  it('holder sig inden for en uge til hver side', () => {
+    const far = shiftedWindow(now, 99 * 24 * 60);
+    expect(far.start.getTime()).toBe(shiftedWindow(now, DRAG_MAX_MINUTES).start.getTime());
+    const back = shiftedWindow(now, -99 * 24 * 60);
+    expect(back.start.getTime()).toBe(shiftedWindow(now, DRAG_MIN_MINUTES).start.getTime());
+  });
+});
+
+describe('dragMinutes', () => {
+  // En finger der flytter sig en hel gitterbredde skal flytte tiden et helt
+  // vindue: saa foelger programmet under fingeren med fingeren.
+  it('flytter et helt vindue naar fingeren flytter sig en hel bredde', () => {
+    expect(dragMinutes(-300, 300, 5)).toBe(WINDOW_MINUTES);
+  });
+
+  it('gaar modsat fingeren, som naar man skubber et stykke papir', () => {
+    expect(dragMinutes(150, 300, 5)).toBe(-WINDOW_MINUTES / 2);
+  });
+
+  it('trapper til hele skridt', () => {
+    // 4 px af 300 er 1,6 minutter. Uden trappen ville hver pixel tegne
+    // gitteret om for et minuttal ingen kan se forskel paa.
+    expect(dragMinutes(-4, 300, 5)).toBe(0);
+    expect(dragMinutes(-10, 300, 5)).toBe(5);
+  });
+
+  it('giver nul foer bredden er maalt', () => {
+    expect(dragMinutes(-120, 0, 5)).toBe(0);
   });
 });

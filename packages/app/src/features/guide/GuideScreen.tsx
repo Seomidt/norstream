@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  PanResponder,
   Pressable,
   StyleSheet,
   Text,
@@ -14,15 +15,25 @@ import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { listProgrammes } from '../../storage/programmes.js';
 import { deleteRecording, isScheduled, scheduleRecording } from '../../storage/recordings.js';
-import { getTimeshiftDialect } from '../../storage/settings.js';
+import { sourcesWithDialect } from '../../storage/settings.js';
 import { ensureFullEpg, ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
 import { canRecord } from '../recordings/plan.js';
+import { MiniPreview } from '../preview/MiniPreview.js';
+import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
-import { WINDOW_MINUTES, guideAction, guideWindow, layoutRow } from './layout.js';
+import {
+  DRAG_MAX_MINUTES,
+  DRAG_MIN_MINUTES,
+  WINDOW_MINUTES,
+  dragMinutes,
+  guideAction,
+  layoutRow,
+  shiftedWindow,
+} from './layout.js';
 import type { GuideCell } from './layout.js';
 
 interface Props {
@@ -31,6 +42,8 @@ interface Props {
   onRestart: (channel: StoredChannel, programme: Programme) => void;
   onAuthError: () => void;
   onBrowse: () => void;
+  previewEnabled: boolean;
+  previewHandle: { current: PreviewHandle | null };
 }
 
 /**
@@ -46,23 +59,60 @@ const CHANNEL_COLUMN = 96;
 const ROW_HEIGHT = 56;
 
 /**
+ * Hvor fint tiden trappes under et traek, i minutter.
+ *
+ * Ikke pixel for pixel: hver aendring tegner hele gitteret om, og et minuttal
+ * paa fem minutters noejagtighed kan ingen se forskel paa i en celle der er et
+ * par centimeter bred.
+ */
+const DRAG_STEP_MINUTES = 5;
+
+/** Hvor langt fingeren skal flytte sig foer et traek regnes for vandret. */
+const DRAG_SLOP = 10;
+
+/**
  * Guiden: vandret tid, lodret kanaler.
  *
  * Gitteret viser **favoritterne** — den maengde brugeren allerede er i — aldrig
  * alle 22.142 kanaler. Kun synlige raekker henter programdata, og de rammer
  * cachen i `epgCache`.
  *
- * **Der scrolles ikke vandret.** Vinduet er praecis skaermbredt og pages med
- * ‹ og ›. Alternativet — vandret scroll med en fastlaast kanalkolonne — kraever
- * at to lodrette lister holdes synkroniseret i haanden, og betaler for det med
- * en fejlkilde guiden ikke har brug for. Prisen er at man ikke kan svippe
- * gennem aftenen; til gengaeld staar kanalnavnet altid til venstre.
+ * Tiden flyttes ved at **traekke i gitteret**. Vinduet er lige saa bredt som
+ * gitteret, saa en finger der flytter sig en gitterbredde flytter tiden et helt
+ * vindue — programmet under fingeren foelger med fingeren. Pilene staar der
+ * stadig og springer et vindue ad gangen, men de skal ikke bruges.
+ *
+ * Der er ikke en vandret `ScrollView` under. Med en saadan skulle kanalkolonnen
+ * laases fast og to lister holdes synkroniseret i haanden; her er der ét tal —
+ * hvor mange minutter vinduet er forskudt — og resten er den samme udregning
+ * som foer. Lodret rulning er uroert: bevaegelsen skal vaere overvejende
+ * vandret foer guiden tager den.
  */
-export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse }: Props) {
+export function GuideScreen({
+  session,
+  onPlay,
+  onRestart,
+  onAuthError,
+  onBrowse,
+  previewEnabled,
+  previewHandle,
+}: Props) {
   const [channels, setChannels] = useState<StoredChannel[]>([]);
   const [rows, setRows] = useState<Record<string, Programme[]>>({});
-  const [dialect, setDialect] = useState<boolean>(false);
-  const [page, setPage] = useState(0);
+  /**
+   * Kilderne der har fundet en timeshift-dialekt.
+   *
+   * Per kilde, ikke ét ja/nej. Det var ét ja/nej foer, og det blev endda
+   * laest paa en noegle der aldrig blev skrevet — derfor stod uret aldrig paa
+   * nogen kanal, uanset hvor mange af dem der havde arkiv.
+   */
+  const [dialectSources, setDialectSources] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  /** Hvor mange minutter vinduet er forskudt fra nu. Negativt er bagud. */
+  const [offsetMinutes, setOffsetMinutes] = useState(0);
+  /** Kanalen previewet viser, eller null. Foelger den oeverste synlige raekke. */
+  const [previewChannel, setPreviewChannel] = useState<StoredChannel | null>(null);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   /** Den celle bladet er aabnet for, eller null naar det er lukket. */
@@ -80,19 +130,20 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
     return () => clearInterval(timer);
   }, []);
 
-  const window = guideWindow(now, page);
+  const window = shiftedWindow(now, offsetMinutes);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const [favourites, storedDialect] = await Promise.all([
+        const [favourites, withDialect] = await Promise.all([
           listChannels(session.db, { favouritesOnly: true }),
-          getTimeshiftDialect(session.db),
+          sourcesWithDialect(session.db),
         ]);
         if (cancelled) return;
         setChannels(favourites);
-        setDialect(storedDialect !== null);
+        setDialectSources(withDialect);
+        setPreviewChannel((current) => current ?? favourites[0] ?? null);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -101,6 +152,12 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
       cancelled = true;
     };
   }, [session.db]);
+
+  /** Om kanalens kilde kan bygge arkiv-URLer. Uden det: intet ur, ingen optagelse. */
+  const hasDialectFor = useCallback(
+    (channel: StoredChannel): boolean => dialectSources.has(channel.sourceId),
+    [dialectSources],
+  );
 
   /**
    * Bestiller en kommende udsendelse til optagelse.
@@ -144,24 +201,41 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
    */
   const currentWindow = useRef({ from: 0, to: 0 });
 
+  /**
+   * Tegner det cachen har for et vindue. Ingen netvaerk.
+   *
+   * Den koeres **uden ventetid** hver gang vinduet flytter sig. Traekker man
+   * gennem aftenen, er det den her der fylder cellerne ud under fingeren;
+   * ventetiden nedenfor gaelder kun turen til panelet, som ikke maa ske paa
+   * hvert femte minut man traekker forbi.
+   */
+  const drawFromCache = useCallback(
+    async (visible: readonly StoredChannel[], from: Date, to: Date): Promise<boolean> => {
+      if (visible.length === 0) return false;
+      const loaded: Record<string, Programme[]> = {};
+      for (const channel of visible) {
+        loaded[channel.id] = await listProgrammes(session.db, channel.id, from, to);
+      }
+      if (
+        currentWindow.current.from !== from.getTime() ||
+        currentWindow.current.to !== to.getTime()
+      ) {
+        return false;
+      }
+      setRows((previous) => ({ ...previous, ...loaded }));
+      return true;
+    },
+    [session.db],
+  );
+
+  const drawFromCacheRef = useRef(drawFromCache);
+  drawFromCacheRef.current = drawFromCache;
+
   const loadVisible = useCallback(
     async (visible: StoredChannel[], from: Date, to: Date): Promise<void> => {
       if (visible.length === 0) return;
       const streamIds = visible.map((channel) => channel.id);
-      const stale = (): boolean =>
-        currentWindow.current.from !== from.getTime() ||
-        currentWindow.current.to !== to.getTime();
-
-      /** Tegner det cachen har lige nu. Kaldes to gange: efter hver hentning. */
-      const draw = async (): Promise<boolean> => {
-        const loaded: Record<string, Programme[]> = {};
-        for (const streamId of streamIds) {
-          loaded[streamId] = await listProgrammes(session.db, streamId, from, to);
-        }
-        if (stale()) return false;
-        setRows((previous) => ({ ...previous, ...loaded }));
-        return true;
-      };
+      const draw = (): Promise<boolean> => drawFromCache(visible, from, to);
 
       // **Cachen foerst.** Foer tegnede guiden efter hentningen, saa hver gang
       // programdata var mere end en halv time gamle, stod skaermen tom mens
@@ -197,7 +271,7 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
       }
       await draw();
     },
-    [session, onAuthError],
+    [session, onAuthError, drawFromCache],
   );
 
   const loadVisibleRef = useRef(loadVisible);
@@ -227,21 +301,40 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
    * Ventetiden er der fordi FlatList kalder her flere gange under ét sving med
    * fingeren, og hvert kald ellers ville blive til en tur til panelet.
    */
+  /**
+   * Bestiller en hentning naar der har vaeret ro et oejeblik.
+   *
+   * Baade rulning og traek gaar gennem den her. Et traek gennem aftenen giver
+   * et nyt vindue hvert femte minut af tid, og uden ventetiden ville hvert af
+   * dem blive til en tur til panelet — som kun tillader én forbindelse.
+   */
+  const scheduleLoad = useCallback((): void => {
+    if (scrollTimer.current !== null) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => {
+      scrollTimer.current = null;
+      const { start, end } = windowRef.current;
+      currentWindow.current = { from: start, to: end };
+      void loadVisibleRef.current(visibleChannels.current, new Date(start), new Date(end));
+    }, SCROLL_SETTLE_MS);
+  }, []);
+
+  const scheduleLoadRef = useRef(scheduleLoad);
+  scheduleLoadRef.current = scheduleLoad;
+
   const onViewableItemsChanged = useRef(
     (info: { viewableItems: { item: StoredChannel }[] }): void => {
       visibleChannels.current = info.viewableItems
         .map((entry) => entry.item)
         .filter((channel): channel is StoredChannel => channel !== undefined);
 
-      if (scrollTimer.current !== null) clearTimeout(scrollTimer.current);
-      scrollTimer.current = setTimeout(() => {
-        scrollTimer.current = null;
-        void loadVisibleRef.current(
-          visibleChannels.current,
-          new Date(windowRef.current.start),
-          new Date(windowRef.current.end),
-        );
-      }, SCROLL_SETTLE_MS);
+      // Previewet foelger den oeverste synlige raekke, som i kanallisten.
+      setPreviewChannel(visibleChannels.current[0] ?? null);
+      void drawFromCacheRef.current(
+        visibleChannels.current,
+        new Date(windowRef.current.start),
+        new Date(windowRef.current.end),
+      );
+      scheduleLoadRef.current();
     },
   ).current;
 
@@ -251,13 +344,64 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
     };
   }, []);
 
-  // Foerste skaermfuld og hvert sideskift: hent for de raekker der er fremme.
+  // Foerste skaermfuld og hver gang vinduet flytter sig: hent for de raekker
+  // der er fremme. Tegningen af det cachen allerede har sker med det samme —
+  // ventetiden gaelder kun turen til panelet.
   useEffect(() => {
+    if (visibleChannels.current.length === 0) {
+      visibleChannels.current = channels.slice(0, 12);
+    }
     currentWindow.current = { from: windowStartMs, to: windowEndMs };
-    const visible =
-      visibleChannels.current.length > 0 ? visibleChannels.current : channels.slice(0, 12);
-    void loadVisibleRef.current(visible, new Date(windowStartMs), new Date(windowEndMs));
+    // Cachen tegnes med det samme; kun panelet maa vente paa at fingeren
+    // staar stille.
+    void drawFromCacheRef.current(
+      visibleChannels.current,
+      new Date(windowStartMs),
+      new Date(windowEndMs),
+    );
+    scheduleLoadRef.current();
   }, [channels, windowStartMs, windowEndMs]);
+
+  /**
+   * Traekket i gitteret.
+   *
+   * `onMoveShouldSetPanResponder` uden capture: den bliver kun spurgt saa
+   * laenge ingen anden har taget bevaegelsen, saa den lodrette liste beholder
+   * sine egne rulninger. Kravet om at den vandrette bevaegelse er stoerst
+   * afgoer hvem der faar en skraa bevaegelse.
+   *
+   * Bredden maales af gitteret selv frem for af skaermen: kanalkolonnen er
+   * ikke en del af tidsaksen, og et traek skal flytte tiden lige saa langt som
+   * fingeren flytter sig **i gitteret**.
+   */
+  const gridWidth = useRef(0);
+  const dragStart = useRef(0);
+  const offsetRef = useRef(offsetMinutes);
+  offsetRef.current = offsetMinutes;
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_event, gesture) =>
+          Math.abs(gesture.dx) > DRAG_SLOP && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+        // Den lodrette liste maa ikke tage bevaegelsen tilbage midt i et
+        // traek. Sker det, staar guiden stille mens fingeren bliver ved, og
+        // det foeles som om traekket satte sig fast.
+        onPanResponderTerminationRequest: () => false,
+        onPanResponderGrant: () => {
+          dragStart.current = offsetRef.current;
+        },
+        onPanResponderMove: (_event, gesture) => {
+          const moved = dragMinutes(gesture.dx, gridWidth.current, DRAG_STEP_MINUTES);
+          const next = Math.min(
+            DRAG_MAX_MINUTES,
+            Math.max(DRAG_MIN_MINUTES, dragStart.current + moved),
+          );
+          setOffsetMinutes((current) => (current === next ? current : next));
+        },
+      }),
+    [],
+  );
 
   if (loading) {
     return (
@@ -284,15 +428,34 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
   return (
     <View style={styles.container}>
       {notice !== null && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
+      <MiniPreview
+        session={session}
+        channel={previewChannel}
+        enabled={previewEnabled}
+        handle={previewHandle}
+        onOpen={(channel) => onPlay(channel)}
+      />
+
       <View style={styles.toolbar}>
-        <Pressable hitSlop={12} onPress={() => setPage((value) => value - 1)}>
+        <Pressable
+          hitSlop={12}
+          onPress={() => setOffsetMinutes((value) => Math.max(DRAG_MIN_MINUTES, value - WINDOW_MINUTES))}
+        >
           <Text style={styles.pager}>‹</Text>
         </Pressable>
-        <Text style={styles.windowLabel}>
-          {formatTime(window.start)} – {formatTime(window.end)}
-          {page !== 0 ? ` · ${formatDay(window.start)}` : ''}
-        </Text>
-        <Pressable hitSlop={12} onPress={() => setPage((value) => value + 1)}>
+        {/* Etiketten er ogsaa vejen tilbage til nu. Efter et traek gennem tre
+            doegn er en knap hurtigere end den samme vej tilbage. */}
+        <Pressable hitSlop={8} disabled={offsetMinutes === 0} onPress={() => setOffsetMinutes(0)}>
+          <Text style={styles.windowLabel}>
+            {formatTime(window.start)} – {formatTime(window.end)}
+            {isSameDay(window.start, now) ? '' : ` · ${formatDay(window.start)}`}
+            {offsetMinutes === 0 ? '' : '  ↺ Nu'}
+          </Text>
+        </Pressable>
+        <Pressable
+          hitSlop={12}
+          onPress={() => setOffsetMinutes((value) => Math.min(DRAG_MAX_MINUTES, value + WINDOW_MINUTES))}
+        >
           <Text style={styles.pager}>›</Text>
         </Pressable>
       </View>
@@ -311,7 +474,7 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
           channel={sheet.channel}
           programme={sheet.cell.programme}
           state={sheet.cell.state}
-          hasDialect={dialect}
+          hasDialect={hasDialectFor(sheet.channel)}
           alreadyRecorded={sheet.recorded}
           onClose={() => setSheet(null)}
           onPlay={() => {
@@ -331,27 +494,35 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
         />
       )}
 
-      <FlatList
-        data={channels}
-        keyExtractor={(item) => item.id}
-        viewabilityConfig={viewabilityConfig}
-        onViewableItemsChanged={onViewableItemsChanged}
-        getItemLayout={(_, index) => ({
-          length: ROW_HEIGHT,
-          offset: ROW_HEIGHT * index,
-          index,
-        })}
-        renderItem={({ item }) => (
-          <GuideRow
-            channel={item}
-            cells={layoutRow(rows[item.id] ?? [], window.start, window.end, now)}
-            hasDialect={dialect}
-            onOpen={(channel, cell) => {
-              void openSheet(channel, cell);
-            }}
-          />
-        )}
-      />
+      {/* Traekfladen ligger om hele gitteret, ogsaa om kanalkolonnen: en
+          finger der begynder paa et kanalnavn og trækker til siden mener
+          stadig tiden. Bredden maales paa cellerne alene — se panResponder. */}
+      <View style={styles.grid} {...panResponder.panHandlers}>
+        <FlatList
+          data={channels}
+          keyExtractor={(item) => item.id}
+          viewabilityConfig={viewabilityConfig}
+          onViewableItemsChanged={onViewableItemsChanged}
+          getItemLayout={(_, index) => ({
+            length: ROW_HEIGHT,
+            offset: ROW_HEIGHT * index,
+            index,
+          })}
+          renderItem={({ item }) => (
+            <GuideRow
+              channel={item}
+              cells={layoutRow(rows[item.id] ?? [], window.start, window.end, now)}
+              hasDialect={hasDialectFor(item)}
+              onMeasureCells={(width) => {
+                gridWidth.current = width;
+              }}
+              onOpen={(channel, cell) => {
+                void openSheet(channel, cell);
+              }}
+            />
+          )}
+        />
+      </View>
     </View>
   );
 }
@@ -361,11 +532,14 @@ function GuideRow({
   cells,
   hasDialect,
   onOpen,
+  onMeasureCells,
 }: {
   channel: StoredChannel;
   cells: GuideCell[];
   hasDialect: boolean;
   onOpen: (channel: StoredChannel, cell: GuideCell) => void;
+  /** Bredden paa tidsaksen. Traekket regner minutter ud af den. */
+  onMeasureCells: (width: number) => void;
 }) {
   return (
     <View style={styles.row}>
@@ -386,7 +560,10 @@ function GuideRow({
           )}
         </View>
       </View>
-      <View style={styles.cells}>
+      <View
+        style={styles.cells}
+        onLayout={(event) => onMeasureCells(event.nativeEvent.layout.width)}
+      >
         {cells.map((cell) => {
           const action = guideAction(cell, channel, hasDialect);
           return (
@@ -437,6 +614,15 @@ function formatTime(date: Date): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+/** Er de to tidspunkter samme dag? Dagen skrives kun naar den ikke er i dag. */
+function isSameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
 function formatDay(date: Date): string {
   return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}`;
 }
@@ -483,6 +669,7 @@ const styles = StyleSheet.create({
   },
   timeSpacer: { width: CHANNEL_COLUMN },
   timeMark: { flex: 1, color: theme.colors.textMuted, fontSize: 11 },
+  grid: { flex: 1 },
   row: { flexDirection: 'row', height: ROW_HEIGHT },
   channelCell: {
     width: CHANNEL_COLUMN,

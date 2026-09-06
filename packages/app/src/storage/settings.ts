@@ -37,19 +37,28 @@ export async function setSetting(
  * To paneler taler ikke noedvendigvis samme timeshift-dialekt og staar ikke i
  * samme tidszone. Med én faelles vaerdi ville det ene panels probing slaa det
  * andets start-forfra fra, uden at nogen kunne se hvorfor.
- *
- * Naar `sourceId` udelades, laeses den gamle faelles vaerdi. Det er den der
- * staar paa enheder fra tiden med ét panel, og den bliver flyttet over paa
- * kilden ved opstart.
  */
 function scopedKey(key: string, sourceId?: string): string {
   return sourceId === undefined ? key : `${key}:${sourceId}`;
 }
 
-/** Null betyder enten "ikke probet endnu" eller "ingen dialekt svarede". */
+/**
+ * Kilden er **paakraevet**, og det er den af en grund.
+ *
+ * Den var valgfri, og saa laeste to skaerme den faelles noegle der ikke staar
+ * noget paa: afspilleren meldte "Start forfra er ikke klar" hver gang man
+ * aabnede en kanal, og guiden viste aldrig uret paa de kanaler der har arkiv.
+ * Begge steder skrev koden rigtigt og laeste forkert, saa "Proev igen"
+ * hjalp — indtil man gik ud og ind igen.
+ *
+ * En valgfri kilde-parameter goer den fejl usynlig for baade oversaetter og
+ * tests. Uden den fanges den ved oversaettelsen.
+ *
+ * Null betyder enten "ikke probet endnu" eller "ingen dialekt svarede".
+ */
 export async function getTimeshiftDialect(
   db: SqlDatabase,
-  sourceId?: string,
+  sourceId: string,
 ): Promise<TimeshiftDialect | null> {
   const value = await getSetting(db, scopedKey(KEY_DIALECT, sourceId));
   return value === 'php' || value === 'path' ? value : null;
@@ -58,14 +67,28 @@ export async function getTimeshiftDialect(
 export async function setTimeshiftDialect(
   db: SqlDatabase,
   dialect: TimeshiftDialect | null,
-  sourceId?: string,
+  sourceId: string,
 ): Promise<void> {
   await setSetting(db, scopedKey(KEY_DIALECT, sourceId), dialect ?? 'none');
 }
 
+/** Kilderne der har fundet en dialekt, som et opslag guiden kan bruge per raekke. */
+export async function sourcesWithDialect(db: SqlDatabase): Promise<Set<string>> {
+  const rows = await db.getAllAsync<{ key: string; value: string }>(
+    "SELECT key, value FROM settings WHERE key LIKE ? ESCAPE '\\'",
+    [`${KEY_DIALECT}:%`],
+  );
+  const found = new Set<string>();
+  for (const row of rows) {
+    if (row.value !== 'php' && row.value !== 'path') continue;
+    found.add(row.key.slice(KEY_DIALECT.length + 1));
+  }
+  return found;
+}
+
 export async function getPanelOffsetMinutes(
   db: SqlDatabase,
-  sourceId?: string,
+  sourceId: string,
 ): Promise<number> {
   const value = await getSetting(db, scopedKey(KEY_OFFSET, sourceId));
   if (value === null) return 0;
@@ -76,7 +99,7 @@ export async function getPanelOffsetMinutes(
 export async function setPanelOffsetMinutes(
   db: SqlDatabase,
   minutes: number,
-  sourceId?: string,
+  sourceId: string,
 ): Promise<void> {
   await setSetting(db, scopedKey(KEY_OFFSET, sourceId), String(Math.trunc(minutes)));
 }

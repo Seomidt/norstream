@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { deriveCountry, logoCandidates } from '@norstream/core';
 import type { AppSession } from '../../session.js';
-import { logoCoverage } from '../../storage/channels.js';
+import { logoCoverage, registryCoverage } from '../../storage/channels.js';
+import { listLogoHosts } from '../../storage/logoHosts.js';
+import type { LogoHostRecord } from '../../storage/logoHosts.js';
+import { checkLogoHosts } from '../../sync/logoHosts.js';
 import { listHiddenCountries, unhideCountry } from '../../storage/countries.js';
 import { OTHER_COUNTRY_KEY } from '../../storage/countries.js';
 import { clearSourceCredentials } from '../../storage/credentials.js';
@@ -61,16 +64,24 @@ export function SettingsScreen({
   /** Hvad der faktisk kom tilbage fra logo-adressen. */
   const [probe, setProbe] = useState<LogoProbeResult | null>(null);
   const [imageLoaded, setImageLoaded] = useState(false);
+  /** Vaerterne logoerne ligger paa, og om telefonen kan naa dem. */
+  const [hosts, setHosts] = useState<LogoHostRecord[]>([]);
+  const [registry, setRegistry] = useState<{ rows: number; matched: number } | null>(null);
+  const [rechecking, setRechecking] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
-    const [hiddenCountries, format, coverage] = await Promise.all([
+    const [hiddenCountries, format, coverage, knownHosts, fromRegistry] = await Promise.all([
       listHiddenCountries(session.db),
       getStreamFormatSetting(session.db),
       logoCoverage(session.db),
+      listLogoHosts(session.db),
+      registryCoverage(session.db),
     ]);
     setHidden(hiddenCountries);
     setStreamFormat(format);
     setLogos(coverage);
+    setHosts(knownHosts);
+    setRegistry(fromRegistry);
 
     // Et rigtigt kald frem for at laene sig op ad om et Image tegner noget:
     // en tom firkant kan lige saa godt vaere en hentning der venter som et
@@ -89,6 +100,23 @@ export function SettingsScreen({
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * Maaler vaerterne forfra.
+   *
+   * En vaert der var nede i det oejeblik der blev maalt, bliver sprunget over
+   * indtil naeste maaling — og med seks timer imellem er det for laenge at
+   * vente naar man staar med telefonen og kan se at logoerne mangler.
+   */
+  async function recheckHosts(): Promise<void> {
+    setRechecking(true);
+    try {
+      await checkLogoHosts(session.db, session.fetchImpl, new Date(), true);
+      await load();
+    } finally {
+      setRechecking(false);
+    }
+  }
 
   async function togglePreview(enabled: boolean): Promise<void> {
     await setMiniPreviewEnabled(session.db, enabled);
@@ -185,6 +213,39 @@ export function SettingsScreen({
           </View>
         </View>
       )}
+      {/* Vaerterne staar for sig. En tom firkant kan skyldes tre ting — en
+          vaert uden rute, et navn registret ikke kender, eller et billede der
+          ikke kunne tegnes — og de tre linjer her skiller dem ad. */}
+      {hosts.map((host) => (
+        <Text key={host.origin} style={styles.hint}>
+          {host.state === 'unreachable' ? '✕ ' : '✓ '}
+          {shortHost(host.origin)}: {host.detail}
+          {host.state === 'unreachable' ? ' — springes over' : ''}
+        </Text>
+      ))}
+      <Text style={styles.hint}>
+        {registry === null
+          ? ''
+          : registry.rows === 0
+            ? 'Det åbne kanalregister er ikke hentet endnu.'
+            : `Registret har ${registry.rows} logoer, og ${registry.matched} af dine kanaler passer på et af dem.`}
+      </Text>
+      <Pressable
+        style={styles.row}
+        disabled={rechecking}
+        onPress={() => {
+          void recheckHosts();
+        }}
+      >
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Prøv logo-værterne igen</Text>
+          <Text style={styles.rowHint}>
+            Måles ellers hver sjette time. En vært der var nede netop da,
+            springes over indtil næste måling.
+          </Text>
+        </View>
+        <Text style={styles.actionText}>{rechecking ? 'Måler …' : 'Mål'}</Text>
+      </Pressable>
 
       <Text style={styles.sectionTitle}>Streamformat</Text>
       <Text style={styles.hint}>

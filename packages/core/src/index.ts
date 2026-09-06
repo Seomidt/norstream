@@ -47,7 +47,7 @@ export type { RawEpgListing } from './xtream/epgListings.js';
 export { panelOffsetFromServerInfo } from './xtream/serverInfo.js';
 
 export { channelKey, isValidSourceId, parseChannelKey } from './source/source.js';
-export { logoCandidates } from './source/logo.js';
+export { logoCandidates, originOf } from './source/logo.js';
 export { parseCsv, parseCsvRecords } from './source/csv.js';
 export {
   buildNameIndex,
