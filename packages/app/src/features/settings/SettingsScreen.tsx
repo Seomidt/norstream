@@ -6,14 +6,17 @@ import { logoCoverage, registryCoverage } from '../../storage/channels.js';
 import { listLogoHosts } from '../../storage/logoHosts.js';
 import type { LogoHostRecord } from '../../storage/logoHosts.js';
 import { checkLogoHosts } from '../../sync/logoHosts.js';
+import { refreshLogoRegistry } from '../../sync/syncAll.js';
 import { listHiddenCountries, unhideCountry } from '../../storage/countries.js';
 import { OTHER_COUNTRY_KEY } from '../../storage/countries.js';
 import { clearSourceCredentials } from '../../storage/credentials.js';
 import { deleteSource, listSources } from '../../storage/sources.js';
 import {
   clearLastSyncMs,
+  getLogoRegistryEnabled,
   getRegistryError,
   getStreamFormatSetting,
+  setLogoRegistryEnabled,
   setMiniPreviewEnabled,
   setStreamFormatSetting,
 } from '../../storage/settings.js';
@@ -71,6 +74,7 @@ export function SettingsScreen({
   /** Hvorfor registret ikke kunne hentes. Uden den er en tom liste uforklarlig. */
   const [registryError, setRegistryError] = useState<string | null>(null);
   const [rechecking, setRechecking] = useState(false);
+  const [registryEnabled, setRegistryEnabled] = useState(true);
 
   const load = useCallback(async (): Promise<void> => {
     const [hiddenCountries, format, coverage, knownHosts, fromRegistry, lastError] =
@@ -82,6 +86,7 @@ export function SettingsScreen({
         registryCoverage(session.db),
         getRegistryError(session.db),
       ]);
+    setRegistryEnabled(await getLogoRegistryEnabled(session.db));
     setHidden(hiddenCountries);
     setStreamFormat(format);
     setLogos(coverage);
@@ -118,10 +123,25 @@ export function SettingsScreen({
     setRechecking(true);
     try {
       await checkLogoHosts(session.db, session.fetchImpl, new Date(), true);
+      if (registryEnabled) await refreshLogoRegistry(session.db, session.fetchImpl);
       await load();
     } finally {
       setRechecking(false);
     }
+  }
+
+  /**
+   * Slaar registret til eller fra.
+   *
+   * Slaas det fra, ryddes raekkerne med det samme. Et register der ikke bruges
+   * men bliver liggende, er 60.000 raekker der stadig skal slaas op i hver
+   * gang kanallisten hentes — og saa er der ikke slaaet noget fra.
+   */
+  async function toggleRegistry(enabled: boolean): Promise<void> {
+    setRegistryEnabled(enabled);
+    await setLogoRegistryEnabled(session.db, enabled);
+    if (!enabled) await session.db.runAsync('DELETE FROM registry_logos');
+    await load();
   }
 
   async function togglePreview(enabled: boolean): Promise<void> {
@@ -238,6 +258,22 @@ export function SettingsScreen({
               : `Det åbne kanalregister kunne ikke hentes: ${registryError}`
             : `Registret har ${registry.rows} logoer, og ${registry.matched} af dine kanaler passer på et af dem.`}
       </Text>
+      <View style={styles.row}>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Brug det åbne kanalregister</Text>
+          <Text style={styles.rowHint}>
+            Reserve-logoer for kanaler hvor udbyderens egen adresse ikke kan
+            nås. Slår du det fra, ryddes det helt.
+          </Text>
+        </View>
+        <Switch
+          value={registryEnabled}
+          onValueChange={(value) => {
+            void toggleRegistry(value);
+          }}
+          trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
+        />
+      </View>
       <Pressable
         style={styles.row}
         disabled={rechecking}
@@ -246,13 +282,14 @@ export function SettingsScreen({
         }}
       >
         <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Prøv logo-værterne igen</Text>
+          <Text style={styles.rowTitle}>Hent logoerne igen nu</Text>
           <Text style={styles.rowHint}>
-            Måles ellers hver sjette time. En vært der var nede netop da,
-            springes over indtil næste måling.
+            Værterne måles ellers hver sjette time og registret hentes én gang
+            om ugen. Ingen af delene følger med når du trækker ned for at
+            opdatere kanalerne.
           </Text>
         </View>
-        <Text style={styles.actionText}>{rechecking ? 'Måler …' : 'Mål'}</Text>
+        <Text style={styles.actionText}>{rechecking ? 'Henter …' : 'Hent'}</Text>
       </Pressable>
 
       <Text style={styles.sectionTitle}>Streamformat</Text>

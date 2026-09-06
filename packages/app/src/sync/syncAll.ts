@@ -6,6 +6,7 @@ import {
   getLastSyncMs,
   getLastXmltvMs,
   setLastSyncMs,
+  getLogoRegistryEnabled,
   setLastXmltvMs,
   setRegistryError,
 } from '../storage/settings.js';
@@ -103,20 +104,42 @@ export async function syncAllSources(
   }
 
   // **Efter** kilderne, ikke foer. Registret er to filer paa flere megabyte og
-  // 36.000 raekker i databasen; laa det foerst, ventede kanaler og
-  // programoversigt paa noget der kun handler om logoer. Kanalerne er appen,
-  // logoerne er pynt.
-  await maybeRegistry(db, fetchImpl, now, force);
+  // over 60.000 raekker i databasen; laa det foerst, ventede kanaler og
+  // programoversigt paa noget der kun handler om logoer.
+  //
+  // Og **uden** `force`. Det er den vigtige del. `force` betyder "brugeren
+  // trak ned og vil have friske kanaler" — og det blev til: hent syv megabyte
+  // forfra, slet 61.828 raekker og skriv dem igen. Hver eneste gang. SQLite
+  // lader ikke laesninger komme forbi en skrivning, saa kanaler og
+  // programoversigt stod i koe bag den. Registret har sin egen uge-rytme, og
+  // en knap i indstillinger til dem der vil have det nu.
+  await maybeRegistry(db, fetchImpl, now, false);
 
-  // Og til sidst vaerterne: kanalerne skal vaere skrevet foerst, ellers er der
-  // ingen logo-adresser at finde dem i.
+  // Samme grund: vaerterne har deres egen rytme paa seks timer og deres egen
+  // knap. En doed vaert koster ventetid per maaling, og det skal en
+  // opdatering af kanallisten ikke betale for.
   try {
-    await checkLogoHosts(db, fetchImpl, now, force);
+    await checkLogoHosts(db, fetchImpl, now, false);
   } catch {
     // Med vilje: logo-vaerter maa ikke kunne vaelte en kanal-synkronisering.
   }
 
   return result;
+}
+
+/**
+ * Henter logo-registret nu, uanset hvor frisk det er.
+ *
+ * Ligger for sig selv frem for som et flag paa `syncAllSources`, saa den
+ * eneste vej til en tvungen hentning er et bevidst tryk. Det var et flag, og
+ * flaget fulgte med traek-ned.
+ */
+export async function refreshLogoRegistry(
+  db: SqlDatabase,
+  fetchImpl: FetchLike,
+  now: Date = new Date(),
+): Promise<void> {
+  await maybeRegistry(db, fetchImpl, now, true);
 }
 
 /**
@@ -162,6 +185,8 @@ async function maybeRegistry(
   now: Date,
   force: boolean,
 ): Promise<void> {
+  if (!(await getLogoRegistryEnabled(db))) return;
+
   const last = await getLastSyncMs(db, REGISTRY_SOURCE);
   if (!force && last !== null && now.getTime() - last < REGISTRY_INTERVAL_MS) return;
 

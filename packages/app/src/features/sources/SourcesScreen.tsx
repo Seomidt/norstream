@@ -9,27 +9,18 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { XtreamAuthError, XtreamClient, detectTimeshiftDialect } from '@norstream/core';
-import type { Source, SourceKind, XtreamCredentials } from '@norstream/core';
+import type { Source, SourceKind } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import {
   clearSourceCredentials,
   loadSourceCredentials,
-  saveSourceCredentials,
 } from '../../storage/credentials.js';
-import {
-  getTimeshiftDialect,
-  setPanelOffsetMinutes,
-  setTimeshiftDialect,
-} from '../../storage/settings.js';
-import {
-  addSource,
-  deleteSource,
-  listSources,
-  setSourceEnabled,
-} from '../../storage/sources.js';
-import { syncChannels } from '../../sync/syncChannels.js';
-import { syncM3u } from '../../sync/syncM3u.js';
+import { getTimeshiftDialect } from '../../storage/settings.js';
+import { deleteSource, listSources, setSourceEnabled } from '../../storage/sources.js';
+// Tilfoejelsen ligger i `sources/connect` og ikke her, saa den her skaerm og
+// foerste-start-skaermen ikke kan komme til at goere det forskelligt. Foer laa
+// den to steder, og kun det ene sted hentede kanalerne med det samme.
+import { connectM3u, connectXtream, hostOf, probeArchive } from '../../sources/connect.js';
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
@@ -101,7 +92,7 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
         setNotice({ text: 'Adgangsoplysningerne til denne kilde mangler på enheden.' });
         return;
       }
-      await probeArchive(session, source.id, creds);
+      await probeArchive(session.db, session.fetchImpl, source.id, creds);
       await reload();
       const found = (await getTimeshiftDialect(session.db, source.id)) !== null;
       setNotice({
@@ -282,63 +273,22 @@ function AddSource({
       const trimmedUrl = url.trim();
       const label = name.trim().length > 0 ? name.trim() : hostOf(trimmedUrl);
 
-      if (isXtream) {
-        const creds: XtreamCredentials = {
-          baseUrl: trimmedUrl,
-          username: username.trim(),
-          password,
-        };
-        try {
-          await new XtreamClient(creds, session.fetchImpl).authenticate();
-        } catch (cause) {
-          setError(
-            cause instanceof XtreamAuthError
-              ? 'Brugernavn eller adgangskode blev afvist af panelet.'
-              : 'Kunne ikke nå panelet. Tjek adressen og din forbindelse.',
-          );
-          return;
-        }
+      const result = isXtream
+        ? await connectXtream(session.db, session.fetchImpl, {
+            url: trimmedUrl,
+            username,
+            password,
+            xmltvUrl,
+            name: label,
+          })
+        : await connectM3u(session.db, session.fetchImpl, {
+            url: trimmedUrl,
+            xmltvUrl,
+            name: label,
+          });
 
-        const source = await addSource(session.db, {
-          kind: 'xtream',
-          name: label,
-          url: trimmedUrl,
-          username: creds.username,
-          xmltvUrl: xmltvUrl.trim().length > 0 ? xmltvUrl.trim() : null,
-        });
-        await saveSourceCredentials(source.id, creds);
-
-        // Kanalerne hentes her, ikke af skaermen bagefter: sessionen kender
-        // endnu ikke den nye kilde, saa en synkronisering udefra ville springe
-        // netop den over — og kilden ville staa tom til naeste opstart.
-        try {
-          await syncChannels(session.db, source.id, creds, session.fetchImpl);
-        } catch {
-          // Panelet svarede paa login og ikke paa kanallisten. Kilden bliver
-          // staaende; naeste opdatering forsoeger igen.
-        }
-        await probeArchive(session, source.id, creds);
-        onAdded(label);
-        return;
-      }
-
-      // M3U: listen hentes med det samme, saa en forkert adresse opdages nu.
-      const source = await addSource(session.db, {
-        kind: 'm3u',
-        name: label,
-        url: trimmedUrl,
-        xmltvUrl: xmltvUrl.trim().length > 0 ? xmltvUrl.trim() : null,
-      });
-      try {
-        const result = await syncM3u(session.db, source, session.fetchImpl);
-        if (result.channels === 0) {
-          await deleteSource(session.db, source.id);
-          setError('Listen kunne hentes, men indeholdt ingen kanaler.');
-          return;
-        }
-      } catch {
-        await deleteSource(session.db, source.id);
-        setError('Kunne ikke hente listen. Tjek adressen og din forbindelse.');
+      if (!result.ok) {
+        setError(result.message);
         return;
       }
       onAdded(label);
@@ -406,39 +356,6 @@ function AddSource({
   );
 }
 
-/**
- * Finder panelets tidszone og timeshift-dialekt for den nye kilde.
- *
- * Maa ikke kunne blokere tilfoejelsen: uden arkiv virker alt andet stadig, og
- * kun start-forfra er utilgaengeligt. Afspilleren kan probe igen bagefter.
- */
-async function probeArchive(
-  session: AppSession,
-  sourceId: string,
-  creds: XtreamCredentials,
-): Promise<void> {
-  try {
-    const client = new XtreamClient(creds, session.fetchImpl);
-    const offset = await client.getPanelOffsetMinutes();
-    if (offset !== null) await setPanelOffsetMinutes(session.db, offset, sourceId);
-
-    const streams = await client.getLiveStreams();
-    const withArchive = streams.find((stream) => stream.hasArchive);
-    if (withArchive === undefined) return;
-
-    const dialect = await detectTimeshiftDialect(
-      creds,
-      withArchive.id,
-      session.fetchImpl,
-      new Date(),
-      offset ?? 0,
-    );
-    await setTimeshiftDialect(session.db, dialect, sourceId);
-  } catch {
-    // Med vilje: se kommentaren ovenfor.
-  }
-}
-
 function Field({
   label,
   value,
@@ -470,11 +387,6 @@ function Field({
       />
     </View>
   );
-}
-
-function hostOf(url: string): string {
-  const match = /^[a-z]+:\/\/([^/:]+)/i.exec(url.trim());
-  return match?.[1] ?? url.trim();
 }
 
 const styles = StyleSheet.create({

@@ -8,6 +8,7 @@ import {
   guideAction,
   guideWindow,
   layoutRow,
+  nowRatio,
   programmeOptions,
   shiftedWindow,
 } from './layout.js';
@@ -397,5 +398,32 @@ describe('dragMinutes', () => {
 
   it('giver nul foer bredden er maalt', () => {
     expect(dragMinutes(-120, 0, 5)).toBe(0);
+  });
+});
+
+describe('nowRatio', () => {
+  const start = new Date('2026-09-06T19:00:00');
+  const end = new Date('2026-09-06T21:00:00');
+
+  it('giver andelen af vinduet', () => {
+    expect(nowRatio(new Date('2026-09-06T20:00:00'), start, end)).toBe(0.5);
+    expect(nowRatio(new Date('2026-09-06T19:30:00'), start, end)).toBe(0.25);
+  });
+
+  it('rammer kanterne praecist', () => {
+    expect(nowRatio(start, start, end)).toBe(0);
+    expect(nowRatio(end, start, end)).toBe(1);
+  });
+
+  // Det vigtige: har man trukket guiden hen et andet sted, skal stregen
+  // **vaek**. En streg klistret til kanten ville paastaa at klokken er noget
+  // den ikke er.
+  it('giver null naar nu ligger uden for vinduet', () => {
+    expect(nowRatio(new Date('2026-09-06T18:59:00'), start, end)).toBeNull();
+    expect(nowRatio(new Date('2026-09-06T21:01:00'), start, end)).toBeNull();
+  });
+
+  it('giver null paa et vindue uden laengde', () => {
+    expect(nowRatio(start, start, start)).toBeNull();
   });
 });

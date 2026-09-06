@@ -93,8 +93,20 @@ export async function syncLogoRegistry(
     }
   }
 
-  await db.runAsync('DELETE FROM registry_logos');
-  await insertInBatches(db, rows);
+  // Én transaktion. Uden den er det over to hundrede saerskilte skrivninger,
+  // og SQLite lader ikke laesninger komme forbi en skrivning: kanallisten og
+  // programoversigten ville staa i koe bag hver eneste af dem.
+  await db.execAsync('BEGIN');
+  try {
+    await db.runAsync('DELETE FROM registry_logos');
+    await insertInBatches(db, rows);
+    await db.execAsync('COMMIT');
+  } catch (cause) {
+    // Uden det her ville en afbrudt skrivning efterlade en aaben transaktion,
+    // og saa er **hele** databasen laast til appen bliver lukket ned.
+    await db.execAsync('ROLLBACK').catch(() => undefined);
+    throw cause;
+  }
   return { logos: rows.length };
 }
 

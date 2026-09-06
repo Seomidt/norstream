@@ -8,6 +8,7 @@ const KEY_PREVIEW = 'mini_preview_enabled';
 const KEY_STREAM_FORMAT = 'stream_format';
 const KEY_LAST_XMLTV = 'last_xmltv_ms';
 const KEY_REGISTRY_ERROR = 'registry_error';
+const KEY_REGISTRY_ENABLED = 'logo_registry_enabled';
 
 export async function getSetting(
   db: SqlDatabase,
@@ -235,4 +236,23 @@ export async function setRegistryError(
   message: string | null,
 ): Promise<void> {
   await setSetting(db, KEY_REGISTRY_ERROR, message ?? '');
+}
+
+/**
+ * Om det aabne logo-register maa hentes og bruges.
+ *
+ * Til som standard, men det skal kunne slaas **fra**. Registret er appens
+ * tungeste enkeltdel — syv megabyte og over 60.000 raekker — og den der ikke
+ * faar noget ud af det, skal kunne fjerne det helt frem for at leve med det.
+ * Det er ogsaa den hurtigste maade at afgoere om et problem stammer derfra.
+ */
+export async function getLogoRegistryEnabled(db: SqlDatabase): Promise<boolean> {
+  return (await getSetting(db, KEY_REGISTRY_ENABLED)) !== 'off';
+}
+
+export async function setLogoRegistryEnabled(
+  db: SqlDatabase,
+  enabled: boolean,
+): Promise<void> {
+  await setSetting(db, KEY_REGISTRY_ENABLED, enabled ? 'on' : 'off');
 }

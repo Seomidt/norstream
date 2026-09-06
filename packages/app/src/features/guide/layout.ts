@@ -107,6 +107,25 @@ export function dragMinutes(
   return Math.round(minutes / stepMinutes) * stepMinutes;
 }
 
+/**
+ * Hvor "nu" ligger i vinduet, som en andel mellem 0 og 1 — eller null naar nu
+ * ikke er i vinduet.
+ *
+ * Den bruges til at tegne en lodret streg ned gennem gitteret. Uden den kan
+ * man ikke se hvor langt inde i den igangvaerende udsendelse man er, og efter
+ * et traek bagud eller fremad er der ikke noget at forankre tiden i. Null er
+ * en rigtig vaerdi: er nu uden for vinduet, skal der **ingen** streg vaere —
+ * en streg i kanten ville paastaa at klokken er noget den ikke er.
+ */
+export function nowRatio(now: Date, windowStart: Date, windowEnd: Date): number | null {
+  const from = windowStart.getTime();
+  const to = windowEnd.getTime();
+  if (to <= from) return null;
+  const ms = now.getTime();
+  if (ms < from || ms > to) return null;
+  return (ms - from) / (to - from);
+}
+
 function stateOf(programme: Programme, now: Date): CellState {
   const ms = now.getTime();
   if (programme.stop.getTime() <= ms) return 'past';

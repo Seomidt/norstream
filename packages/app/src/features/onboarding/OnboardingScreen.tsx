@@ -1,19 +1,21 @@
 import { useState } from 'react';
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import { XtreamAuthError, XtreamClient, detectTimeshiftDialect } from '@norstream/core';
-import type { XtreamCredentials } from '@norstream/core';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createFetchImpl } from '../../net/fetchImpl.js';
-import { saveSourceCredentials } from '../../storage/credentials.js';
-import { addSource } from '../../storage/sources.js';
 import { openDatabase } from '../../storage/db.js';
-import { setPanelOffsetMinutes, setTimeshiftDialect } from '../../storage/settings.js';
+import { connectM3u, connectXtream } from '../../sources/connect.js';
+import { Aurora } from '../../ui/Aurora.js';
+import { Logo } from '../../ui/Logo.js';
 import { theme } from '../../ui/theme.js';
 
 interface Props {
@@ -25,191 +27,238 @@ interface Props {
   notice?: string;
 }
 
+type Kind = 'xtream' | 'm3u';
+
 /**
- * Kort, sanitiseret beskrivelse af en forbindelsesfejl, saa brugeren kan
- * skelne "Android blokerede forespoergslen" fra "panelet er nede" fra
- * "forkert protokol". Credentials filtreres fra: stream- og API-URLer
- * indeholder adgangskoden, og fejl fra netvaerkslaget citerer ofte URLen.
+ * Foerste skaerm: forbind til en udbyder.
+ *
+ * **Begge slags kilder kan vaelges her.** Foer kunne kun et Xtream-panel
+ * tilfoejes ved foerste start, og en M3U-liste kunne foerst laegges ind inde i
+ * appen — som man skulle logge ind for at komme ind i. Den der kun har en
+ * M3U-liste, kunne altsaa ikke komme i gang.
  */
-function describeFailure(cause: unknown, creds: XtreamCredentials): string {
-  const raw = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
-  let safe = raw;
-  if (creds.password.length > 0) safe = safe.split(creds.password).join('***');
-  if (creds.username.length > 0) safe = safe.split(creds.username).join('***');
-  return safe.slice(0, 300);
-}
-
-/** Et brugbart navn til kilden, taget af adressen. */
-function hostOf(url: string): string {
-  const match = /^[a-z]+:\/\/([^/:]+)/i.exec(url.trim());
-  return match?.[1] ?? 'Panel';
-}
-
 export function OnboardingScreen({ onDone, notice }: Props) {
+  const insets = useSafeAreaInsets();
+  const [kind, setKind] = useState<Kind>('xtream');
   const [baseUrl, setBaseUrl] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [xmltvUrl, setXmltvUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isPanel = kind === 'xtream';
 
   async function connect(): Promise<void> {
     setBusy(true);
     setError(null);
-
-    const creds: XtreamCredentials = {
-      baseUrl: baseUrl.trim(),
-      username: username.trim(),
-      password,
-    };
-    const fetchImpl = createFetchImpl();
-
-    // busy skal altid ryddes, uanset hvilken gren der returnerer eller
-    // kaster — ellers kan skærmen gaa i staa med en spinner der aldrig
-    // stopper og ingen mulighed for at proeve igen.
+    // busy skal altid ryddes, uanset hvilken gren der returnerer eller kaster
+    // — ellers staar skaermen med en spinner der aldrig stopper.
     try {
-      try {
-        await new XtreamClient(creds, fetchImpl).authenticate();
-      } catch (cause) {
-        setError(
-          cause instanceof XtreamAuthError
-            ? 'Brugernavn eller adgangskode blev afvist af panelet.'
-            : `Kunne ikke nå panelet. Tjek adressen og din forbindelse.
+      const db = await openDatabase();
+      const fetchImpl = createFetchImpl();
+      const result = isPanel
+        ? await connectXtream(db, fetchImpl, {
+            url: baseUrl,
+            username,
+            password,
+            xmltvUrl,
+          })
+        : await connectM3u(db, fetchImpl, { url: baseUrl, xmltvUrl });
 
-Detalje: ${describeFailure(cause, creds)}`,
-        );
+      if (!result.ok) {
+        setError(result.message);
         return;
       }
-
-      // Kilden oprettes foerst, saa dens id findes at gemme kodeordet under.
-      // Adgangskoden hoerer i Keychain; `sources`-tabellen har ingen kolonne
-      // til den, og SQLite-filen er ikke krypteret.
-      let sourceId: string;
-      try {
-        const db = await openDatabase();
-        const source = await addSource(db, {
-          kind: 'xtream',
-          name: hostOf(creds.baseUrl),
-          url: creds.baseUrl,
-          username: creds.username,
-        });
-        sourceId = source.id;
-        await saveSourceCredentials(sourceId, creds);
-      } catch {
-        // Uden gemte credentials kan appen ikke fortsaette — brugeren maa
-        // blive paa skærmen og proeve igen, saa vi kalder ikke onDone().
-        setError('Kunne ikke gemme dine adgangsoplysninger på denne enhed.');
-        return;
-      }
-
-      // Probingen maa ikke kunne blokere onboardingen: uden arkiv virker alt
-      // andet stadig, kun start-forfra er utilgaengeligt.
-      try {
-        const db = await openDatabase();
-        const client = new XtreamClient(creds, fetchImpl);
-
-        // Panelets offset fra UTC laeses foerst: bliver det gemt inden
-        // probingen, bygger probe-URLerne paa det rigtige tidspunkt.
-        // Null betyder at panelet ikke oplyste nok — saa beholder vi de
-        // gemte 0 minutter, og probingen daekker afvigelsen med sit
-        // 13-timers forsoeg.
-        const offset = await client.getPanelOffsetMinutes();
-        if (offset !== null) await setPanelOffsetMinutes(db, offset, sourceId);
-
-        const streams = await client.getLiveStreams();
-        const withArchive = streams.find((s) => s.hasArchive);
-        if (withArchive) {
-          const dialect = await detectTimeshiftDialect(
-            creds,
-            withArchive.id,
-            fetchImpl,
-            new Date(),
-            offset ?? 0,
-          );
-          await setTimeshiftDialect(db, dialect, sourceId);
-        }
-      } catch {
-        // Ignoreres med vilje — se kommentaren ovenfor.
-      }
-
       onDone();
+    } catch {
+      setError('Noget gik galt på denne enhed. Prøv igen.');
     } finally {
       setBusy(false);
     }
   }
 
-  const canSubmit =
-    baseUrl.trim().length > 0 && username.trim().length > 0 && password.length > 0;
+  const canSubmit = isPanel
+    ? baseUrl.trim().length > 0 && username.trim().length > 0 && password.length > 0
+    : baseUrl.trim().length > 0;
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>NorStream</Text>
-      <Text style={styles.subtitle}>Forbind til dit panel</Text>
-
-      {notice !== undefined && <Text style={styles.notice}>{notice}</Text>}
-
-      <TextInput
-        style={styles.input}
-        placeholder="http://panel.example:8080"
-        placeholderTextColor={theme.colors.textMuted}
-        autoCapitalize="none"
-        autoCorrect={false}
-        inputMode="url"
-        value={baseUrl}
-        onChangeText={setBaseUrl}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Brugernavn"
-        placeholderTextColor={theme.colors.textMuted}
-        autoCapitalize="none"
-        autoCorrect={false}
-        value={username}
-        onChangeText={setUsername}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Adgangskode"
-        placeholderTextColor={theme.colors.textMuted}
-        autoCapitalize="none"
-        autoCorrect={false}
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-      />
-
-      {error !== null && <Text style={styles.error}>{error}</Text>}
-
-      <Pressable
-        style={[styles.button, (!canSubmit || busy) && styles.buttonDisabled]}
-        disabled={!canSubmit || busy}
-        onPress={() => {
-          void connect();
-        }}
+      <Aurora height="52%" />
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {busy ? (
-          <ActivityIndicator color={theme.colors.text} />
-        ) : (
-          <Text style={styles.buttonText}>Forbind</Text>
-        )}
-      </Pressable>
+        <ScrollView
+          contentContainerStyle={[
+            styles.content,
+            { paddingTop: insets.top + theme.spacing.xl, paddingBottom: insets.bottom + theme.spacing.xl },
+          ]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.header}>
+            <Logo />
+            <Text style={styles.title}>NorStream</Text>
+            <Text style={styles.subtitle}>
+              {isPanel ? 'Forbind til dit panel' : 'Hent din M3U-liste'}
+            </Text>
+          </View>
+
+          {notice !== undefined && <Text style={styles.notice}>{notice}</Text>}
+
+          <View style={styles.card}>
+            {/* Valget staar oeverst i kortet, ikke nede ved knappen: felterne
+                nedenfor skifter med det, og et valg man opdager bagefter er
+                et valg man har taget forkert. */}
+            <View style={styles.tabs}>
+              <KindTab
+                label="Panel"
+                hint="Xtream"
+                active={isPanel}
+                onPress={() => setKind('xtream')}
+              />
+              <KindTab
+                label="M3U-liste"
+                hint="En adresse"
+                active={!isPanel}
+                onPress={() => setKind('m3u')}
+              />
+            </View>
+
+            <TextInput
+              style={styles.input}
+              placeholder={isPanel ? 'http://panel.example:8080' : 'http://.../liste.m3u'}
+              placeholderTextColor={theme.colors.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              inputMode="url"
+              value={baseUrl}
+              onChangeText={setBaseUrl}
+            />
+
+            {isPanel && (
+              <>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Brugernavn"
+                  placeholderTextColor={theme.colors.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  value={username}
+                  onChangeText={setUsername}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Adgangskode"
+                  placeholderTextColor={theme.colors.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  secureTextEntry
+                  value={password}
+                  onChangeText={setPassword}
+                />
+              </>
+            )}
+
+            <TextInput
+              style={styles.input}
+              placeholder="XMLTV-adresse (valgfri)"
+              placeholderTextColor={theme.colors.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              inputMode="url"
+              value={xmltvUrl}
+              onChangeText={setXmltvUrl}
+            />
+            <Text style={styles.hint}>
+              {isPanel
+                ? 'Panelet leverer selv programoversigt. En XMLTV-adresse fylder hullerne for de kanaler panelet ikke har data til.'
+                : 'En M3U-liste rummer ingen programoversigt. Uden en XMLTV-adresse står guiden tom for kanalerne herfra.'}
+            </Text>
+
+            {error !== null && <Text style={styles.error}>{error}</Text>}
+
+            <Pressable
+              style={[styles.button, (!canSubmit || busy) && styles.buttonDisabled]}
+              disabled={!canSubmit || busy}
+              onPress={() => {
+                void connect();
+              }}
+            >
+              {busy ? (
+                <ActivityIndicator color={theme.colors.text} />
+              ) : (
+                <Text style={styles.buttonText}>{isPanel ? 'Forbind' : 'Hent listen'}</Text>
+              )}
+            </Pressable>
+          </View>
+
+          <Text style={styles.footer}>Du kan tilføje flere kilder senere under Indstillinger.</Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }
 
+function KindTab({
+  label,
+  hint,
+  active,
+  onPress,
+}: {
+  label: string;
+  hint: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={[styles.tab, active && styles.tabActive]} onPress={onPress}>
+      <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
+      <Text style={styles.tabHint}>{hint}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  container: { flex: 1, backgroundColor: theme.colors.background },
+  flex: { flex: 1 },
+  content: {
+    flexGrow: 1,
     justifyContent: 'center',
     padding: theme.spacing.lg,
-    backgroundColor: theme.colors.background,
   },
-  title: { color: theme.colors.text, fontSize: 32, fontWeight: '700' },
-  subtitle: {
-    color: theme.colors.textMuted,
-    fontSize: 15,
-    marginTop: theme.spacing.xs,
-    marginBottom: theme.spacing.lg,
+  header: { alignItems: 'center', marginBottom: theme.spacing.xl },
+  title: {
+    color: theme.colors.text,
+    fontSize: 38,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginTop: theme.spacing.md,
   },
+  subtitle: { color: theme.colors.textMuted, fontSize: 15, marginTop: theme.spacing.xs },
+  // Kortet er nesten uigennemsigtigt: felterne skal kunne laeses oven paa
+  // nordlyset, og en let baggrund ville lade billedet skinne igennem teksten.
+  card: {
+    backgroundColor: 'rgba(22, 22, 28, 0.94)',
+    borderRadius: theme.radius * 1.8,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.md,
+  },
+  tabs: { flexDirection: 'row', gap: theme.spacing.sm, marginBottom: theme.spacing.md },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
+  },
+  tabActive: { borderColor: theme.colors.accent, backgroundColor: theme.colors.surfaceRaised },
+  tabLabel: { color: theme.colors.textMuted, fontSize: 15, fontWeight: '600' },
+  tabLabelActive: { color: theme.colors.text },
+  tabHint: { color: theme.colors.textMuted, fontSize: 11, marginTop: 1 },
   input: {
     backgroundColor: theme.colors.surface,
     borderColor: theme.colors.border,
@@ -220,14 +269,21 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.sm,
     fontSize: 16,
   },
-  notice: {
+  hint: {
     color: theme.colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: theme.spacing.sm,
+  },
+  notice: {
+    color: theme.colors.text,
     fontSize: 14,
     marginBottom: theme.spacing.md,
+    textAlign: 'center',
   },
   error: {
     color: theme.colors.danger,
-    marginTop: theme.spacing.sm,
+    marginTop: theme.spacing.xs,
     marginBottom: theme.spacing.sm,
   },
   button: {
@@ -235,8 +291,14 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius,
     padding: theme.spacing.md,
     alignItems: 'center',
-    marginTop: theme.spacing.md,
+    marginTop: theme.spacing.xs,
   },
   buttonDisabled: { opacity: 0.4 },
-  buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '600' },
+  buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '700' },
+  footer: {
+    color: theme.colors.textMuted,
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: theme.spacing.lg,
+  },
 });

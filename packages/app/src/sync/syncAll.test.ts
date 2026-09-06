@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { XtreamAuthError } from '@norstream/core';
 import type { FetchLike, Source, XtreamCredentials } from '@norstream/core';
 import { listChannels } from '../storage/channels.js';
-import { getRegistryError } from '../storage/settings.js';
+import { getRegistryError, setLastSyncMs, setLogoRegistryEnabled } from '../storage/settings.js';
 import { migrate } from '../storage/schema.js';
 import { createTestDatabase } from '../storage/testDb.js';
 import type { SqlDatabase } from '../storage/types.js';
@@ -195,5 +195,33 @@ describe('logo-registret', () => {
     expect(await getRegistryError(db)).toBe('Network request failed');
     // Og kanalerne kom stadig ind.
     expect(await listChannels(db)).toHaveLength(1);
+  });
+});
+
+describe('registret foelger ikke med traek-ned', () => {
+  // Det gjorde det, og prisen var syv megabyte og 61.828 raekker skrevet om
+  // hver gang brugeren trak ned for at faa friske kanaler. SQLite lader ikke
+  // laesninger komme forbi en skrivning, saa kanaler og programoversigt stod
+  // i koe bag den.
+  it('henter ikke registret igen naar det er frisk, heller ikke med force', async () => {
+    await setLastSyncMs(db, Date.now(), '__registry__');
+    const fetchImpl = world();
+    const accesses: SourceAccess[] = [{ source: source('p1', 'xtream'), creds }];
+
+    await syncAllSources(db, accesses, fetchImpl, { force: true });
+
+    const calls = (fetchImpl as unknown as { mock: { calls: string[][] } }).mock.calls;
+    expect(calls.some((call) => call[0]?.includes('githubusercontent'))).toBe(false);
+  });
+
+  it('henter det slet ikke naar det er slaaet fra', async () => {
+    await setLogoRegistryEnabled(db, false);
+    const fetchImpl = world();
+    const accesses: SourceAccess[] = [{ source: source('p1', 'xtream'), creds }];
+
+    await syncAllSources(db, accesses, fetchImpl, { force: true });
+
+    const calls = (fetchImpl as unknown as { mock: { calls: string[][] } }).mock.calls;
+    expect(calls.some((call) => call[0]?.includes('githubusercontent'))).toBe(false);
   });
 });

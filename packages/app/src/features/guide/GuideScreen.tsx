@@ -32,6 +32,7 @@ import {
   dragMinutes,
   guideAction,
   layoutRow,
+  nowRatio,
   shiftedWindow,
 } from './layout.js';
 import type { GuideCell } from './layout.js';
@@ -131,6 +132,7 @@ export function GuideScreen({
   }, []);
 
   const window = shiftedWindow(now, offsetMinutes);
+  const liveRatio = nowRatio(now, window.start, window.end);
 
   useEffect(() => {
     let cancelled = false;
@@ -375,6 +377,14 @@ export function GuideScreen({
    * fingeren flytter sig **i gitteret**.
    */
   const gridWidth = useRef(0);
+  /**
+   * Samme bredde som en tilstand.
+   *
+   * Traekket laeser den fra `gridWidth` mange gange i sekundet og maa ikke
+   * udloese en optegning; nu-stregen skal tegnes naar bredden bliver kendt.
+   * To veje til det samme tal, hver med sin grund.
+   */
+  const [cellsWidth, setCellsWidth] = useState(0);
   const dragStart = useRef(0);
   const offsetRef = useRef(offsetMinutes);
   offsetRef.current = offsetMinutes;
@@ -467,6 +477,12 @@ export function GuideScreen({
             {formatTime(mark)}
           </Text>
         ))}
+        {liveRatio !== null && cellsWidth > 0 && (
+          <View
+            pointerEvents="none"
+            style={[styles.nowDot, { left: CHANNEL_COLUMN + liveRatio * cellsWidth - 4 }]}
+          />
+        )}
       </View>
 
       {sheet !== null && sheet.cell.programme !== null && (
@@ -498,6 +514,19 @@ export function GuideScreen({
           finger der begynder paa et kanalnavn og trækker til siden mener
           stadig tiden. Bredden maales paa cellerne alene — se panResponder. */}
       <View style={styles.grid} {...panResponder.panHandlers}>
+        {/* Nu-stregen. Den ligger over gitteret og tager ingen tryk, saa en
+            celle under den stadig kan aabnes. Den tegnes kun naar nu er inde i
+            vinduet — en streg klistret til kanten ville paastaa at klokken er
+            noget den ikke er. */}
+        {liveRatio !== null && cellsWidth > 0 && (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.nowLine,
+              { left: CHANNEL_COLUMN + liveRatio * cellsWidth },
+            ]}
+          />
+        )}
         <FlatList
           data={channels}
           keyExtractor={(item) => item.id}
@@ -515,6 +544,7 @@ export function GuideScreen({
               hasDialect={hasDialectFor(item)}
               onMeasureCells={(width) => {
                 gridWidth.current = width;
+                setCellsWidth((current) => (current === width ? current : width));
               }}
               onOpen={(channel, cell) => {
                 void openSheet(channel, cell);
@@ -670,6 +700,25 @@ const styles = StyleSheet.create({
   timeSpacer: { width: CHANNEL_COLUMN },
   timeMark: { flex: 1, color: theme.colors.textMuted, fontSize: 11 },
   grid: { flex: 1 },
+  // Bredden er ét fysisk punkt bred paa alle skaerme. En streg paa 2 dp ville
+  // daekke et par minutter i et to timers vindue og saaledes lyve en smule om
+  // hvor nu er.
+  nowLine: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: StyleSheet.hairlineWidth * 2,
+    backgroundColor: theme.colors.danger,
+    zIndex: 2,
+  },
+  nowDot: {
+    position: 'absolute',
+    bottom: 0,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: theme.colors.danger,
+  },
   row: { flexDirection: 'row', height: ROW_HEIGHT },
   channelCell: {
     width: CHANNEL_COLUMN,
