@@ -15,6 +15,8 @@ import {
 import type { StreamFormatSetting } from '../../storage/settings.js';
 import { applyStreamFormatSetting } from '../player/format.js';
 import { theme } from '../../ui/theme.js';
+import { probeLogo } from './logoProbe.js';
+import type { LogoProbeResult } from './logoProbe.js';
 import { redactCredentials } from './redact.js';
 
 interface Props {
@@ -48,8 +50,9 @@ export function SettingsScreen({
     total: number;
     example: string | null;
   } | null>(null);
-  /** Kunne eksempel-logoet overhovedet hentes af telefonen? */
-  const [exampleFailed, setExampleFailed] = useState(false);
+  /** Hvad der faktisk kom tilbage fra logo-adressen. */
+  const [probe, setProbe] = useState<LogoProbeResult | null>(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     const [hiddenCountries, format, coverage] = await Promise.all([
@@ -60,7 +63,14 @@ export function SettingsScreen({
     setHidden(hiddenCountries);
     setStreamFormat(format);
     setLogos(coverage);
-  }, [session.db]);
+
+    // Et rigtigt kald frem for at laene sig op ad om et Image tegner noget:
+    // en tom firkant kan lige saa godt vaere en hentning der venter som et
+    // svar der ikke er et billede.
+    if (coverage.example !== null) {
+      setProbe(await probeLogo(coverage.example, session.fetchImpl));
+    }
+  }, [session.db, session.fetchImpl]);
 
   useEffect(() => {
     void load();
@@ -129,13 +139,17 @@ export function SettingsScreen({
             source={{ uri: logos.example }}
             style={styles.logoSample}
             resizeMode="contain"
-            onError={() => setExampleFailed(true)}
+            onLoad={() => setImageLoaded(true)}
+            onError={() => setImageLoaded(false)}
           />
           <View style={styles.logoProbeText}>
             <Text style={styles.rowHint}>
-              {exampleFailed
-                ? 'Telefonen kunne ikke hente logoet fra denne adresse.'
-                : 'Firkanten til venstre er et rigtigt logo hentet fra adressen herunder. Er den tom, kan telefonen ikke nå den.'}
+              {probe === null ? 'Prøver adressen …' : probe.text}
+            </Text>
+            <Text style={styles.rowHint}>
+              {imageLoaded
+                ? 'Billedet blev tegnet, så visningen virker.'
+                : 'Billedet er endnu ikke tegnet.'}
             </Text>
             <Text style={styles.logoUrl} numberOfLines={3}>
               {redactCredentials(logos.example)}

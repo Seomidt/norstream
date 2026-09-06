@@ -33,6 +33,14 @@ interface Props {
   onBrowse: () => void;
 }
 
+/**
+ * Hvor laenge der ventes efter en rulning foer der hentes.
+ *
+ * FlatList melder synlige raekker flere gange under ét sving med fingeren.
+ * Uden ventetiden blev hvert af dem til en tur til panelet.
+ */
+const SCROLL_SETTLE_MS = 300;
+
 /** Bredden paa kanalkolonnen. Fast, saa alle raekker staar praecist under hinanden. */
 const CHANNEL_COLUMN = 96;
 const ROW_HEIGHT = 56;
@@ -125,14 +133,24 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
     [session.db],
   );
 
-  const runId = useRef(0);
+  /**
+   * Det vindue der staar paa skaermen lige nu.
+   *
+   * Hentningerne fletter deres resultater ind i den samme raekke-tabel, og to
+   * kan sagtens vaere i luften ad gangen naar man ruller. De maa bare ikke
+   * skrive programmer fra et *andet* tidsvindue ind — derfor sammenlignes der
+   * med vinduet frem for med et loebenummer, som ville kassere det ene af to
+   * gyldige svar.
+   */
+  const currentWindow = useRef({ from: 0, to: 0 });
 
   const loadVisible = useCallback(
     async (visible: StoredChannel[], from: Date, to: Date): Promise<void> => {
       if (visible.length === 0) return;
-      const id = runId.current + 1;
-      runId.current = id;
       const streamIds = visible.map((channel) => channel.id);
+      const stale = (): boolean =>
+        currentWindow.current.from !== from.getTime() ||
+        currentWindow.current.to !== to.getTime();
 
       /** Tegner det cachen har lige nu. Kaldes to gange: efter hver hentning. */
       const draw = async (): Promise<boolean> => {
@@ -140,7 +158,7 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
         for (const streamId of streamIds) {
           loaded[streamId] = await listProgrammes(session.db, streamId, from, to);
         }
-        if (runId.current !== id) return false;
+        if (stale()) return false;
         setRows((previous) => ({ ...previous, ...loaded }));
         return true;
       };
@@ -188,16 +206,48 @@ export function GuideScreen({ session, onPlay, onRestart, onAuthError, onBrowse 
 
   const visibleChannels = useRef<StoredChannel[]>([]);
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 30 }).current;
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const windowRef = useRef({ start: windowStartMs, end: windowEndMs });
+  windowRef.current = { start: windowStartMs, end: windowEndMs };
+
+  /**
+   * Rulning skal hente programdata for de raekker der kommer frem.
+   *
+   * Foer skrev denne kun til en ref. En ref udloeser ingen render og ingen
+   * effekt, saa **kun de foerste tolv favoritter fik nogensinde programdata** —
+   * alt hvad man rullede ned til stod tomt for altid. Det saa ud som om
+   * panelet manglede EPG for de kanaler.
+   *
+   * Ventetiden er der fordi FlatList kalder her flere gange under ét sving med
+   * fingeren, og hvert kald ellers ville blive til en tur til panelet.
+   */
   const onViewableItemsChanged = useRef(
     (info: { viewableItems: { item: StoredChannel }[] }): void => {
       visibleChannels.current = info.viewableItems
         .map((entry) => entry.item)
         .filter((channel): channel is StoredChannel => channel !== undefined);
+
+      if (scrollTimer.current !== null) clearTimeout(scrollTimer.current);
+      scrollTimer.current = setTimeout(() => {
+        scrollTimer.current = null;
+        void loadVisibleRef.current(
+          visibleChannels.current,
+          new Date(windowRef.current.start),
+          new Date(windowRef.current.end),
+        );
+      }, SCROLL_SETTLE_MS);
     },
   ).current;
 
+  useEffect(() => {
+    return () => {
+      if (scrollTimer.current !== null) clearTimeout(scrollTimer.current);
+    };
+  }, []);
+
   // Foerste skaermfuld og hvert sideskift: hent for de raekker der er fremme.
   useEffect(() => {
+    currentWindow.current = { from: windowStartMs, to: windowEndMs };
     const visible =
       visibleChannels.current.length > 0 ? visibleChannels.current : channels.slice(0, 12);
     void loadVisibleRef.current(visible, new Date(windowStartMs), new Date(windowEndMs));
