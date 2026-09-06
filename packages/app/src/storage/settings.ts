@@ -6,6 +6,7 @@ const KEY_OFFSET = 'panel_offset_minutes';
 const KEY_LAST_SYNC = 'last_sync_ms';
 const KEY_PREVIEW = 'mini_preview_enabled';
 const KEY_STREAM_FORMAT = 'stream_format';
+const KEY_LAST_XMLTV = 'last_xmltv_ms';
 
 export async function getSetting(
   db: SqlDatabase,
@@ -96,15 +97,45 @@ export async function adoptLegacySettings(db: SqlDatabase, sourceId: string): Pr
   }
 }
 
-export async function getLastSyncMs(db: SqlDatabase): Promise<number | null> {
-  const value = await getSetting(db, KEY_LAST_SYNC);
+/**
+ * Hvornaar en kilde sidst blev hentet.
+ *
+ * Per kilde, ikke faelles. Med én faelles vaerdi ville en nyligt tilfoejet
+ * kilde arve de andres hentetid og staa tom i op til et doegn — og en kilde
+ * der var nede, ville faa de oevrige til at vente med sig.
+ */
+export async function getLastSyncMs(
+  db: SqlDatabase,
+  sourceId?: string,
+): Promise<number | null> {
+  const value = await getSetting(db, scopedKey(KEY_LAST_SYNC, sourceId));
   if (value === null) return null;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export async function setLastSyncMs(db: SqlDatabase, ms: number): Promise<void> {
-  await setSetting(db, KEY_LAST_SYNC, String(Math.trunc(ms)));
+export async function setLastSyncMs(
+  db: SqlDatabase,
+  ms: number,
+  sourceId?: string,
+): Promise<void> {
+  await setSetting(db, scopedKey(KEY_LAST_SYNC, sourceId), String(Math.trunc(ms)));
+}
+
+/** Hvornaar en kildes XMLTV-programoversigt sidst blev hentet. */
+export async function getLastXmltvMs(db: SqlDatabase, sourceId: string): Promise<number | null> {
+  const value = await getSetting(db, scopedKey(KEY_LAST_XMLTV, sourceId));
+  if (value === null) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export async function setLastXmltvMs(
+  db: SqlDatabase,
+  sourceId: string,
+  ms: number,
+): Promise<void> {
+  await setSetting(db, scopedKey(KEY_LAST_XMLTV, sourceId), String(Math.trunc(ms)));
 }
 
 /**

@@ -8,7 +8,6 @@ import { clearSourceCredentials } from '../../storage/credentials.js';
 import { deleteSource, listSources } from '../../storage/sources.js';
 import {
   clearLastSyncMs,
-  getLastSyncMs,
   getMiniPreviewEnabled,
 } from '../../storage/settings.js';
 import { syncAllSources } from '../../sync/syncAll.js';
@@ -55,9 +54,6 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'recordings', label: 'Optagelser', icon: '●' },
   { id: 'settings', label: 'Indstil.', icon: '⚙' },
 ];
-
-/** Kanallisten henter sig selv hoejst en gang i doegnet uden brugerens hjaelp. */
-const CHANNEL_SYNC_INTERVAL_MS = 24 * 60 * 60_000;
 
 const SIGNED_OUT_MESSAGE =
   'Panelet afviste dine adgangsoplysninger. De er slettet fra enheden — log ind igen.';
@@ -131,14 +127,14 @@ export function HomeScreen({
    */
   const syncFromPanel = useCallback(
     async (force: boolean): Promise<void> => {
-      const lastSync = await getLastSyncMs(session.db);
-      const ageMs = lastSync === null ? Number.POSITIVE_INFINITY : Date.now() - lastSync;
-      if (!force && ageMs < CHANNEL_SYNC_INTERVAL_MS) return;
-
       // Hver kilde for sig: er det ene panel nede, skal de oevrige kanaler
       // stadig hentes. Et afvist kodeord paa én kilde logger heller ikke
       // brugeren ud af de andre.
-      const result = await syncAllSources(session.db, session.sources, session.fetchImpl);
+      // Doegnrytmen ligger i syncAllSources og gaelder per kilde: en nyligt
+      // tilfoejet kilde maa ikke arve de andres hentetid og staa tom.
+      const result = await syncAllSources(session.db, session.sources, session.fetchImpl, {
+        force,
+      });
       if (result.synced === 0 && result.rejected.length > 0) {
         await signOutFromPanel();
         return;

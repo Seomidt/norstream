@@ -67,7 +67,7 @@ describe('syncChannels', () => {
     const fetchImpl = panel({ get_live_categories: [], get_live_streams: [] });
     const now = new Date(Date.UTC(2026, 8, 4, 12, 0, 0));
     await syncChannels(db, SOURCE, creds, fetchImpl, now);
-    expect(await getLastSyncMs(db)).toBe(now.getTime());
+    expect(await getLastSyncMs(db, SOURCE)).toBe(now.getTime());
   });
 
   it('lader XtreamAuthError boble op', async () => {

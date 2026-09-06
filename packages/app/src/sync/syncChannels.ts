@@ -25,7 +25,7 @@ export async function syncChannels(
 
   await replaceCategories(db, sourceId, categories);
   await replaceChannels(db, sourceId, channels);
-  await setLastSyncMs(db, now.getTime());
+  await setLastSyncMs(db, now.getTime(), sourceId);
 
   return { categories: categories.length, channels: channels.length };
 }

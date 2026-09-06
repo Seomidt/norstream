@@ -23,6 +23,7 @@ import {
   listSources,
   setSourceEnabled,
 } from '../../storage/sources.js';
+import { syncChannels } from '../../sync/syncChannels.js';
 import { syncM3u } from '../../sync/syncM3u.js';
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
@@ -237,6 +238,16 @@ function AddSource({
           username: creds.username,
         });
         await saveSourceCredentials(source.id, creds);
+
+        // Kanalerne hentes her, ikke af skaermen bagefter: sessionen kender
+        // endnu ikke den nye kilde, saa en synkronisering udefra ville springe
+        // netop den over — og kilden ville staa tom til naeste opstart.
+        try {
+          await syncChannels(session.db, source.id, creds, session.fetchImpl);
+        } catch {
+          // Panelet svarede paa login og ikke paa kanallisten. Kilden bliver
+          // staaende; naeste opdatering forsoeger igen.
+        }
         await probeArchive(session, source.id, creds);
         onAdded(label);
         return;

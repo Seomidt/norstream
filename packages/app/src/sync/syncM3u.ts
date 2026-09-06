@@ -1,6 +1,7 @@
 import { parseM3u } from '@norstream/core';
 import type { Category, Channel, FetchLike, Source } from '@norstream/core';
 import { replaceCategories, replaceChannels } from '../storage/channels.js';
+import { setLastSyncMs } from '../storage/settings.js';
 import type { SqlDatabase } from '../storage/types.js';
 
 /**
@@ -21,7 +22,6 @@ export async function syncM3u(
   fetchImpl: FetchLike,
   now: Date = new Date(),
 ): Promise<{ categories: number; channels: number }> {
-  void now;
   const response = await fetchImpl(source.url);
   if (!response.ok) {
     throw new Error(`Listen svarede HTTP ${response.status}`);
@@ -44,6 +44,7 @@ export async function syncM3u(
 
   await replaceCategories(db, source.id, [...categories.values()]);
   await replaceChannels(db, source.id, channels, urls);
+  await setLastSyncMs(db, now.getTime(), source.id);
 
   return { categories: categories.size, channels: channels.length };
 }

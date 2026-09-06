@@ -112,6 +112,58 @@ describe('syncAllSources', () => {
   it('melder en kilde hvis adgangsoplysninger er forsvundet fra Keychain', async () => {
     const accesses: SourceAccess[] = [{ source: source('p1', 'xtream', 'Hovedpanel'), creds: null }];
     const result = await syncAllSources(db, accesses, world());
-    expect(result).toEqual({ synced: 0, rejected: ['Hovedpanel'], failed: [] });
+    expect(result).toEqual({ synced: 0, skipped: 0, rejected: ['Hovedpanel'], failed: [] });
+  });
+});
+
+describe('doegnrytmen', () => {
+  const NOW = new Date('2026-09-06T18:00:00.000Z');
+
+  it('springer en kilde over der blev hentet for en time siden', async () => {
+    const accesses: SourceAccess[] = [{ source: source('p1', 'xtream'), creds }];
+    await syncAllSources(db, accesses, world(), { now: NOW });
+
+    const later = new Date(NOW.getTime() + 60 * 60_000);
+    const again = await syncAllSources(db, accesses, world(), { now: later });
+
+    expect(again).toEqual({ synced: 0, skipped: 1, rejected: [], failed: [] });
+  });
+
+  it('henter igen efter et doegn', async () => {
+    const accesses: SourceAccess[] = [{ source: source('p1', 'xtream'), creds }];
+    await syncAllSources(db, accesses, world(), { now: NOW });
+
+    const later = new Date(NOW.getTime() + 25 * 60 * 60_000);
+    expect((await syncAllSources(db, accesses, world(), { now: later })).synced).toBe(1);
+  });
+
+  it('henter en nyligt tilfoejet kilde selv om en anden lige er hentet', async () => {
+    // Med én faelles hentetid ville den nye arve den andens og staa tom i op
+    // til et doegn. Det er praecis den fejl doegnrytmen per kilde findes for.
+    const first: SourceAccess[] = [{ source: source('p1', 'xtream'), creds }];
+    await syncAllSources(db, first, world(), { now: NOW });
+
+    const both: SourceAccess[] = [
+      ...first,
+      { source: source('m1', 'm3u'), creds: null },
+    ];
+    const result = await syncAllSources(db, both, world(), {
+      now: new Date(NOW.getTime() + 60_000),
+    });
+
+    expect(result).toEqual({ synced: 1, skipped: 1, rejected: [], failed: [] });
+    expect((await listChannels(db)).some((c) => c.sourceId === 'm1')).toBe(true);
+  });
+
+  it('henter alligevel naar brugeren selv beder om det', async () => {
+    const accesses: SourceAccess[] = [{ source: source('p1', 'xtream'), creds }];
+    await syncAllSources(db, accesses, world(), { now: NOW });
+
+    const result = await syncAllSources(db, accesses, world(), {
+      now: new Date(NOW.getTime() + 60_000),
+      force: true,
+    });
+
+    expect(result.synced).toBe(1);
   });
 });
