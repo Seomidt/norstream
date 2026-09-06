@@ -4,8 +4,11 @@ import { initials } from './initials.js';
 import { theme } from './theme.js';
 
 interface Props {
-  /** Panelets `stream_icon`, eller null naar kanalen ingen har. */
-  uri: string | null;
+  /**
+   * Adresser at proeve, i raekkefoelge. Mere end én fordi paneler tit oplyser
+   * logoer paa en vaert der ikke kan naas, mens panelet selv virker.
+   */
+  uris: readonly string[];
   name: string;
   size?: number;
 }
@@ -25,18 +28,20 @@ interface Props {
  * sin aarsag og samme udseende. Nu falder den tilbage til forbogstaverne, som
  * i det mindste er det samme udfald man kan forklare.
  */
-export function ChannelLogo({ uri, name, size = 44 }: Props) {
-  const [failed, setFailed] = useState(false);
+export function ChannelLogo({ uris, name, size = 44 }: Props) {
+  const [attempt, setAttempt] = useState(0);
 
-  // Skifter raekken kanal — FlatList genbruger komponenter — skal en tidligere
-  // fejl ikke haenge ved og skjule det naeste logo.
+  // Skifter raekken kanal — FlatList genbruger komponenter — skal et tidligere
+  // mislykket forsoeg ikke haenge ved og skjule det naeste logo.
+  const key = uris.join('|');
   useEffect(() => {
-    setFailed(false);
-  }, [uri]);
+    setAttempt(0);
+  }, [key]);
 
+  const uri = uris[attempt];
   const box = { width: size, height: size, borderRadius: Math.round(size / 6) };
 
-  if (uri === null || failed) {
+  if (uri === undefined) {
     return (
       <View style={[styles.fallback, box]}>
         <Text style={[styles.initials, { fontSize: Math.round(size / 2.6) }]}>
@@ -51,7 +56,7 @@ export function ChannelLogo({ uri, name, size = 44 }: Props) {
       source={{ uri }}
       style={[styles.image, box]}
       resizeMode="contain"
-      onError={() => setFailed(true)}
+      onError={() => setAttempt((current) => current + 1)}
     />
   );
 }

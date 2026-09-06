@@ -14,9 +14,14 @@ import type { Source, SourceKind, XtreamCredentials } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import {
   clearSourceCredentials,
+  loadSourceCredentials,
   saveSourceCredentials,
 } from '../../storage/credentials.js';
-import { setPanelOffsetMinutes, setTimeshiftDialect } from '../../storage/settings.js';
+import {
+  getTimeshiftDialect,
+  setPanelOffsetMinutes,
+  setTimeshiftDialect,
+} from '../../storage/settings.js';
 import {
   addSource,
   deleteSource,
@@ -49,9 +54,20 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
   const [adding, setAdding] = useState<SourceKind | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  /** Har kilden fundet vejen til udbyderens arkiv? Slaaet op paa kilde-id. */
+  const [archive, setArchive] = useState<Record<string, boolean>>({});
+  const [probing, setProbing] = useState<string | null>(null);
 
   const reload = useCallback(async (): Promise<void> => {
-    setSources(await listSources(session.db));
+    const rows = await listSources(session.db);
+    setSources(rows);
+    // Arkivets tilstand per kilde. Uden den kan man ikke se hvorfor
+    // start-forfra ikke virker paa netop den ene udbyder.
+    const status: Record<string, boolean> = {};
+    for (const row of rows) {
+      status[row.id] = (await getTimeshiftDialect(session.db, row.id)) !== null;
+    }
+    setArchive(status);
   }, [session.db]);
 
   useEffect(() => {
@@ -68,6 +84,34 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
     await setSourceEnabled(session.db, source.id, enabled);
     await reload();
     onSourcesChanged();
+  }
+
+  /**
+   * Leder efter udbyderens arkiv igen.
+   *
+   * Probingen koerte kun da kilden blev tilfoejet. Svarede panelet ikke den
+   * dag, var start-forfra vaek for altid — og der var ingen knap der kunne
+   * aendre det uden at fjerne kilden og laegge den ind igen.
+   */
+  async function reprobe(source: Source): Promise<void> {
+    setProbing(source.id);
+    try {
+      const creds = await loadSourceCredentials(source.id);
+      if (creds === null) {
+        setNotice({ text: 'Adgangsoplysningerne til denne kilde mangler på enheden.' });
+        return;
+      }
+      await probeArchive(session, source.id, creds);
+      await reload();
+      const found = (await getTimeshiftDialect(session.db, source.id)) !== null;
+      setNotice({
+        text: found
+          ? `Arkivet blev fundet for “${source.name}”. Start forfra virker nu.`
+          : `“${source.name}” svarede ikke på arkiv-testen. Udbyderen har måske ikke arkiv.`,
+      });
+    } finally {
+      setProbing(null);
+    }
   }
 
   async function remove(source: Source): Promise<void> {
@@ -125,6 +169,30 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
             <Text style={styles.rowMeta} numberOfLines={1}>
               {source.kind === 'xtream' ? 'Panel' : 'M3U-liste'} · {hostOf(source.url)}
             </Text>
+            {source.kind === 'xtream' && (
+              <View style={styles.archiveLine}>
+                <Text style={archive[source.id] === true ? styles.rowOk : styles.rowWarn}>
+                  {archive[source.id] === true
+                    ? 'Arkiv fundet — start forfra og optagelse virker'
+                    : 'Arkiv ikke fundet — start forfra og optagelse er slået fra'}
+                </Text>
+                {archive[source.id] !== true && (
+                  <Pressable
+                    hitSlop={8}
+                    disabled={probing === source.id}
+                    onPress={() => {
+                      void reprobe(source);
+                    }}
+                  >
+                    {probing === source.id ? (
+                      <ActivityIndicator color={theme.colors.accent} />
+                    ) : (
+                      <Text style={styles.action}>Prøv igen</Text>
+                    )}
+                  </Pressable>
+                )}
+              </View>
+            )}
             {source.kind === 'm3u' && source.xmltvUrl === null && (
               <Text style={styles.rowWarn}>
                 Uden en XMLTV-adresse har listen ingen programoversigt.
@@ -442,6 +510,8 @@ const styles = StyleSheet.create({
   rowTitle: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
   rowMeta: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
   rowWarn: { color: theme.colors.danger, fontSize: 12, marginTop: 4, lineHeight: 16 },
+  rowOk: { color: theme.colors.textMuted, fontSize: 12, marginTop: 4, lineHeight: 16 },
+  archiveLine: { marginTop: 2 },
   confirm: { marginTop: theme.spacing.xs },
   confirmRow: { flexDirection: 'row', gap: theme.spacing.md, marginTop: theme.spacing.xs },
   action: { color: theme.colors.accent, fontSize: 14, fontWeight: '600' },

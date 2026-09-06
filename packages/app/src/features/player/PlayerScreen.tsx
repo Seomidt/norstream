@@ -70,6 +70,14 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
   const [repairing, setRepairing] = useState(false);
   /** Er den udsendelse der staar paa skaermen allerede bestilt til optagelse? */
   const [recorded, setRecorded] = useState(false);
+  /**
+   * Sat naar en start-forfra endte som direkte udsendelse alligevel.
+   *
+   * Foer skete det i stilhed: man trykkede paa et afsluttet program og fik
+   * live-udsendelsen uden et ord om hvorfor. Det ligner en app der ikke
+   * virker, og der er ingen vej videre naar man ikke ved hvad der manglede.
+   */
+  const [fellBackToLive, setFellBackToLive] = useState(false);
   // Kommer vi fra guiden med et program, er afspilningen en start-forfra fra
   // foerste billede — ogsaa foer dialekten er laest, saa format-fallbacket
   // aldrig naar at slaa til paa en timeshift-URL.
@@ -211,11 +219,15 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
       const dialect = await getTimeshiftDialect(session.db, channel.sourceId);
       if (dialect === null || access?.creds == null) {
         // Uden dialekt kan arkiv-URLen ikke bygges. Kom vi fra guiden, staar
-        // skaermen sort uden dette: fald tilbage paa live frem for ingenting.
+        // skaermen sort uden dette: fald tilbage paa live frem for ingenting —
+        // men sig det, i stedet for at lade folk tro at trykket ikke virkede.
         setSource((current) => current ?? liveUrlFor(access, channel, formatForPlatform()));
         setRestarted(false);
+        setFellBackToLive(true);
+        setRestartBlock(restartBlockFor(channel.hasArchive, false, true));
         return;
       }
+      setFellBackToLive(false);
       const offset = await getPanelOffsetMinutes(session.db, channel.sourceId);
 
       const durationMinutes = Math.ceil(
@@ -318,7 +330,7 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
 
       <View style={styles.info}>
         <View style={styles.channelLine}>
-          <ChannelLogo uri={channel.logoUrl} name={channel.name} size={36} />
+          <ChannelLogo uris={channel.logoUrls} name={channel.name} size={36} />
           <Text style={styles.channelName}>{channel.name}</Text>
         </View>
         {/* Kommer vi fra guiden, er det programmet der genafspilles der staar
@@ -333,6 +345,11 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
           <Text style={styles.nextTitle}>Derefter: {next.title}</Text>
         )}
         {restarted && <Text style={styles.badge}>Afspilles fra begyndelsen</Text>}
+        {fellBackToLive && (
+          <Text style={styles.warn}>
+            Udsendelsen kunne ikke hentes fra arkivet. Du ser direkte i stedet.
+          </Text>
+        )}
         {streamError !== null && <Text style={styles.error}>{streamError}</Text>}
       </View>
 
@@ -363,7 +380,7 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
         )}
       </View>
 
-      {!restarted && restartBlock !== null && restartBlock !== undefined && (
+      {(fellBackToLive || !restarted) && restartBlock !== null && restartBlock !== undefined && (
         <RestartBlocked
           block={restartBlock}
           busy={repairing}
@@ -441,6 +458,12 @@ const styles = StyleSheet.create({
   nowTitle: { color: theme.colors.text, fontSize: 15, marginTop: theme.spacing.xs },
   nextTitle: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
   badge: { color: theme.colors.accent, fontSize: 13, marginTop: theme.spacing.sm },
+  warn: {
+    color: theme.colors.danger,
+    fontSize: 13,
+    marginTop: theme.spacing.sm,
+    lineHeight: 18,
+  },
   error: { color: theme.colors.danger, fontSize: 13, marginTop: theme.spacing.sm },
   actions: { flexDirection: 'row', padding: theme.spacing.md, gap: theme.spacing.sm },
   button: {

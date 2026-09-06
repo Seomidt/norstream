@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
-import { deriveCountry } from '@norstream/core';
+import { deriveCountry, logoCandidates } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { logoCoverage } from '../../storage/channels.js';
 import { listHiddenCountries, unhideCountry } from '../../storage/countries.js';
@@ -29,6 +29,11 @@ interface Props {
 }
 
 const SIGNED_OUT_MESSAGE = 'Du er logget ud. Log ind igen for at fortsætte.';
+
+/** Kun vaerten, saa linjen kan laeses paa en telefon. */
+function shortHost(url: string): string {
+  return /^[a-z]+:\/\/([^/]+)/i.exec(url)?.[1] ?? url;
+}
 
 const STREAM_FORMATS: readonly { value: StreamFormatSetting; label: string }[] = [
   { value: 'auto', label: 'Automatisk' },
@@ -70,8 +75,14 @@ export function SettingsScreen({
     // Et rigtigt kald frem for at laene sig op ad om et Image tegner noget:
     // en tom firkant kan lige saa godt vaere en hentning der venter som et
     // svar der ikke er et billede.
-    if (coverage.example !== null) {
-      setProbe(await probeLogo(coverage.example, session.fetchImpl));
+    //
+    // Begge adresser proeves — panelets egen vaert er andet forsoeg, og det
+    // er den der redder logoerne naar billed-vaerten ikke kan naas.
+    const candidates = logoCandidates(coverage.example, session.sources[0]?.source.url ?? '');
+    for (const candidate of candidates) {
+      const result = await probeLogo(candidate, session.fetchImpl);
+      setProbe({ ...result, text: `${shortHost(candidate)}: ${result.text}` });
+      if (result.ok) break;
     }
   }, [session.db, session.fetchImpl]);
 

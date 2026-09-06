@@ -1,4 +1,4 @@
-import { channelKey } from '@norstream/core';
+import { channelKey, logoCandidates } from '@norstream/core';
 import type { Category, Channel } from '@norstream/core';
 import type { SqlDatabase, SqlValue } from './types.js';
 
@@ -10,11 +10,20 @@ export interface StoredChannel extends Channel {
   streamId: string;
   /** Kun M3U: den faerdige adresse. Xtream-kanaler bygger deres selv. */
   streamUrl: string | null;
+  /**
+   * Adresser at proeve for kanalens logo, i raekkefoelge.
+   *
+   * Mere end én fordi paneler tit oplyser logoer paa en anden vaert end deres
+   * egen, og den vaert kan vaere uden for raekkevidde fra den forbindelse
+   * telefonen sidder paa.
+   */
+  logoUrls: string[];
 }
 
 interface ChannelRow {
   id: string;
   source_id: string;
+  source_url: string | null;
   stream_id: string;
   stream_url: string | null;
   name: string;
@@ -33,6 +42,7 @@ function toStoredChannel(row: ChannelRow): StoredChannel {
     sourceId: row.source_id,
     streamId: row.stream_id,
     streamUrl: row.stream_url,
+    logoUrls: logoCandidates(row.logo_url, row.source_url ?? ''),
     name: row.name,
     number: row.number,
     logoUrl: row.logo_url,
@@ -186,9 +196,11 @@ export async function listChannels(
   const rows = await db.getAllAsync<ChannelRow>(
     `SELECT c.id, c.source_id, c.stream_id, c.stream_url, c.name, c.number, c.logo_url,
             c.category_id, c.epg_channel_id, c.has_archive, c.archive_days, c.sort_order,
+            s.url AS source_url,
             CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE NULL END AS is_favorite
      FROM channels c
      LEFT JOIN favorites f ON f.channel_id = c.id
+     LEFT JOIN sources s ON s.id = c.source_id
      ${clause}
      ORDER BY c.sort_order
      ${limitClause}`,
@@ -204,9 +216,11 @@ export async function getChannel(
   const row = await db.getFirstAsync<ChannelRow>(
     `SELECT c.id, c.source_id, c.stream_id, c.stream_url, c.name, c.number, c.logo_url,
             c.category_id, c.epg_channel_id, c.has_archive, c.archive_days, c.sort_order,
+            s.url AS source_url,
             CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE NULL END AS is_favorite
      FROM channels c
      LEFT JOIN favorites f ON f.channel_id = c.id
+     LEFT JOIN sources s ON s.id = c.source_id
      WHERE c.id = ?`,
     [id],
   );

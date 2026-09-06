@@ -51,7 +51,7 @@ export function ProgrammeSheet({
         <View style={styles.grabber} />
 
         <View style={styles.header}>
-          <ChannelLogo uri={channel.logoUrl} name={channel.name} size={40} />
+          <ChannelLogo uris={channel.logoUrls} name={channel.name} size={40} />
           <View style={styles.headerText}>
             <Text style={styles.channel} numberOfLines={1}>
               {channel.name}

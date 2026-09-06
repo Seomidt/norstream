@@ -176,7 +176,7 @@ export function ChannelList({
               void open(item);
             }}
           >
-            <ChannelLogo uri={item.logoUrl} name={item.name} />
+            <ChannelLogo uris={item.logoUrls} name={item.name} />
             <View style={styles.rowText}>
               <Text style={styles.channelName} numberOfLines={1}>
                 {item.name}
