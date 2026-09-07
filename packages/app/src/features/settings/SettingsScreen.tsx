@@ -1,35 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
-import { deriveCountry, logoCandidates } from '@norstream/core';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { deriveCountry } from '@norstream/core';
 import type { AppSession } from '../../session.js';
-import { logoCoverage, registryCoverage } from '../../storage/channels.js';
 import { vodCounts } from '../../storage/vod.js';
-import { listLogoHosts } from '../../storage/logoHosts.js';
-import type { LogoHostRecord } from '../../storage/logoHosts.js';
-import { checkLogoHosts } from '../../sync/logoHosts.js';
-import { refreshLogoRegistry } from '../../sync/syncAll.js';
-import { clearLogoCache, forgetLogoMisses, logoCacheStats } from '../../ui/logoCache.js';
 import { listHiddenCountries, unhideCountry } from '../../storage/countries.js';
 import { OTHER_COUNTRY_KEY } from '../../storage/countries.js';
 import { clearSourceCredentials } from '../../storage/credentials.js';
 import { deleteSource, listSources } from '../../storage/sources.js';
 import {
   clearLastSyncMs,
-  getLogoRegistryEnabled,
-  getRegistryError,
   getStreamFormatSetting,
+  getSubtitlePreference,
   getYoutubeApiKey,
-  setLogoRegistryEnabled,
+  setSubtitlePreference,
   setYoutubeApiKey,
   setMiniPreviewEnabled,
   setStreamFormatSetting,
 } from '../../storage/settings.js';
-import type { StreamFormatSetting } from '../../storage/settings.js';
+import type { StreamFormatSetting, SubtitlePreference } from '../../storage/settings.js';
 import { applyStreamFormatSetting } from '../player/format.js';
 import { theme } from '../../ui/theme.js';
-import { probeLogo } from './logoProbe.js';
-import type { LogoProbeResult } from './logoProbe.js';
-import { redactCredentials } from './redact.js';
 
 interface Props {
   session: AppSession;
@@ -43,10 +33,15 @@ interface Props {
 
 const SIGNED_OUT_MESSAGE = 'Du er logget ud. Log ind igen for at fortsætte.';
 
-/** Kun vaerten, saa linjen kan laeses paa en telefon. */
-function shortHost(url: string): string {
-  return /^[a-z]+:\/\/([^/]+)/i.exec(url)?.[1] ?? url;
-}
+const SUBTITLE_CHOICES: readonly { value: SubtitlePreference; label: string }[] = [
+  { value: 'auto', label: 'Telefonens sprog' },
+  { value: 'da', label: 'Dansk' },
+  { value: 'en', label: 'Engelsk' },
+  { value: 'sv', label: 'Svensk' },
+  { value: 'no', label: 'Norsk' },
+  { value: 'de', label: 'Tysk' },
+  { value: 'off', label: 'Ingen' },
+];
 
 const STREAM_FORMATS: readonly { value: StreamFormatSetting; label: string }[] = [
   { value: 'auto', label: 'Automatisk' },
@@ -67,100 +62,33 @@ export function SettingsScreen({
   // implementerer ikke Alert, saa udlogning ville doe stille paa web.
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [streamFormat, setStreamFormat] = useState<StreamFormatSetting>('auto');
-  const [logos, setLogos] = useState<{
-    withLogo: number;
-    total: number;
-    example: string | null;
-  } | null>(null);
-  /** Hvad der faktisk kom tilbage fra logo-adressen. */
-  const [probe, setProbe] = useState<LogoProbeResult | null>(null);
-  const [imageLoaded, setImageLoaded] = useState(false);
-  /** Vaerterne logoerne ligger paa, og om telefonen kan naa dem. */
-  const [hosts, setHosts] = useState<LogoHostRecord[]>([]);
-  const [registry, setRegistry] = useState<{ rows: number; matched: number } | null>(null);
-  /** Hvorfor registret ikke kunne hentes. Uden den er en tom liste uforklarlig. */
-  const [registryError, setRegistryError] = useState<string | null>(null);
-  const [rechecking, setRechecking] = useState(false);
-  const [registryEnabled, setRegistryEnabled] = useState(true);
   const [vod, setVod] = useState<{ movies: number; series: number } | null>(null);
-  /** Hvor mange logoer der ligger paa telefonen. */
-  const [cache, setCache] = useState(() => logoCacheStats());
   /** Brugerens egen noegle til YouTubes Data API, til at soege efter trailere. */
   const [youtubeKey, setYoutubeKey] = useState('');
-  const [clearingCache, setClearingCache] = useState(false);
+  const [subtitles, setSubtitles] = useState<SubtitlePreference>('auto');
 
   const load = useCallback(async (): Promise<void> => {
-    const [hiddenCountries, format, coverage, knownHosts, fromRegistry, lastError] =
-      await Promise.all([
-        listHiddenCountries(session.db),
-        getStreamFormatSetting(session.db),
-        logoCoverage(session.db),
-        listLogoHosts(session.db),
-        registryCoverage(session.db),
-        getRegistryError(session.db),
-      ]);
-    setCache(logoCacheStats());
-    setYoutubeKey((await getYoutubeApiKey(session.db)) ?? '');
-    setRegistryEnabled(await getLogoRegistryEnabled(session.db));
-    setVod(await vodCounts(session.db));
+    const [hiddenCountries, format, key, preferredSubtitles, counts] = await Promise.all([
+      listHiddenCountries(session.db),
+      getStreamFormatSetting(session.db),
+      getYoutubeApiKey(session.db),
+      getSubtitlePreference(session.db),
+      vodCounts(session.db),
+    ]);
     setHidden(hiddenCountries);
     setStreamFormat(format);
-    setLogos(coverage);
-    setHosts(knownHosts);
-    setRegistry(fromRegistry);
-    setRegistryError(lastError);
-
-    // Et rigtigt kald frem for at laene sig op ad om et Image tegner noget:
-    // en tom firkant kan lige saa godt vaere en hentning der venter som et
-    // svar der ikke er et billede.
-    //
-    // Begge adresser proeves — panelets egen vaert er andet forsoeg, og det
-    // er den der redder logoerne naar billed-vaerten ikke kan naas.
-    const candidates = logoCandidates(coverage.example, session.sources[0]?.source.url ?? '');
-    for (const candidate of candidates) {
-      const result = await probeLogo(candidate, session.fetchImpl);
-      setProbe({ ...result, text: `${shortHost(candidate)}: ${result.text}` });
-      if (result.ok) break;
-    }
-  }, [session.db, session.fetchImpl]);
+    setYoutubeKey(key ?? '');
+    setSubtitles(preferredSubtitles);
+    setVod(counts);
+  }, [session.db]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  /**
-   * Maaler vaerterne forfra.
-   *
-   * En vaert der var nede i det oejeblik der blev maalt, bliver sprunget over
-   * indtil naeste maaling — og med seks timer imellem er det for laenge at
-   * vente naar man staar med telefonen og kan se at logoerne mangler.
-   */
-  async function recheckHosts(): Promise<void> {
-    setRechecking(true);
-    try {
-      await checkLogoHosts(session.db, session.fetchImpl, new Date(), true);
-      if (registryEnabled) await refreshLogoRegistry(session.db, session.fetchImpl);
-      // Kanalerne uden logo proeves igen naeste gang de vises. Dem der har
-      // et, bliver hvor de er.
-      await forgetLogoMisses();
-      await load();
-    } finally {
-      setRechecking(false);
-    }
-  }
-
-  /**
-   * Slaar registret til eller fra.
-   *
-   * Slaas det fra, ryddes raekkerne med det samme. Et register der ikke bruges
-   * men bliver liggende, er 60.000 raekker der stadig skal slaas op i hver
-   * gang kanallisten hentes — og saa er der ikke slaaet noget fra.
-   */
-  async function toggleRegistry(enabled: boolean): Promise<void> {
-    setRegistryEnabled(enabled);
-    await setLogoRegistryEnabled(session.db, enabled);
-    if (!enabled) await session.db.runAsync('DELETE FROM registry_logos');
-    await load();
+  async function chooseSubtitles(value: SubtitlePreference): Promise<void> {
+    setSubtitles(value);
+    await setSubtitlePreference(session.db, value);
   }
 
   async function togglePreview(enabled: boolean): Promise<void> {
@@ -236,123 +164,40 @@ export function SettingsScreen({
       </Text>
 
       <Text style={styles.sectionTitle}>Kanallogoer</Text>
-      <Text style={styles.hint}>
-        {logos === null
-          ? 'Tæller …'
-          : logos.total === 0
-            ? 'Ingen kanaler hentet endnu.'
-            : `${logos.withLogo} af ${logos.total} kanaler har en logo-adresse fra udbyderen.`}
-      </Text>
-      {logos !== null && logos.example !== null && (
-        <View style={styles.logoProbe}>
-          <Image
-            source={{ uri: logos.example }}
-            style={styles.logoSample}
-            resizeMode="contain"
-            onLoad={() => setImageLoaded(true)}
-            onError={() => setImageLoaded(false)}
-          />
-          <View style={styles.logoProbeText}>
-            <Text style={styles.rowHint}>
-              {probe === null ? 'Prøver adressen …' : probe.text}
-            </Text>
-            <Text style={styles.rowHint}>
-              {imageLoaded
-                ? 'Billedet blev tegnet, så visningen virker.'
-                : 'Billedet er endnu ikke tegnet.'}
-            </Text>
-            <Text style={styles.logoUrl} numberOfLines={3}>
-              {redactCredentials(logos.example)}
-            </Text>
-          </View>
-        </View>
-      )}
-      {/* Vaerterne staar for sig. En tom firkant kan skyldes tre ting — en
-          vaert uden rute, et navn registret ikke kender, eller et billede der
-          ikke kunne tegnes — og de tre linjer her skiller dem ad. */}
-      {hosts.map((host) => (
-        <Text key={host.origin} style={styles.hint}>
-          {host.state === 'unreachable' ? '✕ ' : '✓ '}
-          {shortHost(host.origin)}: {host.detail}
-          {host.state === 'unreachable' ? ' — springes over' : ''}
-        </Text>
-      ))}
-      <Text style={styles.hint}>
-        {registry === null
-          ? ''
-          : registry.rows === 0
-            ? registryError === null
-              ? 'Det åbne kanalregister er ikke hentet endnu.'
-              : `Det åbne kanalregister kunne ikke hentes: ${registryError}`
-            : `To åbne arkiver med ${registry.rows} logoer tilsammen. ${registry.matched} af dine ${logos?.total ?? 0} kanaler passer på et af dem — resten står med forbogstaver, fordi ingen af arkiverne kender dem.`}
-      </Text>
-      <View style={styles.row}>
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Brug det åbne kanalregister</Text>
-          <Text style={styles.rowHint}>
-            Reserve-logoer for kanaler hvor udbyderens egen adresse ikke kan
-            nås. Slår du det fra, ryddes det helt.
-          </Text>
-        </View>
-        <Switch
-          value={registryEnabled}
-          onValueChange={(value) => {
-            void toggleRegistry(value);
-          }}
-          trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
-        />
-      </View>
       <Pressable style={styles.row} onPress={onOpenLogos}>
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>Kanaler uden logo</Text>
           <Text style={styles.rowHint}>
-            Vælg selv et logo for dem arkiverne ikke kender — søg i registret eller indsæt en
-            adresse. Du kan også holde fingeren på en kanal i listerne.
+            Logoerne hentes selv, én gang, og gemmes på telefonen. Vælg selv et logo for dem
+            arkiverne ikke kender — søg i registret eller indsæt en adresse. Du kan også holde
+            fingeren på en kanal i listerne.
           </Text>
         </View>
         <Text style={styles.actionText}>Åbn</Text>
       </Pressable>
-      <Pressable
-        style={styles.row}
-        disabled={rechecking}
-        onPress={() => {
-          void recheckHosts();
-        }}
-      >
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Hent logoerne igen nu</Text>
-          <Text style={styles.rowHint}>
-            Værterne måles ellers hver sjette time og registret hentes én gang
-            om ugen. Ingen af delene følger med når du trækker ned for at
-            opdatere kanalerne.
-          </Text>
-        </View>
-        <Text style={styles.actionText}>{rechecking ? 'Henter …' : 'Hent'}</Text>
-      </Pressable>
-      <Pressable
-        style={styles.row}
-        disabled={clearingCache || cache.count === 0}
-        onPress={() => {
-          setClearingCache(true);
-          void clearLogoCache()
-            .then(() => load())
-            .finally(() => setClearingCache(false));
-        }}
-      >
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Gemte logoer</Text>
-          <Text style={styles.rowHint}>
-            {cache.count === 0
-              ? 'Ingen logoer gemt endnu. Et logo hentes én gang, når kanalen vises, og ligger derefter på telefonen.'
-              : `${cache.count} logoer ligger på telefonen (${formatBytes(cache.bytes)}). De hentes ikke igen. ${
-                  cache.missing === 0
-                    ? ''
-                    : `${cache.missing} kanaler fik intet logo og prøves igen om et døgn.`
-                }`}
-          </Text>
-        </View>
-        <Text style={styles.actionText}>{clearingCache ? 'Rydder …' : 'Ryd'}</Text>
-      </Pressable>
+
+      <Text style={styles.sectionTitle}>Undertekster</Text>
+      <Text style={styles.hint}>
+        Sproget der vælges af sig selv, når en film eller et afsnit har det. Findes det ikke i
+        filen, prøves engelsk. Du kan stadig skifte spor i afspilleren.
+      </Text>
+      <View style={styles.choices}>
+        {SUBTITLE_CHOICES.map((option) => (
+          <Pressable
+            key={option.value}
+            style={[styles.choice, subtitles === option.value && styles.choiceSelected]}
+            onPress={() => {
+              void chooseSubtitles(option.value);
+            }}
+          >
+            <Text
+              style={[styles.choiceText, subtitles === option.value && styles.choiceTextSelected]}
+            >
+              {option.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
 
       <Text style={styles.sectionTitle}>Streamformat</Text>
       <Text style={styles.hint}>
@@ -475,21 +320,7 @@ function countryLabel(key: string): string {
   return country === null ? key : `${country.flag} ${country.name}`;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 const styles = StyleSheet.create({
-  logoProbe: { flexDirection: 'row', alignItems: 'flex-start', marginTop: theme.spacing.sm },
-  logoSample: {
-    width: 44,
-    height: 44,
-    borderRadius: 6,
-    backgroundColor: theme.colors.surfaceRaised,
-  },
-  logoProbeText: { flex: 1, marginLeft: theme.spacing.sm },
-  logoUrl: { color: theme.colors.textMuted, fontSize: 11, marginTop: theme.spacing.xs },
   input: {
     backgroundColor: theme.colors.surface,
     borderColor: theme.colors.border,
@@ -501,7 +332,7 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.sm,
     fontSize: 15,
   },
-  choices: { flexDirection: 'row', gap: theme.spacing.sm, marginTop: theme.spacing.sm },
+  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm, marginTop: theme.spacing.sm },
   choice: {
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,

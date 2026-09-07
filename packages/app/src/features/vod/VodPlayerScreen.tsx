@@ -4,6 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import type { AudioTrack, SubtitleTrack } from 'expo-video';
 import type { AppSession } from '../../session.js';
+import { getSubtitlePreference } from '../../storage/settings.js';
+import type { SubtitlePreference } from '../../storage/settings.js';
 import { saveProgress } from '../../storage/vod.js';
 import { theme } from '../../ui/theme.js';
 import type { Playback } from './VodDetailScreen.js';
@@ -76,15 +78,24 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
    *
    * Brugeren skrev at "dansk tekster ikke kommer med". Filerne bar sporene;
    * afspilleren viste bare ingen af dem foer man selv gik ind og valgte.
-   * Telefonens eget sprog foerst, saa engelsk, ellers intet — og kun naar der
-   * ikke allerede er valgt et, saa et valg man har taget ikke bliver
-   * overskrevet naar sporene meldes igen.
+   * Det foretrukne sprog fra Indstillinger foerst — som standard telefonens
+   * eget — saa engelsk, ellers intet. Kun naar der ikke allerede er valgt et,
+   * saa et valg man har taget ikke bliver overskrevet naar sporene meldes
+   * igen. Foer indstillingen er laest, vaelges intet: ellers kunne
+   * telefonens sprog vinde over det man selv har bedt om.
    */
   const autoPicked = useRef(false);
+  const preference = useRef<SubtitlePreference | null>(null);
   const autoSelect = useCallback(
     (tracks: SubtitleTrack[]): void => {
-      if (autoPicked.current || tracks.length === 0 || player.subtitleTrack !== null) return;
-      const wanted = [deviceLanguage(), 'en'];
+      const preferred = preference.current;
+      if (preferred === null || autoPicked.current || player.subtitleTrack !== null) return;
+      if (preferred === 'off') {
+        autoPicked.current = true;
+        return;
+      }
+      if (tracks.length === 0) return;
+      const wanted = preferred === 'auto' ? [deviceLanguage(), 'en'] : [preferred, 'en'];
       for (const language of wanted) {
         const track = tracks.find((candidate) => sameLanguage(candidate.language, language));
         if (track !== undefined) {
@@ -97,6 +108,23 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
     },
     [player],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    void getSubtitlePreference(session.db).then((value) => {
+      if (cancelled) return;
+      preference.current = value;
+      // Sporene kan vaere meldt mens indstillingen blev laest.
+      try {
+        autoSelect(player.availableSubtitleTracks);
+      } catch {
+        // Afspilleren er vaek allerede.
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session.db, player, autoSelect]);
 
   // Sporene meldes for sig, og tit et oejeblik **efter** at filen er klar til
   // afspilning. Laeses de kun ved readyToPlay, staar listen tom.

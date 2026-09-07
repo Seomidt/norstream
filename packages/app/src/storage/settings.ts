@@ -10,6 +10,7 @@ const KEY_LAST_XMLTV = 'last_xmltv_ms';
 const KEY_REGISTRY_ERROR = 'registry_error';
 const KEY_REGISTRY_ENABLED = 'logo_registry_enabled';
 const KEY_YOUTUBE_API_KEY = 'youtube_api_key';
+const KEY_SUBTITLE_LANGUAGE = 'subtitle_language';
 
 export async function getSetting(
   db: SqlDatabase,
@@ -272,4 +273,27 @@ export async function getYoutubeApiKey(db: SqlDatabase): Promise<string | null> 
 
 export async function setYoutubeApiKey(db: SqlDatabase, key: string): Promise<void> {
   await setSetting(db, KEY_YOUTUBE_API_KEY, key.trim());
+}
+
+/**
+ * Foretrukket undertekstsprog i film og serier.
+ *
+ * `auto` er telefonens eget sprog, `off` er ingen undertekster, ellers en
+ * sprogkode. Afspilleren vaelger sporet selv naar filen er aabnet, saa man
+ * ikke skal ind og vaelge det samme hver gang.
+ */
+export type SubtitlePreference = 'auto' | 'off' | 'da' | 'en' | 'sv' | 'no' | 'de';
+
+const SUBTITLE_PREFERENCES: readonly SubtitlePreference[] = ['auto', 'off', 'da', 'en', 'sv', 'no', 'de'];
+
+export async function getSubtitlePreference(db: SqlDatabase): Promise<SubtitlePreference> {
+  const value = await getSetting(db, KEY_SUBTITLE_LANGUAGE);
+  return SUBTITLE_PREFERENCES.find((option) => option === value) ?? 'auto';
+}
+
+export async function setSubtitlePreference(
+  db: SqlDatabase,
+  value: SubtitlePreference,
+): Promise<void> {
+  await setSetting(db, KEY_SUBTITLE_LANGUAGE, value);
 }
