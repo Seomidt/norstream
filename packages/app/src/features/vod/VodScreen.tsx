@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useReducer, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -22,6 +22,7 @@ import {
 } from '../../storage/vod.js';
 import type { StoredVodItem, VodCategorySummary } from '../../storage/vod.js';
 import { theme } from '../../ui/theme.js';
+import { ensurePoster, foundPoster, subscribePoster } from '../../ui/posterFill.js';
 
 /**
  * Hvor langt man er naaet: forsiden, land -> kategori -> titler.
@@ -414,6 +415,14 @@ export function Poster({
 }) {
   const [failed, setFailed] = useState(false);
   const sizing = width === undefined ? styles.posterFlex : { width };
+  // Uden plakat: bed om en fra TMDB, og tegn den naar den kommer.
+  const [, redraw] = useReducer((count: number) => count + 1, 0);
+  useEffect(() => {
+    if (item.posterUrl !== null && !failed) return;
+    ensurePoster(item);
+    return subscribePoster(item.key, redraw);
+  }, [item, failed]);
+  const posterUrl = item.posterUrl !== null && !failed ? item.posterUrl : foundPoster(item.key);
   const progress =
     item.positionSeconds !== null && item.durationSeconds !== null && item.durationSeconds > 0
       ? Math.min(1, item.positionSeconds / item.durationSeconds)
@@ -421,12 +430,14 @@ export function Poster({
   return (
     <Pressable style={[styles.poster, sizing]} onPress={() => onOpen(item)}>
       <View style={styles.posterFrame}>
-        {item.posterUrl !== null && !failed ? (
+        {posterUrl !== null ? (
           <Image
-            source={{ uri: item.posterUrl }}
+            source={{ uri: posterUrl }}
             style={styles.posterImage}
             resizeMode="cover"
-            onError={() => setFailed(true)}
+            onError={() => {
+              if (posterUrl === item.posterUrl) setFailed(true);
+            }}
           />
         ) : (
           <View style={styles.posterFallback}>

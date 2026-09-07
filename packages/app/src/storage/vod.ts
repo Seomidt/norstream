@@ -26,6 +26,8 @@ export interface StoredVodItem extends VodItem {
   /** Hvor langt man er naaet, i sekunder, eller null naar man ikke er begyndt. */
   positionSeconds: number | null;
   durationSeconds: number | null;
+  /** Plakat fundet hos TMDB. Bruges naar panelets mangler eller er paa en doed vaert. */
+  foundPosterUrl: string | null;
 }
 
 export interface VodCategorySummary {
@@ -56,6 +58,8 @@ interface ItemRow {
   in_watchlist: number | null;
   position_s: number | null;
   duration_s: number | null;
+  /** Plakat fundet hos TMDB, til naar panelets mangler eller er doed. */
+  found_poster_url: string | null;
 }
 
 function toStored(row: ItemRow): StoredVodItem {
@@ -75,6 +79,7 @@ function toStored(row: ItemRow): StoredVodItem {
     inWatchlist: row.in_watchlist === 1,
     positionSeconds: row.position_s,
     durationSeconds: row.duration_s,
+    foundPosterUrl: row.found_poster_url,
   };
 }
 
@@ -82,11 +87,13 @@ const SELECT_ITEM = `
   SELECT i.key, i.source_id, i.item_id, i.kind, i.name, i.poster_url, i.category_id,
          c.name AS category_name, i.rating, i.year, i.added_ms, i.container_ext,
          CASE WHEN w.item_key IS NOT NULL THEN 1 ELSE NULL END AS in_watchlist,
-         p.position_s, p.duration_s
+         p.position_s, p.duration_s,
+         fp.url AS found_poster_url
   FROM vod_items i
   LEFT JOIN vod_categories c ON c.id = i.category_id
   LEFT JOIN vod_watchlist w ON w.item_key = i.key
-  LEFT JOIN vod_progress p ON p.item_key = i.key`;
+  LEFT JOIN vod_progress p ON p.item_key = i.key
+  LEFT JOIN vod_posters fp ON fp.item_key = i.key`;
 
 /** Hvor mange raekker der skrives per saetning. 999 variabler er graensen; 12 per raekke. */
 const BATCH = 80;
@@ -294,10 +301,17 @@ export async function getVodItem(db: SqlDatabase, key: string): Promise<StoredVo
  * Brugerens panel oplyser plakater paa den samme doede vaert som logoerne.
  */
 function withoutDeadPoster(item: StoredVodItem, dead: ReadonlySet<string>): StoredVodItem {
-  if (item.posterUrl === null || dead.size === 0) return item;
+  if (item.posterUrl === null) return withFoundPoster(item);
+  if (dead.size === 0) return item;
   const origin = originOf(item.posterUrl);
   if (origin === null || !dead.has(origin)) return item;
-  return { ...item, posterUrl: null };
+  return withFoundPoster({ ...item, posterUrl: null });
+}
+
+/** Panelets plakat mangler eller er doed: den fundne traeder i stedet. */
+function withFoundPoster(item: StoredVodItem): StoredVodItem {
+  if (item.foundPosterUrl === null) return item;
+  return { ...item, posterUrl: item.foundPosterUrl };
 }
 
 /**

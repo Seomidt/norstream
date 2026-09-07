@@ -11,6 +11,7 @@ const KEY_REGISTRY_ERROR = 'registry_error';
 const KEY_REGISTRY_ENABLED = 'logo_registry_enabled';
 const KEY_YOUTUBE_API_KEY = 'youtube_api_key';
 const KEY_SUBTITLE_LANGUAGE = 'subtitle_language';
+const KEY_TMDB_API_KEY = 'tmdb_api_key';
 
 export async function getSetting(
   db: SqlDatabase,
@@ -296,4 +297,17 @@ export async function setSubtitlePreference(
   value: SubtitlePreference,
 ): Promise<void> {
   await setSetting(db, KEY_SUBTITLE_LANGUAGE, value);
+}
+
+/**
+ * Brugerens egen noegle til The Movie Database, eller null. Valgfri: med
+ * den fyldes plakater ind for de film og serier panelet ikke gav en.
+ */
+export async function getTmdbApiKey(db: SqlDatabase): Promise<string | null> {
+  const value = await getSetting(db, KEY_TMDB_API_KEY);
+  return value === null || value.trim().length === 0 ? null : value.trim();
+}
+
+export async function setTmdbApiKey(db: SqlDatabase, key: string): Promise<void> {
+  await setSetting(db, KEY_TMDB_API_KEY, key.trim());
 }

@@ -5,6 +5,7 @@ import type { AppSession } from '../../session.js';
 import { vodCounts } from '../../storage/vod.js';
 import { createBackup, parseBackup, restoreBackup, serialiseBackup } from '../../storage/backup.js';
 import { forgetLogoMisses, resetLogo } from '../../ui/logoCache.js';
+import { setPosterApiKey } from '../../ui/posterFill.js';
 import { readChosenBackupFile, saveBackupToChosenFolder } from './backupFiles.js';
 import { listHiddenCountries, unhideCountry } from '../../storage/countries.js';
 import { OTHER_COUNTRY_KEY } from '../../storage/countries.js';
@@ -14,8 +15,10 @@ import {
   clearLastSyncMs,
   getStreamFormatSetting,
   getSubtitlePreference,
+  getTmdbApiKey,
   getYoutubeApiKey,
   setSubtitlePreference,
+  setTmdbApiKey,
   setYoutubeApiKey,
   setMiniPreviewEnabled,
   setStreamFormatSetting,
@@ -74,22 +77,27 @@ export function SettingsScreen({
   const [vod, setVod] = useState<{ movies: number; series: number } | null>(null);
   /** Brugerens egen noegle til YouTubes Data API, til at soege efter trailere. */
   const [youtubeKey, setYoutubeKey] = useState('');
+  /** Brugerens egen noegle til TMDB, til plakater panelet ikke gav. */
+  const [tmdbKey, setTmdbKey] = useState('');
   const [subtitles, setSubtitles] = useState<SubtitlePreference>('auto');
   /** Hvad sidste sikkerhedskopiering eller gendannelse endte med. */
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
-    const [hiddenCountries, format, key, preferredSubtitles, counts] = await Promise.all([
+    const [hiddenCountries, format, key, tmdb, preferredSubtitles, counts] = await Promise.all([
       listHiddenCountries(session.db),
       getStreamFormatSetting(session.db),
       getYoutubeApiKey(session.db),
+      getTmdbApiKey(session.db),
       getSubtitlePreference(session.db),
       vodCounts(session.db),
     ]);
     setHidden(hiddenCountries);
     setStreamFormat(format);
     setYoutubeKey(key ?? '');
+    setTmdbKey(tmdb ?? '');
+    setPosterApiKey(tmdb);
     setSubtitles(preferredSubtitles);
     setVod(counts);
   }, [session.db]);
@@ -293,6 +301,30 @@ export function SettingsScreen({
       </View>
       <Text style={styles.hint}>
         Skiftet gælder næste gang du åbner en kanal.
+      </Text>
+
+      <Text style={styles.sectionTitle}>Plakater</Text>
+      <Text style={styles.hint}>
+        Udbyderen giver ikke alle film og serier en plakat, og nogle peger på en server der er
+        død. Med en nøgle til The Movie Database (TMDB) slår appen dem op, der mangler, én gang
+        hver, og husker svaret.
+      </Text>
+      <TextInput
+        style={styles.input}
+        value={tmdbKey}
+        onChangeText={setTmdbKey}
+        onBlur={() => {
+          void setTmdbApiKey(session.db, tmdbKey);
+          setPosterApiKey(tmdbKey);
+        }}
+        placeholder="TMDB API-nøgle (valgfri)"
+        placeholderTextColor={theme.colors.textMuted}
+        autoCorrect={false}
+        autoCapitalize="none"
+      />
+      <Text style={styles.hint}>
+        Nøglen laves gratis på themoviedb.org: opret en konto, gå til Settings → API, og kopiér
+        "API Key (v3 auth)". Den gemmes kun på telefonen og i din sikkerhedskopi.
       </Text>
 
       <Text style={styles.sectionTitle}>Trailere</Text>

@@ -258,6 +258,15 @@ CREATE TABLE IF NOT EXISTS vod_watchlist (
   added_ms INTEGER NOT NULL
 );
 
+-- Plakater fundet hos TMDB til titler panelet ikke gav en. url er null
+-- naar TMDB heller ikke kendte titlen; tried_ms siger hvornaar, saa den
+-- ikke spoerges om igen med det samme.
+CREATE TABLE IF NOT EXISTS vod_posters (
+  item_key TEXT PRIMARY KEY,
+  url      TEXT,
+  tried_ms INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS vod_progress (
   item_key   TEXT PRIMARY KEY,
   position_s INTEGER NOT NULL,
@@ -290,13 +299,15 @@ const TABLES = [
   'logo_overrides',
   'logo_files',
   'logo_misses',
+  'vod_posters',
 ] as const;
 
 // v8 tilfoejer VOD-tabellerne, v9 xmltv_logos, v10 logo_resolved og en
 // kolonne paa vod_details. Tabellerne klarer `CREATE TABLE IF NOT EXISTS`;
 // kolonnen har sit eget ALTER-trin.
 // v11: logo_overrides. v12: logo_files og logo_misses. v13: favorites.position.
-const SCHEMA_VERSION = 13;
+// v14: vod_posters.
+const SCHEMA_VERSION = 14;
 
 /**
  * Foerste version der kan opgraderes additivt.

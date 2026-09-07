@@ -3,6 +3,7 @@ import { withPanelCooldown } from './net/cooldown.js';
 import { createFetchImpl } from './net/fetchImpl.js';
 import { initLogoCache } from './ui/logoCache.js';
 import { createLogoFileStore } from './ui/logoFiles.js';
+import { initPosterFill } from './ui/posterFill.js';
 import { applyStreamFormatSetting } from './features/player/format.js';
 import { credentialsBySource } from './sources/access.js';
 import type { SourceAccess } from './sources/access.js';
@@ -90,9 +91,12 @@ export async function createSession(): Promise<AppSession> {
   await initLogoCache(db, createLogoFileStore());
 
   const sources = await readSources(db);
+  const fetchImpl = withPanelCooldown(createFetchImpl());
+  // Plakater til film og serier uden: slaas op efterhaanden som de vises.
+  await initPosterFill(db, fetchImpl);
   return {
     db,
-    fetchImpl: withPanelCooldown(createFetchImpl()),
+    fetchImpl,
     sources,
     credsBySource: credentialsBySource(sources),
     access: (sourceId) => sources.find((entry) => entry.source.id === sourceId) ?? null,
