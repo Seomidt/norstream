@@ -5,10 +5,16 @@
  * register skriver `DR1`. Uden en faelles form matcher intet, og de 22.000
  * kanaler ville staa uden logo selv om registret har dem.
  *
- * Der fjernes: landepraefiks, kvalitetsmaerker, tegnsaetning og mellemrum.
- * Tallet bliver staaende — `DR1` og `DR2` er ikke den samme kanal, og en
- * normalisering der blandede dem ville give forkerte logoer paa kanaler der
- * ser rigtige ud.
+ * Der fjernes: landepraefiks, kvalitetsmaerker, landenavne, tegnsaetning og
+ * mellemrum. Tallet bliver staaende — `DR1` og `DR2` er ikke den samme kanal,
+ * og en normalisering der blandede dem ville give forkerte logoer paa kanaler
+ * der ser rigtige ud.
+ *
+ * **Plus bliver ogsaa staaende.** Det gjorde det ikke, og saa blev `TV3+` til
+ * `TV3`: to forskellige kanaler med samme noegle. Appen giver med vilje op
+ * naar en noegle er flertydig, saa resultatet var at *hverken* TV3 eller TV3+
+ * fik et logo. Plus er en del af navnet paa den slags kanaler — TV3+, Canal+,
+ * TV 2 Sport+ — ikke tegnsaetning.
  */
 const QUALITY = new Set([
   'HD',
@@ -31,16 +37,48 @@ const QUALITY = new Set([
   'ALT',
 ]);
 
+/**
+ * Landenavne panelet haenger paa, og registret ikke har med.
+ *
+ * Panelet skriver `TLC DANMARK`; registret skriver `TLC` med land `DK`. Uden
+ * det her er de to forskellige navne, og kanalen staar uden logo selv om
+ * registret har den. Landet ligger allerede i opslagsnoeglen, saa det er ikke
+ * information der gaar tabt — det staar bare to steder.
+ */
+const COUNTRY_WORDS = new Set([
+  'DANMARK',
+  'DENMARK',
+  'NORGE',
+  'NORWAY',
+  'SVERIGE',
+  'SWEDEN',
+  'SUOMI',
+  'FINLAND',
+  'ISLAND',
+  'ICELAND',
+  'DEUTSCHLAND',
+  'GERMANY',
+  'NEDERLAND',
+  'NETHERLANDS',
+  'ESPANA',
+  'SPAIN',
+  'ITALIA',
+  'ITALY',
+  'FRANCE',
+  'POLSKA',
+  'POLAND',
+]);
+
 export function normaliseChannelName(name: string): string {
   // Alt foer en lodret streg er panelets eget praefiks: `DNK|`, `DK |`.
   const withoutPrefix = name.includes('|') ? name.slice(name.lastIndexOf('|') + 1) : name;
 
   const words = withoutPrefix
     .toUpperCase()
-    .replace(/[^A-Z0-9ÆØÅ]+/g, ' ')
+    .replace(/[^A-Z0-9ÆØÅ+]+/g, ' ')
     .trim()
     .split(' ')
-    .filter((word) => word.length > 0 && !QUALITY.has(word));
+    .filter((word) => word.length > 0 && !QUALITY.has(word) && !COUNTRY_WORDS.has(word));
 
   return words.join('');
 }

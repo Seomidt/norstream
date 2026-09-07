@@ -59,3 +59,30 @@ describe('matchRegistryChannel', () => {
     expect(matchRegistryChannel(index, 'Fireplace 4K', 'DK')).toBeNull();
   });
 });
+
+describe('plus og landenavne', () => {
+  // Plusset blev fjernet som tegnsaetning, saa `TV3+` og `TV3` fik samme
+  // noegle. Appen giver med vilje op paa en flertydig noegle, saa resultatet
+  // var at **hverken** TV3 eller TV3+ fik et logo — begge findes i registret.
+  it('holder TV3 og TV3+ adskilt', () => {
+    expect(normaliseChannelName('DNK| TV3 HD')).toBe('TV3');
+    expect(normaliseChannelName('DNK| TV3+ HD')).toBe('TV3+');
+    expect(normaliseChannelName('DNK| TV3 HD')).not.toBe(normaliseChannelName('DNK| TV3+ HD'));
+  });
+
+  it('beholder plus i navne der har det', () => {
+    expect(normaliseChannelName('Canal+ Sport FHD')).toBe('CANAL+SPORT');
+  });
+
+  // Panelet skriver `TLC DANMARK`, registret `TLC` med land DK. Landet ligger
+  // allerede i opslagsnoeglen, saa det er ikke information der gaar tabt.
+  it('fjerner et landenavn panelet har haengt paa', () => {
+    expect(normaliseChannelName('DNK| TLC DANMARK')).toBe('TLC');
+    expect(normaliseChannelName('Discovery Norge HD')).toBe('DISCOVERY');
+  });
+
+  it('roerer ikke et stednavn der ikke er et land', () => {
+    // TV 2 Østjylland er en kanal for sig, ikke TV 2 med et land paa.
+    expect(normaliseChannelName('DNK| TV 2 / ØSTJYLLAND')).toBe('TV2ØSTJYLLAND');
+  });
+});

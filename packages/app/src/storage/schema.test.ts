@@ -66,10 +66,10 @@ describe('migrate paa en frisk database', () => {
     }
   });
 
-  it('stempler skemaversion 6', async () => {
+  it('stempler skemaversion 7', async () => {
     const db = createTestDatabase();
     await migrate(db);
-    expect(await userVersion(db)).toBe(6);
+    expect(await userVersion(db)).toBe(7);
   });
 
   it('er idempotent og sletter ikke data ved anden koersel', async () => {
@@ -193,7 +193,7 @@ describe('migrate fra v1', () => {
   it('stempler den nuvaerende version og opretter de nye tabeller', async () => {
     const db = await createV1Database();
     await migrate(db);
-    expect(await userVersion(db)).toBe(6);
+    expect(await userVersion(db)).toBe(7);
     const names = await tableNames(db);
     expect(names).toContain('epg_fetch');
     expect(names).toContain('hidden_countries');
@@ -207,7 +207,7 @@ describe('migrate fra v1', () => {
     await db.execAsync('PRAGMA user_version = 1');
 
     await expect(migrate(db)).resolves.toBeUndefined();
-    expect(await userVersion(db)).toBe(6);
+    expect(await userVersion(db)).toBe(7);
     expect(await tableNames(db)).toContain('favorites');
   });
 });
@@ -252,7 +252,7 @@ describe('migrate fra v2', () => {
 
     await migrate(db);
 
-    expect(await userVersion(db)).toBe(6);
+    expect(await userVersion(db)).toBe(7);
     expect(await tableNames(db)).toContain('epg_archive_fetch');
 
     // v2 -> v3 tilfoejer kun en tabel. Bygger den om alligevel, mister
@@ -330,7 +330,7 @@ PRAGMA user_version = 4;
     const db = await createV4();
     await migrate(db);
 
-    expect(await userVersion(db)).toBe(6);
+    expect(await userVersion(db)).toBe(7);
     expect(await tableNames(db)).toContain('sources');
 
     const channelColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(channels)');
@@ -385,6 +385,34 @@ PRAGMA user_version = 4;
     const db = await createV4();
     await db.execAsync("ALTER TABLE channels ADD COLUMN source_id TEXT NOT NULL DEFAULT ''");
     await expect(migrate(db)).resolves.toBeUndefined();
-    expect(await userVersion(db)).toBe(6);
+    expect(await userVersion(db)).toBe(7);
+  });
+});
+
+describe('migrate fra v6', () => {
+  // v7 aendrer ingen tabeller — den aendrer hvordan `channels.match_key`
+  // regnes ud. Noeglen ligger gemt i raekken, saa uden det her baerer en v6-
+  // database den gamle udregning rundt i op til et doegn, og logoerne bliver
+  // ved med at mangle efter en opgradering der netop skulle rette dem.
+  it('faar kanalerne hentet igen, uden at roere brugerens eget', async () => {
+    const db = createTestDatabase();
+    await migrate(db);
+    await db.runAsync("PRAGMA user_version = 6");
+    await db.runAsync("INSERT INTO settings (key, value) VALUES ('last_sync_ms', '111')");
+    await db.runAsync("INSERT INTO settings (key, value) VALUES ('last_sync_ms:s1', '222')");
+    await db.runAsync(
+      "INSERT INTO settings (key, value) VALUES ('timeshift_dialect:s1', 'php')",
+    );
+    await db.runAsync("INSERT INTO favorites (channel_id) VALUES ('s1:1')");
+
+    await migrate(db);
+
+    const settings = await db.getAllAsync<{ key: string }>('SELECT key FROM settings');
+    const keys = settings.map((row) => row.key);
+    expect(keys).not.toContain('last_sync_ms');
+    expect(keys).not.toContain('last_sync_ms:s1');
+    // Dialekten er resultatet af en probing og maa ikke ryge med.
+    expect(keys).toContain('timeshift_dialect:s1');
+    expect(await db.getAllAsync('SELECT * FROM favorites')).toHaveLength(1);
   });
 });

@@ -164,7 +164,7 @@ const TABLES = [
   'settings',
 ] as const;
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -326,6 +326,19 @@ async function clearV5Cache(db: SqlDatabase): Promise<void> {
   await db.execAsync("DELETE FROM settings WHERE key = 'last_sync_ms'");
 }
 
+/**
+ * Faar kanalerne hentet igen ved naeste opstart.
+ *
+ * Baade den faelles noegle og kildernes egne — `last_sync_ms:<kilde>`. Kun
+ * hentetiden: favoritter, optagelser og skjulte lande er brugerens eget
+ * arbejde og roeres ikke.
+ */
+async function clearSyncTimes(db: SqlDatabase): Promise<void> {
+  await db.execAsync(
+    "DELETE FROM settings WHERE key = 'last_sync_ms' OR key LIKE 'last_sync_ms:%'",
+  );
+}
+
 export async function migrate(db: SqlDatabase): Promise<void> {
   const version = await readUserVersion(db);
 
@@ -343,6 +356,13 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     if (toV5) await addV5Columns(db);
     await db.execAsync(SCHEMA);
     if (toV5) await clearV5Cache(db);
+
+    // v7 aendrer **ingen tabeller** — den aendrer hvordan `channels.match_key`
+    // regnes ud (plus bevares, landenavne fjernes). Noeglen ligger gemt i
+    // raekken, saa en database fra v6 baerer den gamle udregning rundt indtil
+    // kanalerne hentes igen — og det sker foerst om et doegn. Hentetiden
+    // nulstilles, saa opslaget passer med det samme.
+    if (version >= REBUILD_BELOW_VERSION && version < 7) await clearSyncTimes(db);
   }
 
   await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);

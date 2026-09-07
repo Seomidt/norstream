@@ -234,11 +234,14 @@ export async function listChannels(
     `SELECT c.id, c.source_id, c.stream_id, c.stream_url, c.name, c.number, c.logo_url,
             c.category_id, c.epg_channel_id, c.has_archive, c.archive_days, c.sort_order,
             s.url AS source_url,
-            COALESCE(rc.url, ra.url) AS registry_logo_url,
+            COALESCE(ri.url, rc.url, ra.url) AS registry_logo_url,
             CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE NULL END AS is_favorite
      FROM channels c
      LEFT JOIN favorites f ON f.channel_id = c.id
      LEFT JOIN sources s ON s.id = c.source_id
+     -- Id'et foerst: registrets id er XMLTV-id'et, det samme som en
+     -- M3U-listes tvg-id og et panels epg_channel_id. Et opslag, ikke et gaet.
+     LEFT JOIN registry_logos ri ON ri.key = 'id:' || LOWER(TRIM(c.epg_channel_id))
      LEFT JOIN registry_logos rc ON rc.key = c.match_key || ':' || c.country
      LEFT JOIN registry_logos ra ON ra.key = c.match_key || ':*'
      ${clause}
@@ -258,11 +261,14 @@ export async function getChannel(
     `SELECT c.id, c.source_id, c.stream_id, c.stream_url, c.name, c.number, c.logo_url,
             c.category_id, c.epg_channel_id, c.has_archive, c.archive_days, c.sort_order,
             s.url AS source_url,
-            COALESCE(rc.url, ra.url) AS registry_logo_url,
+            COALESCE(ri.url, rc.url, ra.url) AS registry_logo_url,
             CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE NULL END AS is_favorite
      FROM channels c
      LEFT JOIN favorites f ON f.channel_id = c.id
      LEFT JOIN sources s ON s.id = c.source_id
+     -- Id'et foerst: registrets id er XMLTV-id'et, det samme som en
+     -- M3U-listes tvg-id og et panels epg_channel_id. Et opslag, ikke et gaet.
+     LEFT JOIN registry_logos ri ON ri.key = 'id:' || LOWER(TRIM(c.epg_channel_id))
      LEFT JOIN registry_logos rc ON rc.key = c.match_key || ':' || c.country
      LEFT JOIN registry_logos ra ON ra.key = c.match_key || ':*'
      WHERE c.id = ?`,
@@ -379,9 +385,12 @@ export async function registryCoverage(
   const matched = await db.getFirstAsync<{ count: number }>(
     `SELECT COUNT(*) AS count
      FROM channels c
+     -- Id'et foerst: registrets id er XMLTV-id'et, det samme som en
+     -- M3U-listes tvg-id og et panels epg_channel_id. Et opslag, ikke et gaet.
+     LEFT JOIN registry_logos ri ON ri.key = 'id:' || LOWER(TRIM(c.epg_channel_id))
      LEFT JOIN registry_logos rc ON rc.key = c.match_key || ':' || c.country
      LEFT JOIN registry_logos ra ON ra.key = c.match_key || ':*'
-     WHERE COALESCE(rc.url, ra.url) IS NOT NULL`,
+     WHERE COALESCE(ri.url, rc.url, ra.url) IS NOT NULL`,
   );
   return { rows: rows?.count ?? 0, matched: matched?.count ?? 0 };
 }

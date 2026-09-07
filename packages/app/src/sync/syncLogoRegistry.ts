@@ -15,12 +15,19 @@ const CHANNELS_URL =
 const LOGOS_URL = 'https://raw.githubusercontent.com/iptv-org/database/master/data/logos.csv';
 
 /**
- * Stoerste logo vi gider gemme adressen paa.
+ * Bredden vi helst vil have et logo under.
  *
- * Registret har flere stoerrelser af samme logo. Et paa 2000 px bruges til en
- * firkant paa 44 — det er spildt baandbredde hver gang en liste ruller forbi.
+ * En **praeference**, ikke en graense. Den var en graense — logoer bredere end
+ * det blev kasseret — og det kostede 2.828 kanaler deres eneste logo, ni
+ * procent af alle dem registret har et til. Det ramte blandt andet 6'eren,
+ * Canal 9, Kanal 4, Kanal 5, TLC og TV 2 Fri, som alle kun har ét logo, og
+ * det er 960 px bredt. Efterproevet ved at taelle i registrets egne filer.
+ *
+ * Baandbredden var en rigtig bekymring — de bredeste logoer i registret er
+ * 16.784 px — men svaret er at vaelge det mindste der findes, ikke at smide
+ * kanalen vaek fordi dens eneste logo er stort.
  */
-const MAX_WIDTH = 600;
+const PREFERRED_WIDTH = 600;
 
 export interface LogoRegistryResult {
   /** Kanaler i registret der havde et brugbart logo. */
@@ -60,16 +67,22 @@ export async function syncLogoRegistry(
     byId.set(id, channel);
   }
 
-  // Bedste logo per kanal: i brug, og ikke stoerre end noedvendigt.
-  const best = new Map<string, string>();
+  // Bedste logo per kanal: i brug, og det smalleste der findes.
+  const best = new Map<string, { url: string; width: number }>();
   for (const row of parseCsvRecords(logosCsv)) {
     const channelId = row.channel ?? '';
     const url = row.url ?? '';
     if (channelId.length === 0 || url.length === 0) continue;
     if ((row.in_use ?? '').toUpperCase() === 'FALSE') continue;
-    const width = Number.parseInt(row.width ?? '', 10);
-    if (Number.isFinite(width) && width > MAX_WIDTH) continue;
-    if (!best.has(channelId)) best.set(channelId, url);
+
+    const parsed = Number.parseInt(row.width ?? '', 10);
+    // Ukendt bredde sorteres bagest frem for at blive kasseret: en adresse vi
+    // ikke kender stoerrelsen paa, er stadig bedre end ingen adresse.
+    const width = Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+    const current = best.get(channelId);
+    if (current === undefined || betterWidth(width, current.width)) {
+      best.set(channelId, { url, width });
+    }
   }
 
   // Navneopslaget bygges af de kanaler der faktisk har et logo.
@@ -80,10 +93,18 @@ export async function syncLogoRegistry(
   for (const [key, candidates] of index) {
     const countries = new Set(candidates.map((candidate) => candidate.country));
     for (const candidate of candidates) {
-      const url = best.get(candidate.id);
-      if (url === undefined) continue;
+      const chosen = best.get(candidate.id);
+      if (chosen === undefined) continue;
+      const url = chosen.url;
       // Noeglen er navn + land: to lande maa gerne have hver sin `TV 2`.
       rows.push([`${key}:${candidate.country}`, candidate.country, url]);
+
+      // Og registrets eget id. Det **er** standarden: registrets `id` er
+      // XMLTV-id'et — `TV2News.dk`, `Kanal4.dk` — det samme som en M3U-liste
+      // skriver i `tvg-id` og et Xtream-panel i `epg_channel_id`. Oplyser
+      // kilden det, er der ikke noget at gaette paa; navneopslaget ovenfor er
+      // reserven for de kanaler der ikke goer.
+      rows.push([idKey(candidate.id), candidate.country, url]);
 
       // Findes navnet kun i ét land, kan det ogsaa slaas op uden at kende
       // landet — og de fleste af panelets kanaler har intet land vi kan
@@ -142,6 +163,24 @@ async function insertInBatches(
 }
 
 /**
+ * Noeglen for et XMLTV-id.
+ *
+ * Smaa bogstaver: paneler og lister skriver det samme id med forskelligt
+ * store bogstaver, og et opslag der skelner ville tabe halvdelen.
+ */
+export function idKey(id: string): string {
+  return `id:${id.trim().toLowerCase()}`;
+}
+
+function betterWidth(candidate: number, current: number): boolean {
+  const candidateOk = candidate <= PREFERRED_WIDTH;
+  const currentOk = current <= PREFERRED_WIDTH;
+  // Under praeferencen slaar over den. Derudover: det smalleste vinder.
+  if (candidateOk !== currentOk) return candidateOk;
+  return candidate < current;
+}
+
+/**
  * Slaar et logo op for et panelnavn og et land.
  *
  * Uden land gives der op naar navnet gaar igen paa tvaers af lande — et
@@ -151,7 +190,18 @@ export async function registryLogoFor(
   db: SqlDatabase,
   name: string,
   country: string | null,
+  /** Kildens `epg_channel_id` / `tvg-id`, hvis den oplyser et. */
+  epgChannelId: string | null = null,
 ): Promise<string | null> {
+  // Id'et foerst. Det er et opslag og ikke et gaet.
+  if (epgChannelId !== null && epgChannelId.trim().length > 0) {
+    const byId = await db.getFirstAsync<{ url: string }>(
+      'SELECT url FROM registry_logos WHERE key = ?',
+      [idKey(epgChannelId)],
+    );
+    if (byId) return byId.url;
+  }
+
   const key = normaliseChannelName(name);
   if (key.length === 0) return null;
 
