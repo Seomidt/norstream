@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -9,10 +10,11 @@ import {
   View,
 } from 'react-native';
 import type { AppSession } from '../../session.js';
-import { setFavorite } from '../../storage/channels.js';
+import { listChannels, setFavorite } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
-import { addCategoryToFavorites, listFavoriteGroups } from '../../storage/favorites.js';
-import type { FavoriteGroup } from '../../storage/favorites.js';
+import { addCategoryToFavorites, favoriteCategories, moveFavorite } from '../../storage/favorites.js';
+import type { FavoriteCategory } from '../../storage/favorites.js';
+import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
@@ -34,10 +36,17 @@ interface Props {
 }
 
 /**
- * Startskaermen: favoritterne, grupperet efter den kategori de kom fra.
+ * Startskaermen: favoritterne, én liste, i brugerens egen raekkefoelge.
  *
- * Uden grupperingen ville ét tryk paa "Tilfoej alle" for Danmark give 979
- * kanaler i én flad liste — det samme problem som spec'en loeser for browse.
+ * Den var grupperet efter den kategori favoritterne kom fra, og saa snart
+ * man lagde én kanal til ved siden af en hel kategori, skiftede skaermen til
+ * en anden liste — uden logoer, uden nu-titler, uden preview — med en gruppe
+ * der hed "Egne favoritter". Det saa ud som om alt var forsvundet.
+ *
+ * Nu er det altid den samme liste som under Kanaler. Nye favoritter laegger
+ * sig nederst, en hel kategori laegges nederst i panelets orden, og
+ * raekkefoelgen kan aendres under "Sortér". Kategorierne huskes stadig, saa
+ * "Opdatér" kan hente de kanaler udbyderen har lagt i dem siden sidst.
  */
 export function FavoritesScreen({
   session,
@@ -51,14 +60,20 @@ export function FavoritesScreen({
   onRefresh,
   reloadToken,
 }: Props) {
-  const [groups, setGroups] = useState<FavoriteGroup[]>([]);
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [channels, setChannels] = useState<StoredChannel[]>([]);
+  const [categories, setCategories] = useState<FavoriteCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [sorting, setSorting] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      setGroups(await listFavoriteGroups(session.db));
+      const [list, fromCategories] = await Promise.all([
+        listChannels(session.db, { favouritesOnly: true }),
+        favoriteCategories(session.db),
+      ]);
+      setChannels(list);
+      setCategories(fromCategories);
     } finally {
       setLoading(false);
     }
@@ -73,15 +88,18 @@ export function FavoritesScreen({
     await load();
   }
 
-  async function refreshGroup(group: FavoriteGroup): Promise<void> {
-    if (group.categoryId === null) return;
-    const added = await addCategoryToFavorites(session.db, group.categoryId);
+  /** Henter det udbyderen har lagt i favoritternes kategorier siden sidst. */
+  async function refreshCategories(): Promise<void> {
+    let added = 0;
+    for (const category of categories) {
+      added += await addCategoryToFavorites(session.db, category.id);
+    }
     await load();
     setNotice({
       text:
         added === 0
-          ? 'Ingen nye kanaler i kategorien.'
-          : `${added} nye kanaler er lagt i favoritter.`,
+          ? 'Ingen nye kanaler i dine kategorier.'
+          : `${added} nye kanaler er lagt nederst i favoritter.`,
     });
   }
 
@@ -93,7 +111,7 @@ export function FavoritesScreen({
     );
   }
 
-  if (groups.length === 0) {
+  if (channels.length === 0) {
     // Spec sec.5: en kort besked der peger paa browse, ikke en tom liste.
     return (
       <ScrollView
@@ -117,106 +135,150 @@ export function FavoritesScreen({
     );
   }
 
-  // Er der kun én gruppe, er sektionsoverskriften stoej: vis listen direkte.
-  const single = groups.length === 1 ? groups[0] : undefined;
-  if (single !== undefined) {
+  if (sorting) {
     return (
-      <ChannelList
-        session={session}
-        channels={single.channels}
-        loading={false}
-        emptyText="Ingen favoritter."
-        onSelect={onSelect}
-        onToggleFavorite={(channel) => {
-          void toggleFavorite(channel);
+      <SortView
+        channels={channels}
+        onMove={async (channel, toIndex) => {
+          await moveFavorite(session.db, channel.id, toIndex);
+          await load();
         }}
-        onAuthError={onAuthError}
-        previewEnabled={previewEnabled}
-        previewHandle={previewHandle}
-        onLongPress={onPickLogo}
-        refreshing={refreshing}
-        onRefresh={onRefresh}
+        onDone={() => setSorting(false)}
       />
     );
   }
 
-  return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={theme.colors.accent}
-        />
-      }
-    >
+  const header = (
+    <View style={styles.toolbar}>
       <Notice notice={notice} onDismiss={() => setNotice(null)} />
-      {groups.map((group) => {
-        const key = group.categoryId ?? '__loose__';
-        const isCollapsed = collapsed[key] === true;
-        return (
-          <View key={key}>
-            <View style={styles.sectionHeader}>
-              <Pressable
-                style={styles.sectionMain}
-                onPress={() =>
-                  setCollapsed((previous) => ({ ...previous, [key]: !isCollapsed }))
-                }
-              >
-                <Text style={styles.sectionTitle} numberOfLines={1}>
-                  {isCollapsed ? '▸' : '▾'} {group.categoryName}
-                </Text>
-                <Text style={styles.sectionCount}>{group.channels.length}</Text>
-              </Pressable>
-              {group.categoryId !== null && (
-                <Pressable
-                  style={styles.action}
-                  hitSlop={8}
-                  onPress={() => {
-                    void refreshGroup(group);
-                  }}
-                >
-                  <Text style={styles.actionText}>Opdatér</Text>
-                </Pressable>
-              )}
-            </View>
+      <View style={styles.toolbarRow}>
+        <Text style={styles.toolbarCount}>{channels.length} kanaler</Text>
+        {categories.length > 0 && (
+          <Pressable
+            style={styles.action}
+            hitSlop={8}
+            onPress={() => {
+              void refreshCategories();
+            }}
+          >
+            <Text style={styles.actionText}>Opdatér</Text>
+          </Pressable>
+        )}
+        <Pressable style={styles.action} hitSlop={8} onPress={() => setSorting(true)}>
+          <Text style={styles.actionText}>Sortér</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
 
-            {!isCollapsed &&
-              group.channels.map((channel) => (
-                <Pressable
-                  key={channel.id}
-                  style={styles.row}
-                  onPress={() => {
-                    void (async () => {
-                      // Panelets ene forbindelse skal vaere sluppet foerst.
-                      // Fejler det, aabner vi alligevel.
-                      try {
-                        await previewHandle.current?.release();
-                      } catch {
-                        // Med vilje.
-                      }
-                      onSelect(channel);
-                    })();
-                  }}
-                >
-                  <Text style={styles.channelName} numberOfLines={1}>
-                    {channel.name}
-                  </Text>
-                  <Pressable
-                    hitSlop={12}
-                    onPress={() => {
-                      void toggleFavorite(channel);
-                    }}
-                  >
-                    <Text style={styles.starOn}>★</Text>
-                  </Pressable>
-                </Pressable>
-              ))}
-          </View>
-        );
-      })}
-    </ScrollView>
+  return (
+    <ChannelList
+      session={session}
+      channels={channels}
+      loading={false}
+      emptyText="Ingen favoritter."
+      onSelect={onSelect}
+      onToggleFavorite={(channel) => {
+        void toggleFavorite(channel);
+      }}
+      onAuthError={onAuthError}
+      previewEnabled={previewEnabled}
+      previewHandle={previewHandle}
+      onLongPress={onPickLogo}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      header={header}
+    />
+  );
+}
+
+/**
+ * Raekkefoelgen, aendret med to tryk: ét paa kanalen der skal flyttes, ét paa
+ * pladsen den skal have. Traek-og-slip kraever et bibliotek appen ikke har,
+ * og pile der flytter én plads ad gangen er ubrugelige med 61 kanaler.
+ */
+function SortView({
+  channels,
+  onMove,
+  onDone,
+}: {
+  channels: StoredChannel[];
+  onMove: (channel: StoredChannel, toIndex: number) => Promise<void>;
+  onDone: () => void;
+}) {
+  const [picked, setPicked] = useState<StoredChannel | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function move(toIndex: number): Promise<void> {
+    if (picked === null || busy) return;
+    setBusy(true);
+    try {
+      await onMove(picked, toIndex);
+    } finally {
+      setBusy(false);
+      setPicked(null);
+    }
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.toolbar}>
+        <Text style={styles.sortHint}>
+          {picked === null
+            ? 'Tryk på den kanal der skal flyttes.'
+            : `Tryk på den plads “${picked.name}” skal have.`}
+        </Text>
+        <View style={styles.toolbarRow}>
+          {picked !== null && (
+            <>
+              <Pressable style={styles.action} hitSlop={8} onPress={() => void move(0)}>
+                <Text style={styles.actionText}>Øverst</Text>
+              </Pressable>
+              <Pressable
+                style={styles.action}
+                hitSlop={8}
+                onPress={() => void move(channels.length)}
+              >
+                <Text style={styles.actionText}>Nederst</Text>
+              </Pressable>
+              <Pressable style={styles.action} hitSlop={8} onPress={() => setPicked(null)}>
+                <Text style={styles.actionText}>Fortryd</Text>
+              </Pressable>
+            </>
+          )}
+          <View style={styles.spacer} />
+          <Pressable style={[styles.action, styles.actionAccent]} hitSlop={8} onPress={onDone}>
+            <Text style={styles.actionText}>Færdig</Text>
+          </Pressable>
+        </View>
+      </View>
+      <FlatList
+        data={channels}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item, index }) => {
+          const isPicked = picked?.id === item.id;
+          return (
+            <Pressable
+              style={[styles.row, isPicked && styles.rowPicked]}
+              onPress={() => {
+                if (picked === null || isPicked) {
+                  setPicked(isPicked ? null : item);
+                  return;
+                }
+                void move(index);
+              }}
+            >
+              <Text style={styles.position}>{index + 1}</Text>
+              <ChannelLogo uris={item.logoUrls} name={item.name} memoryKey={item.id} size={36} />
+              <Text style={styles.channelName} numberOfLines={1}>
+                {item.name}
+              </Text>
+              <Text style={styles.handle}>{isPicked ? '✓' : '☰'}</Text>
+            </Pressable>
+          );
+        }}
+      />
+    </View>
   );
 }
 
@@ -251,31 +313,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.lg,
   },
   buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '600' },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  toolbar: {
     backgroundColor: theme.colors.surface,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
   },
-  sectionMain: { flex: 1, flexDirection: 'row', alignItems: 'center' },
-  sectionTitle: { flex: 1, color: theme.colors.text, fontSize: 14, fontWeight: '600' },
-  sectionCount: { color: theme.colors.textMuted, fontSize: 13, marginRight: theme.spacing.sm },
+  toolbarRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
+  toolbarCount: { flex: 1, color: theme.colors.textMuted, fontSize: 13 },
+  spacer: { flex: 1 },
+  sortHint: { color: theme.colors.text, fontSize: 14, marginBottom: theme.spacing.sm },
   action: {
     backgroundColor: theme.colors.surfaceRaised,
     borderRadius: theme.radius,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.sm + 2,
+    paddingVertical: theme.spacing.xs + 2,
   },
-  actionText: { color: theme.colors.text, fontSize: 13 },
+  actionAccent: { backgroundColor: theme.colors.accent },
+  actionText: { color: theme.colors.text, fontSize: 13, fontWeight: '600' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     borderBottomColor: theme.colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  rowPicked: { backgroundColor: theme.colors.surfaceRaised },
+  position: { width: 28, color: theme.colors.textMuted, fontSize: 13, textAlign: 'right' },
   channelName: { flex: 1, color: theme.colors.text, fontSize: 16 },
-  starOn: { color: theme.colors.accent, fontSize: 22 },
+  handle: { color: theme.colors.textMuted, fontSize: 18 },
 });

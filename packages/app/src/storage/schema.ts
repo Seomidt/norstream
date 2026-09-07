@@ -63,7 +63,10 @@ CREATE INDEX IF NOT EXISTS idx_channels_source ON channels (source_id);
 
 CREATE TABLE IF NOT EXISTS favorites (
   channel_id         TEXT PRIMARY KEY,
-  source_category_id TEXT
+  source_category_id TEXT,
+  -- Brugerens egen raekkefoelge. Nye favoritter laegger sig nederst; en hel
+  -- kategori laegges nederst i panelets orden. Kan flyttes under Favoritter.
+  position           INTEGER
 );
 
 -- Kanaler brugeren har fjernet fra en favoriseret kategori. Uden den ville
@@ -292,8 +295,8 @@ const TABLES = [
 // v8 tilfoejer VOD-tabellerne, v9 xmltv_logos, v10 logo_resolved og en
 // kolonne paa vod_details. Tabellerne klarer `CREATE TABLE IF NOT EXISTS`;
 // kolonnen har sit eget ALTER-trin.
-// v11: logo_overrides. v12: logo_files og logo_misses.
-const SCHEMA_VERSION = 12;
+// v11: logo_overrides. v12: logo_files og logo_misses. v13: favorites.position.
+const SCHEMA_VERSION = 13;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -436,6 +439,35 @@ async function addV10Columns(db: SqlDatabase): Promise<void> {
 }
 
 /**
+ * v13: favoritternes egen raekkefoelge.
+ *
+ * De der allerede er favoritter, faar numre i den orden de stod i: kategorier
+ * foerst i panelets orden, saa de enkeltvis valgte. Det er den orden skaermen
+ * viste foer, saa ingen oplever at listen bytter rundt ved opdateringen.
+ */
+async function addV13Columns(db: SqlDatabase): Promise<void> {
+  try {
+    await db.execAsync('ALTER TABLE favorites ADD COLUMN position INTEGER');
+  } catch {
+    // Kolonnen fandtes allerede.
+  }
+  const rows = await db.getAllAsync<{ channel_id: string }>(
+    `SELECT f.channel_id
+     FROM favorites f
+     LEFT JOIN channels c ON c.id = f.channel_id
+     WHERE f.position IS NULL
+     ORDER BY CASE WHEN f.source_category_id IS NULL THEN 1 ELSE 0 END,
+              COALESCE(c.sort_order, 0), f.rowid`,
+  );
+  const start = await db.getFirstAsync<{ n: number | null }>('SELECT MAX(position) AS n FROM favorites');
+  let position = (start?.n ?? -1) + 1;
+  for (const row of rows) {
+    await db.runAsync('UPDATE favorites SET position = ? WHERE channel_id = ?', [position, row.channel_id]);
+    position += 1;
+  }
+}
+
+/**
  * Rydder den cache hvis id'er skifter betydning ved v5.
  *
  * Kanalens id gaar fra at vaere panelets eget til ogsaa at sige hvorfra. En
@@ -497,6 +529,7 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     // Efter skemaet: paa en frisk database har CREATE TABLE allerede kolonnen
     // med, og ALTER-trinnet svarer bare at den findes.
     if (version >= 8 && version < 10) await addV10Columns(db);
+    if (version > 0 && version < 13) await addV13Columns(db);
 
   }
 

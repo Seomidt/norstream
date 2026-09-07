@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { channelKey } from '@norstream/core';
 import type { Category, Channel } from '@norstream/core';
 import { replaceCategories, replaceChannels, setFavorite } from './channels.js';
+import { listChannels } from './channels.js';
 import {
   addCategoryToFavorites,
-  listFavoriteGroups,
+  favoriteCategories,
+  moveFavorite,
   removeCategoryFromFavorites,
 } from './favorites.js';
 import { migrate } from './schema.js';
@@ -49,15 +51,26 @@ beforeEach(async () => {
   await replaceChannels(db, SOURCE, CHANNELS);
 });
 
+/** Favoritterne i den orden brugeren ser dem. */
+async function order(): Promise<string[]> {
+  return (await listChannels(db, { favouritesOnly: true })).map((c) => c.id);
+}
+
+/** Hvilken kategori hver favorit kom fra, som den staar i tabellen. */
+async function sourcesOf(): Promise<Map<string, string | null>> {
+  const rows = await db.getAllAsync<{ channel_id: string; source_category_id: string | null }>(
+    'SELECT channel_id, source_category_id FROM favorites',
+  );
+  return new Map(rows.map((row) => [row.channel_id, row.source_category_id]));
+}
+
 describe('addCategoryToFavorites', () => {
   it('kopierer kategoriens kanaler ind med deres kilde', async () => {
     const added = await addCategoryToFavorites(db, key('1'));
     expect(added).toBe(2);
 
-    const groups = await listFavoriteGroups(db);
-    expect(groups).toHaveLength(1);
-    expect(groups[0]?.categoryId).toBe(key('1'));
-    expect(groups[0]?.channels.map((c) => c.id)).toEqual([key('10'), key('11')]);
+    expect(await order()).toEqual([key('10'), key('11')]);
+    expect((await sourcesOf()).get(key('10'))).toBe(key('1'));
   });
 
   it('tilfoejer kun nye kanaler naar man trykker opdatér', async () => {
@@ -68,8 +81,7 @@ describe('addCategoryToFavorites', () => {
     const added = await addCategoryToFavorites(db, key('1'));
 
     expect(added).toBe(1);
-    const groups = await listFavoriteGroups(db);
-    expect(groups[0]?.channels.map((c) => c.id)).toEqual([key('10'), key('11'), key('12')]);
+    expect(await order()).toEqual([key('10'), key('11'), key('12')]);
   });
 
   it('bringer ikke en kanal tilbage som brugeren selv har fjernet', async () => {
@@ -79,18 +91,16 @@ describe('addCategoryToFavorites', () => {
 
     await addCategoryToFavorites(db, key('1'));
 
-    const groups = await listFavoriteGroups(db);
-    expect(groups[0]?.channels.map((c) => c.id)).toEqual([key('10')]);
+    expect(await order()).toEqual([key('10')]);
   });
 
   it('flytter ikke en kanal der allerede er favorit fra en anden kilde', async () => {
     await setFavorite(db, key('10'), true, key('2'));
     await addCategoryToFavorites(db, key('1'));
 
-    const groups = await listFavoriteGroups(db);
-    const byCategory = new Map(groups.map((g) => [g.categoryId, g.channels.map((c) => c.id)]));
-    expect(byCategory.get(key('2'))).toEqual([key('10')]);
-    expect(byCategory.get(key('1'))).toEqual([key('11')]);
+    const sources = await sourcesOf();
+    expect(sources.get(key('10'))).toBe(key('2'));
+    expect(sources.get(key('11'))).toBe(key('1'));
   });
 
   it('haenter en fjernet kanal igen naar brugeren selv favoriserer den', async () => {
@@ -102,9 +112,7 @@ describe('addCategoryToFavorites', () => {
 
     await addCategoryToFavorites(db, key('1'));
 
-    const groups = await listFavoriteGroups(db);
-    const ids = groups.flatMap((g) => g.channels.map((c) => c.id));
-    expect(ids.sort()).toEqual([key('10'), key('11')]);
+    expect((await order()).sort()).toEqual([key('10'), key('11')]);
   });
 
   it('taeller nul naar kategorien er tom', async () => {
@@ -120,10 +128,8 @@ describe('removeCategoryFromFavorites', () => {
 
     await removeCategoryFromFavorites(db, key('1'));
 
-    const groups = await listFavoriteGroups(db);
-    expect(groups).toHaveLength(1);
-    expect(groups[0]?.categoryId).toBeNull();
-    expect(groups[0]?.channels.map((c) => c.id)).toEqual([key('20')]);
+    expect(await order()).toEqual([key('20')]);
+    expect((await sourcesOf()).get(key('20'))).toBeNull();
   });
 
   it('nulstiller fravalgene, saa gruppen kommer hel tilbage', async () => {
@@ -133,51 +139,71 @@ describe('removeCategoryFromFavorites', () => {
 
     await addCategoryToFavorites(db, key('1'));
 
-    const groups = await listFavoriteGroups(db);
-    expect(groups[0]?.channels.map((c) => c.id)).toEqual([key('10'), key('11')]);
+    expect(await order()).toEqual([key('10'), key('11')]);
   });
 });
 
-describe('listFavoriteGroups', () => {
-  it('er tom naar der ingen favoritter er', async () => {
-    await expect(listFavoriteGroups(db)).resolves.toEqual([]);
+describe('raekkefoelge', () => {
+  it('laegger en ny favorit nederst, ikke i panelets orden', async () => {
+    await setFavorite(db, key('20'), true);
+    await setFavorite(db, key('10'), true);
+    expect(await order()).toEqual([key('20'), key('10')]);
   });
 
-  it('samler de enkeltvise favoritter i deres egen gruppe oeverst', async () => {
+  it('laegger en hel kategori nederst, i panelets orden', async () => {
     await setFavorite(db, key('20'), true);
     await addCategoryToFavorites(db, key('1'));
-
-    const groups = await listFavoriteGroups(db);
-
-    expect(groups.map((g) => g.categoryId)).toEqual([null, key('1')]);
-    expect(groups[0]?.categoryName).toBe('Egne favoritter');
-    expect(groups[1]?.categoryName).toBe('DENMARK HD & HEVC');
+    expect(await order()).toEqual([key('20'), key('10'), key('11')]);
   });
 
-  it('sorterer kategorierne efter navn', async () => {
-    await addCategoryToFavorites(db, key('2'));
+  it('flytter ikke en kanal der allerede er favorit naar kategorien opdateres', async () => {
+    await setFavorite(db, key('11'), true);
+    await setFavorite(db, key('20'), true);
     await addCategoryToFavorites(db, key('1'));
-    const groups = await listFavoriteGroups(db);
-    expect(groups.map((g) => g.categoryName)).toEqual([
-      'DENMARK HD & HEVC',
-      'SWEDEN SPORT',
-    ]);
+    expect(await order()).toEqual([key('11'), key('20'), key('10')]);
   });
 
-  it('viser stadig favoritter hvis kilde-kategorien er forsvundet fra panelet', async () => {
+  it('kan flyttes til en anden plads', async () => {
     await addCategoryToFavorites(db, key('1'));
-    await replaceCategories(db, SOURCE, [{ id: '2', name: 'SWEDEN SPORT' }]);
+    await setFavorite(db, key('20'), true);
+    await moveFavorite(db, key('20'), 0);
+    expect(await order()).toEqual([key('20'), key('10'), key('11')]);
+    await moveFavorite(db, key('20'), 1);
+    expect(await order()).toEqual([key('10'), key('20'), key('11')]);
+    await moveFavorite(db, key('10'), 99);
+    expect(await order()).toEqual([key('20'), key('11'), key('10')]);
+  });
 
-    const groups = await listFavoriteGroups(db);
-
-    expect(groups).toHaveLength(1);
-    expect(groups[0]?.categoryId).toBeNull();
-    expect(groups[0]?.channels.map((c) => c.id)).toEqual([key('10'), key('11')]);
+  it('ignorerer en flytning af noget der ikke er favorit', async () => {
+    await setFavorite(db, key('10'), true);
+    await moveFavorite(db, key('20'), 0);
+    expect(await order()).toEqual([key('10')]);
   });
 
   it('markerer kanalerne som favoritter', async () => {
     await addCategoryToFavorites(db, key('1'));
-    const groups = await listFavoriteGroups(db);
-    expect(groups[0]?.channels.every((c) => c.isFavorite)).toBe(true);
+    const channels = await listChannels(db, { favouritesOnly: true });
+    expect(channels.every((c) => c.isFavorite)).toBe(true);
+  });
+});
+
+describe('favoriteCategories', () => {
+  it('er tom naar der ingen favoritter er', async () => {
+    await expect(favoriteCategories(db)).resolves.toEqual([]);
+  });
+
+  it('naevner kategorierne favoritterne kom fra, med antal, men ikke de enkeltvise', async () => {
+    await setFavorite(db, key('20'), true);
+    await addCategoryToFavorites(db, key('1'));
+    expect(await favoriteCategories(db)).toEqual([
+      { id: key('1'), name: 'DENMARK HD & HEVC', channels: 2 },
+    ]);
+  });
+
+  it('udelader en kategori der er forsvundet fra panelet, men favoritterne bliver', async () => {
+    await addCategoryToFavorites(db, key('1'));
+    await replaceCategories(db, SOURCE, [{ id: '2', name: 'SWEDEN SPORT' }]);
+    expect(await favoriteCategories(db)).toEqual([]);
+    expect(await order()).toEqual([key('10'), key('11')]);
   });
 });

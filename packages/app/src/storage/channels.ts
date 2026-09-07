@@ -268,7 +268,7 @@ export async function listChannels(
      LEFT JOIN registry_logos rc ON rc.key = c.match_key || ':' || c.country
      LEFT JOIN registry_logos ra ON ra.key = c.match_key || ':*'
      ${clause}
-     ORDER BY c.sort_order
+     ORDER BY ${opts.favouritesOnly === true ? 'f.position IS NULL, f.position, ' : ''}c.sort_order
      ${limitClause}`,
     params,
   );
@@ -321,8 +321,11 @@ export async function setFavorite(
   sourceCategoryId: string | null = null,
 ): Promise<void> {
   if (favorite) {
+    // Nederst i listen. Raekkefoelgen er brugerens egen, og en ny favorit
+    // skal ikke dukke op midt i den.
     await db.runAsync(
-      'INSERT OR IGNORE INTO favorites (channel_id, source_category_id) VALUES (?, ?)',
+      `INSERT OR IGNORE INTO favorites (channel_id, source_category_id, position)
+       VALUES (?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM favorites))`,
       [id, sourceCategoryId],
     );
     // Brugeren vil have den igen; en tidligere fravalgt kanal skal ikke blive

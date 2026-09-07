@@ -115,7 +115,7 @@ describe('deleteSource', () => {
         source.id,
         'DENMARK',
       ]);
-      await db.runAsync('INSERT INTO favorites VALUES (?, NULL)', [key]);
+      await db.runAsync('INSERT INTO favorites (channel_id, source_category_id) VALUES (?, NULL)', [key]);
       await db.runAsync('INSERT INTO programmes VALUES (?, 1, 2, ?, NULL)', [key, 'Titel']);
       await db.runAsync('INSERT INTO epg_fetch VALUES (?, 1)', [key]);
     }
@@ -140,7 +140,7 @@ describe('deleteSource', () => {
 describe('adoptLegacyKeys', () => {
   it('giver gamle favoritter og optagelser kildens noegle', async () => {
     // Sadan saa databasen ud da appen kun kunne ét panel.
-    await db.runAsync("INSERT INTO favorites VALUES ('247634', NULL)");
+    await db.runAsync("INSERT INTO favorites (channel_id, source_category_id) VALUES ('247634', NULL)");
     await db.runAsync("INSERT INTO favorite_exclusions VALUES ('99', 'dk')");
     await db.runAsync(
       `INSERT INTO recordings
@@ -164,7 +164,7 @@ describe('adoptLegacyKeys', () => {
   });
 
   it('kan koeres igen uden at laegge noeglen paa to gange', async () => {
-    await db.runAsync("INSERT INTO favorites VALUES ('247634', NULL)");
+    await db.runAsync("INSERT INTO favorites (channel_id, source_category_id) VALUES ('247634', NULL)");
     await adoptLegacyKeys(db, 'src1');
     await adoptLegacyKeys(db, 'src1');
     const favorite = await db.getFirstAsync<{ channel_id: string }>(

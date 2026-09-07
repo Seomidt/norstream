@@ -69,7 +69,7 @@ describe('migrate paa en frisk database', () => {
   it('stempler skemaversion 11', async () => {
     const db = createTestDatabase();
     await migrate(db);
-    expect(await userVersion(db)).toBe(12);
+    expect(await userVersion(db)).toBe(13);
   });
 
   it('er idempotent og sletter ikke data ved anden koersel', async () => {
@@ -119,6 +119,36 @@ describe('migrate paa en frisk database', () => {
       ['247634'],
     );
     expect(row?.source_category_id).toBe('85');
+  });
+});
+
+describe('migrate til v13', () => {
+  it('giver de gamle favoritter numre i den orden de stod: kategorier foerst, saa de enkeltvise', async () => {
+    const db = createTestDatabase();
+    await migrate(db);
+    // Som en database fra foer kolonnen fandtes: raekker uden nummer og en
+    // aeldre version, saa opgraderingstrinnet koerer igen.
+    await db.runAsync(
+      "INSERT INTO channels (id, source_id, stream_id, name, category_id, sort_order) VALUES ('s:1','s','1','A','c1',2)",
+    );
+    await db.runAsync(
+      "INSERT INTO channels (id, source_id, stream_id, name, category_id, sort_order) VALUES ('s:2','s','2','B','c1',1)",
+    );
+    await db.runAsync(
+      "INSERT INTO channels (id, source_id, stream_id, name, category_id, sort_order) VALUES ('s:3','s','3','C','c2',0)",
+    );
+    await db.runAsync("INSERT INTO favorites (channel_id, source_category_id) VALUES ('s:3', NULL)");
+    await db.runAsync("INSERT INTO favorites (channel_id, source_category_id) VALUES ('s:1', 'c1')");
+    await db.runAsync("INSERT INTO favorites (channel_id, source_category_id) VALUES ('s:2', 'c1')");
+    await db.execAsync('PRAGMA user_version = 12');
+
+    await migrate(db);
+
+    const rows = await db.getAllAsync<{ channel_id: string }>(
+      'SELECT channel_id FROM favorites ORDER BY position',
+    );
+    expect(rows.map((row) => row.channel_id)).toEqual(['s:2', 's:1', 's:3']);
+    expect(await userVersion(db)).toBe(13);
   });
 });
 
@@ -193,7 +223,7 @@ describe('migrate fra v1', () => {
   it('stempler den nuvaerende version og opretter de nye tabeller', async () => {
     const db = await createV1Database();
     await migrate(db);
-    expect(await userVersion(db)).toBe(12);
+    expect(await userVersion(db)).toBe(13);
     const names = await tableNames(db);
     expect(names).toContain('epg_fetch');
     expect(names).toContain('hidden_countries');
@@ -207,7 +237,7 @@ describe('migrate fra v1', () => {
     await db.execAsync('PRAGMA user_version = 1');
 
     await expect(migrate(db)).resolves.toBeUndefined();
-    expect(await userVersion(db)).toBe(12);
+    expect(await userVersion(db)).toBe(13);
     expect(await tableNames(db)).toContain('favorites');
   });
 });
@@ -242,7 +272,7 @@ describe('migrate fra v2', () => {
   it('tilfoejer arkivtabellen uden at roere det der stod i forvejen', async () => {
     const db = createTestDatabase();
     await db.execAsync(V2_SCHEMA);
-    await db.runAsync("INSERT INTO favorites VALUES ('247634', 'dk-hd')");
+    await db.runAsync("INSERT INTO favorites (channel_id, source_category_id) VALUES ('247634', 'dk-hd')");
     await db.runAsync("INSERT INTO favorite_exclusions VALUES ('99', 'dk-hd')");
     await db.runAsync(
       "INSERT INTO programmes VALUES ('247634', 1000, 2000, 'TV Avisen', NULL)",
@@ -252,7 +282,7 @@ describe('migrate fra v2', () => {
 
     await migrate(db);
 
-    expect(await userVersion(db)).toBe(12);
+    expect(await userVersion(db)).toBe(13);
     expect(await tableNames(db)).toContain('epg_archive_fetch');
 
     // v2 -> v3 tilfoejer kun en tabel. Bygger den om alligevel, mister
@@ -330,7 +360,7 @@ PRAGMA user_version = 4;
     const db = await createV4();
     await migrate(db);
 
-    expect(await userVersion(db)).toBe(12);
+    expect(await userVersion(db)).toBe(13);
     expect(await tableNames(db)).toContain('sources');
 
     const channelColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(channels)');
@@ -345,7 +375,7 @@ PRAGMA user_version = 4;
 
   it('beholder favoritter, optagelser og skjulte lande', async () => {
     const db = await createV4();
-    await db.runAsync("INSERT INTO favorites VALUES ('247634', 'dk-hd')");
+    await db.runAsync("INSERT INTO favorites (channel_id, source_category_id) VALUES ('247634', 'dk-hd')");
     await db.runAsync("INSERT INTO hidden_countries VALUES ('__other__')");
     await db.runAsync(
       `INSERT INTO recordings
@@ -385,7 +415,7 @@ PRAGMA user_version = 4;
     const db = await createV4();
     await db.execAsync("ALTER TABLE channels ADD COLUMN source_id TEXT NOT NULL DEFAULT ''");
     await expect(migrate(db)).resolves.toBeUndefined();
-    expect(await userVersion(db)).toBe(12);
+    expect(await userVersion(db)).toBe(13);
   });
 });
 

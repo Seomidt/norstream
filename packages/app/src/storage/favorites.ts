@@ -1,18 +1,9 @@
 import { listChannels } from './channels.js';
-import type { StoredChannel } from './channels.js';
 import type { SqlDatabase } from './types.js';
 
-export interface FavoriteGroup {
-  /** Kategorien favoritterne kom fra, eller null for dem brugeren tilfoejede enkeltvis. */
-  categoryId: string | null;
-  categoryName: string;
-  channels: StoredChannel[];
-}
-
-const LOOSE_GROUP_NAME = 'Egne favoritter';
-
 /**
- * Kopierer en kategoris kanaler ind i favoritterne.
+ * Kopierer en kategoris kanaler ind i favoritterne, nederst i listen og i
+ * panelets orden.
  *
  * Spec sec.6: favoritterne er derefter brugerens egne, og enkelte kan fjernes
  * frit. Alternativet — at favorisere selve kategorien og beregne listen
@@ -31,12 +22,19 @@ export async function addCategoryToFavorites(
   categoryId: string,
 ): Promise<number> {
   const before = await countFavorites(db);
+  const last = await db.getFirstAsync<{ n: number | null }>(
+    'SELECT MAX(position) AS n FROM favorites',
+  );
+  // Numrene fortsaetter efter det sidste. Kanaler der allerede er favoritter
+  // springes over af OR IGNORE og efterlader huller i numrene; det er uden
+  // betydning, kun ordenen taeller.
   await db.runAsync(
-    `INSERT OR IGNORE INTO favorites (channel_id, source_category_id)
-     SELECT id, ? FROM channels
+    `INSERT OR IGNORE INTO favorites (channel_id, source_category_id, position)
+     SELECT id, ?, ? + ROW_NUMBER() OVER (ORDER BY sort_order)
+     FROM channels
      WHERE category_id = ?
        AND id NOT IN (SELECT channel_id FROM favorite_exclusions WHERE category_id = ?)`,
-    [categoryId, categoryId, categoryId],
+    [categoryId, last?.n ?? -1, categoryId, categoryId],
   );
   return (await countFavorites(db)) - before;
 }
@@ -59,61 +57,50 @@ export async function removeCategoryFromFavorites(
   await db.runAsync('DELETE FROM favorite_exclusions WHERE category_id = ?', [categoryId]);
 }
 
-interface GroupRow {
-  channel_id: string;
-  source_category_id: string | null;
-  category_name: string | null;
+export interface FavoriteCategory {
+  id: string;
+  name: string;
+  channels: number;
 }
 
 /**
- * Favoritterne grupperet efter den kategori de kom fra.
- *
- * Uden grupperingen ville ét tryk paa "Tilfoej alle" for Danmark give 979
- * kanaler i én flad liste — praecis det problem skaermen findes for at loese.
- *
- * Kanalerne hentes gennem `listChannels`, saa de baerer det samme
- * `StoredChannel`-indhold som resten af appen og sorteres i panelets orden.
+ * Kategorierne favoritterne kom fra, til "opdatér": henter de kanaler
+ * udbyderen har lagt i dem siden sidst. En kategori der er forsvundet fra
+ * panelet kan ikke opdateres og staar ikke med.
  */
-export async function listFavoriteGroups(db: SqlDatabase): Promise<FavoriteGroup[]> {
-  const [channels, rows] = await Promise.all([
-    listChannels(db, { favouritesOnly: true }),
-    db.getAllAsync<GroupRow>(
-      `SELECT f.channel_id, f.source_category_id, c.name AS category_name
-       FROM favorites f
-       LEFT JOIN categories c ON c.id = f.source_category_id`,
-    ),
-  ]);
+export async function favoriteCategories(db: SqlDatabase): Promise<FavoriteCategory[]> {
+  return db.getAllAsync<FavoriteCategory>(
+    `SELECT c.id, c.name, COUNT(*) AS channels
+     FROM favorites f
+     JOIN categories c ON c.id = f.source_category_id
+     GROUP BY c.id, c.name
+     ORDER BY c.name`,
+  );
+}
 
-  const sources = new Map(rows.map((row) => [row.channel_id, row]));
-  const groups = new Map<string, FavoriteGroup>();
+/**
+ * Flytter én favorit til en plads i listen. `toIndex` er pladsen i den
+ * raekkefoelge `listChannels` giver favoritterne — den brugeren ser.
+ *
+ * Alle numre skrives om bagefter. Tres opdateringer er ingenting, og saa er
+ * der aldrig to kanaler med samme nummer eller huller der skal regnes med.
+ */
+export async function moveFavorite(
+  db: SqlDatabase,
+  channelId: string,
+  toIndex: number,
+): Promise<void> {
+  const ids = (await listChannels(db, { favouritesOnly: true })).map((channel) => channel.id);
+  const from = ids.indexOf(channelId);
+  if (from === -1) return;
+  ids.splice(from, 1);
+  const target = Math.max(0, Math.min(ids.length, Math.trunc(toIndex)));
+  ids.splice(target, 0, channelId);
+  await writeOrder(db, ids);
+}
 
-  for (const channel of channels) {
-    const source = sources.get(channel.id);
-    // En kategori der er forsvundet fra panelet efterlader sit id uden navn.
-    // Favoritterne skal stadig kunne vises, saa de falder i den loese gruppe.
-    const categoryId =
-      source?.source_category_id != null && source.category_name != null
-        ? source.source_category_id
-        : null;
-    const key = categoryId ?? '';
-
-    let group = groups.get(key);
-    if (group === undefined) {
-      group = {
-        categoryId,
-        categoryName: categoryId === null ? LOOSE_GROUP_NAME : (source?.category_name ?? ''),
-        channels: [],
-      };
-      groups.set(key, group);
-    }
-    group.channels.push(channel);
+async function writeOrder(db: SqlDatabase, ids: readonly string[]): Promise<void> {
+  for (let index = 0; index < ids.length; index += 1) {
+    await db.runAsync('UPDATE favorites SET position = ? WHERE channel_id = ?', [index, ids[index]!]);
   }
-
-  // De loese favoritter oeverst — det er dem brugeren har valgt én ad gangen —
-  // og kategorierne derefter i alfabetisk orden.
-  return [...groups.values()].sort((a, b) => {
-    if (a.categoryId === null) return -1;
-    if (b.categoryId === null) return 1;
-    return a.categoryName.localeCompare(b.categoryName, 'da');
-  });
 }
