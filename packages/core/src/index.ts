@@ -27,7 +27,7 @@ export { countryFlag, deriveCountry, deriveCountryLoose } from './country/countr
 export type { Country } from './country/countries.js';
 
 export { createXmltvParser } from './epg/parser.js';
-export type { XmltvParser } from './epg/parser.js';
+export type { XmltvChannel, XmltvParser } from './epg/parser.js';
 export { parseXmltvTimestamp } from './epg/timestamp.js';
 export { decodeXmlEntities } from './epg/entities.js';
 

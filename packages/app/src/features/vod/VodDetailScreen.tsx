@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -33,18 +32,18 @@ interface Props {
   itemKey: string;
   onBack: () => void;
   onPlay: (playback: Playback) => void;
+  /** Traileren vises inde i appen, paa sin egen skaerm. */
+  onTrailer: (trailerId: string, title: string) => void;
 }
 
 /**
  * Én film eller serie.
  *
  * Det panelet ved om titlen — handling, rolleliste, trailer, afsnit — hentes
- * foerst her, og kun én gang om ugen. Traileren aabnes i YouTube-appen frem
- * for at blive lagt ind i appen: en indlejret afspiller kraever et
- * webvisnings-bibliotek mere, og YouTube-appen er bedre til det end nogen
- * indlejring ville vaere.
+ * foerst her, og kun én gang om ugen. Traileren spilles inde i appen med
+ * YouTubes egen indlejrede afspiller; se `TrailerScreen`.
  */
-export function VodDetailScreen({ session, itemKey, onBack, onPlay }: Props) {
+export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }: Props) {
   const insets = useSafeAreaInsets();
   const [item, setItem] = useState<StoredVodItem | null | undefined>(undefined);
   const [details, setDetails] = useState<VodDetails | null>(null);
@@ -134,9 +133,8 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay }: Props) {
 
   function openTrailer(): void {
     if (details?.trailerId === null || details?.trailerId === undefined) return;
-    void Linking.openURL(`https://www.youtube.com/watch?v=${details.trailerId}`).catch(() => {
-      setError('Traileren kunne ikke åbnes. Er YouTube installeret?');
-    });
+    if (item === null || item === undefined) return;
+    onTrailer(details.trailerId, item.name);
   }
 
   const seasons = [...new Set(episodes.map((episode) => episode.season))];

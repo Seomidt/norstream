@@ -22,6 +22,8 @@ export interface XmltvResult {
   programmes: number;
   /** Kanaler i listen som oversigten havde programmer for. */
   matched: number;
+  /** Kanaler der fik et logo fra filen. */
+  logos: number;
 }
 
 /**
@@ -38,7 +40,7 @@ export async function syncXmltv(
   fetchImpl: FetchLike,
 ): Promise<XmltvResult> {
   if (source.xmltvUrl === null || source.xmltvUrl.length === 0) {
-    return { programmes: 0, matched: 0 };
+    return { programmes: 0, matched: 0, logos: 0 };
   }
 
   const response = await fetchImpl(source.xmltvUrl);
@@ -65,17 +67,53 @@ export async function syncXmltv(
 
   const programmes: Programme[] = [];
   const matched = new Set<string>();
-  const parser = createXmltvParser((programme) => {
-    const key = lookup(index, programme.channelId);
-    if (key === undefined) return;
-    matched.add(key);
-    programmes.push({ ...programme, channelId: key });
-  });
+  const logos = new Map<string, string>();
+  const parser = createXmltvParser(
+    (programme) => {
+      const key = lookup(index, programme.channelId);
+      if (key === undefined) return;
+      matched.add(key);
+      programmes.push({ ...programme, channelId: key });
+    },
+    // Logoerne staar i <channel><icon> — standardens plads til dem. Kanalen
+    // findes paa id'et som programmerne, og ellers paa et af dens navne.
+    (channel) => {
+      if (channel.iconUrl === null) return;
+      let key = lookup(index, channel.id);
+      for (const name of channel.displayNames) {
+        if (key !== undefined) break;
+        key = lookupName(index, name);
+      }
+      if (key !== undefined && !logos.has(key)) logos.set(key, channel.iconUrl);
+    },
+  );
   parser.write(xml);
   parser.end();
 
   await upsertProgrammes(db, programmes);
-  return { programmes: programmes.length, matched: matched.size };
+  await replaceXmltvLogos(db, source.id, logos);
+  return { programmes: programmes.length, matched: matched.size, logos: logos.size };
+}
+
+/**
+ * Skriver filens logoer ind for kilden. De gamle for samme kilde ryddes
+ * foerst, saa en kanal der er roeget ud af filen ikke beholder et logo fra
+ * den.
+ */
+async function replaceXmltvLogos(
+  db: SqlDatabase,
+  sourceId: string,
+  logos: ReadonlyMap<string, string>,
+): Promise<void> {
+  await db.runAsync("DELETE FROM xmltv_logos WHERE channel_key LIKE ? ESCAPE '\\'", [
+    `${sourceId}:%`,
+  ]);
+  for (const [key, url] of logos) {
+    await db.runAsync('INSERT OR REPLACE INTO xmltv_logos (channel_key, url) VALUES (?, ?)', [
+      key,
+      url,
+    ]);
+  }
 }
 
 interface ChannelIndex {
@@ -131,6 +169,20 @@ function lookup(index: ChannelIndex, xmltvChannel: string): string | undefined {
   // `DR1.dk` -> `DR1`. Landeendelsen er ikke en del af kanalens navn.
   const withoutSuffix = xmltvChannel.replace(/\.[a-z]{2}$/i, '');
   return index.byName.get(normaliseChannelName(withoutSuffix));
+}
+
+/**
+ * Kanalen bag et af filens visningsnavne — `<display-name>DR1</display-name>`.
+ *
+ * Kun navne der peger paa praecis én kanal i kilden. Panelet har `DR1 HD`
+ * og `DR1 HEVC` som to raekker med samme normaliserede navn, og et logo
+ * maa ikke lande paa en tilfaeldig af dem — det ville den anden aldrig
+ * opdage.
+ */
+function lookupName(index: ChannelIndex, displayName: string): string | undefined {
+  const key = normaliseChannelName(displayName);
+  if (key.length === 0 || index.ambiguous.has(key)) return undefined;
+  return index.byName.get(key);
 }
 
 function contentLength(response: unknown): number | null {

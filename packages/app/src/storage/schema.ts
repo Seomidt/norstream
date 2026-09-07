@@ -149,6 +149,14 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+-- Logoer fra en XMLTV-fil. Det er her standarden har dem: <channel><icon>.
+-- Slaaet op paa appens egen kanalnoegle, fordi koblingen fra XMLTV-id eller
+-- navn til kanal allerede sker naar programoversigten hentes.
+CREATE TABLE IF NOT EXISTS xmltv_logos (
+  channel_key TEXT PRIMARY KEY,
+  url         TEXT NOT NULL
+);
+
 -- Film og serier. Samme moenster som kanalerne: listen hentes én gang i
 -- doegnet per kilde; det panelet ved om den enkelte titel hentes foerst naar
 -- den aabnes, og ligger i vod_details og episodes.
@@ -237,10 +245,12 @@ const TABLES = [
   'episodes',
   'vod_watchlist',
   'vod_progress',
+  'xmltv_logos',
 ] as const;
 
-// v8 tilfoejer kun VOD-tabellerne. `CREATE TABLE IF NOT EXISTS` klarer det.
-const SCHEMA_VERSION = 8;
+// v8 tilfoejer VOD-tabellerne, v9 xmltv_logos. `CREATE TABLE IF NOT EXISTS`
+// klarer begge.
+const SCHEMA_VERSION = 9;
 
 /**
  * Foerste version der kan opgraderes additivt.

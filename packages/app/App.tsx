@@ -13,6 +13,7 @@ import { PlayerScreen } from './src/features/player/PlayerScreen.js';
 import { VodDetailScreen } from './src/features/vod/VodDetailScreen.js';
 import type { Playback } from './src/features/vod/VodDetailScreen.js';
 import { VodPlayerScreen } from './src/features/vod/VodPlayerScreen.js';
+import { TrailerScreen } from './src/features/vod/TrailerScreen.js';
 import { createSession, reloadSources } from './src/session.js';
 import type { AppSession } from './src/session.js';
 
@@ -28,6 +29,7 @@ type Route =
   /** En film eller serie. Afspilleren husker hvilken titel den kom fra. */
   | { name: 'vodDetail'; itemKey: string }
   | { name: 'vodPlayer'; itemKey: string; playback: Playback }
+  | { name: 'trailer'; itemKey: string; trailerId: string; title: string }
   | { name: 'error' };
 
 /**
@@ -159,6 +161,16 @@ export default function App() {
           itemKey={route.itemKey}
           onBack={() => setRoute({ name: 'home' })}
           onPlay={(playback) => setRoute({ name: 'vodPlayer', itemKey: route.itemKey, playback })}
+          onTrailer={(trailerId, title) =>
+            setRoute({ name: 'trailer', itemKey: route.itemKey, trailerId, title })
+          }
+        />
+      )}
+      {route.name === 'trailer' && (
+        <TrailerScreen
+          trailerId={route.trailerId}
+          title={route.title}
+          onBack={() => setRoute({ name: 'vodDetail', itemKey: route.itemKey })}
         />
       )}
       {route.name === 'vodPlayer' && session !== null && (

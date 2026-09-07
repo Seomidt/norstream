@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FetchLike, Source } from '@norstream/core';
+import { listChannels } from '../storage/channels.js';
 import { listProgrammes } from '../storage/programmes.js';
 import { migrate } from '../storage/schema.js';
 import { createTestDatabase } from '../storage/testDb.js';
@@ -85,7 +86,7 @@ describe('syncXmltv', () => {
 
   it('gør ingenting naar kilden ingen XMLTV-adresse har', async () => {
     const result = await syncXmltv(db, source({ xmltvUrl: null }), serving(XMLTV));
-    expect(result).toEqual({ programmes: 0, matched: 0 });
+    expect(result).toEqual({ programmes: 0, matched: 0, logos: 0 });
   });
 
   it('afviser en oversigt der er for stor til en telefon', async () => {
@@ -155,5 +156,49 @@ describe('naar kanalen ingen tvg-id har', () => {
       new Date('2026-09-06T20:00:00Z'),
     );
     expect(stored).toHaveLength(1);
+  });
+});
+
+describe('logoer fra filen', () => {
+  // Det er her standarden har dem: <channel><icon>. En udbyder der leverer
+  // en XMLTV-fil, leverer altsaa tit ogsaa logoerne.
+  it('gemmer logoet for den kanal filen beskriver, og saetter det foerst', async () => {
+    const xml =
+      '<tv><channel id="dr1.dk"><icon src="https://xmltv/dr1.png"/></channel>' +
+      '<channel id="andet.dk"><display-name>TV 2</display-name><icon src="https://xmltv/tv2.png"/></channel>' +
+      '<programme start="20260906180000 +0000" stop="20260906190000 +0000" channel="dr1.dk"><title>N</title></programme></tv>';
+
+    const result = await syncXmltv(db, source(), serving(xml));
+
+    expect(result.logos).toBe(2);
+    const channels = await listChannels(db);
+    // Paa id for DR1, paa visningsnavnet for TV 2 — og foerst i raekken.
+    expect(channels.find((c) => c.name === 'DR1')?.logoUrls[0]).toBe('https://xmltv/dr1.png');
+    expect(channels.find((c) => c.name === 'TV 2')?.logoUrls[0]).toBe('https://xmltv/tv2.png');
+  });
+
+  it('giver ikke et logo til et navn der gaar igen paa flere kanaler', async () => {
+    // Panelet har `DR1 HD` og `DR1 HEVC` som to raekker med samme
+    // normaliserede navn. Et logo maa ikke lande paa en tilfaeldig af dem.
+    const twins = `#EXTM3U
+#EXTINF:-1 group-title="Danmark",DR1 HD
+http://liste.example/a.m3u8
+#EXTINF:-1 group-title="Danmark",DR1 HEVC
+http://liste.example/b.m3u8
+`;
+    const twinSource = source({ id: 'm2', url: 'http://liste.example/twins.m3u' });
+    await syncM3u(db, twinSource, serving(twins));
+    const xml = '<tv><channel id="x"><display-name>DR1</display-name><icon src="https://xmltv/dr1.png"/></channel></tv>';
+
+    const result = await syncXmltv(db, twinSource, serving(xml));
+
+    expect(result.logos).toBe(0);
+  });
+
+  it('rydder filens gamle logoer naar den hentes igen', async () => {
+    await syncXmltv(db, source(), serving('<tv><channel id="dr1.dk"><icon src="https://xmltv/gammel.png"/></channel></tv>'));
+    await syncXmltv(db, source(), serving('<tv></tv>'));
+    const dr1 = (await listChannels(db)).find((c) => c.name === 'DR1');
+    expect(dr1?.logoUrls).not.toContain('https://xmltv/gammel.png');
   });
 });
