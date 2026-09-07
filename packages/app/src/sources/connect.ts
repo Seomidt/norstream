@@ -1,6 +1,6 @@
 import { XtreamAuthError, XtreamClient, detectTimeshiftDialect } from '@norstream/core';
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
-import { addSource, deleteSource } from '../storage/sources.js';
+import { addSource, deleteSource, listSources } from '../storage/sources.js';
 import { setPanelOffsetMinutes, setTimeshiftDialect } from '../storage/settings.js';
 import type { SqlDatabase } from '../storage/types.js';
 import { syncChannels } from '../sync/syncChannels.js';
@@ -37,6 +37,12 @@ export interface M3uRequest {
 export function hostOf(url: string): string {
   const match = /^[a-z]+:\/\/([^/:]+)/i.exec(url.trim());
   return match?.[1] ?? 'Kilde';
+}
+
+/** Samme panel, uanset skraastreg til sidst og store bogstaver i vaertsnavnet. */
+function sameOrigin(a: string, b: string): boolean {
+  const norm = (url: string): string => url.trim().replace(/\/+$/, '').toLowerCase();
+  return norm(a) === norm(b);
 }
 
 function optional(value: string | undefined): string | null {
@@ -93,6 +99,22 @@ export async function connectXtream(
   const name = optional(request.name) ?? hostOf(creds.baseUrl);
   let sourceId: string;
   try {
+    // Findes kilden allerede — samme panel, samme brugernavn — er det et
+    // nyt login paa den, ikke en kilde til. Favoritter, optagelser og alt
+    // andet der haenger paa kilden bliver staaende; kun kodeordet skiftes.
+    const existing = (await listSources(db)).find(
+      (source) =>
+        source.kind === 'xtream' &&
+        sameOrigin(source.url, creds.baseUrl) &&
+        source.username === creds.username,
+    );
+    if (existing !== undefined) {
+      const { saveSourceCredentials } = await import('../storage/credentials.js');
+      await saveSourceCredentials(existing.id, creds);
+      await probeArchive(db, fetchImpl, existing.id, creds);
+      return { ok: true, sourceId: existing.id, name: existing.name };
+    }
+
     const source = await addSource(db, {
       kind: 'xtream',
       name,

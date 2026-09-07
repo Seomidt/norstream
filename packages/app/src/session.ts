@@ -1,4 +1,5 @@
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
+import { withPanelCooldown } from './net/cooldown.js';
 import { createFetchImpl } from './net/fetchImpl.js';
 import { initLogoMemory } from './ui/logoMemory.js';
 import { applyStreamFormatSetting } from './features/player/format.js';
@@ -90,7 +91,7 @@ export async function createSession(): Promise<AppSession> {
   const sources = await readSources(db);
   return {
     db,
-    fetchImpl: createFetchImpl(),
+    fetchImpl: withPanelCooldown(createFetchImpl()),
     sources,
     credsBySource: credentialsBySource(sources),
     access: (sourceId) => sources.find((entry) => entry.source.id === sourceId) ?? null,

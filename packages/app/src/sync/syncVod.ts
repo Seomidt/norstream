@@ -25,10 +25,10 @@ export async function syncVod(
   const result = { movies: 0, series: 0 };
 
   try {
-    const [categories, movies] = await Promise.all([
-      client.getVodCategories(),
-      client.getVodStreams(),
-    ]);
+    // Efter hinanden, ikke samtidig: panelet tillader én forbindelse, og
+    // samtidige kald var med til at faa det til at blokere adressen.
+    const categories = await client.getVodCategories();
+    const movies = await client.getVodStreams();
     await replaceVodCategories(db, sourceId, 'movie', categories);
     await replaceVodItems(db, sourceId, 'movie', movies);
     result.movies = movies.length;
@@ -37,10 +37,8 @@ export async function syncVod(
   }
 
   try {
-    const [categories, series] = await Promise.all([
-      client.getSeriesCategories(),
-      client.getSeries(),
-    ]);
+    const categories = await client.getSeriesCategories();
+    const series = await client.getSeries();
     await replaceVodCategories(db, sourceId, 'series', categories);
     await replaceVodItems(db, sourceId, 'series', series);
     result.series = series.length;

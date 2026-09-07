@@ -26,7 +26,12 @@ const DEFAULT_LIMIT = 12;
  * ubegraenset fan-out over en synlig guide-side ville stadig vaere uartig mod et
  * panel der er langsomt nok til at have en 98 MB XMLTV-fil.
  */
-const MAX_PARALLEL = 4;
+// Ét ad gangen. Fire ad gangen fik brugerens panel til at blokere adressen
+// og svare 403 paa alt — ogsaa paa det naeste login. Panelet tillader én
+// stroem; det taeller tilsyneladende ogsaa API-kald.
+const MAX_PARALLEL = 1;
+/** En kort pause mellem kaldene, saa en byge ikke ligner et angreb. */
+const PAUSE_MS = 150;
 
 /**
  * Hvor lidt vi altid beholder, ogsaa naar ingen kanal har arkiv. Tolv timer
@@ -79,6 +84,7 @@ async function runBounded<T>(
       const item = items[index];
       if (index >= items.length || item === undefined) return;
       await worker(item);
+      if (PAUSE_MS > 0) await new Promise((resolve) => setTimeout(resolve, PAUSE_MS));
     }
   });
   await Promise.all(runners);

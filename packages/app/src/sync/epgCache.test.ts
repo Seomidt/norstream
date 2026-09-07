@@ -133,9 +133,12 @@ describe('ensureEpg', () => {
     expect((fetchImpl as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
   });
 
-  it('holder sig til fire samtidige kald', async () => {
+  // Fire ad gangen fik brugerens panel til at blokere adressen og svare 403
+  // paa alt — ogsaa paa det naeste login. Panelet tillader én forbindelse;
+  // det taeller tilsyneladende ogsaa API-kald.
+  it('spoerger panelet ét kald ad gangen', async () => {
     let peak = 0;
-    const ids = Array.from({ length: 20 }, (_, i) => key(`chan-${i}`));
+    const ids = Array.from({ length: 8 }, (_, i) => key(`chan-${i}`));
     const fetchImpl = panel({
       onConcurrency: (inFlight) => {
         peak = Math.max(peak, inFlight);
@@ -144,8 +147,8 @@ describe('ensureEpg', () => {
 
     await ensureEpg(db, sources, fetchImpl, ids, NOW);
 
-    expect(peak).toBeGreaterThan(1);
-    expect(peak).toBeLessThanOrEqual(4);
+    expect(peak).toBe(1);
+    expect((fetchImpl as ReturnType<typeof vi.fn>).mock.calls.length).toBe(8);
   });
 
   it('afduplikerer noegler og springer ubrugelige over', async () => {

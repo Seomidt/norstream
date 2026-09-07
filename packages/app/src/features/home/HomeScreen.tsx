@@ -4,8 +4,6 @@ import { XtreamAuthError } from '@norstream/core';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
-import { clearSourceCredentials } from '../../storage/credentials.js';
-import { deleteSource, listSources } from '../../storage/sources.js';
 import {
   clearLastSyncMs,
   getMiniPreviewEnabled,
@@ -22,6 +20,7 @@ import { SourcesScreen } from '../sources/SourcesScreen.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SettingsScreen } from '../settings/SettingsScreen.js';
+import { Notice } from '../../ui/Notice.js';
 import { VodScreen } from '../vod/VodScreen.js';
 import type { VodLevel } from '../vod/VodScreen.js';
 import type { StoredVodItem } from '../../storage/vod.js';
@@ -154,23 +153,19 @@ export function HomeScreen({
     };
   }, [session.db]);
 
-  const signOutFromPanel = useCallback(async (): Promise<void> => {
-    // Spec sec.9: afviste credentials ryddes fra enheden, og brugeren sendes
-    // til onboarding. Et skiftet panel-kodeord maa ikke laase installationen.
-    // Begge oprydninger koeres uanset om den anden fejler; en fejlende
-    // keychain-sletning maa ikke afbryde udlogningen stille.
-    const sources = await listSources(session.db);
-    await Promise.allSettled([
-      ...sources.map((source) => clearSourceCredentials(source.id)),
-      ...sources.map((source) => deleteSource(session.db, source.id)),
-      clearLastSyncMs(session.db),
-    ]);
-    onSignedOut(SIGNED_OUT_MESSAGE);
-  }, [session.db, onSignedOut]);
-
+  /**
+   * Panelet afviste et kald.
+   *
+   * Foer loggede det brugeren ud og slettede kilden, favoritterne og
+   * adgangsoplysningerne — paa ét 403, som lige saa godt kan vaere et panel
+   * der blokerer en adresse et kvarter. Nu siges det, og intet roeres. Er
+   * kodeordet virkelig skiftet, er der en knap til at logge ind igen, og det
+   * login lander oven i den kilde der findes, med favoritterne i behold.
+   */
+  const [rejected, setRejected] = useState(false);
   const handleAuthError = useCallback((): void => {
-    void signOutFromPanel();
-  }, [signOutFromPanel]);
+    setRejected(true);
+  }, []);
 
   /**
    * Henter kanaler fra panelet. `force` er traek-ned; uden det springes turen
@@ -189,10 +184,7 @@ export function HomeScreen({
       const result = await syncAllSources(session.db, session.sources, session.fetchImpl, {
         force,
       });
-      if (result.synced === 0 && result.rejected.length > 0) {
-        await signOutFromPanel();
-        return;
-      }
+      if (result.rejected.length > 0) setRejected(true);
       setFavoritesToken((value) => value + 1);
 
       // Bagefter, og uden at nogen venter paa det: favoritternes programtabel
@@ -202,7 +194,7 @@ export function HomeScreen({
         () => undefined,
       );
     },
-    [session, signOutFromPanel],
+    [session],
   );
 
   // Foerste gang skaermen vises: hent hvis cachen er gammel eller tom. Det
@@ -247,6 +239,20 @@ export function HomeScreen({
 
   return (
     <View style={styles.container}>
+      {rejected && (
+        <Notice
+          notice={{
+            text:
+              'Panelet afviser appen lige nu. Det sker når det blokerer en adresse et stykke tid — appen venter ti minutter og prøver igen. Har du skiftet kodeord, så log ind igen under Kilder.',
+            actionLabel: 'Kilder',
+            onAction: () => {
+              setTab('settings');
+              setShowingSources(true);
+            },
+          }}
+          onDismiss={() => setRejected(false)}
+        />
+      )}
       <View style={styles.body}>
         {tab === 'favorites' && (
           <FavoritesScreen
