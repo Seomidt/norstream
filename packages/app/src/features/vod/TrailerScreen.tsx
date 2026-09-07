@@ -4,7 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import type { WebViewMessageEvent } from 'react-native-webview';
 import type { AppSession } from '../../session.js';
-import { getYoutubeApiKey } from '../../storage/settings.js';
+import { getTmdbApiKey, getYoutubeApiKey } from '../../storage/settings.js';
+import { findTmdbTrailer } from '../../sync/tmdb.js';
 import { theme } from '../../ui/theme.js';
 import { MIN_TRAILER_SECONDS, findLongerTrailer, youtubeSearchUrl } from './trailerSearch.js';
 
@@ -14,6 +15,8 @@ interface Props {
   trailerId: string | null;
   title: string;
   year: number | null;
+  /** Film eller serie; TMDB slaar dem op hver sit sted. */
+  kind: 'movie' | 'series';
   onBack: () => void;
 }
 
@@ -66,7 +69,7 @@ type Source =
  */
 const EMBED_ORIGIN = 'https://norstream.app';
 
-export function TrailerScreen({ session, trailerId, title, year, onBack }: Props) {
+export function TrailerScreen({ session, trailerId, title, year, kind, onBack }: Props) {
   const insets = useSafeAreaInsets();
   const [source, setSource] = useState<Source>(
     trailerId === null ? { kind: 'looking' } : { kind: 'measured', id: trailerId },
@@ -81,6 +84,19 @@ export function TrailerScreen({ session, trailerId, title, year, onBack }: Props
     if (searched.current) return;
     searched.current = true;
     setSource({ kind: 'looking' });
+    // TMDB foerst: den ved hvad der er en trailer og hvad der er en teaser,
+    // saa der er intet at maale. Titlen slaas op med aarstallet i navnet.
+    const tmdbKey = await getTmdbApiKey(session.db);
+    if (tmdbKey !== null) {
+      const name = year === null ? title : `${title} (${year})`;
+      const found = await findTmdbTrailer(session.fetchImpl, tmdbKey, kind, name);
+      if (found !== null && found.youtubeId !== trailerId) {
+        setNote(`${reason} Traileren er fundet gennem TMDB: ${found.name}.`);
+        setLoading(true);
+        setSource({ kind: 'plain', id: found.youtubeId });
+        return;
+      }
+    }
     const apiKey = await getYoutubeApiKey(session.db);
     if (apiKey !== null) {
       const found = await findLongerTrailer(session.fetchImpl, apiKey, title, year, trailerId);
@@ -92,7 +108,9 @@ export function TrailerScreen({ session, trailerId, title, year, onBack }: Props
       }
       setNote(`${reason} Søgningen fandt ingen lang nok, så her er YouTubes egen søgning.`);
     } else {
-      setNote(`${reason} Uden en YouTube-nøgle under Indstillinger vælger du selv her.`);
+      setNote(
+        `${reason} ${tmdbKey === null ? 'Uden en TMDB-nøgle under Indstillinger' : 'TMDB kender ingen trailer til titlen, så'} vælger du selv her.`,
+      );
     }
     setLoading(true);
     setSource({ kind: 'search', url: youtubeSearchUrl(title, year) });

@@ -37,7 +37,12 @@ interface Props {
    * bud og kan mangle; skaermen soeger selv videre naar det er en teaser
    * eller slet ikke er der.
    */
-  onTrailer: (trailerId: string | null, title: string, year: number | null) => void;
+  onTrailer: (
+    trailerId: string | null,
+    title: string,
+    year: number | null,
+    kind: 'movie' | 'series',
+  ) => void;
 }
 
 /**
@@ -137,7 +142,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
 
   function openTrailer(): void {
     if (item === null || item === undefined) return;
-    onTrailer(details?.trailerId ?? null, item.name, details?.year ?? item.year);
+    onTrailer(details?.trailerId ?? null, item.name, details?.year ?? item.year, item.kind);
   }
 
   const seasons = [...new Set(episodes.map((episode) => episode.season))];

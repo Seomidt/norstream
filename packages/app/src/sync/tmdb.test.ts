@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FetchLike } from '@norstream/core';
-import { cleanVodTitle, findTmdbPoster } from './tmdb.js';
+import { cleanVodTitle, findTmdbPoster, findTmdbTrailer, pickTmdbTrailer } from './tmdb.js';
 
 describe('cleanVodTitle', () => {
   it('tager praefiks, aarstal, klammer og kvalitetsord ud', () => {
@@ -33,7 +33,7 @@ function fakeFetch(answers: Array<[RegExp, unknown]>): FetchLike & { calls: stri
 
 describe('findTmdbPoster', () => {
   it('soeger paa film med aarstal og bygger plakatens adresse', async () => {
-    const fetchImpl = fakeFetch([[/search\/movie.*year=2021/, { results: [{ poster_path: '/abc.jpg' }] }]]);
+    const fetchImpl = fakeFetch([[/search\/movie.*year=2021/, { results: [{ id: 1, poster_path: '/abc.jpg' }] }]]);
     const url = await findTmdbPoster(fetchImpl, 'KEY', 'movie', 'DK - Spider-Man (2021)');
     expect(url).toBe('https://image.tmdb.org/t/p/w342/abc.jpg');
     expect(fetchImpl.calls[0]).toContain('query=Spider-Man');
@@ -42,7 +42,7 @@ describe('findTmdbPoster', () => {
   });
 
   it('soeger paa serier under tv', async () => {
-    const fetchImpl = fakeFetch([[/search\/tv/, { results: [{ poster_path: '/crown.jpg' }] }]]);
+    const fetchImpl = fakeFetch([[/search\/tv/, { results: [{ id: 2, poster_path: '/crown.jpg' }] }]]);
     expect(await findTmdbPoster(fetchImpl, 'KEY', 'series', 'The Crown S01')).toBe(
       'https://image.tmdb.org/t/p/w342/crown.jpg',
     );
@@ -51,7 +51,7 @@ describe('findTmdbPoster', () => {
   it('proever uden aarstal naar aarstallet ikke rammer', async () => {
     const fetchImpl = fakeFetch([
       [/year=1999/, { results: [] }],
-      [/search\/movie/, { results: [{ poster_path: null }, { poster_path: '/x.jpg' }] }],
+      [/search\/movie/, { results: [{ id: 3, poster_path: null }, { id: 4, poster_path: '/x.jpg' }] }],
     ]);
     expect(await findTmdbPoster(fetchImpl, 'KEY', 'movie', 'Matrix (1999)')).toBe(
       'https://image.tmdb.org/t/p/w342/x.jpg',
@@ -66,5 +66,49 @@ describe('findTmdbPoster', () => {
     }) as unknown as FetchLike;
     expect(await findTmdbPoster(broken, 'KEY', 'movie', 'Dune')).toBeNull();
     expect(await findTmdbPoster(fakeFetch([]), 'KEY', 'movie', '(2021)')).toBeNull();
+  });
+});
+
+describe('pickTmdbTrailer', () => {
+  it('vaelger en officiel trailer paa YouTube, nyeste foerst, og aldrig en teaser', () => {
+    const picked = pickTmdbTrailer([
+      { key: 't1', site: 'YouTube', type: 'Teaser', official: true, published_at: '2024-05-01' },
+      { key: 'old', site: 'YouTube', type: 'Trailer', official: true, published_at: '2024-01-01', name: 'Trailer 1' },
+      { key: 'new', site: 'YouTube', type: 'Trailer', official: true, published_at: '2024-03-01', name: 'Trailer 2' },
+      { key: 'fan', site: 'YouTube', type: 'Trailer', official: false, published_at: '2024-06-01' },
+      { key: 'v', site: 'Vimeo', type: 'Trailer', official: true, published_at: '2024-07-01' },
+    ]);
+    expect(picked).toEqual({ youtubeId: 'new', name: 'Trailer 2' });
+  });
+
+  it('giver null naar der kun er teasere og klip', () => {
+    expect(pickTmdbTrailer([{ key: 'x', site: 'YouTube', type: 'Teaser' }, { key: 'y', site: 'YouTube', type: 'Clip' }])).toBeNull();
+    expect(pickTmdbTrailer([])).toBeNull();
+  });
+});
+
+describe('findTmdbTrailer', () => {
+  it('finder titlen, henter dens videoer og vaelger traileren', async () => {
+    const fetchImpl = fakeFetch([
+      [/search\/movie/, { results: [{ id: 42, poster_path: '/p.jpg' }] }],
+      [/movie\/42\/videos/, { results: [{ key: 'abc', site: 'YouTube', type: 'Trailer', official: true, name: 'Official Trailer' }] }],
+    ]);
+    expect(await findTmdbTrailer(fetchImpl, 'KEY', 'movie', 'Dune (2021)')).toEqual({
+      youtubeId: 'abc',
+      name: 'Official Trailer',
+    });
+    expect(fetchImpl.calls[1]).toContain('/movie/42/videos');
+  });
+
+  it('bruger tv-endepunktet for serier', async () => {
+    const fetchImpl = fakeFetch([
+      [/search\/tv/, { results: [{ id: 7 }] }],
+      [/tv\/7\/videos/, { results: [{ key: 'crown', site: 'YouTube', type: 'Trailer' }] }],
+    ]);
+    expect((await findTmdbTrailer(fetchImpl, 'KEY', 'series', 'The Crown'))?.youtubeId).toBe('crown');
+  });
+
+  it('giver null naar titlen ikke findes', async () => {
+    expect(await findTmdbTrailer(fakeFetch([]), 'KEY', 'movie', 'Ukendt')).toBeNull();
   });
 });

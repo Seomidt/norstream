@@ -29,7 +29,14 @@ type Route =
   /** En film eller serie. Afspilleren husker hvilken titel den kom fra. */
   | { name: 'vodDetail'; itemKey: string }
   | { name: 'vodPlayer'; itemKey: string; playback: Playback }
-  | { name: 'trailer'; itemKey: string; trailerId: string | null; title: string; year: number | null }
+  | {
+      name: 'trailer';
+      itemKey: string;
+      trailerId: string | null;
+      title: string;
+      year: number | null;
+      kind: 'movie' | 'series';
+    }
   | { name: 'error' };
 
 /**
@@ -192,8 +199,8 @@ export default function App() {
           itemKey={route.itemKey}
           onBack={() => setRoute({ name: 'home' })}
           onPlay={(playback) => setRoute({ name: 'vodPlayer', itemKey: route.itemKey, playback })}
-          onTrailer={(trailerId, title, year) =>
-            setRoute({ name: 'trailer', itemKey: route.itemKey, trailerId, title, year })
+          onTrailer={(trailerId, title, year, kind) =>
+            setRoute({ name: 'trailer', itemKey: route.itemKey, trailerId, title, year, kind })
           }
         />
       )}
@@ -203,6 +210,7 @@ export default function App() {
           trailerId={route.trailerId}
           title={route.title}
           year={route.year}
+          kind={route.kind}
           onBack={() => setRoute({ name: 'vodDetail', itemKey: route.itemKey })}
         />
       )}

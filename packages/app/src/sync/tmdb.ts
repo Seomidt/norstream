@@ -57,43 +57,124 @@ export function cleanVodTitle(name: string): CleanTitle {
 }
 
 const IMAGE_BASE = 'https://image.tmdb.org/t/p/w342';
+const API = 'https://api.themoviedb.org/3';
+
+interface SearchHit {
+  id?: number;
+  poster_path?: string | null;
+}
 
 interface SearchResult {
-  results?: Array<{ poster_path?: string | null; release_date?: string; first_air_date?: string; title?: string; name?: string }>;
+  results?: SearchHit[];
 }
 
 /**
- * Plakatens adresse, eller null naar TMDB ikke kender titlen. Fejl giver
- * ogsaa null; en plakat der mangler er ikke en fejl paa skaermen.
+ * Titlens opslag hos TMDB: id og plakat. Aarstallet bruges foerst; rammer
+ * det ikke, proeves uden — panelets aarstal er tit et gaet. Null naar
+ * TMDB ikke kender titlen, eller noget gaar galt: en plakat der mangler
+ * er ikke en fejl paa skaermen.
  */
+export async function searchTmdb(
+  fetchImpl: FetchLike,
+  apiKey: string,
+  kind: 'movie' | 'series',
+  name: string,
+): Promise<{ id: number; posterUrl: string | null } | null> {
+  const { title, year } = cleanVodTitle(name);
+  if (title.length === 0) return null;
+  const endpoint = kind === 'series' ? 'tv' : 'movie';
+  const yearParam = year === null ? '' : kind === 'series' ? `&first_air_date_year=${year}` : `&year=${year}`;
+  const url =
+    `${API}/search/${endpoint}?query=${encodeURIComponent(title)}` +
+    `${yearParam}&include_adult=false&language=da-DK&api_key=${encodeURIComponent(apiKey)}`;
+  try {
+    let hit = await firstHit(fetchImpl, url);
+    if (hit === null && year !== null) hit = await firstHit(fetchImpl, url.replace(yearParam, ''));
+    if (hit === null || typeof hit.id !== 'number') return null;
+    return {
+      id: hit.id,
+      posterUrl: typeof hit.poster_path === 'string' ? `${IMAGE_BASE}${hit.poster_path}` : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function firstHit(fetchImpl: FetchLike, url: string): Promise<SearchHit | null> {
+  const response = await fetchImpl(url);
+  if (!response.ok) return null;
+  const parsed = (await response.json()) as SearchResult;
+  // Den foerste med plakat; ellers den foerste overhovedet.
+  const results = parsed.results ?? [];
+  return results.find((result) => typeof result.poster_path === 'string') ?? results[0] ?? null;
+}
+
+/** Plakatens adresse, eller null. */
 export async function findTmdbPoster(
   fetchImpl: FetchLike,
   apiKey: string,
   kind: 'movie' | 'series',
   name: string,
 ): Promise<string | null> {
-  const { title, year } = cleanVodTitle(name);
-  if (title.length === 0) return null;
+  return (await searchTmdb(fetchImpl, apiKey, kind, name))?.posterUrl ?? null;
+}
+
+interface Video {
+  key?: string;
+  site?: string;
+  type?: string;
+  official?: boolean;
+  name?: string;
+  iso_639_1?: string;
+  published_at?: string;
+}
+
+export interface TmdbTrailer {
+  youtubeId: string;
+  name: string;
+}
+
+/**
+ * Titlens trailer paa YouTube, som TMDB kender den.
+ *
+ * TMDB maerker hver video med hvad den er — Trailer, Teaser, Clip — og om
+ * den er officiel. Saa der er ingen grund til at maale laengden: en
+ * "Trailer" er en trailer. Officielle foerst, nyeste foerst. Teasere og
+ * klip tages ikke med; det var netop dem der var problemet.
+ */
+export async function findTmdbTrailer(
+  fetchImpl: FetchLike,
+  apiKey: string,
+  kind: 'movie' | 'series',
+  name: string,
+): Promise<TmdbTrailer | null> {
+  const found = await searchTmdb(fetchImpl, apiKey, kind, name);
+  if (found === null) return null;
   const endpoint = kind === 'series' ? 'tv' : 'movie';
-  const yearParam = year === null ? '' : kind === 'series' ? `&first_air_date_year=${year}` : `&year=${year}`;
-  const url =
-    `https://api.themoviedb.org/3/search/${endpoint}?query=${encodeURIComponent(title)}` +
-    `${yearParam}&include_adult=false&language=da-DK&api_key=${encodeURIComponent(apiKey)}`;
   try {
-    let response = await fetchImpl(url);
+    const response = await fetchImpl(
+      `${API}/${endpoint}/${found.id}/videos?include_video_language=da,en,null&api_key=${encodeURIComponent(apiKey)}`,
+    );
     if (!response.ok) return null;
-    let parsed = (await response.json()) as SearchResult;
-    let hit = (parsed.results ?? []).find((result) => typeof result.poster_path === 'string');
-    // Aarstallet kan vaere panelets eget gaet. Uden det, som anden chance.
-    if (hit === undefined && year !== null) {
-      response = await fetchImpl(url.replace(yearParam, ''));
-      if (!response.ok) return null;
-      parsed = (await response.json()) as SearchResult;
-      hit = (parsed.results ?? []).find((result) => typeof result.poster_path === 'string');
-    }
-    if (hit === undefined || typeof hit.poster_path !== 'string') return null;
-    return `${IMAGE_BASE}${hit.poster_path}`;
+    const parsed = (await response.json()) as { results?: Video[] };
+    return pickTmdbTrailer(parsed.results ?? []);
   } catch {
     return null;
   }
+}
+
+/** Den bedste af TMDBs videoer: YouTube, af typen Trailer, officiel foer uofficiel, nyest foerst. */
+export function pickTmdbTrailer(videos: readonly Video[]): TmdbTrailer | null {
+  const trailers = videos.filter(
+    (video) =>
+      video.site === 'YouTube' && video.type === 'Trailer' && typeof video.key === 'string' && video.key.length > 0,
+  );
+  trailers.sort((a, b) => {
+    const official = Number(b.official === true) - Number(a.official === true);
+    if (official !== 0) return official;
+    return (b.published_at ?? '').localeCompare(a.published_at ?? '');
+  });
+  const best = trailers[0];
+  if (best === undefined || best.key === undefined) return null;
+  return { youtubeId: best.key, name: best.name ?? 'Trailer' };
 }
