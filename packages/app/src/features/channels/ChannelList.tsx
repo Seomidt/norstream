@@ -13,7 +13,7 @@ import { XtreamAuthError } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { getNowNext } from '../../storage/programmes.js';
-import { sourcesWithDialect } from '../../storage/settings.js';
+import { getRestartOnlyFilter, setRestartOnlyFilter, sourcesWithDialect } from '../../storage/settings.js';
 import { ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
@@ -69,17 +69,30 @@ export function ChannelList({
    * Samme regel som i guiden, saa uret betyder det samme begge steder.
    */
   const [dialects, setDialects] = useState<Set<string>>(new Set());
+  const [restartOnly, setRestartOnly] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    void sourcesWithDialect(session.db).then((found) => {
-      if (!cancelled) setDialects(found);
-    });
+    void Promise.all([sourcesWithDialect(session.db), getRestartOnlyFilter(session.db)]).then(
+      ([found, only]) => {
+        if (cancelled) return;
+        setDialects(found);
+        setRestartOnly(only);
+      },
+    );
     return () => {
       cancelled = true;
     };
   }, [session.db]);
   const canRestart = (channel: StoredChannel): boolean =>
     channel.hasArchive && dialects.has(channel.sourceId);
+  const shown = restartOnly ? channels.filter(canRestart) : channels;
+  const restartable = channels.filter(canRestart).length;
+
+  function toggleRestartOnly(): void {
+    const next = !restartOnly;
+    setRestartOnly(next);
+    void setRestartOnlyFilter(session.db, next);
+  }
 
   // Annulleringspolet: kun det nyeste opslag maa skrive til state. Uden det
   // kan to overlappende koersler skrive resultater i den forkerte raekkefoelge.
@@ -144,11 +157,13 @@ export function ChannelList({
   // Foerste skaermfuld: onViewableItemsChanged fyrer ikke altid ved montering,
   // og uden dette ville listen staa med "Ingen programdata" til man rullede.
   useEffect(() => {
-    const first = channels.slice(0, 15);
+    const first = shown.slice(0, 15);
     if (first.length === 0) return;
     setPreviewChannel(first[0] ?? null);
     void loadVisibleRef.current(first.map((channel) => channel.id));
-  }, [channels]);
+    // `shown` afhaenger kun af kanalerne og filteret.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channels, restartOnly, dialects]);
 
   async function open(channel: StoredChannel): Promise<void> {
     // Panelet har én forbindelse: previewet skal have sluppet den, foer
@@ -184,8 +199,17 @@ export function ChannelList({
         }}
       />
 
+      {/* Filteret staar over listen, ikke i hver foraelders header: det er
+          det samme valg alle steder, og det huskes. */}
+      {restartable > 0 && (
+        <Pressable style={styles.filter} onPress={toggleRestartOnly} hitSlop={6}>
+          <Text style={[styles.filterText, restartOnly && styles.filterTextOn]}>
+            {restartOnly ? '✓ ' : ''}⏱ Kun kanaler med start forfra ({restartable})
+          </Text>
+        </Pressable>
+      )}
       <FlatList
-        data={channels}
+        data={shown}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={header === undefined ? undefined : <>{header}</>}
         viewabilityConfig={viewabilityConfig}
@@ -249,6 +273,15 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, marginLeft: theme.spacing.md },
   channelName: { color: theme.colors.text, fontSize: 16 },
   restartMark: { color: theme.colors.accent, fontSize: 14 },
+  filter: {
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderBottomColor: theme.colors.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    backgroundColor: theme.colors.surface,
+  },
+  filterText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '600' },
+  filterTextOn: { color: theme.colors.accent },
   nowTitle: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
   starOn: { color: theme.colors.accent, fontSize: 22 },
   starOff: { color: theme.colors.border, fontSize: 22 },
