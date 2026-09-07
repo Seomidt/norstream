@@ -26,6 +26,7 @@ interface Props {
   onBrowse: () => void;
   previewEnabled: boolean;
   previewHandle: { current: PreviewHandle | null };
+  onPickLogo: (channel: StoredChannel) => void;
   refreshing: boolean;
   onRefresh: () => void;
   /** Aendres af foraelderen naar favoritterne kan have aendret sig andetsteds. */
@@ -45,6 +46,7 @@ export function FavoritesScreen({
   onBrowse,
   previewEnabled,
   previewHandle,
+  onPickLogo,
   refreshing,
   onRefresh,
   reloadToken,
@@ -131,6 +133,7 @@ export function FavoritesScreen({
         onAuthError={onAuthError}
         previewEnabled={previewEnabled}
         previewHandle={previewHandle}
+        onLongPress={onPickLogo}
         refreshing={refreshing}
         onRefresh={onRefresh}
       />

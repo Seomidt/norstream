@@ -31,6 +31,8 @@ import { redactCredentials } from './redact.js';
 interface Props {
   session: AppSession;
   onOpenSources: () => void;
+  /** Aabner listen over kanaler uden logo, hvor man kan vaelge selv. */
+  onOpenLogos: () => void;
   previewEnabled: boolean;
   onPreviewEnabledChange: (enabled: boolean) => void;
   onSignedOut: (notice: string) => void;
@@ -52,6 +54,7 @@ const STREAM_FORMATS: readonly { value: StreamFormatSetting; label: string }[] =
 export function SettingsScreen({
   session,
   onOpenSources,
+  onOpenLogos,
   previewEnabled,
   onPreviewEnabledChange,
   onSignedOut,
@@ -286,6 +289,16 @@ export function SettingsScreen({
           trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
         />
       </View>
+      <Pressable style={styles.row} onPress={onOpenLogos}>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Kanaler uden logo</Text>
+          <Text style={styles.rowHint}>
+            Vælg selv et logo for dem arkiverne ikke kender — søg i registret eller indsæt en
+            adresse. Du kan også holde fingeren på en kanal i listerne.
+          </Text>
+        </View>
+        <Text style={styles.actionText}>Åbn</Text>
+      </Pressable>
       <Pressable
         style={styles.row}
         disabled={rechecking}

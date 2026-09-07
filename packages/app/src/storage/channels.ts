@@ -31,6 +31,7 @@ interface ChannelRow {
   id: string;
   source_id: string;
   source_url: string | null;
+  override_logo_url: string | null;
   registry_logo_url: string | null;
   stream_id: string;
   stream_url: string | null;
@@ -56,6 +57,11 @@ interface ChannelRow {
  */
 function logoUrlsFor(row: ChannelRow, deadOrigins: ReadonlySet<string>): string[] {
   const candidates = [
+    // Brugerens eget valg foerst. Det er det eneste led i raekken der ikke
+    // er et gaet, og det maa intet andet kunne overtrumfe.
+    ...(row.override_logo_url === null || row.override_logo_url === undefined
+      ? []
+      : [row.override_logo_url]),
     ...logoCandidates(row.logo_url, row.source_url ?? ''),
     // Registrets logo staar sidst: udbyderens eget forsoeges foerst, ogsaa
     // paa panelets egen vaert, og faerdigt register-logo er sidste udvej.
@@ -247,11 +253,13 @@ export async function listChannels(
     `SELECT c.id, c.source_id, c.stream_id, c.stream_url, c.name, c.number, c.logo_url,
             c.category_id, c.epg_channel_id, c.has_archive, c.archive_days, c.sort_order,
             s.url AS source_url,
+            lo.url AS override_logo_url,
             COALESCE(xl.url, ri.url, rc.url, ra.url) AS registry_logo_url,
             CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE NULL END AS is_favorite
      FROM channels c
      LEFT JOIN favorites f ON f.channel_id = c.id
      LEFT JOIN sources s ON s.id = c.source_id
+     LEFT JOIN logo_overrides lo ON lo.channel_key = c.id
      -- Udbyderens egen XMLTV-fil foerst: det er dens logo, for dens kanal.
      LEFT JOIN xmltv_logos xl ON xl.channel_key = c.id
      -- Saa id'et: registrets id er XMLTV-id'et, det samme som en M3U-listes
@@ -276,11 +284,13 @@ export async function getChannel(
     `SELECT c.id, c.source_id, c.stream_id, c.stream_url, c.name, c.number, c.logo_url,
             c.category_id, c.epg_channel_id, c.has_archive, c.archive_days, c.sort_order,
             s.url AS source_url,
+            lo.url AS override_logo_url,
             COALESCE(xl.url, ri.url, rc.url, ra.url) AS registry_logo_url,
             CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE NULL END AS is_favorite
      FROM channels c
      LEFT JOIN favorites f ON f.channel_id = c.id
      LEFT JOIN sources s ON s.id = c.source_id
+     LEFT JOIN logo_overrides lo ON lo.channel_key = c.id
      -- Udbyderens egen XMLTV-fil foerst: det er dens logo, for dens kanal.
      LEFT JOIN xmltv_logos xl ON xl.channel_key = c.id
      -- Saa id'et: registrets id er XMLTV-id'et, det samme som en M3U-listes

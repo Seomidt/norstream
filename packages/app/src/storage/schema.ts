@@ -164,6 +164,13 @@ CREATE TABLE IF NOT EXISTS logo_resolved (
   url         TEXT NOT NULL
 );
 
+-- Logoer brugeren selv har valgt. Staar foerst i raekken, foer alt hvad
+-- udbyderen og arkiverne siger: det er brugerens eget ord.
+CREATE TABLE IF NOT EXISTS logo_overrides (
+  channel_key TEXT PRIMARY KEY,
+  url         TEXT NOT NULL
+);
+
 -- Film og serier. Samme moenster som kanalerne: listen hentes én gang i
 -- doegnet per kilde; det panelet ved om den enkelte titel hentes foerst naar
 -- den aabnes, og ligger i vod_details og episodes.
@@ -255,12 +262,14 @@ const TABLES = [
   'vod_progress',
   'xmltv_logos',
   'logo_resolved',
+  'logo_overrides',
 ] as const;
 
 // v8 tilfoejer VOD-tabellerne, v9 xmltv_logos, v10 logo_resolved og en
 // kolonne paa vod_details. Tabellerne klarer `CREATE TABLE IF NOT EXISTS`;
 // kolonnen har sit eget ALTER-trin.
-const SCHEMA_VERSION = 10;
+// v11: logo_overrides.
+const SCHEMA_VERSION = 11;
 
 /**
  * Foerste version der kan opgraderes additivt.

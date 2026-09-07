@@ -20,6 +20,8 @@ import { SourcesScreen } from '../sources/SourcesScreen.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SettingsScreen } from '../settings/SettingsScreen.js';
+import { LogoGapsScreen } from '../settings/LogoGapsScreen.js';
+import { LogoPickerScreen } from '../settings/LogoPickerScreen.js';
 import { Notice } from '../../ui/Notice.js';
 import { VodScreen } from '../vod/VodScreen.js';
 import type { VodLevel } from '../vod/VodScreen.js';
@@ -97,6 +99,15 @@ export function HomeScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [favoritesToken, setFavoritesToken] = useState(0);
   const [showingSources, setShowingSources] = useState(false);
+  /** Indstillingers underskaerme til logoer: listen, og valget for én kanal. */
+  const [showingLogos, setShowingLogos] = useState(false);
+  const [pickingLogoFor, setPickingLogoFor] = useState<string | null>(null);
+  const [logoToken, setLogoToken] = useState(0);
+
+  const pickLogo = (channel: StoredChannel): void => {
+    setPickingLogoFor(channel.id);
+    onPlaceChange({ ...place, tab: 'settings' });
+  };
 
   // Deles af alle faneblade: kun ét preview maa nogensinde vaere i luften.
   const previewHandle = useRef<PreviewHandle | null>(null);
@@ -105,6 +116,14 @@ export function HomeScreen({
   // land -> kategori -> kanaler i Kanaler, og forsiden -> land -> kategori ->
   // titler i Film. Paa forsiden af en fane: intet at gaa op i.
   backRef.current = (): boolean => {
+    if (tab === 'settings' && pickingLogoFor !== null) {
+      setPickingLogoFor(null);
+      return true;
+    }
+    if (tab === 'settings' && showingLogos) {
+      setShowingLogos(false);
+      return true;
+    }
     if (tab === 'settings' && showingSources) {
       setShowingSources(false);
       return true;
@@ -262,6 +281,7 @@ export function HomeScreen({
             onBrowse={() => setTab('browse')}
             previewEnabled={previewEnabled}
             previewHandle={previewHandle}
+            onPickLogo={pickLogo}
             refreshing={refreshing}
             onRefresh={refresh}
             reloadToken={favoritesToken}
@@ -274,6 +294,7 @@ export function HomeScreen({
             onAuthError={handleAuthError}
             previewEnabled={previewEnabled}
             previewHandle={previewHandle}
+            onPickLogo={pickLogo}
             onFavoritesChanged={() => setFavoritesToken((value) => value + 1)}
             level={place.browse ?? { name: 'countries' }}
             onLevelChange={(level) => onPlaceChange({ ...place, browse: level })}
@@ -300,7 +321,26 @@ export function HomeScreen({
         )}
         {tab === 'recordings' && <RecordingsScreen session={session} />}
 
-        {tab === 'settings' && showingSources && (
+        {tab === 'settings' && pickingLogoFor !== null && (
+          <LogoPickerScreen
+            session={session}
+            channelKey={pickingLogoFor}
+            onBack={() => setPickingLogoFor(null)}
+            onChanged={() => {
+              setLogoToken((value) => value + 1);
+              setFavoritesToken((value) => value + 1);
+            }}
+          />
+        )}
+        {tab === 'settings' && pickingLogoFor === null && showingLogos && (
+          <LogoGapsScreen
+            session={session}
+            onBack={() => setShowingLogos(false)}
+            onPick={(channelKey) => setPickingLogoFor(channelKey)}
+            reloadToken={logoToken}
+          />
+        )}
+        {tab === 'settings' && pickingLogoFor === null && !showingLogos && showingSources && (
           <SourcesScreen
             session={session}
             onSourcesChanged={() => {
@@ -312,12 +352,13 @@ export function HomeScreen({
           />
         )}
 
-        {tab === 'settings' && !showingSources && (
+        {tab === 'settings' && pickingLogoFor === null && !showingLogos && !showingSources && (
           <SettingsScreen
             session={session}
             previewEnabled={previewEnabled}
             onPreviewEnabledChange={setPreviewEnabled}
             onOpenSources={() => setShowingSources(true)}
+            onOpenLogos={() => setShowingLogos(true)}
             onSignedOut={onSignedOut}
           />
         )}
@@ -334,7 +375,11 @@ export function HomeScreen({
               if (item.id !== tab) {
                 void previewHandle.current?.release().catch(() => undefined);
               }
-              if (item.id !== 'settings') setShowingSources(false);
+              if (item.id !== 'settings') {
+                setShowingSources(false);
+                setShowingLogos(false);
+                setPickingLogoFor(null);
+              }
               setTab(item.id);
             }}
           >

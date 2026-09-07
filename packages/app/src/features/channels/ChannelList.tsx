@@ -32,6 +32,8 @@ interface Props {
   refreshing?: boolean;
   onRefresh?: () => void;
   header?: ReactNode;
+  /** Hold fingeren paa en kanal: vaelg dens logo selv. */
+  onLongPress?: (channel: StoredChannel) => void;
 }
 
 /**
@@ -55,6 +57,7 @@ export function ChannelList({
   refreshing = false,
   onRefresh,
   header,
+  onLongPress,
 }: Props) {
   const [nowTitles, setNowTitles] = useState<Record<string, string>>({});
   const [previewChannel, setPreviewChannel] = useState<StoredChannel | null>(null);
@@ -184,6 +187,8 @@ export function ChannelList({
             onPress={() => {
               void open(item);
             }}
+            onLongPress={onLongPress === undefined ? undefined : () => onLongPress(item)}
+            delayLongPress={400}
           >
             <ChannelLogo uris={item.logoUrls} name={item.name} memoryKey={item.id} />
             <View style={styles.rowText}>

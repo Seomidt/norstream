@@ -32,6 +32,7 @@ interface Props {
   onAuthError: () => void;
   previewEnabled: boolean;
   previewHandle: { current: PreviewHandle | null };
+  onPickLogo: (channel: StoredChannel) => void;
   /** Kaldes naar favoritterne har aendret sig, saa favoritfanen kan opdatere. */
   onFavoritesChanged: () => void;
   /** Hvor langt ned i land -> kategori -> kanaler brugeren staar. */
@@ -71,6 +72,7 @@ export function BrowseScreen({
   onAuthError,
   previewEnabled,
   previewHandle,
+  onPickLogo,
   onFavoritesChanged,
   level,
   onLevelChange,
@@ -199,6 +201,7 @@ export function BrowseScreen({
           onAuthError={onAuthError}
           previewEnabled={previewEnabled}
           previewHandle={previewHandle}
+          onLongPress={onPickLogo}
         />
       </View>
     );
