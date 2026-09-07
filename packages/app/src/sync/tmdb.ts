@@ -62,6 +62,8 @@ const API = 'https://api.themoviedb.org/3';
 interface SearchHit {
   id?: number;
   poster_path?: string | null;
+  vote_average?: number;
+  vote_count?: number;
 }
 
 interface SearchResult {
@@ -79,7 +81,7 @@ export async function searchTmdb(
   apiKey: string,
   kind: 'movie' | 'series',
   name: string,
-): Promise<{ id: number; posterUrl: string | null } | null> {
+): Promise<{ id: number; posterUrl: string | null; rating: number | null } | null> {
   const { title, year } = cleanVodTitle(name);
   if (title.length === 0) return null;
   const endpoint = kind === 'series' ? 'tv' : 'movie';
@@ -91,9 +93,15 @@ export async function searchTmdb(
     let hit = await firstHit(fetchImpl, url);
     if (hit === null && year !== null) hit = await firstHit(fetchImpl, url.replace(yearParam, ''));
     if (hit === null || typeof hit.id !== 'number') return null;
+    // Karakteren taeller kun naar nogen har stemt; et nul fra ingen er ikke et nul.
+    const rating =
+      typeof hit.vote_average === 'number' && hit.vote_average > 0 && (hit.vote_count ?? 1) > 0
+        ? Math.round(hit.vote_average * 10) / 10
+        : null;
     return {
       id: hit.id,
       posterUrl: typeof hit.poster_path === 'string' ? `${IMAGE_BASE}${hit.poster_path}` : null,
+      rating,
     };
   } catch {
     return null;

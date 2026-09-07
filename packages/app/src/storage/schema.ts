@@ -264,6 +264,7 @@ CREATE TABLE IF NOT EXISTS vod_watchlist (
 CREATE TABLE IF NOT EXISTS vod_posters (
   item_key TEXT PRIMARY KEY,
   url      TEXT,
+  rating   REAL,
   tried_ms INTEGER NOT NULL
 );
 
@@ -306,8 +307,8 @@ const TABLES = [
 // kolonne paa vod_details. Tabellerne klarer `CREATE TABLE IF NOT EXISTS`;
 // kolonnen har sit eget ALTER-trin.
 // v11: logo_overrides. v12: logo_files og logo_misses. v13: favorites.position.
-// v14: vod_posters.
-const SCHEMA_VERSION = 14;
+// v14: vod_posters. v15: vod_posters.rating.
+const SCHEMA_VERSION = 15;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -478,6 +479,15 @@ async function addV13Columns(db: SqlDatabase): Promise<void> {
   }
 }
 
+/** v15: karakteren fra TMDB ved siden af plakaten. */
+async function addV15Columns(db: SqlDatabase): Promise<void> {
+  try {
+    await db.execAsync('ALTER TABLE vod_posters ADD COLUMN rating REAL');
+  } catch {
+    // Kolonnen fandtes allerede.
+  }
+}
+
 /**
  * Rydder den cache hvis id'er skifter betydning ved v5.
  *
@@ -541,6 +551,7 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     // med, og ALTER-trinnet svarer bare at den findes.
     if (version >= 8 && version < 10) await addV10Columns(db);
     if (version > 0 && version < 13) await addV13Columns(db);
+    if (version === 14) await addV15Columns(db);
 
   }
 

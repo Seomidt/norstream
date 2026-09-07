@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FetchLike } from '@norstream/core';
-import { cleanVodTitle, findTmdbPoster, findTmdbTrailer, pickTmdbTrailer } from './tmdb.js';
+import { cleanVodTitle, findTmdbPoster, findTmdbTrailer, pickTmdbTrailer, searchTmdb } from './tmdb.js';
 
 describe('cleanVodTitle', () => {
   it('tager praefiks, aarstal, klammer og kvalitetsord ud', () => {
@@ -110,5 +110,18 @@ describe('findTmdbTrailer', () => {
 
   it('giver null naar titlen ikke findes', async () => {
     expect(await findTmdbTrailer(fakeFetch([]), 'KEY', 'movie', 'Ukendt')).toBeNull();
+  });
+});
+
+describe('searchTmdb', () => {
+  it('tager karakteren med, afrundet, og kun naar nogen har stemt', async () => {
+    const fetchImpl = fakeFetch([[/search\/movie/, { results: [{ id: 9, poster_path: '/d.jpg', vote_average: 7.86, vote_count: 120 }] }]]);
+    expect(await searchTmdb(fetchImpl, 'KEY', 'movie', 'Dune')).toEqual({
+      id: 9,
+      posterUrl: 'https://image.tmdb.org/t/p/w342/d.jpg',
+      rating: 7.9,
+    });
+    const unrated = fakeFetch([[/search\/movie/, { results: [{ id: 9, poster_path: '/d.jpg', vote_average: 0, vote_count: 0 }] }]]);
+    expect((await searchTmdb(unrated, 'KEY', 'movie', 'Dune'))?.rating).toBeNull();
   });
 });

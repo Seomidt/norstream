@@ -1,10 +1,10 @@
 import type { FetchLike } from '@norstream/core';
 import { getTmdbApiKey } from '../storage/settings.js';
 import type { SqlDatabase } from '../storage/types.js';
-import { findTmdbPoster } from '../sync/tmdb.js';
+import { searchTmdb } from '../sync/tmdb.js';
 
 /**
- * Fylder plakater ind for de film og serier der ingen har.
+ * Fylder plakater — og karakterer — ind for de film og serier der ingen har.
  *
  * Samme moenster som logoerne: en plakat slaas op naar titlen vises uden
  * en, hoejst nogle faa ad gangen, og svaret gemmes — ogsaa et nej, saa den
@@ -124,13 +124,13 @@ async function lookUp(job: { key: string; kind: 'movie' | 'series'; name: string
     }
     if (Date.now() - earlier.tried_ms < MISS_TTL_MS) return;
   }
-  const url = await findTmdbPoster(fetcher, apiKey, job.kind, job.name);
+  const hit = await searchTmdb(fetcher, apiKey, job.kind, job.name);
+  const url = hit?.posterUrl ?? null;
   await database
-    .runAsync('INSERT OR REPLACE INTO vod_posters (item_key, url, tried_ms) VALUES (?, ?, ?)', [
-      job.key,
-      url,
-      Date.now(),
-    ])
+    .runAsync(
+      'INSERT OR REPLACE INTO vod_posters (item_key, url, rating, tried_ms) VALUES (?, ?, ?, ?)',
+      [job.key, url, hit?.rating ?? null, Date.now()],
+    )
     .catch(() => undefined);
   if (url !== null) {
     found.set(job.key, url);

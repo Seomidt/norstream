@@ -418,7 +418,8 @@ export function Poster({
   // Uden plakat: bed om en fra TMDB, og tegn den naar den kommer.
   const [, redraw] = useReducer((count: number) => count + 1, 0);
   useEffect(() => {
-    if (item.posterUrl !== null && !failed) return;
+    // Mangler plakaten eller karakteren, hentes begge i samme opslag.
+    if (item.posterUrl !== null && !failed && item.rating !== null) return;
     ensurePoster(item);
     return subscribePoster(item.key, redraw);
   }, [item, failed]);

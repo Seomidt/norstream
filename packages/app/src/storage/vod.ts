@@ -60,6 +60,8 @@ interface ItemRow {
   duration_s: number | null;
   /** Plakat fundet hos TMDB, til naar panelets mangler eller er doed. */
   found_poster_url: string | null;
+  /** Karakter fra TMDB, til naar panelet ingen gav. */
+  found_rating: number | null;
 }
 
 function toStored(row: ItemRow): StoredVodItem {
@@ -72,7 +74,9 @@ function toStored(row: ItemRow): StoredVodItem {
     posterUrl: row.poster_url,
     categoryId: row.category_id,
     categoryName: row.category_name,
-    rating: row.rating,
+    // Panelets karakter foerst; TMDBs hvor panelet ingen gav. Et nul fra
+    // panelet betyder "ingen", ikke "elendig".
+    rating: row.rating !== null && row.rating > 0 ? row.rating : row.found_rating,
     year: row.year,
     added: row.added_ms === null ? null : new Date(row.added_ms),
     containerExtension: row.container_ext,
@@ -88,7 +92,8 @@ const SELECT_ITEM = `
          c.name AS category_name, i.rating, i.year, i.added_ms, i.container_ext,
          CASE WHEN w.item_key IS NOT NULL THEN 1 ELSE NULL END AS in_watchlist,
          p.position_s, p.duration_s,
-         fp.url AS found_poster_url
+         fp.url AS found_poster_url,
+         fp.rating AS found_rating
   FROM vod_items i
   LEFT JOIN vod_categories c ON c.id = i.category_id
   LEFT JOIN vod_watchlist w ON w.item_key = i.key
