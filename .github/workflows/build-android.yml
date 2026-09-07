@@ -26,7 +26,11 @@ on:
         # bag en proxy med en kort liste af tilladte vaerter og kan ikke selv
         # afgoere om brugerens logo-vaert svarer fra internettet — og det
         # spoergsmaal afgoer om 22.071 logoer kan reddes paa én gang.
-        options: [runner, eas, probe]
+        # `youtube` maaler hvilken indramning YouTubes indlejrede afspiller
+        # accepterer fra en webvisning. To builds er gaaet paa gaet (fejl 153,
+        # saa fejl 152); det her koerer en rigtig browser paa en rigtig side
+        # med hver af de mulige base-adresser og siger hvilke der spiller.
+        options: [runner, eas, probe, youtube]
       url:
         description: 'Adresse at maale (kun naar motor er probe)'
         required: false
@@ -71,11 +75,54 @@ jobs:
           } 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Maal YouTube-indramning
+        if: inputs.motor == 'youtube'
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-audit --no-fund playwright@1 >/dev/null 2>&1
+          npx playwright install --with-deps chromium >/dev/null 2>&1
+          cat > probe.mjs <<'JS'
+          import { chromium } from 'playwright';
+          const ID = 'dQw4w9WgXcQ';
+          const page = (host) => `<!doctype html><html><body style="margin:0;background:#000">
+          <iframe src="https://${host}/embed/${ID}?autoplay=1&playsinline=1" width="640" height="360" frameborder="0"
+          allow="autoplay; encrypted-media" referrerpolicy="strict-origin-when-cross-origin"></iframe></body></html>`;
+          const variants = [
+            { name: 'base youtube.com,     embed youtube.com',          origin: 'https://www.youtube.com',        host: 'www.youtube.com' },
+            { name: 'base norstream.app,   embed youtube.com',          origin: 'https://norstream.app',          host: 'www.youtube.com' },
+            { name: 'base norstream.app,   embed youtube-nocookie.com', origin: 'https://norstream.app',          host: 'www.youtube-nocookie.com' },
+            { name: 'base localhost,       embed youtube.com',          origin: 'https://localhost',              host: 'www.youtube.com' },
+          ];
+          const browser = await chromium.launch();
+          for (const v of variants) {
+            const ctx = await browser.newContext({ userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Mobile Safari/537.36' });
+            const p = await ctx.newPage();
+            await p.route(`${v.origin}/trailer`, (r) => r.fulfill({ contentType: 'text/html', body: page(v.host) }));
+            await p.goto(`${v.origin}/trailer`);
+            await p.waitForTimeout(9000);
+            const frame = p.frames().find((f) => f.url().includes('/embed/'));
+            let verdict = 'ingen ramme';
+            if (frame) {
+              const errors = await frame.locator('.ytp-error, .ytp-error-content').count();
+              const text = (await frame.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 160);
+              const playing = await frame.evaluate(() => { const vid = document.querySelector('video'); return vid ? { t: vid.currentTime, paused: vid.paused } : null; }).catch(() => null);
+              verdict = errors > 0 ? `FEJL  ${text}` : playing && playing.t > 0 ? `SPILLER (t=${playing.t.toFixed(1)}s)` : `INGEN FEJL, men ingen afspilning endnu (${JSON.stringify(playing)})`;
+            }
+            console.log(`${v.name.padEnd(56)} -> ${verdict}`);
+            await ctx.close();
+          }
+          await browser.close();
+          JS
+          echo "### YouTube-indramning" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          node probe.mjs 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/checkout@v5
-        if: inputs.motor != 'probe'
+        if: inputs.motor != 'probe' && inputs.motor != 'youtube'
 
       - uses: actions/setup-node@v5
-        if: inputs.motor != 'probe'
+        if: inputs.motor != 'probe' && inputs.motor != 'youtube'
         with:
           node-version: 24
           cache: npm
@@ -127,12 +174,12 @@ jobs:
           exit 1
 
       - run: npm ci
-        if: inputs.motor != 'probe'
+        if: inputs.motor != 'probe' && inputs.motor != 'youtube'
 
       # Samme porte som CI. Et build af kode der ikke kan bestaa sine egne
       # tests er spildt byggetid.
       - name: Typecheck og tests
-        if: inputs.motor != 'probe'
+        if: inputs.motor != 'probe' && inputs.motor != 'youtube'
         run: |
           npm run typecheck --workspaces
           npm test --workspaces
@@ -145,7 +192,7 @@ jobs:
       # kun sporede filer — mappen naar derfor aldrig builden, uanset at den
       # ligger her paa runneren.
       - name: Verificér AndroidManifest
-        if: inputs.motor != 'probe'
+        if: inputs.motor != 'probe' && inputs.motor != 'youtube'
         working-directory: packages/app
         run: |
           npx expo prebuild --platform android --no-install
