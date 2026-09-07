@@ -22,7 +22,7 @@ import {
 } from '../../storage/logoOverrides.js';
 import type { RegistryLogoHit } from '../../storage/logoOverrides.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
-import { forgetLogo, rememberLogo } from '../../ui/logoMemory.js';
+import { replaceLogo, resetLogo } from '../../ui/logoCache.js';
 import { theme } from '../../ui/theme.js';
 
 interface Props {
@@ -96,16 +96,18 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
       return;
     }
     await setLogoOverride(session.db, channelKey, trimmed);
-    // Valget er ogsaa det der virkede sidst — saa listerne begynder der.
-    rememberLogo(channelKey, trimmed);
     setCurrent(trimmed);
-    setMessage('Logoet er gemt.');
+    setMessage('Henter logoet …');
+    // Hentes ned med det samme og erstatter det der laa. Lykkes det ikke,
+    // staar valget stadig foerst i raekken og proeves igen som alle andre.
+    const fetched = await replaceLogo(channelKey, trimmed);
+    setMessage(fetched ? 'Logoet er gemt.' : 'Valget er gemt, men adressen svarede ikke med et billede.');
     onChanged();
   }
 
   async function reset(): Promise<void> {
     await clearLogoOverride(session.db, channelKey);
-    forgetLogo(channelKey);
+    await resetLogo(channelKey);
     setCurrent(null);
     setMessage('Eget valg fjernet. Appen vælger igen selv.');
     onChanged();

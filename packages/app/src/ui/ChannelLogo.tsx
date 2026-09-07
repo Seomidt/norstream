@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useReducer, useState } from 'react';
+import type { ReactElement } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { initials } from './initials.js';
-import { forgetLogo, recallLogo, rememberLogo } from './logoMemory.js';
+import { cachedLogoUri, ensureLogo, logoFailedToRender, subscribeLogo } from './logoCache.js';
 import { theme } from './theme.js';
 
 interface Props {
@@ -13,8 +14,9 @@ interface Props {
   name: string;
   size?: number;
   /**
-   * Kanalens noegle. Med den huskes hvilken adresse der virkede, saa naeste
-   * gang begynder der frem for at proeve de doede forfra.
+   * Kanalens noegle. Med den hentes logoet ned paa telefonen én gang og
+   * tegnes derefter fra filen, uden netvaerk. Uden den proeves adresserne
+   * direkte, hver gang.
    */
   memoryKey?: string;
 }
@@ -33,54 +35,89 @@ interface Props {
  * plads, og det ligner til forveksling en kanal uden logo — to fejl med hver
  * sin aarsag og samme udseende. Nu falder den tilbage til forbogstaverne, som
  * i det mindste er det samme udfald man kan forklare.
+ *
+ * Selve hentningen ligger i `logoCache`: logoet hentes én gang til en fil,
+ * og her tegnes filen. Netvaerket roeres kun for kanaler uden fil.
  */
 export function ChannelLogo({ uris, name, size = 44, memoryKey }: Props) {
-  /** Der begyndes ved den adresse der virkede sidst, naar den stadig er i raekken. */
-  const startAt = (): number => {
-    if (memoryKey === undefined) return 0;
-    const remembered = recallLogo(memoryKey);
-    if (remembered === null) return 0;
-    const index = uris.indexOf(remembered);
-    return index === -1 ? 0 : index;
-  };
-  const [attempt, setAttempt] = useState(startAt);
+  const box = { width: size, height: size, borderRadius: Math.round(size / 6) };
+  const fallback = (
+    <View style={[styles.fallback, box]}>
+      <Text style={[styles.initials, { fontSize: Math.round(size / 2.6) }]}>{initials(name)}</Text>
+    </View>
+  );
 
-  // Skifter raekken kanal — FlatList genbruger komponenter — skal et tidligere
-  // mislykket forsoeg ikke haenge ved og skjule det naeste logo.
+  if (memoryKey === undefined) {
+    return <DirectLogo uris={uris} box={box} fallback={fallback} />;
+  }
+  return <CachedLogo uris={uris} memoryKey={memoryKey} box={box} fallback={fallback} />;
+}
+
+interface Box {
+  width: number;
+  height: number;
+  borderRadius: number;
+}
+
+function CachedLogo({
+  uris,
+  memoryKey,
+  box,
+  fallback,
+}: {
+  uris: readonly string[];
+  memoryKey: string;
+  box: Box;
+  fallback: ReactElement;
+}) {
+  const [, redraw] = useReducer((count: number) => count + 1, 0);
   const key = uris.join('|');
   useEffect(() => {
-    setAttempt(startAt());
-    // `startAt` laeser kun props der allerede er i afhaengighederne.
+    ensureLogo(memoryKey, uris);
+    return subscribeLogo(memoryKey, redraw);
+    // Adresserne sammenlignes paa indhold: listen bygges ny ved hver laesning.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, memoryKey]);
+  }, [memoryKey, key]);
 
-  const uri = uris[attempt];
-  const box = { width: size, height: size, borderRadius: Math.round(size / 6) };
-
-  if (uri === undefined) {
-    return (
-      <View style={[styles.fallback, box]}>
-        <Text style={[styles.initials, { fontSize: Math.round(size / 2.6) }]}>
-          {initials(name)}
-        </Text>
-      </View>
-    );
-  }
+  const uri = cachedLogoUri(memoryKey);
+  if (uri === null) return fallback;
 
   return (
     <Image
       source={{ uri }}
       style={[styles.image, box]}
       resizeMode="contain"
-      onLoad={() => {
-        if (memoryKey !== undefined) rememberLogo(memoryKey, uri);
-      }}
       onError={() => {
-        // Var det den huskede adresse der fejlede, huskes den ikke laengere —
-        // ellers ville den blive proevet foerst igen naeste gang.
-        if (memoryKey !== undefined && recallLogo(memoryKey) === uri) forgetLogo(memoryKey);
-        setAttempt((current) => current + 1);
+        void logoFailedToRender(memoryKey, uris);
       }}
+    />
+  );
+}
+
+/** Uden noegle: adresserne proeves i raekkefoelge, som `Image` nu engang goer det. */
+function DirectLogo({
+  uris,
+  box,
+  fallback,
+}: {
+  uris: readonly string[];
+  box: Box;
+  fallback: ReactElement;
+}) {
+  const [attempt, setAttempt] = useState(0);
+  const key = uris.join('|');
+  useEffect(() => {
+    setAttempt(0);
+  }, [key]);
+
+  const uri = uris[attempt];
+  if (uri === undefined) return fallback;
+  return (
+    <Image
+      source={{ uri }}
+      style={[styles.image, box]}
+      resizeMode="contain"
+      onError={() => setAttempt((current) => current + 1)}
     />
   );
 }

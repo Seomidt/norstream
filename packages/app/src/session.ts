@@ -1,7 +1,8 @@
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
 import { withPanelCooldown } from './net/cooldown.js';
 import { createFetchImpl } from './net/fetchImpl.js';
-import { initLogoMemory } from './ui/logoMemory.js';
+import { initLogoCache } from './ui/logoCache.js';
+import { createLogoFileStore } from './ui/logoFiles.js';
 import { applyStreamFormatSetting } from './features/player/format.js';
 import { credentialsBySource } from './sources/access.js';
 import type { SourceAccess } from './sources/access.js';
@@ -84,9 +85,9 @@ export async function createSession(): Promise<AppSession> {
   // skiftede bagefter ville aabne stream nummer to paa et panel der kun
   // tillader én.
   applyStreamFormatSetting(await getStreamFormatSetting(db));
-  // Hvilke logo-adresser der virkede sidst. Laeses ind foer noget tegnes,
-  // af samme grund som streamformatet: logoerne tegnes synkront.
-  await initLogoMemory(db);
+  // Hvilke logoer der allerede ligger paa telefonen. Laeses ind foer noget
+  // tegnes, af samme grund som streamformatet: logoerne tegnes synkront.
+  await initLogoCache(db, createLogoFileStore());
 
   const sources = await readSources(db);
   return {

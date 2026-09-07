@@ -8,6 +8,7 @@ import { listLogoHosts } from '../../storage/logoHosts.js';
 import type { LogoHostRecord } from '../../storage/logoHosts.js';
 import { checkLogoHosts } from '../../sync/logoHosts.js';
 import { refreshLogoRegistry } from '../../sync/syncAll.js';
+import { clearLogoCache, forgetLogoMisses, logoCacheStats } from '../../ui/logoCache.js';
 import { listHiddenCountries, unhideCountry } from '../../storage/countries.js';
 import { OTHER_COUNTRY_KEY } from '../../storage/countries.js';
 import { clearSourceCredentials } from '../../storage/credentials.js';
@@ -80,6 +81,9 @@ export function SettingsScreen({
   const [rechecking, setRechecking] = useState(false);
   const [registryEnabled, setRegistryEnabled] = useState(true);
   const [vod, setVod] = useState<{ movies: number; series: number } | null>(null);
+  /** Hvor mange logoer der ligger paa telefonen. */
+  const [cache, setCache] = useState(() => logoCacheStats());
+  const [clearingCache, setClearingCache] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     const [hiddenCountries, format, coverage, knownHosts, fromRegistry, lastError] =
@@ -91,6 +95,7 @@ export function SettingsScreen({
         registryCoverage(session.db),
         getRegistryError(session.db),
       ]);
+    setCache(logoCacheStats());
     setRegistryEnabled(await getLogoRegistryEnabled(session.db));
     setVod(await vodCounts(session.db));
     setHidden(hiddenCountries);
@@ -130,6 +135,9 @@ export function SettingsScreen({
     try {
       await checkLogoHosts(session.db, session.fetchImpl, new Date(), true);
       if (registryEnabled) await refreshLogoRegistry(session.db, session.fetchImpl);
+      // Kanalerne uden logo proeves igen naeste gang de vises. Dem der har
+      // et, bliver hvor de er.
+      await forgetLogoMisses();
       await load();
     } finally {
       setRechecking(false);
@@ -316,6 +324,30 @@ export function SettingsScreen({
         </View>
         <Text style={styles.actionText}>{rechecking ? 'Henter …' : 'Hent'}</Text>
       </Pressable>
+      <Pressable
+        style={styles.row}
+        disabled={clearingCache || cache.count === 0}
+        onPress={() => {
+          setClearingCache(true);
+          void clearLogoCache()
+            .then(() => load())
+            .finally(() => setClearingCache(false));
+        }}
+      >
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Gemte logoer</Text>
+          <Text style={styles.rowHint}>
+            {cache.count === 0
+              ? 'Ingen logoer gemt endnu. Et logo hentes én gang, når kanalen vises, og ligger derefter på telefonen.'
+              : `${cache.count} logoer ligger på telefonen (${formatBytes(cache.bytes)}). De hentes ikke igen. ${
+                  cache.missing === 0
+                    ? ''
+                    : `${cache.missing} kanaler fik intet logo og prøves igen om et døgn.`
+                }`}
+          </Text>
+        </View>
+        <Text style={styles.actionText}>{clearingCache ? 'Rydder …' : 'Ryd'}</Text>
+      </Pressable>
 
       <Text style={styles.sectionTitle}>Streamformat</Text>
       <Text style={styles.hint}>
@@ -412,6 +444,11 @@ function countryLabel(key: string): string {
   if (key === OTHER_COUNTRY_KEY) return 'Øvrige';
   const country = deriveCountry(key);
   return country === null ? key : `${country.flag} ${country.name}`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 const styles = StyleSheet.create({

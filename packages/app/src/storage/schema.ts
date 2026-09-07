@@ -171,6 +171,28 @@ CREATE TABLE IF NOT EXISTS logo_overrides (
   url         TEXT NOT NULL
 );
 
+-- Logoer hentet ned paa telefonen, ét per kanal. Et logo hentes én gang og
+-- tegnes derefter fra filen, uden netvaerk. Raekken siger filens navn i
+-- logomappen og hvilken adresse den kom fra. Navnet, ikke hele stien: paa
+-- iPhone flytter appens mappe ved hver opdatering.
+CREATE TABLE IF NOT EXISTS logo_files (
+  channel_key TEXT PRIMARY KEY,
+  url         TEXT NOT NULL,
+  file        TEXT NOT NULL,
+  bytes       INTEGER NOT NULL,
+  fetched_ms  INTEGER NOT NULL
+);
+
+-- Kanaler hvor ingen af adresserne gav et logo, og hvornaar det blev
+-- proevet. Uden den ville hver rulning forbi en kanal uden logo koste de
+-- samme forgaeves opkald igen. Adresserne der blev proevet staar med, saa
+-- en ny adresse (nyt register, eget valg) proeves med det samme.
+CREATE TABLE IF NOT EXISTS logo_misses (
+  channel_key TEXT PRIMARY KEY,
+  tried       TEXT NOT NULL,
+  tried_ms    INTEGER NOT NULL
+);
+
 -- Film og serier. Samme moenster som kanalerne: listen hentes én gang i
 -- doegnet per kilde; det panelet ved om den enkelte titel hentes foerst naar
 -- den aabnes, og ligger i vod_details og episodes.
@@ -263,13 +285,15 @@ const TABLES = [
   'xmltv_logos',
   'logo_resolved',
   'logo_overrides',
+  'logo_files',
+  'logo_misses',
 ] as const;
 
 // v8 tilfoejer VOD-tabellerne, v9 xmltv_logos, v10 logo_resolved og en
 // kolonne paa vod_details. Tabellerne klarer `CREATE TABLE IF NOT EXISTS`;
 // kolonnen har sit eget ALTER-trin.
-// v11: logo_overrides.
-const SCHEMA_VERSION = 11;
+// v11: logo_overrides. v12: logo_files og logo_misses.
+const SCHEMA_VERSION = 12;
 
 /**
  * Foerste version der kan opgraderes additivt.

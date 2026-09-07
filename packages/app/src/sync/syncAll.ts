@@ -15,6 +15,7 @@ import { syncChannels } from './syncChannels.js';
 import { syncM3u } from './syncM3u.js';
 import { syncVod } from './syncVod.js';
 import { syncLogoRegistry } from './syncLogoRegistry.js';
+import { forgetLogoMisses } from '../ui/logoCache.js';
 import { syncXmltv } from './syncXmltv.js';
 
 /** Kanallisten hentes hoejst én gang i doegnet af sig selv. */
@@ -198,6 +199,9 @@ async function maybeRegistry(
     await syncLogoRegistry(db, fetchImpl);
     await setLastSyncMs(db, now.getTime(), REGISTRY_SOURCE);
     await setRegistryError(db, null);
+    // Et nyt register kan kende kanaler det gamle ikke kendte. De der staar
+    // uden logo, faar lov at proeve igen — de der har et, roeres ikke.
+    await forgetLogoMisses();
   } catch (cause) {
     // Fejlen sluges ikke laengere. Den gjorde det foer, og resultatet var at
     // "Det aabne kanalregister er ikke hentet endnu" stod paa skaermen uden at
