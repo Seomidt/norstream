@@ -9,6 +9,7 @@ const KEY_STREAM_FORMAT = 'stream_format';
 const KEY_LAST_XMLTV = 'last_xmltv_ms';
 const KEY_REGISTRY_ERROR = 'registry_error';
 const KEY_REGISTRY_ENABLED = 'logo_registry_enabled';
+const KEY_YOUTUBE_API_KEY = 'youtube_api_key';
 
 export async function getSetting(
   db: SqlDatabase,
@@ -255,4 +256,20 @@ export async function setLogoRegistryEnabled(
   enabled: boolean,
 ): Promise<void> {
   await setSetting(db, KEY_REGISTRY_ENABLED, enabled ? 'on' : 'off');
+}
+
+/**
+ * Brugerens egen noegle til YouTubes Data API, eller null.
+ *
+ * Valgfri. Med den kan appen soege efter en rigtig trailer naar panelets er
+ * en teaser paa otte sekunder, og vaelge en der er lang nok. Uden den aabnes
+ * YouTubes soegeside inde i appen i stedet — det virker, men man vaelger selv.
+ */
+export async function getYoutubeApiKey(db: SqlDatabase): Promise<string | null> {
+  const value = await getSetting(db, KEY_YOUTUBE_API_KEY);
+  return value === null || value.trim().length === 0 ? null : value.trim();
+}
+
+export async function setYoutubeApiKey(db: SqlDatabase, key: string): Promise<void> {
+  await setSetting(db, KEY_YOUTUBE_API_KEY, key.trim());
 }

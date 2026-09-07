@@ -308,10 +308,18 @@ describe('programmeOptions', () => {
   const withArchive = { hasArchive: true, archiveDays: 7 };
   const withoutArchive = { hasArchive: false, archiveDays: 0 };
 
-  it('lader en afsluttet udsendelse baade startes forfra og optages', () => {
-    // Optagelse af noget der ligger i arkivet er bare en hentning; den kan
-    // ske med det samme.
+  it('giver en afsluttet udsendelse kun start forfra', () => {
+    // Man har rullet tilbage til noget bestemt. Kanalen live og optagelse
+    // hoerer til den der sendes nu.
     expect(programmeOptions('past', withArchive, true)).toEqual({
+      play: false,
+      restart: true,
+      record: false,
+    });
+  });
+
+  it('giver den der sendes nu alle tre', () => {
+    expect(programmeOptions('live', withArchive, true)).toEqual({
       play: true,
       restart: true,
       record: true,

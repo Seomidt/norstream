@@ -1,14 +1,39 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
+import type { WebViewMessageEvent } from 'react-native-webview';
+import type { AppSession } from '../../session.js';
+import { getYoutubeApiKey } from '../../storage/settings.js';
 import { theme } from '../../ui/theme.js';
+import { MIN_TRAILER_SECONDS, findLongerTrailer, youtubeSearchUrl } from './trailerSearch.js';
 
 interface Props {
-  trailerId: string;
+  session: AppSession;
+  /** Panelets bud paa en trailer. Kan mangle. */
+  trailerId: string | null;
   title: string;
+  year: number | null;
   onBack: () => void;
 }
+
+/**
+ * Hvad der vises i rammen.
+ *
+ * - `measured`: YouTubes afspiller styret gennem deres IFrame-API, som
+ *   fortaeller hvor lang videoen er. Det er saadan en teaser paa otte
+ *   sekunder opdages.
+ * - `plain`: den rene indlejring, uden maaling. Reserven hvis API'et ikke
+ *   kommer op — en trailer der spiller er bedre end en der maales.
+ * - `search`: YouTubes egen soegeside inde i appen, naar der ikke er nogen
+ *   noegle at soege med, eller soegningen intet fandt.
+ * - `looking`: soegningen gennem Data API'et er i gang.
+ */
+type Source =
+  | { kind: 'measured'; id: string }
+  | { kind: 'plain'; id: string }
+  | { kind: 'search'; url: string }
+  | { kind: 'looking' };
 
 /**
  * Traileren, inde i appen.
@@ -32,19 +57,100 @@ interface Props {
  *
  * Adressen skal bare vaere en https-oprindelse der ikke er YouTubes egen.
  * Der hentes intet fra den; den er kun det navn webvisningen sender med.
+ *
+ * **Panelets id er et bud, ikke et svar.** Det kan vaere en teaser paa otte
+ * sekunder, en video der ikke maa indlejres, eller mangle helt. Afspilleren
+ * maaler varigheden, og er den under et minut — eller gaar det galt — soeges
+ * der videre: med en API-noegle vaelger appen selv en lang nok, uden den
+ * aabnes YouTubes soegeside herinde, saa man vaelger selv.
  */
 const EMBED_ORIGIN = 'https://norstream.app';
-export function TrailerScreen({ trailerId, title, onBack }: Props) {
+
+export function TrailerScreen({ session, trailerId, title, year, onBack }: Props) {
   const insets = useSafeAreaInsets();
+  const [source, setSource] = useState<Source>(
+    trailerId === null ? { kind: 'looking' } : { kind: 'measured', id: trailerId },
+  );
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  /** Der soeges hoejst én gang; ellers kunne en fundet video sende os i ring. */
+  const searched = useRef(false);
+
+  async function lookForBetter(reason: string): Promise<void> {
+    if (searched.current) return;
+    searched.current = true;
+    setSource({ kind: 'looking' });
+    const apiKey = await getYoutubeApiKey(session.db);
+    if (apiKey !== null) {
+      const found = await findLongerTrailer(session.fetchImpl, apiKey, title, year, trailerId);
+      if (found !== null) {
+        setNote(`${reason} Fundet på YouTube: ${found.title} (${Math.round(found.seconds / 60)} min).`);
+        setLoading(true);
+        setSource({ kind: 'plain', id: found.id });
+        return;
+      }
+      setNote(`${reason} Søgningen fandt ingen lang nok, så her er YouTubes egen søgning.`);
+    } else {
+      setNote(`${reason} Uden en YouTube-nøgle under Indstillinger vælger du selv her.`);
+    }
+    setLoading(true);
+    setSource({ kind: 'search', url: youtubeSearchUrl(title, year) });
+  }
+
+  useEffect(() => {
+    if (trailerId === null) void lookForBetter('Udbyderen har ingen trailer til titlen.');
+    // Kun ved foerste visning; id'et aendrer sig ikke mens skaermen er aaben.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function onMessage(event: WebViewMessageEvent): void {
+    let message: { type?: string; seconds?: number; code?: unknown };
+    try {
+      message = JSON.parse(event.nativeEvent.data) as typeof message;
+    } catch {
+      return;
+    }
+    if (source.kind !== 'measured') return;
+    if (message.type === 'duration' && typeof message.seconds === 'number' && message.seconds > 0) {
+      if (message.seconds < MIN_TRAILER_SECONDS) {
+        void lookForBetter(`Udbyderens trailer var kun ${Math.round(message.seconds)} sekunder.`);
+      }
+    } else if (message.type === 'noapi') {
+      // Afspiller-API'et kom ikke op. Den rene indlejring virker uden det.
+      setLoading(true);
+      setSource({ kind: 'plain', id: source.id });
+    } else if (message.type === 'error') {
+      void lookForBetter('Udbyderens trailer kan ikke vises her.');
+    }
+  }
+
+  const webSource =
+    source.kind === 'measured'
+      ? { html: measuredEmbedPage(source.id), baseUrl: EMBED_ORIGIN }
+      : source.kind === 'plain'
+        ? { html: embedPage(source.id), baseUrl: EMBED_ORIGIN }
+        : source.kind === 'search'
+          ? { uri: source.url }
+          : null;
+  const openUrl =
+    source.kind === 'measured' || source.kind === 'plain'
+      ? `https://www.youtube.com/watch?v=${source.id}`
+      : youtubeSearchUrl(title, year);
 
   return (
     <View style={styles.container}>
-      <View style={styles.frame}>
-        {!failed && (
+      <View style={[styles.frame, source.kind === 'search' && styles.frameTall]}>
+        {!failed && webSource !== null && (
           <WebView
-            source={{ html: embedPage(trailerId), baseUrl: EMBED_ORIGIN }}
+            key={
+              source.kind === 'search'
+                ? source.url
+                : source.kind === 'looking'
+                  ? 'looking'
+                  : `${source.kind}:${source.id}`
+            }
+            source={webSource}
             originWhitelist={['*']}
             style={styles.web}
             allowsFullscreenVideo
@@ -52,6 +158,7 @@ export function TrailerScreen({ trailerId, title, onBack }: Props) {
             mediaPlaybackRequiresUserAction={false}
             javaScriptEnabled
             domStorageEnabled
+            onMessage={onMessage}
             onLoadEnd={() => setLoading(false)}
             onError={() => {
               setFailed(true);
@@ -59,9 +166,10 @@ export function TrailerScreen({ trailerId, title, onBack }: Props) {
             }}
           />
         )}
-        {loading && !failed && (
+        {(loading || source.kind === 'looking') && !failed && (
           <View style={styles.overlay}>
             <ActivityIndicator color={theme.colors.accent} />
+            {source.kind === 'looking' && <Text style={styles.overlayText}>Leder efter en trailer …</Text>}
           </View>
         )}
         {failed && (
@@ -74,7 +182,7 @@ export function TrailerScreen({ trailerId, title, onBack }: Props) {
         <Text style={styles.title} numberOfLines={2}>
           {title}
         </Text>
-        <Text style={styles.hint}>Trailer fra YouTube</Text>
+        <Text style={styles.hint}>{note ?? 'Trailer fra YouTube'}</Text>
       </View>
       <View style={[styles.actions, { paddingBottom: theme.spacing.md + insets.bottom }]}>
         <Pressable style={styles.button} onPress={onBack}>
@@ -85,7 +193,7 @@ export function TrailerScreen({ trailerId, title, onBack }: Props) {
         <Pressable
           style={styles.button}
           onPress={() => {
-            void Linking.openURL(`https://www.youtube.com/watch?v=${trailerId}`).catch(() => undefined);
+            void Linking.openURL(openUrl).catch(() => undefined);
           }}
         >
           <Text style={styles.buttonText}>Åbn i YouTube</Text>
@@ -101,16 +209,56 @@ export function TrailerScreen({ trailerId, title, onBack }: Props) {
  * noget ind i siden gennem det.
  */
 export function embedPage(trailerId: string): string {
-  const id = trailerId.replace(/[^A-Za-z0-9_-]/g, '');
+  const id = safeId(trailerId);
   return `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>html,body{margin:0;background:#000;height:100%;overflow:hidden}iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
 </head><body><iframe src="https://www.youtube.com/embed/${id}?autoplay=1&playsinline=1&rel=0&modestbranding=1"
 allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></body></html>`;
 }
 
+/**
+ * Samme afspiller, men styret gennem YouTubes IFrame-API, som kan oplyse
+ * varigheden og fortaelle naar en video ikke kan spilles. Siden sender tre
+ * slags beskeder til appen: `duration` naar den kendes, `error` med YouTubes
+ * egen kode, og `noapi` hvis API'et ikke er kommet op efter tolv sekunder —
+ * saa appen kan falde tilbage paa den rene indlejring.
+ *
+ * Varigheden er nul indtil videoen har hentet sine metadata; derfor
+ * spoerges der baade naar afspilleren er klar og igen naar den begynder at
+ * spille, og kun et tal over nul sendes.
+ */
+export function measuredEmbedPage(trailerId: string): string {
+  const id = safeId(trailerId);
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>html,body{margin:0;background:#000;height:100%;overflow:hidden}#p{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
+</head><body><div id="p"></div>
+<script>
+var sent=false;
+function post(m){if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify(m));}}
+function report(player){if(sent)return;var d=player.getDuration();if(d>0){sent=true;post({type:'duration',seconds:d});}}
+function onYouTubeIframeAPIReady(){
+  new YT.Player('p',{videoId:'${id}',playerVars:{autoplay:1,playsinline:1,rel:0,modestbranding:1},
+    events:{
+      onReady:function(e){e.target.playVideo();report(e.target);},
+      onStateChange:function(e){report(e.target);},
+      onError:function(e){post({type:'error',code:e.data});}
+    }});
+}
+setTimeout(function(){if(!window.YT||!window.YT.Player){post({type:'noapi'});}},12000);
+</script>
+<script src="https://www.youtube.com/iframe_api"></script>
+</body></html>`;
+}
+
+function safeId(trailerId: string): string {
+  return trailerId.replace(/[^A-Za-z0-9_-]/g, '');
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   frame: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000000' },
+  /** Soegesiden er en hel side, ikke en video; den faar det meste af skaermen. */
+  frameTall: { aspectRatio: undefined, flex: 3 },
   web: { flex: 1, backgroundColor: '#000000' },
   overlay: {
     position: 'absolute',
@@ -122,10 +270,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: theme.spacing.md,
   },
+  overlayText: { color: theme.colors.textMuted, marginTop: theme.spacing.sm },
   errorText: { color: theme.colors.text, textAlign: 'center' },
   info: { flex: 1, padding: theme.spacing.md, backgroundColor: theme.colors.background },
   title: { color: theme.colors.text, fontSize: 18, fontWeight: '700' },
-  hint: { color: theme.colors.textMuted, fontSize: 13, marginTop: 4 },
+  hint: { color: theme.colors.textMuted, fontSize: 13, marginTop: 4, lineHeight: 18 },
   actions: {
     flexDirection: 'row',
     gap: theme.spacing.sm,

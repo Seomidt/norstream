@@ -43,7 +43,24 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
 
   const player = useVideoPlayer(playback.url, (p) => {
     p.loop = false;
+    // Én gang i sekundet melder afspilleren hvor langt den er. Det er den
+    // eneste kilde til fremdriften ved afgang; se `lastKnown`.
+    p.timeUpdateEventInterval = 1;
     p.play();
+  });
+
+  /**
+   * Hvor langt afspilningen sidst var, uden at spoerge afspilleren.
+   *
+   * Ved afgang frigiver expo-video afspilleren i **sin** oprydning, og den
+   * ligger foer vores i raekkefoelgen. Laeses `player.currentTime` derefter,
+   * kaster den frigivne afspiller — og en fejl i en oprydning lukker hele
+   * appen. Det var det der skete naar man trykkede tilbage under en film.
+   * Derfor holdes tallet her, opdateret af afspilleren mens den lever.
+   */
+  const lastKnown = useRef<{ position: number; duration: number | null }>({
+    position: playback.resumeAtSeconds ?? 0,
+    duration: null,
   });
 
   /** Laeser sporene af afspilleren. Kaldes naar filen er aabnet — foer det er de tomme. */
@@ -125,18 +142,27 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
     return () => subscription.remove();
   }, [player, playback.resumeAtSeconds, readTracks, autoSelect]);
 
-  // Fremdriften. Skrives hvert tiende sekund og ved afgang.
+  useEffect(() => {
+    const subscription = player.addListener('timeUpdate', ({ currentTime }: { currentTime: number }) => {
+      if (!Number.isFinite(currentTime) || currentTime <= 0) return;
+      let duration: number | null = null;
+      try {
+        duration = Number.isFinite(player.duration) && player.duration > 0 ? player.duration : null;
+      } catch {
+        // Afspilleren er paa vej vaek. Positionen er stadig god.
+      }
+      lastKnown.current = { position: currentTime, duration };
+    });
+    return () => subscription.remove();
+  }, [player]);
+
+  // Fremdriften. Skrives hvert tiende sekund og ved afgang — fra `lastKnown`,
+  // aldrig fra afspilleren, som kan vaere frigivet naar oprydningen koerer.
   const persist = useCallback((): void => {
-    const position = player.currentTime;
-    const duration = player.duration;
-    if (!Number.isFinite(position) || position <= 0) return;
-    void saveProgress(
-      session.db,
-      playback.progressKey,
-      position,
-      Number.isFinite(duration) && duration > 0 ? duration : null,
-    ).catch(() => undefined);
-  }, [player, session.db, playback.progressKey]);
+    const { position, duration } = lastKnown.current;
+    if (position <= 0) return;
+    void saveProgress(session.db, playback.progressKey, position, duration).catch(() => undefined);
+  }, [session.db, playback.progressKey]);
 
   useEffect(() => {
     const timer = setInterval(persist, PROGRESS_INTERVAL_MS);

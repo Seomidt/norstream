@@ -254,9 +254,11 @@ export interface ProgrammeOptions {
  * aabnes naar man trykker: der er plads til at vise dem, og saa skal ingen
  * gaette paa hvad et tryk goer.
  *
- * En udsendelse der allerede er sendt kan baade startes forfra og optages —
- * optagelse af noget der ligger i arkivet er bare en hentning, og den kan ske
- * med det samme.
+ * En udsendelse der **er sendt** har ét svar: start forfra. Bladet viste
+ * ogsaa "se kanalen" og "optag", og det var forvirrende — man har rullet
+ * tilbage til noget bestemt, og at se kanalen live er ikke det. Kan den ikke
+ * startes forfra (intet arkiv, ingen dialekt), staar kanalen live tilbage
+ * som det eneste, med forklaringen. Den der sendes lige nu faar alle tre.
  */
 export function programmeOptions(
   state: CellState,
@@ -264,10 +266,12 @@ export function programmeOptions(
   hasDialect: boolean,
 ): ProgrammeOptions {
   const archive = channel.hasArchive && hasDialect;
+  // Fremtiden kan ikke startes forfra; den er ikke sendt endnu.
+  const restart = archive && state !== 'future' && state !== 'gap';
+  if (state === 'past' && restart) return { play: false, restart: true, record: false };
   return {
     play: true,
-    // Fremtiden kan ikke startes forfra; den er ikke sendt endnu.
-    restart: archive && state !== 'future' && state !== 'gap',
+    restart,
     record: canRecord(channel) && hasDialect && state !== 'gap',
   };
 }

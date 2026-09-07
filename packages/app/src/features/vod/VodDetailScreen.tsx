@@ -32,8 +32,12 @@ interface Props {
   itemKey: string;
   onBack: () => void;
   onPlay: (playback: Playback) => void;
-  /** Traileren vises inde i appen, paa sin egen skaerm. */
-  onTrailer: (trailerId: string, title: string) => void;
+  /**
+   * Traileren vises inde i appen, paa sin egen skaerm. Id'et er panelets
+   * bud og kan mangle; skaermen soeger selv videre naar det er en teaser
+   * eller slet ikke er der.
+   */
+  onTrailer: (trailerId: string | null, title: string, year: number | null) => void;
 }
 
 /**
@@ -132,9 +136,8 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
   }
 
   function openTrailer(): void {
-    if (details?.trailerId === null || details?.trailerId === undefined) return;
     if (item === null || item === undefined) return;
-    onTrailer(details.trailerId, item.name);
+    onTrailer(details?.trailerId ?? null, item.name, details?.year ?? item.year);
   }
 
   const seasons = [...new Set(episodes.map((episode) => episode.season))];
@@ -207,11 +210,9 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
               <Text style={styles.buttonText}>▶ Se første afsnit</Text>
             </Pressable>
           ) : null}
-          {details?.trailerId !== null && details?.trailerId !== undefined && (
-            <Pressable style={styles.button} onPress={openTrailer}>
-              <Text style={styles.buttonText}>Trailer</Text>
-            </Pressable>
-          )}
+          <Pressable style={styles.button} onPress={openTrailer}>
+            <Text style={styles.buttonText}>Trailer</Text>
+          </Pressable>
           <Pressable
             style={[styles.button, item.inWatchlist && styles.buttonDone]}
             onPress={() => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { deriveCountry, logoCandidates } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { logoCoverage, registryCoverage } from '../../storage/channels.js';
@@ -18,7 +18,9 @@ import {
   getLogoRegistryEnabled,
   getRegistryError,
   getStreamFormatSetting,
+  getYoutubeApiKey,
   setLogoRegistryEnabled,
+  setYoutubeApiKey,
   setMiniPreviewEnabled,
   setStreamFormatSetting,
 } from '../../storage/settings.js';
@@ -83,6 +85,8 @@ export function SettingsScreen({
   const [vod, setVod] = useState<{ movies: number; series: number } | null>(null);
   /** Hvor mange logoer der ligger paa telefonen. */
   const [cache, setCache] = useState(() => logoCacheStats());
+  /** Brugerens egen noegle til YouTubes Data API, til at soege efter trailere. */
+  const [youtubeKey, setYoutubeKey] = useState('');
   const [clearingCache, setClearingCache] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
@@ -96,6 +100,7 @@ export function SettingsScreen({
         getRegistryError(session.db),
       ]);
     setCache(logoCacheStats());
+    setYoutubeKey((await getYoutubeApiKey(session.db)) ?? '');
     setRegistryEnabled(await getLogoRegistryEnabled(session.db));
     setVod(await vodCounts(session.db));
     setHidden(hiddenCountries);
@@ -382,6 +387,30 @@ export function SettingsScreen({
         Skiftet gælder næste gang du åbner en kanal.
       </Text>
 
+      <Text style={styles.sectionTitle}>Trailere</Text>
+      <Text style={styles.hint}>
+        Udbyderen oplyser én trailer per titel, og den er ikke altid en trailer: nogle er
+        teasere på få sekunder. Er den under et minut, leder appen videre. Med en nøgle til
+        YouTubes Data API vælger den selv en lang nok; uden nøgle åbnes YouTubes søgning
+        inde i appen, så du vælger selv.
+      </Text>
+      <TextInput
+        style={styles.input}
+        value={youtubeKey}
+        onChangeText={setYoutubeKey}
+        onBlur={() => {
+          void setYoutubeApiKey(session.db, youtubeKey);
+        }}
+        placeholder="YouTube API-nøgle (valgfri)"
+        placeholderTextColor={theme.colors.textMuted}
+        autoCorrect={false}
+        autoCapitalize="none"
+      />
+      <Text style={styles.hint}>
+        Nøglen laves gratis i Google Cloud Console: opret et projekt, slå "YouTube Data API v3"
+        til, og opret en API-nøgle under Legitimationsoplysninger. Den gemmes kun på telefonen.
+      </Text>
+
       <Text style={styles.sectionTitle}>Skjulte lande</Text>
       {hidden.length === 0 ? (
         <Text style={styles.hint}>
@@ -461,6 +490,17 @@ const styles = StyleSheet.create({
   },
   logoProbeText: { flex: 1, marginLeft: theme.spacing.sm },
   logoUrl: { color: theme.colors.textMuted, fontSize: 11, marginTop: theme.spacing.xs },
+  input: {
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderWidth: 1,
+    borderRadius: theme.radius,
+    color: theme.colors.text,
+    padding: theme.spacing.sm + 2,
+    marginTop: theme.spacing.sm,
+    marginBottom: theme.spacing.sm,
+    fontSize: 15,
+  },
   choices: { flexDirection: 'row', gap: theme.spacing.sm, marginTop: theme.spacing.sm },
   choice: {
     paddingVertical: theme.spacing.sm,
