@@ -17,13 +17,23 @@ interface Props {
  * YouTube selv stiller til raadighed — at traekke videofilen ud og spille den
  * i appens afspiller goer de ikke, og det ville braekke naar de aendrer noget.
  *
- * **Afspilleren ligger i en lille side, ikke som en adresse for sig.** Foerste
- * udgave aabnede `youtube.com/embed/<id>` direkte, og YouTube svarede
- * "Konfigurationsfejl i videoafspiller, fejl 153". Fejl 153 er at der ikke
- * fulgte en `Referer` med: en indlejret afspiller vil vide hvilken side den
- * sidder paa. Med en side og en base-adresse sender webvisningen den, og
- * afspilleren starter.
+ * **Afspilleren ligger i en lille side med en neutral base-adresse.** Det er
+ * maalt, ikke gaettet — i en rigtig browser paa GitHubs maskine, efter to
+ * builds paa gaet:
+ *
+ * - `youtube.com/embed/<id>` aabnet direkte: fejl 153. Der fulgte ingen
+ *   `Referer` med, og en indlejret afspiller vil vide hvilken side den sidder
+ *   paa.
+ * - En side med base-adressen `https://www.youtube.com`: fejl 152-4, "denne
+ *   video er ikke tilgaengelig". YouTube afviser en indlejring der paastaar
+ *   at sidde paa youtube.com selv.
+ * - En side med en anden https-adresse som base: ingen fejl. Afspilleren
+ *   staar klar.
+ *
+ * Adressen skal bare vaere en https-oprindelse der ikke er YouTubes egen.
+ * Der hentes intet fra den; den er kun det navn webvisningen sender med.
  */
+const EMBED_ORIGIN = 'https://norstream.app';
 export function TrailerScreen({ trailerId, title, onBack }: Props) {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
@@ -34,7 +44,7 @@ export function TrailerScreen({ trailerId, title, onBack }: Props) {
       <View style={styles.frame}>
         {!failed && (
           <WebView
-            source={{ html: embedPage(trailerId), baseUrl: 'https://www.youtube.com' }}
+            source={{ html: embedPage(trailerId), baseUrl: EMBED_ORIGIN }}
             originWhitelist={['*']}
             style={styles.web}
             allowsFullscreenVideo
