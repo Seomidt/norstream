@@ -114,6 +114,13 @@ export function GuideScreen({
   const [offsetMinutes, setOffsetMinutes] = useState(0);
   /** Kanalen previewet viser, eller null. Foelger den oeverste synlige raekke. */
   const [previewChannel, setPreviewChannel] = useState<StoredChannel | null>(null);
+  /**
+   * Kanalen brugeren selv har valgt til previewet, ved et tryk paa navnet.
+   * Saa laenge den er sat, foelger previewet ikke rulningen: de nederste
+   * raekker kan aldrig rulles op i toppen, og uden et eget valg kunne de
+   * derfor aldrig vises i previewet.
+   */
+  const pinnedPreview = useRef<StoredChannel | null>(null);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   /** Den celle bladet er aabnet for, eller null naar det er lukket. */
@@ -335,8 +342,9 @@ export function GuideScreen({
         .map((entry) => entry.item)
         .filter((channel): channel is StoredChannel => channel !== undefined);
 
-      // Previewet foelger den oeverste synlige raekke, som i kanallisten.
-      setPreviewChannel(visibleChannels.current[0] ?? null);
+      // Previewet foelger den oeverste synlige raekke, som i kanallisten —
+      // medmindre brugeren har peget paa en kanal selv.
+      if (pinnedPreview.current === null) setPreviewChannel(visibleChannels.current[0] ?? null);
       void drawFromCacheRef.current(
         visibleChannels.current,
         new Date(windowRef.current.start),
@@ -543,11 +551,18 @@ export function GuideScreen({
             offset: ROW_HEIGHT * index,
             index,
           })}
+          contentContainerStyle={styles.listContent}
+          extraData={previewChannel?.id}
           renderItem={({ item }) => (
             <GuideRow
               channel={item}
               cells={layoutRow(rows[item.id] ?? [], window.start, window.end, now)}
               hasDialect={hasDialectFor(item)}
+              previewing={previewChannel?.id === item.id}
+              onPreview={(channel) => {
+                pinnedPreview.current = channel;
+                setPreviewChannel(channel);
+              }}
               onMeasureCells={(width) => {
                 gridWidth.current = width;
                 setCellsWidth((current) => (current === width ? current : width));
@@ -577,21 +592,33 @@ function GuideRow({
   channel,
   cells,
   hasDialect,
+  previewing,
+  onPreview,
   onOpen,
   onMeasureCells,
 }: {
   channel: StoredChannel;
   cells: GuideCell[];
   hasDialect: boolean;
+  /** Sand for den kanal previewet viser lige nu. */
+  previewing: boolean;
+  /** Et tryk paa kanalnavnet: vis kanalen i previewet. */
+  onPreview: (channel: StoredChannel) => void;
   onOpen: (channel: StoredChannel, cell: GuideCell) => void;
   /** Bredden paa tidsaksen. Traekket regner minutter ud af den. */
   onMeasureCells: (width: number) => void;
 }) {
   return (
     <View style={styles.row}>
-      {/* Kanalen selv kan ogsaa trykkes: det er vejen ind naar hele raekken
-          er et hul, og den korteste vej til kanalen i alle andre tilfaelde. */}
-      <Pressable style={styles.channelCell} onPress={() => onOpen(channel, CHANNEL_CELL)}>
+      {/* Et tryk paa kanalen viser den i previewet; hold fingeren for
+          bladet med "se kanalen". Previewet fulgte kun den oeverste synlige
+          raekke, og de nederste kan aldrig rulles derop. */}
+      <Pressable
+        style={[styles.channelCell, previewing && styles.channelCellPreviewing]}
+        onPress={() => onPreview(channel)}
+        onLongPress={() => onOpen(channel, CHANNEL_CELL)}
+        delayLongPress={400}
+      >
         <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={26} />
         <View style={styles.channelText}>
           <Text style={styles.channelName} numberOfLines={2}>
@@ -720,6 +747,8 @@ const styles = StyleSheet.create({
   timeSpacer: { width: CHANNEL_COLUMN },
   timeMark: { flex: 1, color: theme.colors.textMuted, fontSize: 11 },
   grid: { flex: 1 },
+  /** Luft under den sidste raekke, saa den kan rulles helt fri af fanelinjen. */
+  listContent: { paddingBottom: ROW_HEIGHT },
   // Bredden er ét fysisk punkt bred paa alle skaerme. En streg paa 2 dp ville
   // daekke et par minutter i et to timers vindue og saaledes lyve en smule om
   // hvor nu er.
@@ -748,6 +777,7 @@ const styles = StyleSheet.create({
     borderRightColor: theme.colors.border,
     borderRightWidth: StyleSheet.hairlineWidth,
   },
+  channelCellPreviewing: { backgroundColor: theme.colors.surfaceRaised },
   channelText: { flex: 1, marginLeft: theme.spacing.xs },
   channelName: { color: theme.colors.text, fontSize: 11 },
   channelBadges: { color: theme.colors.accent, fontSize: 9, marginTop: 1 },
