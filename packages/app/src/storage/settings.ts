@@ -12,6 +12,7 @@ const KEY_REGISTRY_ENABLED = 'logo_registry_enabled';
 const KEY_YOUTUBE_API_KEY = 'youtube_api_key';
 const KEY_SUBTITLE_LANGUAGE = 'subtitle_language';
 const KEY_TMDB_API_KEY = 'tmdb_api_key';
+const KEY_RESTART_ONLY = 'restart_only_filter';
 
 export async function getSetting(
   db: SqlDatabase,
@@ -310,4 +311,19 @@ export async function getTmdbApiKey(db: SqlDatabase): Promise<string | null> {
 
 export async function setTmdbApiKey(db: SqlDatabase, key: string): Promise<void> {
   await setSetting(db, KEY_TMDB_API_KEY, key.trim());
+}
+
+/**
+ * Om kanallisterne kun skal vise kanaler der kan startes forfra.
+ *
+ * Et filter, ikke en skjulning: kanalerne er der stadig, de vises bare
+ * ikke mens det er slaaet til. Gaelder alle lister, saa man ikke skal
+ * slaa det til i hver.
+ */
+export async function getRestartOnlyFilter(db: SqlDatabase): Promise<boolean> {
+  return (await getSetting(db, KEY_RESTART_ONLY)) === 'on';
+}
+
+export async function setRestartOnlyFilter(db: SqlDatabase, enabled: boolean): Promise<void> {
+  await setSetting(db, KEY_RESTART_ONLY, enabled ? 'on' : 'off');
 }
