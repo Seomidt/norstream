@@ -170,7 +170,13 @@ export function GuideScreen({
    */
   const openSheet = useCallback(
     async (channel: StoredChannel, cell: GuideCell): Promise<void> => {
-      if (cell.programme === null) return;
+      // Et hul — kanalen uden programdata — aabner ogsaa bladet. Foer var
+      // hullerne doede, og en kanal uden oversigt kunne ikke aabnes fra
+      // guiden overhovedet. Bladet siger hvad der mangler og tilbyder kanalen.
+      if (cell.programme === null) {
+        setSheet({ channel, cell, recorded: false });
+        return;
+      }
       const recorded = await isScheduled(session.db, channel.id, cell.programme.start);
       setSheet({ channel, cell, recorded });
     },
@@ -485,7 +491,7 @@ export function GuideScreen({
         )}
       </View>
 
-      {sheet !== null && sheet.cell.programme !== null && (
+      {sheet !== null && (
         <ProgrammeSheet
           channel={sheet.channel}
           programme={sheet.cell.programme}
@@ -557,6 +563,16 @@ export function GuideScreen({
   );
 }
 
+/** Cellen et tryk paa kanalnavnet aabner bladet med: ingen udsendelse, bare kanalen. */
+const CHANNEL_CELL: GuideCell = {
+  key: 'channel',
+  programme: null,
+  state: 'gap',
+  weight: 0,
+  clippedStart: false,
+  clippedEnd: false,
+};
+
 function GuideRow({
   channel,
   cells,
@@ -573,7 +589,9 @@ function GuideRow({
 }) {
   return (
     <View style={styles.row}>
-      <View style={styles.channelCell}>
+      {/* Kanalen selv kan ogsaa trykkes: det er vejen ind naar hele raekken
+          er et hul, og den korteste vej til kanalen i alle andre tilfaelde. */}
+      <Pressable style={styles.channelCell} onPress={() => onOpen(channel, CHANNEL_CELL)}>
         <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={26} />
         <View style={styles.channelText}>
           <Text style={styles.channelName} numberOfLines={2}>
@@ -589,7 +607,7 @@ function GuideRow({
             </Text>
           )}
         </View>
-      </View>
+      </Pressable>
       <View
         style={styles.cells}
         onLayout={(event) => onMeasureCells(event.nativeEvent.layout.width)}
@@ -607,16 +625,18 @@ function GuideRow({
                 action === 'record' && styles.cellRecordable,
                 action === 'none' && styles.cellInactive,
               ]}
-              disabled={cell.programme === null}
               onPress={() => onOpen(channel, cell)}
             >
               {/* Uden maerket kan man ikke se hvilke afsluttede udsendelser
                   der kan startes igen. Cellerne ser ens ud, og forskellen —
                   om kanalen har arkiv — er usynlig indtil man har trykket. */}
-              <Text style={styles.cellText} numberOfLines={2}>
+              <Text
+                style={[styles.cellText, cell.programme === null && styles.cellTextMuted]}
+                numberOfLines={2}
+              >
                 {action === 'restart' ? '▶ ' : ''}
                 {action === 'record' ? '● ' : ''}
-                {cell.programme?.title ?? ''}
+                {cell.programme?.title ?? (cell.weight >= 30 ? 'Ingen programdata' : '')}
               </Text>
             </Pressable>
           );
@@ -746,4 +766,5 @@ const styles = StyleSheet.create({
   cellRecordable: { borderLeftColor: theme.colors.textMuted, borderLeftWidth: 2 },
   cellInactive: { opacity: 0.45 },
   cellText: { color: theme.colors.text, fontSize: 11 },
+  cellTextMuted: { color: theme.colors.textMuted },
 });

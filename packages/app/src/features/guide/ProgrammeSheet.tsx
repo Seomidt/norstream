@@ -9,7 +9,8 @@ import type { CellState } from './layout.js';
 
 interface Props {
   channel: StoredChannel;
-  programme: Programme;
+  /** Null naar bladet er aabnet paa et hul: kanalen uden programdata. */
+  programme: Programme | null;
   state: CellState;
   hasDialect: boolean;
   /** Sat naar der allerede er bestilt optagelse af netop denne udsendelse. */
@@ -57,18 +58,20 @@ export function ProgrammeSheet({
               {channel.name}
             </Text>
             <Text style={styles.time}>
-              {clock(programme.start)} – {clock(programme.stop)}
-              {' · '}
-              {minutes(programme)} min
+              {programme === null
+                ? 'Ingen programdata'
+                : `${clock(programme.start)} – ${clock(programme.stop)} · ${minutes(programme)} min`}
             </Text>
           </View>
         </View>
 
-        <Text style={styles.title}>{programme.title}</Text>
+        <Text style={styles.title}>{programme === null ? channel.name : programme.title}</Text>
 
         <ScrollView style={styles.descriptionBox}>
           <Text style={styles.description}>
-            {programme.description ?? 'Udbyderen har ingen beskrivelse af denne udsendelse.'}
+            {programme === null
+              ? 'Udbyderen har ingen programoversigt for kanalen i dette tidsrum. Kanalen kan ses direkte.'
+              : (programme.description ?? 'Udbyderen har ingen beskrivelse af denne udsendelse.')}
           </Text>
         </ScrollView>
 
@@ -94,7 +97,7 @@ export function ProgrammeSheet({
               </Text>
             </Pressable>
           )}
-          {!options.restart && !options.record && (
+          {!options.restart && !options.record && programme !== null && (
             <Text style={styles.hint}>
               {channel.hasArchive
                 ? 'Appen har ikke fundet vejen til udbyderens arkiv endnu, så udsendelsen kan hverken startes forfra eller hentes.'
