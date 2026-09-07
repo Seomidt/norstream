@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { theme } from '../../ui/theme.js';
@@ -70,6 +70,16 @@ export function TrailerScreen({ trailerId, title, onBack }: Props) {
         <Pressable style={styles.button} onPress={onBack}>
           <Text style={styles.buttonText}>Tilbage</Text>
         </Pressable>
+        {/* Altid, ikke kun ved fejl: nogle trailere maa ifoelge deres ejer
+            ikke vises uden for YouTube, og saa er det her den eneste vej. */}
+        <Pressable
+          style={styles.button}
+          onPress={() => {
+            void Linking.openURL(`https://www.youtube.com/watch?v=${trailerId}`).catch(() => undefined);
+          }}
+        >
+          <Text style={styles.buttonText}>Åbn i YouTube</Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -108,6 +118,7 @@ const styles = StyleSheet.create({
   hint: { color: theme.colors.textMuted, fontSize: 13, marginTop: 4 },
   actions: {
     flexDirection: 'row',
+    gap: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
     paddingTop: theme.spacing.sm,
     backgroundColor: theme.colors.background,

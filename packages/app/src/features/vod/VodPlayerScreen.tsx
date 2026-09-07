@@ -54,11 +54,62 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
     setAudio(player.audioTrack);
   }, [player]);
 
+  /**
+   * Vaelger sproget selv, foerste gang sporene kendes.
+   *
+   * Brugeren skrev at "dansk tekster ikke kommer med". Filerne bar sporene;
+   * afspilleren viste bare ingen af dem foer man selv gik ind og valgte.
+   * Telefonens eget sprog foerst, saa engelsk, ellers intet — og kun naar der
+   * ikke allerede er valgt et, saa et valg man har taget ikke bliver
+   * overskrevet naar sporene meldes igen.
+   */
+  const autoPicked = useRef(false);
+  const autoSelect = useCallback(
+    (tracks: SubtitleTrack[]): void => {
+      if (autoPicked.current || tracks.length === 0 || player.subtitleTrack !== null) return;
+      const wanted = [deviceLanguage(), 'en'];
+      for (const language of wanted) {
+        const track = tracks.find((candidate) => sameLanguage(candidate.language, language));
+        if (track !== undefined) {
+          autoPicked.current = true;
+          player.subtitleTrack = track;
+          setSubtitle(track);
+          return;
+        }
+      }
+    },
+    [player],
+  );
+
+  // Sporene meldes for sig, og tit et oejeblik **efter** at filen er klar til
+  // afspilning. Laeses de kun ved readyToPlay, staar listen tom.
+  useEffect(() => {
+    const subtitles = player.addListener(
+      'availableSubtitleTracksChange',
+      ({ availableSubtitleTracks }: { availableSubtitleTracks: SubtitleTrack[] }) => {
+        setSubtitleTracks(availableSubtitleTracks);
+        autoSelect(availableSubtitleTracks);
+      },
+    );
+    const audio = player.addListener(
+      'availableAudioTracksChange',
+      ({ availableAudioTracks }: { availableAudioTracks: AudioTrack[] }) => {
+        setAudioTracks(availableAudioTracks);
+        setAudio(player.audioTrack);
+      },
+    );
+    return () => {
+      subtitles.remove();
+      audio.remove();
+    };
+  }, [player, autoSelect]);
+
   useEffect(() => {
     const subscription = player.addListener('statusChange', ({ status }: { status: string }) => {
       if (status === 'readyToPlay') {
         setError(null);
         readTracks();
+        autoSelect(player.availableSubtitleTracks);
         // Foerst her: et hop foer filen er aabnet, bliver ignoreret.
         if (!resumed.current && playback.resumeAtSeconds !== null && playback.resumeAtSeconds > 0) {
           resumed.current = true;
@@ -72,7 +123,7 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
       }
     });
     return () => subscription.remove();
-  }, [player, playback.resumeAtSeconds, readTracks]);
+  }, [player, playback.resumeAtSeconds, readTracks, autoSelect]);
 
   // Fremdriften. Skrives hvert tiende sekund og ved afgang.
   const persist = useCallback((): void => {
@@ -181,6 +232,30 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
     </View>
   );
 }
+
+/** Telefonens sprog som en kort kode — `da`, `en`. Falder tilbage paa dansk. */
+function deviceLanguage(): string {
+  try {
+    const locale = Intl.DateTimeFormat().resolvedOptions().locale;
+    return locale.split(/[-_]/)[0]?.toLowerCase() ?? 'da';
+  } catch {
+    return 'da';
+  }
+}
+
+/** `da` og `dan` er samme sprog; filerne skriver begge dele. */
+function sameLanguage(a: string, b: string): boolean {
+  const norm = (code: string): string => {
+    const lower = code.toLowerCase();
+    return THREE_TO_TWO[lower] ?? lower;
+  };
+  return norm(a) === norm(b);
+}
+
+const THREE_TO_TWO: Record<string, string> = {
+  dan: 'da', eng: 'en', swe: 'sv', nor: 'no', nob: 'no', fin: 'fi', ger: 'de', deu: 'de',
+  fre: 'fr', fra: 'fr', spa: 'es', ita: 'it', dut: 'nl', nld: 'nl', pol: 'pl', ara: 'ar', tur: 'tr',
+};
 
 /** Sporets navn til visning: sprog, og navnet fra filen naar det siger mere. */
 function trackName(track: { language: string; label: string; name?: string }): string {

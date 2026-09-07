@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 // Ikke react-natives egen SafeAreaView: den gør **ingenting paa Android**.
 // Telefonens navigationslinje laa derfor oven i appens fanelinje, og det saa
 // ud som et layoutproblem i appen frem for en manglende indramning.
@@ -92,6 +92,36 @@ export default function App() {
     }
   }
 
+  /**
+   * Telefonens egen tilbage-knap.
+   *
+   * Appen har ingen navigationsstak — ruterne er en union her — og Android
+   * goer det eneste den kan uden en: lukker appen. Midt i en film. Nu foelger
+   * knappen den samme vej som "Tilbage" paa skaermen: afspiller -> titel ->
+   * hjem, og inde i Hjem ét niveau op i land -> kategori -> kanaler. Foerst
+   * paa forsiden faar Android lov til at lukke.
+   */
+  const homeBack = useRef<() => boolean>(() => false);
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      switch (route.name) {
+        case 'player':
+        case 'vodDetail':
+          setRoute({ name: 'home' });
+          return true;
+        case 'vodPlayer':
+        case 'trailer':
+          setRoute({ name: 'vodDetail', itemKey: route.itemKey });
+          return true;
+        case 'home':
+          return homeBack.current();
+        default:
+          return false;
+      }
+    });
+    return () => subscription.remove();
+  }, [route]);
+
   function retryBoot(): void {
     setSession(null);
     setRoute({ name: 'loading' });
@@ -132,6 +162,7 @@ export default function App() {
             setRoute({ name: 'player', channel, startFrom })
           }
           onOpenVod={(item) => setRoute({ name: 'vodDetail', itemKey: item.key })}
+          backRef={homeBack}
           onSourcesChanged={() => {
             void (async () => {
               // Kilderne er skiftet: sessionen skal laese legitimation for de

@@ -51,6 +51,8 @@ interface Props {
   onSignedOut: (notice: string) => void;
   /** Kaldes naar kilderne er aendret, saa sessionen kan laeses om. */
   onSourcesChanged: () => void;
+  /** Udfyldes med det telefonens tilbage-knap skal goere i Hjem. Falsk = lad Android lukke. */
+  backRef: { current: () => boolean };
 }
 
 export type Tab = 'favorites' | 'browse' | 'guide' | 'vod' | 'recordings' | 'settings';
@@ -84,6 +86,7 @@ export function HomeScreen({
   onOpenVod,
   onSignedOut,
   onSourcesChanged,
+  backRef,
 }: Props) {
   // Telefonens navigationslinje ligger oven i fanelinjen uden det her.
   // Maalt frem for gaettet: en fast polstring rammer forkert paa baade
@@ -98,6 +101,47 @@ export function HomeScreen({
 
   // Deles af alle faneblade: kun ét preview maa nogensinde vaere i luften.
   const previewHandle = useRef<PreviewHandle | null>(null);
+
+  // Ét niveau op ad den vej man kom. Kilder-skaermen lukkes foerst; saa
+  // land -> kategori -> kanaler i Kanaler, og forsiden -> land -> kategori ->
+  // titler i Film. Paa forsiden af en fane: intet at gaa op i.
+  backRef.current = (): boolean => {
+    if (tab === 'settings' && showingSources) {
+      setShowingSources(false);
+      return true;
+    }
+    if (tab === 'browse' && place.browse !== null) {
+      const level = place.browse;
+      if (level.name === 'channels') {
+        onPlaceChange({ ...place, browse: { name: 'categories', country: level.country } });
+        return true;
+      }
+      if (level.name === 'categories') {
+        onPlaceChange({ ...place, browse: { name: 'countries' } });
+        return true;
+      }
+    }
+    if (tab === 'vod' && place.vod !== null) {
+      const level = place.vod;
+      if (level.name === 'items') {
+        onPlaceChange({ ...place, vod: { name: 'categories', kind: level.kind, country: level.country } });
+        return true;
+      }
+      if (level.name === 'categories') {
+        onPlaceChange({ ...place, vod: { name: 'countries', kind: level.kind } });
+        return true;
+      }
+      if (level.name === 'countries') {
+        onPlaceChange({ ...place, vod: { name: 'home' } });
+        return true;
+      }
+    }
+    if (tab !== 'favorites') {
+      onPlaceChange({ ...place, tab: 'favorites' });
+      return true;
+    }
+    return false;
+  };
 
   useEffect(() => {
     let cancelled = false;

@@ -119,7 +119,7 @@ export function legacyNamesFor(normalised: string): string[] {
  * **Tael op hver gang reglerne aendres.** Appen sammenligner tallet med det
  * gemte ved opstart og henter kanalerne igen naar de er forskellige.
  */
-export const MATCH_KEY_VERSION = 3;
+export const MATCH_KEY_VERSION = 4;
 
 export function normaliseChannelName(name: string): string {
   // Alt foer en lodret streg er panelets eget praefiks: `DNK|`, `DK |`.

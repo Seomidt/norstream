@@ -1,4 +1,10 @@
-import { channelKey, logoCandidates, normaliseChannelName, originOf } from '@norstream/core';
+import {
+  channelKey,
+  deriveCountryLoose,
+  logoCandidates,
+  normaliseChannelName,
+  originOf,
+} from '@norstream/core';
 import type { Category, Channel } from '@norstream/core';
 import { deadLogoOrigins } from './logoHosts.js';
 import type { SqlDatabase, SqlValue } from './types.js';
@@ -154,9 +160,16 @@ export async function replaceChannels(
         channel.id,
         streamUrls?.get(channel.id) ?? null,
         normaliseChannelName(channel.name),
-        (channel.categoryId === null
-          ? undefined
-          : countryByCategory?.get(channel.categoryId)) ?? '',
+        // Kanalens eget praefiks foerst — `DNK| DR1 HD` siger landet selv —
+        // og kategoriens land som anden udvej. Kategorier som `SPORT 1080P`
+        // blander lande, og der er kanalens eget navn det eneste der ved det.
+        // Uden landet slaas logoet kun op paa navne der er entydige i hele
+        // verden, og det er de faerreste.
+        deriveCountryLoose(channel.name)?.code ??
+          (channel.categoryId === null
+            ? undefined
+            : countryByCategory?.get(channel.categoryId)) ??
+          '',
         channel.name,
         channel.number,
         channel.logoUrl,

@@ -2,6 +2,7 @@ import { channelKey } from '@norstream/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Channel } from '@norstream/core';
 import { migrate } from './schema.js';
+import { addSource } from './sources.js';
 import { createTestDatabase } from './testDb.js';
 import type { SqlDatabase } from './types.js';
 import {
@@ -265,3 +266,32 @@ describe('logoer fra det aabne register', () => {
     expect((await listChannels(db))[0]?.logoUrls).toEqual([]);
   });
 });
+
+describe('landet paa kanalen', () => {
+  // Kategorier som `SPORT 1080P` blander lande. Uden landet slaas logoet kun
+  // op paa navne der er entydige i hele verden — og det er de faerreste.
+  it('tages fra kanalens eget praefiks naar kategorien intet siger', async () => {
+    const db = createTestDatabase();
+    await migrate(db);
+    const source = await addSource(db, { kind: 'xtream', name: 'P', url: 'http://p' });
+    await replaceCategories(db, source.id, [{ id: '9', name: 'SPORT 1080P' }]);
+    await replaceChannels(
+      db,
+      source.id,
+      [
+        { id: '1', name: 'DNK| TV3 SPORT HD', number: 1, logoUrl: null, categoryId: '9', epgChannelId: null, hasArchive: false, archiveDays: 0 },
+        { id: '2', name: 'SWE| V SPORT 1', number: 2, logoUrl: null, categoryId: '9', epgChannelId: null, hasArchive: false, archiveDays: 0 },
+      ],
+      undefined,
+      new Map(),
+    );
+    const rows = await db.getAllAsync<{ name: string; country: string }>(
+      'SELECT name, country FROM channels ORDER BY name',
+    );
+    expect(rows).toEqual([
+      { name: 'DNK| TV3 SPORT HD', country: 'DK' },
+      { name: 'SWE| V SPORT 1', country: 'SE' },
+    ]);
+  });
+});
+
