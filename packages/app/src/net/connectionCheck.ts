@@ -25,7 +25,7 @@ export interface CheckStep {
   detail: string;
 }
 
-export type Verdict = 'ok' | 'dns-block' | 'ip-block' | 'no-internet' | 'unknown';
+export type Verdict = 'ok' | 'panel-refuses' | 'dns-block' | 'ip-block' | 'no-internet' | 'unknown';
 
 export interface CheckReport {
   steps: CheckStep[];
@@ -46,6 +46,28 @@ export function splitPanelUrl(
 }
 
 const PROBE_PATH = '/player_api.php?username=test&password=test';
+
+/**
+ * De foerste ord af svarets krop, uden HTML. Et 403 fra Cloudflare siger
+ * "error code 1020", en firewall siger "Access denied", panelet selv siger
+ * "Forbidden" eller sender JSON — og det er forskellen paa hvem man skal
+ * skrive til.
+ */
+export function bodyGist(text: string): string {
+  const plain = text
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (plain.length === 0) return '';
+  return plain.length > 90 ? `${plain.slice(0, 87)}…` : plain;
+}
+
+function withGist(status: number, text: string): string {
+  const gist = bodyGist(text);
+  return gist.length === 0 ? `HTTP ${status}` : `HTTP ${status}: “${gist}”`;
+}
 
 function describeError(cause: unknown): string {
   const message = cause instanceof Error ? cause.message : String(cause);
@@ -112,13 +134,15 @@ export async function runConnectionCheck(probe: Probe, panelUrl: string): Promis
 
   // 2. Panelet paa sit navn, som appen goer det.
   let byName = false;
+  let nameStatus = 0;
   try {
     const response = await probe(`${parts.scheme}://${parts.hostHeader}${PROBE_PATH}`);
     byName = true;
+    nameStatus = response.status;
     steps.push({
       title: `Panelet paa navnet ${parts.host}`,
       ok: true,
-      detail: `Svarer HTTP ${response.status}. Vejen er aaben.`,
+      detail: `Svarer ${withGist(response.status, response.text)}. Vejen er aaben.`,
     });
   } catch (cause) {
     steps.push({
@@ -157,7 +181,7 @@ export async function runConnectionCheck(probe: Probe, panelUrl: string): Promis
       steps.push({
         title: `Panelet direkte paa ${ip}`,
         ok: true,
-        detail: `Svarer HTTP ${response.status}.`,
+        detail: `Svarer ${withGist(response.status, response.text)}.`,
       });
     } catch (cause) {
       steps.push({
@@ -168,6 +192,17 @@ export async function runConnectionCheck(probe: Probe, panelUrl: string): Promis
     }
   }
 
+  if (byName && (nameStatus === 401 || nameStatus === 403)) {
+    // Panelet svarer, men siger nej — ogsaa til et opslag uden rigtige
+    // oplysninger, som et Xtream-panel ellers besvarer med 200 og auth 0.
+    // Det er et nej til netvaerkets adresse, ikke til brugeren.
+    return {
+      steps,
+      verdict: 'panel-refuses',
+      advice:
+        'Vejen er aaben, men panelet afviser dette netvaerks IP-adresse. Det er ikke din udbyder og ikke DNS. Koer maalingen paa mobildata: svarer panelet noget andet der (typisk HTTP 200), er det din hjemmeadresse panelet har spaerret. Paneler goer det tit midlertidigt efter for mange forbindelser fra samme adresse, og ellers er det saelgeren af panelet der kan aabne den igen. Genstart af routeren giver hos nogle udbydere en ny adresse.',
+    };
+  }
   if (byName) {
     return {
       steps,

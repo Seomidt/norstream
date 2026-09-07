@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runConnectionCheck, splitPanelUrl } from './connectionCheck.js';
+import { bodyGist, runConnectionCheck, splitPanelUrl } from './connectionCheck.js';
 import type { Probe } from './connectionCheck.js';
 
 const DOH = JSON.stringify({ Answer: [{ type: 1, data: '203.0.113.7' }, { type: 5, data: 'cname' }] });
@@ -34,7 +34,19 @@ describe('splitPanelUrl', () => {
 });
 
 describe('runConnectionCheck', () => {
-  it('siger ok naar panelet svarer paa sit navn, uanset hvad det svarer', async () => {
+  it('siger ok naar panelet svarer paa sit navn', async () => {
+    const probe = probeWith([
+      [/generate_204/, 204],
+      [/line\.example\.xyz\/player_api/, 200],
+      [/dns\.google/, DOH],
+      [/203\.0\.113\.7/, 200],
+    ]);
+    const report = await runConnectionCheck(probe, 'http://line.example.xyz');
+    expect(report.verdict).toBe('ok');
+    expect(report.steps.map((s) => s.ok)).toEqual([true, true, true, true]);
+  });
+
+  it('ser at panelet afviser netvaerket: 403 paa navn og adresse, mens vejen er aaben', async () => {
     const probe = probeWith([
       [/generate_204/, 204],
       [/line\.example\.xyz\/player_api/, 403],
@@ -42,8 +54,15 @@ describe('runConnectionCheck', () => {
       [/203\.0\.113\.7/, 403],
     ]);
     const report = await runConnectionCheck(probe, 'http://line.example.xyz');
-    expect(report.verdict).toBe('ok');
-    expect(report.steps.map((s) => s.ok)).toEqual([true, true, true, true]);
+    expect(report.verdict).toBe('panel-refuses');
+    expect(report.advice).toContain('IP-adresse');
+  });
+
+  it('viser hvad panelet skriver i sit svar, uden HTML', () => {
+    expect(bodyGist('<html><head><title>403</title><style>a{}</style></head><body><h1>Access denied</h1><p>Error code 1020</p></body></html>'))
+      .toBe('403 Access denied Error code 1020');
+    expect(bodyGist('')).toBe('');
+    expect(bodyGist('x'.repeat(200))).toHaveLength(88);
   });
 
   it('ser en DNS-blokering: navnet svarer ikke, adressen goer', async () => {

@@ -32,6 +32,7 @@ const probe: Probe = async (url, headers) => {
 
 const VERDICT_TITLES = {
   ok: 'Panelet kan nås herfra',
+  'panel-refuses': 'Panelet afviser dette netværk',
   'dns-block': 'Navnet blokeres på dette netværk',
   'ip-block': 'Adressen er spærret på dette netværk',
   'no-internet': 'Intet internet',
