@@ -1,0 +1,30 @@
+name: Maal en adresse
+
+# Et rent maaleredskab. Udviklingsmiljoeet bag appen sidder bag en proxy
+# med en kort liste af tilladte vaerter, saa det kan ikke selv afgoere om en
+# adresse svarer. GitHubs maskine kan. Det her siger hvad adressen svarer —
+# status, indholdstype, stoerrelse — eller hvorfor den ikke kunne naas.
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Adressen der skal maales'
+        required: true
+        type: string
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Maal
+        run: |
+          url='${{ inputs.url }}'
+          echo "### Maaling af $url" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          # -I foerst: hoveder alene, uden at hente filen. Fejler det, proeves
+          # en rigtig GET, fordi nogle vaerter afviser HEAD.
+          {
+            curl -sS -o /dev/null -m 20 -w 'HEAD  status=%{http_code}  type=%{content_type}  bytes=%{size_download}  ip=%{remote_ip}  tid=%{time_total}s\n' -I "$url" \
+              || curl -sS -o /dev/null -m 20 -w 'GET   status=%{http_code}  type=%{content_type}  bytes=%{size_download}  ip=%{remote_ip}  tid=%{time_total}s\n' "$url"
+          } 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
