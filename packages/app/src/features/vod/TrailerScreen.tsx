@@ -5,7 +5,7 @@ import { WebView } from 'react-native-webview';
 import type { WebViewMessageEvent } from 'react-native-webview';
 import type { AppSession } from '../../session.js';
 import { getTmdbApiKey, getYoutubeApiKey } from '../../storage/settings.js';
-import { findTmdbTrailer } from '../../sync/tmdb.js';
+import { findTmdbTrailer, tmdbFetch } from '../../sync/tmdb.js';
 import { theme } from '../../ui/theme.js';
 import { MIN_TRAILER_SECONDS, findLongerTrailer, youtubeSearchUrl } from './trailerSearch.js';
 
@@ -89,7 +89,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     const tmdbKey = await getTmdbApiKey(session.db);
     if (tmdbKey !== null) {
       const name = year === null ? title : `${title} (${year})`;
-      const found = await findTmdbTrailer(session.fetchImpl, tmdbKey, kind, name);
+      const found = await findTmdbTrailer(tmdbFetch, tmdbKey, kind, name);
       if (found !== null && found.youtubeId !== trailerId) {
         setNote(`${reason} Traileren er fundet gennem TMDB: ${found.name}.`);
         setLoading(true);

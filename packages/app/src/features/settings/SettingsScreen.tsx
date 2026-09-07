@@ -324,7 +324,8 @@ export function SettingsScreen({
       />
       <Text style={styles.hint}>
         Nøglen laves gratis på themoviedb.org: opret en konto, gå til Settings → API, og kopiér
-        "API Key (v3 auth)". Den gemmes kun på telefonen og i din sikkerhedskopi.
+        enten "API Key" eller "API Read Access Token". Begge virker; du skal kun bruge én. Den
+        gemmes kun på telefonen og i din sikkerhedskopi.
       </Text>
 
       <Text style={styles.sectionTitle}>Trailere</Text>

@@ -1,4 +1,44 @@
-import type { FetchLike } from '@norstream/core';
+import type { FetchLikeResponse } from '@norstream/core';
+
+/**
+ * Et kald med valgfri hoveder. Appens saedvanlige fetch kender ingen
+ * hoveder, og TMDBs laesetoken (v4) skal sendes som et Authorization-hoved;
+ * API-noeglen (v3) gaar i adressen. Begge slags accepteres, saa det er lige
+ * meget hvilken af de to brugeren kopierer fra TMDBs side.
+ */
+export type TmdbFetch = (
+  url: string,
+  headers?: Record<string, string>,
+) => Promise<FetchLikeResponse>;
+
+const TIMEOUT_MS = 12_000;
+
+/** Den rigtige hentning, med tidsgraense. */
+export const tmdbFetch: TmdbFetch = async (url, headers) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { headers, signal: controller.signal });
+    return {
+      ok: response.ok,
+      status: response.status,
+      json: () => response.json() as Promise<unknown>,
+      text: () => response.text(),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+/**
+ * Hvordan noeglen sendes med. Laesetokenet er et JWT og begynder med "eyJ";
+ * alt andet regnes for en v3-noegle.
+ */
+export function tmdbAuth(key: string): { query: string; headers?: Record<string, string> } {
+  const trimmed = key.trim();
+  if (trimmed.startsWith('eyJ')) return { query: '', headers: { Authorization: `Bearer ${trimmed}` } };
+  return { query: `&api_key=${encodeURIComponent(trimmed)}` };
+}
 
 /**
  * Plakater fra The Movie Database, til de film og serier panelet ikke gav
@@ -77,7 +117,7 @@ interface SearchResult {
  * er ikke en fejl paa skaermen.
  */
 export async function searchTmdb(
-  fetchImpl: FetchLike,
+  fetchImpl: TmdbFetch,
   apiKey: string,
   kind: 'movie' | 'series',
   name: string,
@@ -86,12 +126,13 @@ export async function searchTmdb(
   if (title.length === 0) return null;
   const endpoint = kind === 'series' ? 'tv' : 'movie';
   const yearParam = year === null ? '' : kind === 'series' ? `&first_air_date_year=${year}` : `&year=${year}`;
+  const auth = tmdbAuth(apiKey);
   const url =
     `${API}/search/${endpoint}?query=${encodeURIComponent(title)}` +
-    `${yearParam}&include_adult=false&language=da-DK&api_key=${encodeURIComponent(apiKey)}`;
+    `${yearParam}&include_adult=false&language=da-DK${auth.query}`;
   try {
-    let hit = await firstHit(fetchImpl, url);
-    if (hit === null && year !== null) hit = await firstHit(fetchImpl, url.replace(yearParam, ''));
+    let hit = await firstHit(fetchImpl, url, auth.headers);
+    if (hit === null && year !== null) hit = await firstHit(fetchImpl, url.replace(yearParam, ''), auth.headers);
     if (hit === null || typeof hit.id !== 'number') return null;
     // Karakteren taeller kun naar nogen har stemt; et nul fra ingen er ikke et nul.
     const rating =
@@ -108,8 +149,12 @@ export async function searchTmdb(
   }
 }
 
-async function firstHit(fetchImpl: FetchLike, url: string): Promise<SearchHit | null> {
-  const response = await fetchImpl(url);
+async function firstHit(
+  fetchImpl: TmdbFetch,
+  url: string,
+  headers: Record<string, string> | undefined,
+): Promise<SearchHit | null> {
+  const response = await fetchImpl(url, headers);
   if (!response.ok) return null;
   const parsed = (await response.json()) as SearchResult;
   // Den foerste med plakat; ellers den foerste overhovedet.
@@ -119,7 +164,7 @@ async function firstHit(fetchImpl: FetchLike, url: string): Promise<SearchHit | 
 
 /** Plakatens adresse, eller null. */
 export async function findTmdbPoster(
-  fetchImpl: FetchLike,
+  fetchImpl: TmdbFetch,
   apiKey: string,
   kind: 'movie' | 'series',
   name: string,
@@ -151,7 +196,7 @@ export interface TmdbTrailer {
  * klip tages ikke med; det var netop dem der var problemet.
  */
 export async function findTmdbTrailer(
-  fetchImpl: FetchLike,
+  fetchImpl: TmdbFetch,
   apiKey: string,
   kind: 'movie' | 'series',
   name: string,
@@ -159,9 +204,11 @@ export async function findTmdbTrailer(
   const found = await searchTmdb(fetchImpl, apiKey, kind, name);
   if (found === null) return null;
   const endpoint = kind === 'series' ? 'tv' : 'movie';
+  const auth = tmdbAuth(apiKey);
   try {
     const response = await fetchImpl(
-      `${API}/${endpoint}/${found.id}/videos?include_video_language=da,en,null&api_key=${encodeURIComponent(apiKey)}`,
+      `${API}/${endpoint}/${found.id}/videos?include_video_language=da,en,null${auth.query}`,
+      auth.headers,
     );
     if (!response.ok) return null;
     const parsed = (await response.json()) as { results?: Video[] };

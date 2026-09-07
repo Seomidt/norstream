@@ -93,7 +93,9 @@ export async function createSession(): Promise<AppSession> {
   const sources = await readSources(db);
   const fetchImpl = withPanelCooldown(createFetchImpl());
   // Plakater til film og serier uden: slaas op efterhaanden som de vises.
-  await initPosterFill(db, fetchImpl);
+  // Egen hentning: TMDBs laesetoken skal med som et hoved, og appens
+  // saedvanlige fetch kender ingen hoveder.
+  await initPosterFill(db);
   return {
     db,
     fetchImpl,

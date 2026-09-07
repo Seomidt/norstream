@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FetchLike } from '@norstream/core';
-import { cleanVodTitle, findTmdbPoster, findTmdbTrailer, pickTmdbTrailer, searchTmdb } from './tmdb.js';
+import { cleanVodTitle, findTmdbPoster, findTmdbTrailer, pickTmdbTrailer, searchTmdb, tmdbAuth } from './tmdb.js';
 
 describe('cleanVodTitle', () => {
   it('tager praefiks, aarstal, klammer og kvalitetsord ud', () => {
@@ -19,15 +19,18 @@ describe('cleanVodTitle', () => {
   });
 });
 
-function fakeFetch(answers: Array<[RegExp, unknown]>): FetchLike & { calls: string[] } {
+function fakeFetch(answers: Array<[RegExp, unknown]>): FetchLike & { calls: string[]; headers: Array<Record<string, string> | undefined> } {
   const calls: string[] = [];
-  const impl = (async (url: string) => {
+  const headersSeen: Array<Record<string, string> | undefined> = [];
+  const impl = (async (url: string, headers?: Record<string, string>) => {
     calls.push(url);
+    headersSeen.push(headers);
     const hit = answers.find(([pattern]) => pattern.test(url));
     const body = hit === undefined ? { results: [] } : hit[1];
     return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
-  }) as FetchLike & { calls: string[] };
+  }) as FetchLike & { calls: string[]; headers: Array<Record<string, string> | undefined> };
   impl.calls = calls;
+  impl.headers = headersSeen;
   return impl;
 }
 
@@ -123,5 +126,20 @@ describe('searchTmdb', () => {
     });
     const unrated = fakeFetch([[/search\/movie/, { results: [{ id: 9, poster_path: '/d.jpg', vote_average: 0, vote_count: 0 }] }]]);
     expect((await searchTmdb(unrated, 'KEY', 'movie', 'Dune'))?.rating).toBeNull();
+  });
+});
+
+describe('tmdbAuth', () => {
+  it('sender en v3-noegle i adressen og et laesetoken som hoved', async () => {
+    expect(tmdbAuth('abc123')).toEqual({ query: '&api_key=abc123' });
+    expect(tmdbAuth(' eyJhbGciOi.xxx ')).toEqual({
+      query: '',
+      headers: { Authorization: 'Bearer eyJhbGciOi.xxx' },
+    });
+
+    const fetchImpl = fakeFetch([[/search\/movie/, { results: [{ id: 1, poster_path: '/a.jpg' }] }]]);
+    await searchTmdb(fetchImpl, 'eyJtoken', 'movie', 'Dune');
+    expect(fetchImpl.calls[0]).not.toContain('api_key');
+    expect(fetchImpl.headers[0]).toEqual({ Authorization: 'Bearer eyJtoken' });
   });
 });

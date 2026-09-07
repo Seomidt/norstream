@@ -1,7 +1,7 @@
-import type { FetchLike } from '@norstream/core';
 import { getTmdbApiKey } from '../storage/settings.js';
 import type { SqlDatabase } from '../storage/types.js';
-import { searchTmdb } from '../sync/tmdb.js';
+import { searchTmdb, tmdbFetch } from '../sync/tmdb.js';
+import type { TmdbFetch } from '../sync/tmdb.js';
 
 /**
  * Fylder plakater — og karakterer — ind for de film og serier der ingen har.
@@ -24,11 +24,11 @@ const listeners = new Map<string, Set<() => void>>();
 const queue: Array<{ key: string; kind: 'movie' | 'series'; name: string }> = [];
 let running = 0;
 let database: SqlDatabase | null = null;
-let fetcher: FetchLike | null = null;
+let fetcher: TmdbFetch | null = null;
 let apiKey: string | null = null;
 let idleWaiters: Array<() => void> = [];
 
-export async function initPosterFill(db: SqlDatabase, fetchImpl: FetchLike): Promise<void> {
+export async function initPosterFill(db: SqlDatabase, fetchImpl: TmdbFetch = tmdbFetch): Promise<void> {
   database = db;
   fetcher = fetchImpl;
   found.clear();
