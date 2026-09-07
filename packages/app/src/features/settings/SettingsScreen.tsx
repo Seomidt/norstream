@@ -256,7 +256,7 @@ export function SettingsScreen({
             ? registryError === null
               ? 'Det åbne kanalregister er ikke hentet endnu.'
               : `Det åbne kanalregister kunne ikke hentes: ${registryError}`
-            : `Registret har ${registry.rows} logoer, og ${registry.matched} af dine kanaler passer på et af dem.`}
+            : `To åbne arkiver med ${registry.rows} logoer tilsammen. ${registry.matched} af dine ${logos?.total ?? 0} kanaler passer på et af dem — resten står med forbogstaver, fordi ingen af arkiverne kender dem.`}
       </Text>
       <View style={styles.row}>
         <View style={styles.rowText}>

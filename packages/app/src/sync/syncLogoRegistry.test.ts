@@ -138,7 +138,9 @@ DR1.dk,,TRUE,,320,320,PNG,https://logo.example/ny.png
       ),
     );
     expect(await registryLogoFor(db, 'DR1', 'DK')).toBe('https://logo.example/ny.png');
-    expect(await registryLogoFor(db, 'TV 2', 'DK')).toBeNull();
+    // Et navn ingen af de to kilder har — ellers maaler den her det andet
+    // arkiv frem for at maale at registret blev erstattet.
+    expect(await registryLogoFor(db, 'Helt Unik', 'DK')).toBeNull();
   });
 
   it('kaster naar registret ikke kan hentes', async () => {

@@ -1,6 +1,12 @@
-import { buildNameIndex, normaliseChannelName, parseCsvRecords } from '@norstream/core';
+import {
+  buildNameIndex,
+  legacyNamesFor,
+  normaliseChannelName,
+  parseCsvRecords,
+} from '@norstream/core';
 import type { FetchLike, RegistryChannel } from '@norstream/core';
 import type { SqlDatabase } from '../storage/types.js';
+import { parseTvLogoPaths } from './tvLogos.js';
 
 /**
  * Det aabne kanalregister.
@@ -32,6 +38,8 @@ const PREFERRED_WIDTH = 600;
 export interface LogoRegistryResult {
   /** Kanaler i registret der havde et brugbart logo. */
   logos: number;
+  /** Heraf dem der kom fra det andet arkiv, tv-logos. */
+  fromArchive: number;
 }
 
 /**
@@ -111,12 +119,34 @@ export async function syncLogoRegistry(
       // udlede. Gaar navnet igen paa tvaers af lande, laves den noegle ikke,
       // og saa faar kanalen ikke noget logo frem for et forkert et.
       if (countries.size === 1) rows.push([`${key}:*`, candidate.country, url]);
+
+      // Og det navn kanalen hed foer. Panelerne er ikke fulgt med.
+      for (const legacy of legacyNamesFor(key)) {
+        rows.push([`${legacy}:${candidate.country}`, candidate.country, url]);
+        if (countries.size === 1) rows.push([`${legacy}:*`, candidate.country, url]);
+      }
     }
   }
 
   // Én transaktion. Uden den er det over to hundrede saerskilte skrivninger,
   // og SQLite lader ikke laesninger komme forbi en skrivning: kanallisten og
   // programoversigten ville staa i koe bag hver eneste af dem.
+  // Andet arkiv, som **udfyldning**. iptv-org har land og XMLTV-id per kanal
+  // og bliver ved med at vaere det foerste opslag; tv-logos er en liste af
+  // filnavne, men den daekker 5.349 navne og lande iptv-org ikke har.
+  // `INSERT OR IGNORE` nedenfor goer resten: en noegle der allerede findes,
+  // bliver staaende.
+  const archive = parseTvLogoPaths(await loadTvLogoPaths());
+  let fromArchive = 0;
+  for (const entry of archive) {
+    const country = entry.country === '*' ? '' : entry.country;
+    rows.push([`${entry.key}:${entry.country}`, country, entry.url]);
+    for (const legacy of legacyNamesFor(entry.key)) {
+      rows.push([`${legacy}:${entry.country}`, country, entry.url]);
+    }
+    fromArchive += 1;
+  }
+
   await db.execAsync('BEGIN');
   try {
     await db.runAsync('DELETE FROM registry_logos');
@@ -128,7 +158,7 @@ export async function syncLogoRegistry(
     await db.execAsync('ROLLBACK').catch(() => undefined);
     throw cause;
   }
-  return { logos: rows.length };
+  return { logos: rows.length, fromArchive };
 }
 
 /**
@@ -148,6 +178,18 @@ const BATCH = 300;
  * finpudsning: det er forskellen paa en app der henter sine kanaler og en der
  * ser ud til at haenge.
  */
+/**
+ * Filnavnene fra tv-logos.
+ *
+ * Hentes foerst her, saa de 302 kB kun bliver laest naar registret faktisk
+ * opdateres — én gang om ugen — og ikke ved hver opstart.
+ */
+async function loadTvLogoPaths(): Promise<string[]> {
+  const module: unknown = await import('../../assets/tv-logos.json');
+  const value = (module as { default?: unknown }).default ?? module;
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
 async function insertInBatches(
   db: SqlDatabase,
   rows: readonly [string, string, string][],

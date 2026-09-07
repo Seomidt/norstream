@@ -53,6 +53,7 @@ export {
   buildNameIndex,
   matchRegistryChannel,
   normaliseChannelName,
+  legacyNamesFor,
 } from './source/match.js';
 export type { RegistryChannel } from './source/match.js';
 export type { ChannelKeyParts, Source, SourceKind } from './source/source.js';

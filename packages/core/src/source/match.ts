@@ -10,11 +10,12 @@
  * og en normalisering der blandede dem ville give forkerte logoer paa kanaler
  * der ser rigtige ud.
  *
- * **Plus bliver ogsaa staaende.** Det gjorde det ikke, og saa blev `TV3+` til
- * `TV3`: to forskellige kanaler med samme noegle. Appen giver med vilje op
- * naar en noegle er flertydig, saa resultatet var at *hverken* TV3 eller TV3+
- * fik et logo. Plus er en del af navnet paa den slags kanaler — TV3+, Canal+,
- * TV 2 Sport+ — ikke tegnsaetning.
+ * **Plus skrives ud som ordet.** Det blev foer fjernet som tegnsaetning, og saa
+ * blev `TV3+` til `TV3`: to forskellige kanaler med samme noegle. Appen giver
+ * med vilje op naar en noegle er flertydig, saa resultatet var at *hverken*
+ * TV3 eller TV3+ fik et logo. Og det skal vaere ordet og ikke tegnet, fordi
+ * de to skrivemaader begge findes i kilderne: registret skriver `TV3+`, mens
+ * filnavnene i logo-arkivet skriver `tv3-plus`. Skrevet ud moedes de.
  */
 const QUALITY = new Set([
   'HD',
@@ -35,6 +36,13 @@ const QUALITY = new Set([
   'RAW',
   'BACKUP',
   'ALT',
+  // Panelet skriver tit sporene i navnet: `MULTI` for flere lydspor, `SUB`
+  // for undertekster. Det er den samme kanal og det samme logo.
+  'MULTI',
+  'MULTIAUDIO',
+  'SUB',
+  'SUBS',
+  'DUAL',
 ]);
 
 /**
@@ -69,13 +77,45 @@ const COUNTRY_WORDS = new Set([
   'POLAND',
 ]);
 
+/**
+ * Navne der er skiftet, skrevet som (nutidigt navn, det panelerne stadig
+ * bruger).
+ *
+ * Det er **ikke** gaet: det er omdoebninger der er sket i virkeligheden.
+ * Viasats nordiske film- og seriekanaler hedder `V Film Action` og `V Series`
+ * i dag, og det er dem logo-arkiverne har. Panelerne skriver stadig de gamle
+ * navne, og saa staar kanalen uden logo selv om logoet ligger der.
+ */
+const RENAMED: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^VFILM/, 'VIASATFILM'],
+  [/^VSERIES$/, 'VIASATSERIES'],
+];
+
+/**
+ * De gamle navne en kanal ogsaa skal kunne slaas op paa.
+ *
+ * Bruges naar registret **bygges**, ikke naar der slaas op. Opslaget sker to
+ * steder — i en SQL-sammenkobling og i en funktion — og de to maa ikke kunne
+ * give hvert sit svar. Laegges de gamle navne ind som raekker for sig, er der
+ * kun én vej, og begge steder foelger den.
+ */
+export function legacyNamesFor(normalised: string): string[] {
+  const names: string[] = [];
+  for (const [pattern, replacement] of RENAMED) {
+    const legacy = normalised.replace(pattern, replacement);
+    if (legacy !== normalised) names.push(legacy);
+  }
+  return names;
+}
+
 export function normaliseChannelName(name: string): string {
   // Alt foer en lodret streg er panelets eget praefiks: `DNK|`, `DK |`.
   const withoutPrefix = name.includes('|') ? name.slice(name.lastIndexOf('|') + 1) : name;
 
   const words = withoutPrefix
     .toUpperCase()
-    .replace(/[^A-Z0-9ÆØÅ+]+/g, ' ')
+    .replace(/\+/g, ' PLUS ')
+    .replace(/[^A-Z0-9ÆØÅ]+/g, ' ')
     .trim()
     .split(' ')
     .filter((word) => word.length > 0 && !QUALITY.has(word) && !COUNTRY_WORDS.has(word));

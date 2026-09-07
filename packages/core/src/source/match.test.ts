@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { buildNameIndex, matchRegistryChannel, normaliseChannelName } from './match.js';
+import {
+  buildNameIndex,
+  matchRegistryChannel,
+  normaliseChannelName,
+  legacyNamesFor,
+} from './match.js';
 import type { RegistryChannel } from './match.js';
 
 describe('normaliseChannelName', () => {
@@ -66,12 +71,20 @@ describe('plus og landenavne', () => {
   // var at **hverken** TV3 eller TV3+ fik et logo — begge findes i registret.
   it('holder TV3 og TV3+ adskilt', () => {
     expect(normaliseChannelName('DNK| TV3 HD')).toBe('TV3');
-    expect(normaliseChannelName('DNK| TV3+ HD')).toBe('TV3+');
-    expect(normaliseChannelName('DNK| TV3 HD')).not.toBe(normaliseChannelName('DNK| TV3+ HD'));
+    expect(normaliseChannelName('DNK| TV3+ HD')).toBe('TV3PLUS');
   });
 
-  it('beholder plus i navne der har det', () => {
-    expect(normaliseChannelName('Canal+ Sport FHD')).toBe('CANAL+SPORT');
+  // Registret skriver `TV3+`, logo-arkivets filnavne skriver `tv3-plus`.
+  // Skrevet ud moedes de to skrivemaader.
+  it('skriver plus ud som ordet, saa begge kilder rammer samme noegle', () => {
+    expect(normaliseChannelName('TV3+')).toBe(normaliseChannelName('TV3 Plus'));
+    expect(normaliseChannelName('Canal+ Sport FHD')).toBe('CANALPLUSSPORT');
+  });
+
+  it('fjerner panelets spor-maerker', () => {
+    // Samme kanal, samme logo — kun lydspor og undertekster er forskellige.
+    expect(normaliseChannelName('DNK| VIASAT FILM HITS HD MULTI')).toBe('VIASATFILMHITS');
+    expect(normaliseChannelName('DNK| VIASAT FILM FAMILY (SUB)')).toBe('VIASATFILMFAMILY');
   });
 
   // Panelet skriver `TLC DANMARK`, registret `TLC` med land DK. Landet ligger
@@ -84,5 +97,20 @@ describe('plus og landenavne', () => {
   it('roerer ikke et stednavn der ikke er et land', () => {
     // TV 2 Østjylland er en kanal for sig, ikke TV 2 med et land paa.
     expect(normaliseChannelName('DNK| TV 2 / ØSTJYLLAND')).toBe('TV2ØSTJYLLAND');
+  });
+});
+
+describe('legacyNamesFor', () => {
+  // Ikke et gaet: Viasats nordiske film- og seriekanaler hedder V Film og
+  // V Series i dag, og det er dem logo-arkiverne har. Panelerne skriver
+  // stadig de gamle navne.
+  it('giver det gamle navn en kanal ogsaa skal kunne findes paa', () => {
+    expect(legacyNamesFor('VFILMACTION')).toEqual(['VIASATFILMACTION']);
+    expect(legacyNamesFor('VSERIES')).toEqual(['VIASATSERIES']);
+  });
+
+  it('giver ingenting for navne der ikke er doebt om', () => {
+    expect(legacyNamesFor('DR1')).toEqual([]);
+    expect(legacyNamesFor('VIASATEXPLORE')).toEqual([]);
   });
 });
