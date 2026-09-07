@@ -22,6 +22,7 @@ import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SettingsScreen } from '../settings/SettingsScreen.js';
 import { LogoGapsScreen } from '../settings/LogoGapsScreen.js';
+import { ConnectionCheckScreen } from '../settings/ConnectionCheckScreen.js';
 import { LogoPickerScreen } from '../settings/LogoPickerScreen.js';
 import { Notice } from '../../ui/Notice.js';
 import { applyStreamFormatSetting } from '../player/format.js';
@@ -103,6 +104,7 @@ export function HomeScreen({
   const [showingSources, setShowingSources] = useState(false);
   /** Indstillingers underskaerme til logoer: listen, og valget for én kanal. */
   const [showingLogos, setShowingLogos] = useState(false);
+  const [showingCheck, setShowingCheck] = useState(false);
   const [pickingLogoFor, setPickingLogoFor] = useState<string | null>(null);
   const [logoToken, setLogoToken] = useState(0);
 
@@ -124,6 +126,10 @@ export function HomeScreen({
     }
     if (tab === 'settings' && showingLogos) {
       setShowingLogos(false);
+      return true;
+    }
+    if (tab === 'settings' && showingCheck) {
+      setShowingCheck(false);
       return true;
     }
     if (tab === 'settings' && showingSources) {
@@ -342,7 +348,10 @@ export function HomeScreen({
             reloadToken={logoToken}
           />
         )}
-        {tab === 'settings' && pickingLogoFor === null && !showingLogos && showingSources && (
+        {tab === 'settings' && pickingLogoFor === null && !showingLogos && showingCheck && (
+          <ConnectionCheckScreen session={session} onBack={() => setShowingCheck(false)} />
+        )}
+        {tab === 'settings' && pickingLogoFor === null && !showingLogos && !showingCheck && showingSources && (
           <SourcesScreen
             session={session}
             onSourcesChanged={() => {
@@ -354,13 +363,14 @@ export function HomeScreen({
           />
         )}
 
-        {tab === 'settings' && pickingLogoFor === null && !showingLogos && !showingSources && (
+        {tab === 'settings' && pickingLogoFor === null && !showingLogos && !showingCheck && !showingSources && (
           <SettingsScreen
             session={session}
             previewEnabled={previewEnabled}
             onPreviewEnabledChange={setPreviewEnabled}
             onOpenSources={() => setShowingSources(true)}
             onOpenLogos={() => setShowingLogos(true)}
+            onOpenCheck={() => setShowingCheck(true)}
             onSignedOut={onSignedOut}
             onRestored={() => {
               setFavoritesToken((value) => value + 1);

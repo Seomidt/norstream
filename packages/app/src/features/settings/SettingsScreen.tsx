@@ -29,6 +29,8 @@ interface Props {
   onOpenSources: () => void;
   /** Aabner listen over kanaler uden logo, hvor man kan vaelge selv. */
   onOpenLogos: () => void;
+  /** Aabner maalingen af vejen til panelet. */
+  onOpenCheck: () => void;
   previewEnabled: boolean;
   onPreviewEnabledChange: (enabled: boolean) => void;
   onSignedOut: (notice: string) => void;
@@ -58,6 +60,7 @@ export function SettingsScreen({
   session,
   onOpenSources,
   onOpenLogos,
+  onOpenCheck,
   previewEnabled,
   onPreviewEnabledChange,
   onSignedOut,
@@ -199,6 +202,16 @@ export function SettingsScreen({
           <Text style={styles.rowHint}>
             Tilføj flere udbydere. Kanalerne står side om side, og favoritter
             kan blandes på tværs.
+          </Text>
+        </View>
+        <Text style={styles.actionText}>Åbn</Text>
+      </Pressable>
+      <Pressable style={styles.row} onPress={onOpenCheck}>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Tjek forbindelsen til panelet</Text>
+          <Text style={styles.rowHint}>
+            Virker appen på mobildata men ikke på Wi-Fi? Målingen siger om det er navnet,
+            adressen eller panelet, der afviser.
           </Text>
         </View>
         <Text style={styles.actionText}>Åbn</Text>
