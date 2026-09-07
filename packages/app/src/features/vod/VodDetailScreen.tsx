@@ -1,0 +1,419 @@
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { buildEpisodeUrl, buildMovieUrl } from '@norstream/core';
+import type { VodDetails } from '@norstream/core';
+import type { AppSession } from '../../session.js';
+import { getVodItem, listEpisodes, setInWatchlist } from '../../storage/vod.js';
+import type { StoredEpisode, StoredVodItem } from '../../storage/vod.js';
+import { ensureVodDetails } from '../../sync/vodDetails.js';
+import { theme } from '../../ui/theme.js';
+
+/** Det afspilleren skal bruge. Adressen baerer panelets kodeord; den vises aldrig. */
+export interface Playback {
+  url: string;
+  title: string;
+  subtitle: string | null;
+  /** Noeglen fremdriften gemmes under: titlen for film, afsnittet for serier. */
+  progressKey: string;
+  resumeAtSeconds: number | null;
+}
+
+interface Props {
+  session: AppSession;
+  itemKey: string;
+  onBack: () => void;
+  onPlay: (playback: Playback) => void;
+}
+
+/**
+ * Én film eller serie.
+ *
+ * Det panelet ved om titlen — handling, rolleliste, trailer, afsnit — hentes
+ * foerst her, og kun én gang om ugen. Traileren aabnes i YouTube-appen frem
+ * for at blive lagt ind i appen: en indlejret afspiller kraever et
+ * webvisnings-bibliotek mere, og YouTube-appen er bedre til det end nogen
+ * indlejring ville vaere.
+ */
+export function VodDetailScreen({ session, itemKey, onBack, onPlay }: Props) {
+  const insets = useSafeAreaInsets();
+  const [item, setItem] = useState<StoredVodItem | null | undefined>(undefined);
+  const [details, setDetails] = useState<VodDetails | null>(null);
+  const [episodes, setEpisodes] = useState<StoredEpisode[]>([]);
+  const [season, setSeason] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (): Promise<void> => {
+    const stored = await getVodItem(session.db, itemKey);
+    setItem(stored);
+    if (stored === null) return;
+    try {
+      const creds = session.access(stored.sourceId)?.creds ?? null;
+      const fetched = await ensureVodDetails(session.db, stored, creds, session.fetchImpl);
+      setDetails(fetched);
+      setError(null);
+    } catch {
+      setError('Panelet svarede ikke med detaljer om denne titel. Den kan stadig afspilles.');
+    }
+    if (stored.kind === 'series') {
+      const list = await listEpisodes(session.db, stored.key);
+      setEpisodes(list);
+      setSeason((current) => current ?? list[0]?.season ?? null);
+    }
+  }, [session, itemKey]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (item === undefined) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator color={theme.colors.accent} />
+      </View>
+    );
+  }
+  if (item === null) {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.plot}>Titlen findes ikke længere.</Text>
+        <Pressable style={styles.button} onPress={onBack}>
+          <Text style={styles.buttonText}>Tilbage</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const creds = session.access(item.sourceId)?.creds ?? null;
+  const rating = details?.rating ?? item.rating;
+  const year = details?.year ?? item.year;
+  const meta = [
+    year !== null ? String(year) : null,
+    details?.durationMinutes !== null && details?.durationMinutes !== undefined
+      ? `${details.durationMinutes} min`
+      : null,
+    details?.genre ?? null,
+  ].filter((part): part is string => part !== null);
+
+  function playMovie(): void {
+    if (creds === null || item === null || item === undefined) return;
+    onPlay({
+      url: buildMovieUrl(creds, item.id, item.containerExtension),
+      title: item.name,
+      subtitle: null,
+      progressKey: item.key,
+      resumeAtSeconds: item.positionSeconds,
+    });
+  }
+
+  function playEpisode(episode: StoredEpisode): void {
+    if (creds === null || item === null || item === undefined) return;
+    onPlay({
+      url: buildEpisodeUrl(creds, episode.id, episode.containerExtension),
+      title: item.name,
+      subtitle: `S${episode.season} · E${episode.episode} · ${episode.title}`,
+      progressKey: episode.key,
+      resumeAtSeconds: episode.positionSeconds,
+    });
+  }
+
+  async function toggleWatchlist(): Promise<void> {
+    if (item === null || item === undefined) return;
+    await setInWatchlist(session.db, item.key, !item.inWatchlist);
+    setItem({ ...item, inWatchlist: !item.inWatchlist });
+  }
+
+  function openTrailer(): void {
+    if (details?.trailerId === null || details?.trailerId === undefined) return;
+    void Linking.openURL(`https://www.youtube.com/watch?v=${details.trailerId}`).catch(() => {
+      setError('Traileren kunne ikke åbnes. Er YouTube installeret?');
+    });
+  }
+
+  const seasons = [...new Set(episodes.map((episode) => episode.season))];
+  const shownEpisodes = episodes.filter((episode) => episode.season === season);
+  // "Fortsaet" for serier peger paa det afsnit man senest var i gang med.
+  const continueEpisode = [...episodes]
+    .filter((episode) => episode.positionSeconds !== null)
+    .sort((a, b) => b.season - a.season || b.episode - a.episode)[0];
+
+  return (
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + theme.spacing.xl }}>
+        <View style={styles.hero}>
+          {(details?.backdropUrl ?? item.posterUrl) !== null && (
+            <Image
+              source={{ uri: details?.backdropUrl ?? item.posterUrl ?? '' }}
+              style={styles.backdrop}
+              resizeMode="cover"
+              blurRadius={details?.backdropUrl === null || details?.backdropUrl === undefined ? 12 : 0}
+            />
+          )}
+          <View style={styles.heroScrim} />
+          <Pressable style={styles.back} onPress={onBack} hitSlop={12}>
+            <Text style={styles.backText}>‹ Tilbage</Text>
+          </Pressable>
+          <View style={styles.heroBottom}>
+            {item.posterUrl !== null && (
+              <Image source={{ uri: item.posterUrl }} style={styles.poster} resizeMode="cover" />
+            )}
+            <View style={styles.heroText}>
+              <Text style={styles.title}>{item.name}</Text>
+              {meta.length > 0 && <Text style={styles.meta}>{meta.join(' · ')}</Text>}
+              {rating !== null && (
+                <Text style={styles.rating}>
+                  ★ {rating.toFixed(1)} <Text style={styles.ratingOf}>/ 10</Text>
+                </Text>
+              )}
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.actions}>
+          {item.kind === 'movie' ? (
+            <Pressable
+              style={[styles.button, styles.buttonAccent]}
+              disabled={creds === null}
+              onPress={playMovie}
+            >
+              <Text style={styles.buttonText}>
+                {item.positionSeconds !== null ? '▶ Fortsæt' : '▶ Se'}
+              </Text>
+            </Pressable>
+          ) : continueEpisode !== undefined ? (
+            <Pressable
+              style={[styles.button, styles.buttonAccent]}
+              onPress={() => playEpisode(continueEpisode)}
+            >
+              <Text style={styles.buttonText}>
+                ▶ Fortsæt S{continueEpisode.season} E{continueEpisode.episode}
+              </Text>
+            </Pressable>
+          ) : shownEpisodes[0] !== undefined ? (
+            <Pressable
+              style={[styles.button, styles.buttonAccent]}
+              onPress={() => {
+                const first = shownEpisodes[0];
+                if (first !== undefined) playEpisode(first);
+              }}
+            >
+              <Text style={styles.buttonText}>▶ Se første afsnit</Text>
+            </Pressable>
+          ) : null}
+          {details?.trailerId !== null && details?.trailerId !== undefined && (
+            <Pressable style={styles.button} onPress={openTrailer}>
+              <Text style={styles.buttonText}>Trailer</Text>
+            </Pressable>
+          )}
+          <Pressable
+            style={[styles.button, item.inWatchlist && styles.buttonDone]}
+            onPress={() => {
+              void toggleWatchlist();
+            }}
+          >
+            <Text style={styles.buttonText}>{item.inWatchlist ? '✓ Min liste' : '+ Min liste'}</Text>
+          </Pressable>
+        </View>
+
+        {creds === null && (
+          <Text style={styles.warn}>Adgangsoplysningerne til kilden mangler på enheden.</Text>
+        )}
+        {error !== null && <Text style={styles.warn}>{error}</Text>}
+
+        {details === null && error === null && (
+          <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
+        )}
+        {details?.plot !== null && details?.plot !== undefined && (
+          <Text style={styles.plot}>{details.plot}</Text>
+        )}
+        {details?.cast !== null && details?.cast !== undefined && (
+          <Text style={styles.credit}>
+            <Text style={styles.creditLabel}>Medvirkende: </Text>
+            {details.cast}
+          </Text>
+        )}
+        {details?.director !== null && details?.director !== undefined && (
+          <Text style={styles.credit}>
+            <Text style={styles.creditLabel}>Instruktør: </Text>
+            {details.director}
+          </Text>
+        )}
+        <Text style={styles.credit}>
+          <Text style={styles.creditLabel}>Kategori: </Text>
+          {item.categoryName ?? '—'}
+        </Text>
+
+        {item.kind === 'series' && (
+          <View style={styles.episodes}>
+            {seasons.length > 1 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.seasons}>
+                {seasons.map((number) => (
+                  <Pressable
+                    key={number}
+                    style={[styles.seasonChip, season === number && styles.seasonChipActive]}
+                    onPress={() => setSeason(number)}
+                  >
+                    <Text style={[styles.seasonText, season === number && styles.seasonTextActive]}>
+                      Sæson {number}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+            {episodes.length === 0 && details !== null && (
+              <Text style={styles.empty}>Panelet oplyste ingen afsnit.</Text>
+            )}
+            {shownEpisodes.map((episode) => (
+              <Pressable key={episode.key} style={styles.episode} onPress={() => playEpisode(episode)}>
+                <View style={styles.episodeNumber}>
+                  <Text style={styles.episodeNumberText}>{episode.episode}</Text>
+                </View>
+                <View style={styles.episodeText}>
+                  <Text style={styles.episodeTitle} numberOfLines={1}>
+                    {episode.title}
+                  </Text>
+                  {episode.plot !== null && (
+                    <Text style={styles.episodePlot} numberOfLines={2}>
+                      {episode.plot}
+                    </Text>
+                  )}
+                  <Text style={styles.episodeMeta}>
+                    {[
+                      episode.durationMinutes !== null ? `${episode.durationMinutes} min` : null,
+                      episode.airDate,
+                      episode.positionSeconds !== null ? 'påbegyndt' : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </Text>
+                </View>
+                <Text style={styles.play}>▶</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.colors.background },
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: theme.spacing.lg,
+    backgroundColor: theme.colors.background,
+  },
+  spinner: { marginTop: theme.spacing.lg },
+  hero: { height: 300, backgroundColor: theme.colors.surface },
+  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.55 },
+  heroScrim: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 180,
+    backgroundColor: 'rgba(16,16,20,0.75)',
+  },
+  back: { position: 'absolute', top: theme.spacing.sm, left: theme.spacing.md, padding: theme.spacing.xs },
+  backText: { color: theme.colors.text, fontSize: 16, fontWeight: '600' },
+  heroBottom: {
+    position: 'absolute',
+    left: theme.spacing.md,
+    right: theme.spacing.md,
+    bottom: theme.spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  poster: {
+    width: 96,
+    height: 144,
+    borderRadius: theme.radius,
+    marginRight: theme.spacing.md,
+    backgroundColor: theme.colors.surfaceRaised,
+  },
+  heroText: { flex: 1 },
+  title: { color: theme.colors.text, fontSize: 22, fontWeight: '800', lineHeight: 27 },
+  meta: { color: theme.colors.textMuted, fontSize: 13, marginTop: 4 },
+  rating: { color: '#ffd166', fontSize: 15, fontWeight: '700', marginTop: 6 },
+  ratingOf: { color: theme.colors.textMuted, fontWeight: '400', fontSize: 12 },
+  actions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
+    padding: theme.spacing.md,
+  },
+  button: {
+    backgroundColor: theme.colors.surfaceRaised,
+    borderRadius: theme.radius,
+    paddingVertical: theme.spacing.sm + 2,
+    paddingHorizontal: theme.spacing.md,
+  },
+  buttonAccent: { backgroundColor: theme.colors.accent },
+  buttonDone: { borderColor: theme.colors.accent, borderWidth: 1 },
+  buttonText: { color: theme.colors.text, fontSize: 15, fontWeight: '700' },
+  warn: { color: theme.colors.danger, paddingHorizontal: theme.spacing.md, marginBottom: theme.spacing.sm },
+  plot: {
+    color: theme.colors.text,
+    fontSize: 15,
+    lineHeight: 22,
+    paddingHorizontal: theme.spacing.md,
+    marginBottom: theme.spacing.md,
+  },
+  credit: {
+    color: theme.colors.textMuted,
+    fontSize: 13,
+    lineHeight: 19,
+    paddingHorizontal: theme.spacing.md,
+    marginBottom: theme.spacing.xs,
+  },
+  creditLabel: { color: theme.colors.text, fontWeight: '600' },
+  episodes: { marginTop: theme.spacing.lg },
+  seasons: { paddingHorizontal: theme.spacing.md, gap: theme.spacing.sm, marginBottom: theme.spacing.sm },
+  seasonChip: {
+    paddingVertical: 6,
+    paddingHorizontal: theme.spacing.md,
+    borderRadius: 999,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  seasonChipActive: { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent },
+  seasonText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '600' },
+  seasonTextActive: { color: theme.colors.text },
+  episode: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm + 2,
+    borderBottomColor: theme.colors.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  episodeNumber: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme.colors.surfaceRaised,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: theme.spacing.md,
+  },
+  episodeNumberText: { color: theme.colors.text, fontWeight: '700' },
+  episodeText: { flex: 1 },
+  episodeTitle: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
+  episodePlot: { color: theme.colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 2 },
+  episodeMeta: { color: theme.colors.textMuted, fontSize: 11, marginTop: 3 },
+  play: { color: theme.colors.accent, fontSize: 18, marginLeft: theme.spacing.sm },
+  empty: { color: theme.colors.textMuted, textAlign: 'center', padding: theme.spacing.lg },
+});

@@ -5,10 +5,16 @@ export type {
   StreamFormat,
   TimeshiftDialect,
   XtreamCredentials,
+  Episode,
+  VodDetails,
+  VodItem,
+  VodKind,
 } from './models.js';
 
 export {
+  buildEpisodeUrl,
   buildLiveUrl,
+  buildMovieUrl,
   buildTimeshiftUrl,
   buildXmltvUrl,
   formatTimeshiftStart,
@@ -42,6 +48,13 @@ export type { FetchLike, FetchLikeResponse } from './xtream/client.js';
 export { detectTimeshiftDialect } from './xtream/probe.js';
 
 export { mapEpgListings } from './xtream/epgListings.js';
+export {
+  durationMinutes,
+  mapEpisodes,
+  mapVodDetails,
+  mapVodItems,
+  youtubeId,
+} from './xtream/vodMapping.js';
 export type { RawEpgListing } from './xtream/epgListings.js';
 
 export { panelOffsetFromServerInfo } from './xtream/serverInfo.js';

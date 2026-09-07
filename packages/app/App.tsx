@@ -10,6 +10,9 @@ import { HomeScreen } from './src/features/home/HomeScreen.js';
 import type { HomePlace } from './src/features/home/HomeScreen.js';
 import { OnboardingScreen } from './src/features/onboarding/OnboardingScreen.js';
 import { PlayerScreen } from './src/features/player/PlayerScreen.js';
+import { VodDetailScreen } from './src/features/vod/VodDetailScreen.js';
+import type { Playback } from './src/features/vod/VodDetailScreen.js';
+import { VodPlayerScreen } from './src/features/vod/VodPlayerScreen.js';
 import { createSession, reloadSources } from './src/session.js';
 import type { AppSession } from './src/session.js';
 
@@ -22,6 +25,9 @@ type Route =
   | { name: 'home' }
   /** `startFrom` er sat naar afspilningen kommer fra guidens start-forfra. */
   | { name: 'player'; channel: StoredChannel; startFrom?: Programme }
+  /** En film eller serie. Afspilleren husker hvilken titel den kom fra. */
+  | { name: 'vodDetail'; itemKey: string }
+  | { name: 'vodPlayer'; itemKey: string; playback: Playback }
   | { name: 'error' };
 
 /**
@@ -46,7 +52,7 @@ export default function App() {
    * kanaler. "Tilbage" landede saa altid paa Favoritter, uanset hvor turen
    * begyndte. Tilstanden bor her, hvor den overlever afspilleren.
    */
-  const [place, setPlace] = useState<HomePlace>({ tab: 'favorites', browse: null });
+  const [place, setPlace] = useState<HomePlace>({ tab: 'favorites', browse: null, vod: null });
 
   useEffect(() => {
     let cancelled = false;
@@ -123,6 +129,7 @@ export default function App() {
           onSelect={(channel, startFrom) =>
             setRoute({ name: 'player', channel, startFrom })
           }
+          onOpenVod={(item) => setRoute({ name: 'vodDetail', itemKey: item.key })}
           onSourcesChanged={() => {
             void (async () => {
               // Kilderne er skiftet: sessionen skal laese legitimation for de
@@ -133,7 +140,7 @@ export default function App() {
           }}
           onSignedOut={(notice) => {
             setSession(null);
-            setPlace({ tab: 'favorites', browse: null });
+            setPlace({ tab: 'favorites', browse: null, vod: null });
             setRoute({ name: 'onboarding', notice });
           }}
         />
@@ -144,6 +151,21 @@ export default function App() {
           channel={route.channel}
           startFrom={route.startFrom}
           onBack={() => setRoute({ name: 'home' })}
+        />
+      )}
+      {route.name === 'vodDetail' && session !== null && (
+        <VodDetailScreen
+          session={session}
+          itemKey={route.itemKey}
+          onBack={() => setRoute({ name: 'home' })}
+          onPlay={(playback) => setRoute({ name: 'vodPlayer', itemKey: route.itemKey, playback })}
+        />
+      )}
+      {route.name === 'vodPlayer' && session !== null && (
+        <VodPlayerScreen
+          session={session}
+          playback={route.playback}
+          onBack={() => setRoute({ name: 'vodDetail', itemKey: route.itemKey })}
         />
       )}
       </SafeAreaView>

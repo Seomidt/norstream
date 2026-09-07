@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildEpisodeUrl,
   buildLiveUrl,
+  buildMovieUrl,
   buildTimeshiftUrl,
   buildXmltvUrl,
   formatTimeshiftStart,
@@ -132,3 +134,24 @@ describe('buildTimeshiftUrl og filformatet', () => {
     expect(asTs).toContain('timeshift.php?');
   });
 });
+
+describe('buildMovieUrl', () => {
+  const creds = { baseUrl: 'http://p:8080/', username: 'u', password: 'p' };
+
+  it('bygger adressen med panelets egen filendelse', () => {
+    expect(buildMovieUrl(creds, '4711', 'mkv')).toBe('http://p:8080/movie/u/p/4711.mkv');
+  });
+
+  it('falder tilbage paa mp4 naar panelet ikke oplyser en', () => {
+    expect(buildMovieUrl(creds, '4711', null)).toBe('http://p:8080/movie/u/p/4711.mp4');
+  });
+});
+
+describe('buildEpisodeUrl', () => {
+  it('bruger series-stien', () => {
+    expect(
+      buildEpisodeUrl({ baseUrl: 'http://p', username: 'u', password: 'p' }, '1001', 'mkv'),
+    ).toBe('http://p/series/u/p/1001.mkv');
+  });
+});
+

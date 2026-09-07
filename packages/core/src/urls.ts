@@ -16,6 +16,38 @@ export function buildLiveUrl(
   return `${base}/live/${user}/${pass}/${encodeURIComponent(streamId)}.${format}`;
 }
 
+/**
+ * Adressen paa en film.
+ *
+ * Endelsen er panelets egen (`mkv`, `mp4`, `avi`) og staar paa filmen i
+ * listen. Den kan ikke vaelges frit som for live-tv: filen ligger som den
+ * ligger, og en forkert endelse er en 404.
+ */
+export function buildMovieUrl(
+  creds: XtreamCredentials,
+  streamId: string,
+  containerExtension: string | null,
+): string {
+  const base = normaliseBaseUrl(creds.baseUrl);
+  const user = encodeURIComponent(creds.username);
+  const pass = encodeURIComponent(creds.password);
+  const ext = containerExtension ?? 'mp4';
+  return `${base}/movie/${user}/${pass}/${encodeURIComponent(streamId)}.${ext}`;
+}
+
+/** Adressen paa et afsnit. Samme regel for endelsen som film. */
+export function buildEpisodeUrl(
+  creds: XtreamCredentials,
+  episodeId: string,
+  containerExtension: string | null,
+): string {
+  const base = normaliseBaseUrl(creds.baseUrl);
+  const user = encodeURIComponent(creds.username);
+  const pass = encodeURIComponent(creds.password);
+  const ext = containerExtension ?? 'mp4';
+  return `${base}/series/${user}/${pass}/${encodeURIComponent(episodeId)}.${ext}`;
+}
+
 /** Bygger URL'en til panelets XMLTV-EPG-endpoint. */
 export function buildXmltvUrl(creds: XtreamCredentials): string {
   const base = normaliseBaseUrl(creds.baseUrl);

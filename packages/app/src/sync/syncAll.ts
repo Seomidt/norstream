@@ -13,6 +13,7 @@ import {
 import { checkLogoHosts } from './logoHosts.js';
 import { syncChannels } from './syncChannels.js';
 import { syncM3u } from './syncM3u.js';
+import { syncVod } from './syncVod.js';
 import { syncLogoRegistry } from './syncLogoRegistry.js';
 import { syncXmltv } from './syncXmltv.js';
 
@@ -91,6 +92,9 @@ export async function syncAllSources(
       } else if (access.creds !== null) {
         await syncChannels(db, access.source.id, access.creds, fetchImpl, now);
         await maybeXmltv(db, access, fetchImpl, now, true);
+        // Film og serier foelger kanalernes doegnrytme. Fejler de, staar
+        // kanalerne stadig — `syncVod` sluger selv sine fejl per slags.
+        await syncVod(db, access.source.id, access.creds, fetchImpl, now);
       } else {
         // Kilden findes, men adgangsoplysningerne er vaek fra Keychain.
         result.rejected.push(access.source.name);

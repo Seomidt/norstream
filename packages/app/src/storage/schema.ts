@@ -148,6 +148,74 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Film og serier. Samme moenster som kanalerne: listen hentes én gang i
+-- doegnet per kilde; det panelet ved om den enkelte titel hentes foerst naar
+-- den aabnes, og ligger i vod_details og episodes.
+CREATE TABLE IF NOT EXISTS vod_categories (
+  id        TEXT PRIMARY KEY,
+  source_id TEXT NOT NULL,
+  kind      TEXT NOT NULL,
+  name      TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vod_items (
+  key           TEXT PRIMARY KEY,
+  source_id     TEXT NOT NULL,
+  item_id       TEXT NOT NULL,
+  kind          TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  poster_url    TEXT,
+  category_id   TEXT,
+  rating        REAL,
+  year          INTEGER,
+  added_ms      INTEGER,
+  container_ext TEXT,
+  sort_order    INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_vod_items_category ON vod_items (category_id);
+CREATE INDEX IF NOT EXISTS idx_vod_items_kind     ON vod_items (kind, sort_order);
+
+CREATE TABLE IF NOT EXISTS vod_details (
+  item_key     TEXT PRIMARY KEY,
+  plot         TEXT,
+  genre        TEXT,
+  cast         TEXT,
+  director     TEXT,
+  duration_min INTEGER,
+  trailer_id   TEXT,
+  backdrop_url TEXT,
+  rating       REAL,
+  year         INTEGER,
+  fetched_ms   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS episodes (
+  key           TEXT PRIMARY KEY,
+  series_key    TEXT NOT NULL,
+  episode_id    TEXT NOT NULL,
+  season        INTEGER NOT NULL,
+  episode       INTEGER NOT NULL,
+  title         TEXT NOT NULL,
+  plot          TEXT,
+  duration_min  INTEGER,
+  container_ext TEXT,
+  air_date      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_episodes_series ON episodes (series_key, season, episode);
+
+-- Brugerens eget: hvad der er lagt til side, og hvor langt man er naaet.
+CREATE TABLE IF NOT EXISTS vod_watchlist (
+  item_key TEXT PRIMARY KEY,
+  added_ms INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vod_progress (
+  item_key   TEXT PRIMARY KEY,
+  position_s INTEGER NOT NULL,
+  duration_s INTEGER,
+  updated_ms INTEGER NOT NULL
+);
 `;
 
 const TABLES = [
@@ -163,9 +231,16 @@ const TABLES = [
   'recordings',
   'registry_logos',
   'settings',
+  'vod_categories',
+  'vod_items',
+  'vod_details',
+  'episodes',
+  'vod_watchlist',
+  'vod_progress',
 ] as const;
 
-const SCHEMA_VERSION = 7;
+// v8 tilfoejer kun VOD-tabellerne. `CREATE TABLE IF NOT EXISTS` klarer det.
+const SCHEMA_VERSION = 8;
 
 /**
  * Foerste version der kan opgraderes additivt.

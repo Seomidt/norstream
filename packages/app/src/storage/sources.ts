@@ -1,6 +1,7 @@
 import { isValidSourceId } from '@norstream/core';
 import type { Source, SourceKind } from '@norstream/core';
 import type { SqlDatabase } from './types.js';
+import { deleteVodForSource } from './vod.js';
 
 interface SourceRow {
   id: string;
@@ -143,6 +144,7 @@ export async function deleteSource(db: SqlDatabase, id: string): Promise<void> {
   await db.runAsync('DELETE FROM epg_archive_fetch WHERE stream_id LIKE ?', [prefix]);
   await db.runAsync('DELETE FROM channels WHERE source_id = ?', [id]);
   await db.runAsync('DELETE FROM categories WHERE source_id = ?', [id]);
+  await deleteVodForSource(db, id);
   await db.runAsync('DELETE FROM sources WHERE id = ?', [id]);
 }
 

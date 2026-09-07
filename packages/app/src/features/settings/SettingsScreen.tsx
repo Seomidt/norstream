@@ -3,6 +3,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 're
 import { deriveCountry, logoCandidates } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { logoCoverage, registryCoverage } from '../../storage/channels.js';
+import { vodCounts } from '../../storage/vod.js';
 import { listLogoHosts } from '../../storage/logoHosts.js';
 import type { LogoHostRecord } from '../../storage/logoHosts.js';
 import { checkLogoHosts } from '../../sync/logoHosts.js';
@@ -75,6 +76,7 @@ export function SettingsScreen({
   const [registryError, setRegistryError] = useState<string | null>(null);
   const [rechecking, setRechecking] = useState(false);
   const [registryEnabled, setRegistryEnabled] = useState(true);
+  const [vod, setVod] = useState<{ movies: number; series: number } | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     const [hiddenCountries, format, coverage, knownHosts, fromRegistry, lastError] =
@@ -87,6 +89,7 @@ export function SettingsScreen({
         getRegistryError(session.db),
       ]);
     setRegistryEnabled(await getLogoRegistryEnabled(session.db));
+    setVod(await vodCounts(session.db));
     setHidden(hiddenCountries);
     setStreamFormat(format);
     setLogos(coverage);
@@ -206,6 +209,15 @@ export function SettingsScreen({
         </View>
         <Text style={styles.actionText}>Åbn</Text>
       </Pressable>
+      {/* Tallet siger om film og serier faktisk kom med ved sidste hentning —
+          det eneste sted man kan se det uden at gaa ind paa fanen. */}
+      <Text style={styles.hint}>
+        {vod === null
+          ? ''
+          : vod.movies + vod.series === 0
+            ? 'Ingen film eller serier hentet endnu. De følger med næste gang kanalerne opdateres.'
+            : `${vod.movies} film og ${vod.series} serier hentet fra dine kilder.`}
+      </Text>
 
       <Text style={styles.sectionTitle}>Kanallogoer</Text>
       <Text style={styles.hint}>

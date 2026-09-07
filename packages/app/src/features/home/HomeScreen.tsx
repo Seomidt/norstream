@@ -21,6 +21,9 @@ import { SourcesScreen } from '../sources/SourcesScreen.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SettingsScreen } from '../settings/SettingsScreen.js';
+import { VodScreen } from '../vod/VodScreen.js';
+import type { VodLevel } from '../vod/VodScreen.js';
+import type { StoredVodItem } from '../../storage/vod.js';
 
 /**
  * Hvor brugeren staar i Hjem.
@@ -33,6 +36,8 @@ export interface HomePlace {
   tab: Tab;
   /** Browse-fanens niveau, eller null for dens udgangspunkt. */
   browse: Level | null;
+  /** Film-fanens niveau, eller null for forsiden. */
+  vod: VodLevel | null;
 }
 
 interface Props {
@@ -40,18 +45,21 @@ interface Props {
   place: HomePlace;
   onPlaceChange: (place: HomePlace) => void;
   onSelect: (channel: StoredChannel, startFrom?: Programme) => void;
+  /** En film eller serie aabnes. Selve afspilningen sker fra dens egen skaerm. */
+  onOpenVod: (item: StoredVodItem) => void;
   onSignedOut: (notice: string) => void;
   /** Kaldes naar kilderne er aendret, saa sessionen kan laeses om. */
   onSourcesChanged: () => void;
 }
 
-export type Tab = 'favorites' | 'browse' | 'guide' | 'recordings' | 'settings';
+export type Tab = 'favorites' | 'browse' | 'guide' | 'vod' | 'recordings' | 'settings';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'favorites', label: 'Favoritter', icon: '★' },
   { id: 'browse', label: 'Kanaler', icon: '☰' },
   { id: 'guide', label: 'Guide', icon: '▦' },
-  { id: 'recordings', label: 'Optagelser', icon: '●' },
+  { id: 'vod', label: 'Film', icon: '▶' },
+  { id: 'recordings', label: 'Optag.', icon: '●' },
   { id: 'settings', label: 'Indstil.', icon: '⚙' },
 ];
 
@@ -72,6 +80,7 @@ export function HomeScreen({
   place,
   onPlaceChange,
   onSelect,
+  onOpenVod,
   onSignedOut,
   onSourcesChanged,
 }: Props) {
@@ -221,6 +230,14 @@ export function HomeScreen({
             onBrowse={() => setTab('browse')}
             previewEnabled={previewEnabled}
             previewHandle={previewHandle}
+          />
+        )}
+        {tab === 'vod' && (
+          <VodScreen
+            session={session}
+            level={place.vod ?? { name: 'home' }}
+            onLevelChange={(level) => onPlaceChange({ ...place, vod: level })}
+            onOpen={onOpenVod}
           />
         )}
         {tab === 'recordings' && <RecordingsScreen session={session} />}

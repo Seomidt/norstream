@@ -1,9 +1,18 @@
-import type { Category, Channel, Programme, XtreamCredentials } from '../models.js';
+import type {
+  Category,
+  Channel,
+  Episode,
+  Programme,
+  VodDetails,
+  VodItem,
+  XtreamCredentials,
+} from '../models.js';
 import { normaliseBaseUrl } from '../urls.js';
 import { truthyFlag } from './coerce.js';
 import { mapCategories, mapChannels } from './mapping.js';
 import { panelOffsetFromServerInfo } from './serverInfo.js';
 import { mapEpgListings } from './epgListings.js';
+import { mapEpisodes, mapVodDetails, mapVodItems } from './vodMapping.js';
 
 export interface FetchLikeResponse {
   ok: boolean;
@@ -155,6 +164,39 @@ export class XtreamClient {
    */
   async getPanelOffsetMinutes(): Promise<number | null> {
     return panelOffsetFromServerInfo(await this.request());
+  }
+
+  async getVodCategories(): Promise<Category[]> {
+    return mapCategories(await this.requestList('get_vod_categories'));
+  }
+
+  async getVodStreams(): Promise<VodItem[]> {
+    return mapVodItems(await this.requestList('get_vod_streams'), 'movie');
+  }
+
+  async getSeriesCategories(): Promise<Category[]> {
+    return mapCategories(await this.requestList('get_series_categories'));
+  }
+
+  async getSeries(): Promise<VodItem[]> {
+    return mapVodItems(await this.requestList('get_series'), 'series');
+  }
+
+  /**
+   * Handling, rolleliste og trailer for én film.
+   *
+   * Et opslag per titel, ikke per liste: `get_vod_streams` giver tusindvis
+   * af film paa ét kald, men kun navn og plakat. Resten koster et kald per
+   * film, og det kald sker foerst naar man aabner den.
+   */
+  async getVodInfo(vodId: string): Promise<VodDetails> {
+    return mapVodDetails(await this.request('get_vod_info', { vod_id: vodId }));
+  }
+
+  /** Det samme for en serie, plus dens afsnit. */
+  async getSeriesInfo(seriesId: string): Promise<{ details: VodDetails; episodes: Episode[] }> {
+    const body = await this.request('get_series_info', { series_id: seriesId });
+    return { details: mapVodDetails(body), episodes: mapEpisodes(body, seriesId) };
   }
 
   /**
