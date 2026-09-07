@@ -15,26 +15,27 @@ interface Props {
  *
  * YouTubes egen indlejrede afspiller i en webvisning. Det er den maade
  * YouTube selv stiller til raadighed — at traekke videofilen ud og spille den
- * i appens afspiller goer de ikke, og det ville braekke naar de aendrer
- * noget. Prisen er ét native modul mere, `react-native-webview`.
+ * i appens afspiller goer de ikke, og det ville braekke naar de aendrer noget.
  *
- * `playsinline` holder afspilningen i rammen frem for i telefonens egen
- * fuldskaerm; `mediaPlaybackRequiresUserAction` slaas fra, saa traileren
- * starter ved tryk paa knappen og ikke kraever et tryk mere inde i rammen.
+ * **Afspilleren ligger i en lille side, ikke som en adresse for sig.** Foerste
+ * udgave aabnede `youtube.com/embed/<id>` direkte, og YouTube svarede
+ * "Konfigurationsfejl i videoafspiller, fejl 153". Fejl 153 er at der ikke
+ * fulgte en `Referer` med: en indlejret afspiller vil vide hvilken side den
+ * sidder paa. Med en side og en base-adresse sender webvisningen den, og
+ * afspilleren starter.
  */
 export function TrailerScreen({ trailerId, title, onBack }: Props) {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
-  // Kun id'et bygges ind. Det er et YouTube-id (11 tegn) og ikke fri tekst.
-  const embed = `https://www.youtube.com/embed/${encodeURIComponent(trailerId)}?autoplay=1&playsinline=1&rel=0&modestbranding=1`;
 
   return (
     <View style={styles.container}>
       <View style={styles.frame}>
         {!failed && (
           <WebView
-            source={{ uri: embed }}
+            source={{ html: embedPage(trailerId), baseUrl: 'https://www.youtube.com' }}
+            originWhitelist={['*']}
             style={styles.web}
             allowsFullscreenVideo
             allowsInlineMediaPlayback
@@ -72,6 +73,19 @@ export function TrailerScreen({ trailerId, title, onBack }: Props) {
       </View>
     </View>
   );
+}
+
+/**
+ * Siden afspilleren sidder paa. Kun id'et bygges ind, og det er et
+ * YouTube-id paa elleve tegn — aldrig fri tekst — saa der kan ikke lukkes
+ * noget ind i siden gennem det.
+ */
+export function embedPage(trailerId: string): string {
+  const id = trailerId.replace(/[^A-Za-z0-9_-]/g, '');
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>html,body{margin:0;background:#000;height:100%;overflow:hidden}iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
+</head><body><iframe src="https://www.youtube.com/embed/${id}?autoplay=1&playsinline=1&rel=0&modestbranding=1"
+allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></body></html>`;
 }
 
 const styles = StyleSheet.create({

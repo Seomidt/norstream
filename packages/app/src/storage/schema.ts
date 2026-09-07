@@ -157,6 +157,13 @@ CREATE TABLE IF NOT EXISTS xmltv_logos (
   url         TEXT NOT NULL
 );
 
+-- Hvilken af kanalens logo-adresser der faktisk tegnede sidst. Uden den
+-- proeves de doede adresser forfra hver gang raekken kommer paa skaermen.
+CREATE TABLE IF NOT EXISTS logo_resolved (
+  channel_key TEXT PRIMARY KEY,
+  url         TEXT NOT NULL
+);
+
 -- Film og serier. Samme moenster som kanalerne: listen hentes én gang i
 -- doegnet per kilde; det panelet ved om den enkelte titel hentes foerst naar
 -- den aabnes, og ligger i vod_details og episodes.
@@ -186,6 +193,7 @@ CREATE INDEX IF NOT EXISTS idx_vod_items_kind     ON vod_items (kind, sort_order
 
 CREATE TABLE IF NOT EXISTS vod_details (
   item_key     TEXT PRIMARY KEY,
+  poster_url   TEXT,
   plot         TEXT,
   genre        TEXT,
   cast         TEXT,
@@ -246,11 +254,13 @@ const TABLES = [
   'vod_watchlist',
   'vod_progress',
   'xmltv_logos',
+  'logo_resolved',
 ] as const;
 
-// v8 tilfoejer VOD-tabellerne, v9 xmltv_logos. `CREATE TABLE IF NOT EXISTS`
-// klarer begge.
-const SCHEMA_VERSION = 9;
+// v8 tilfoejer VOD-tabellerne, v9 xmltv_logos, v10 logo_resolved og en
+// kolonne paa vod_details. Tabellerne klarer `CREATE TABLE IF NOT EXISTS`;
+// kolonnen har sit eget ALTER-trin.
+const SCHEMA_VERSION = 10;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -383,6 +393,15 @@ async function addV5Columns(db: SqlDatabase): Promise<void> {
   }
 }
 
+/** v10: plakaten som opslaget oplyser den, ved siden af listens. */
+async function addV10Columns(db: SqlDatabase): Promise<void> {
+  try {
+    await db.execAsync('ALTER TABLE vod_details ADD COLUMN poster_url TEXT');
+  } catch {
+    // Kolonnen fandtes allerede.
+  }
+}
+
 /**
  * Rydder den cache hvis id'er skifter betydning ved v5.
  *
@@ -442,6 +461,9 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     if (toV5) await addV5Columns(db);
     await db.execAsync(SCHEMA);
     if (toV5) await clearV5Cache(db);
+    // Efter skemaet: paa en frisk database har CREATE TABLE allerede kolonnen
+    // med, og ALTER-trinnet svarer bare at den findes.
+    if (version >= 8 && version < 10) await addV10Columns(db);
 
   }
 

@@ -120,9 +120,11 @@ describe('mapVodDetails', () => {
         backdrop_path: ['http://p/bd.jpg', 'http://p/bd2.jpg'],
         rating: 7.3,
         releasedate: '2025-06-13',
+        movie_image: 'https://image.tmdb.org/p.jpg',
       },
     });
     expect(details).toEqual({
+      posterUrl: 'https://image.tmdb.org/p.jpg',
       plot: 'En matchmaker i New York …',
       genre: 'Romance, Drama',
       cast: 'Dakota Johnson, Chris Evans',

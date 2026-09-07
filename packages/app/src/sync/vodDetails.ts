@@ -3,6 +3,7 @@ import type { FetchLike, VodDetails, XtreamCredentials } from '@norstream/core';
 import type { SqlDatabase } from '../storage/types.js';
 import {
   DETAILS_MAX_AGE_MS,
+  adoptDetailsPoster,
   getVodDetails,
   replaceEpisodes,
   saveVodDetails,
@@ -41,10 +42,12 @@ export async function ensureVodDetails(
       const { details, episodes } = await client.getSeriesInfo(item.id);
       await saveVodDetails(db, item.key, details, now);
       await replaceEpisodes(db, item.key, episodes);
+      await adoptDetailsPoster(db, item.key, details.posterUrl);
       return details;
     }
     const details = await client.getVodInfo(item.id);
     await saveVodDetails(db, item.key, details, now);
+    await adoptDetailsPoster(db, item.key, details.posterUrl);
     return details;
   } catch (cause) {
     if (cached !== null) return cached.details;

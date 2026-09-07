@@ -330,7 +330,7 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
 
       <View style={styles.info}>
         <View style={styles.channelLine}>
-          <ChannelLogo uris={channel.logoUrls} name={channel.name} size={36} />
+          <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={36} />
           <Text style={styles.channelName}>{channel.name}</Text>
         </View>
         {/* Kommer vi fra guiden, er det programmet der genafspilles der staar

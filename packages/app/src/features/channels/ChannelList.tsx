@@ -69,6 +69,26 @@ export function ChannelList({
       const id = runId.current + 1;
       runId.current = id;
 
+      /** Tegner det cachen har. Kaldes foer og efter hentningen. */
+      const draw = async (): Promise<boolean> => {
+        const now = new Date();
+        const titles: Record<string, string> = {};
+        for (const streamId of streamIds) {
+          // Opslaget sker paa kanalens eget id — Xtreams stream_id. I v1 gik
+          // det gennem epg_channel_id, som 87 % af kanalerne ikke har.
+          const result = await getNowNext(session.db, streamId, now);
+          if (result.now) titles[streamId] = result.now.title;
+        }
+        if (runId.current !== id) return false;
+        setNowTitles((previous) => ({ ...previous, ...titles }));
+        return true;
+      };
+
+      // **Cachen foerst**, som i guiden. Foer stod titlerne tomme mens panelet
+      // svarede, hver gang programdata var mere end en halv time gamle — og
+      // det saa ud som om listen laeste alt ind forfra ved hvert besoeg.
+      if (!(await draw())) return;
+
       try {
         await ensureEpg(session.db, session.credsBySource, session.fetchImpl, streamIds);
       } catch (cause) {
@@ -76,20 +96,9 @@ export function ChannelList({
           onAuthError();
           return;
         }
-        // Panelet kunne ikke naas. Vi viser hvad cachen har.
+        // Panelet kunne ikke naas. Det tegnede staar.
       }
-      if (runId.current !== id) return;
-
-      const now = new Date();
-      const titles: Record<string, string> = {};
-      for (const streamId of streamIds) {
-        // Opslaget sker paa kanalens eget id — Xtreams stream_id. I v1 gik det
-        // gennem epg_channel_id, som 87 % af kanalerne ikke har.
-        const result = await getNowNext(session.db, streamId, now);
-        if (result.now) titles[streamId] = result.now.title;
-      }
-      if (runId.current !== id) return;
-      setNowTitles((previous) => ({ ...previous, ...titles }));
+      await draw();
     },
     [session, onAuthError],
   );
@@ -176,7 +185,7 @@ export function ChannelList({
               void open(item);
             }}
           >
-            <ChannelLogo uris={item.logoUrls} name={item.name} />
+            <ChannelLogo uris={item.logoUrls} name={item.name} memoryKey={item.id} />
             <View style={styles.rowText}>
               <Text style={styles.channelName} numberOfLines={1}>
                 {item.name}

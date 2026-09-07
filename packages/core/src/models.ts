@@ -60,6 +60,12 @@ export interface VodItem {
 
 /** Det panelet ved om én titel, hentet naar den aabnes. */
 export interface VodDetails {
+  /**
+   * Plakaten som opslaget oplyser den. Tit en anden adresse end listens —
+   * listen peger paa panelets egen vaert, opslaget paa en billeddatabase —
+   * og det er forskellen naar panelets vaert er doed.
+   */
+  posterUrl: string | null;
   plot: string | null;
   genre: string | null;
   cast: string | null;

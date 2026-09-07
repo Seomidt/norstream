@@ -1,7 +1,9 @@
 import { deriveCountryLoose } from '@norstream/core';
 import type { Category, Country, Episode, VodDetails, VodItem, VodKind } from '@norstream/core';
 import { channelKey } from '@norstream/core';
+import { originOf } from '@norstream/core';
 import { OTHER_COUNTRY_FLAG, OTHER_COUNTRY_KEY } from './countries.js';
+import { deadLogoOrigins } from './logoHosts.js';
 import type { CountryGroup } from './countries.js';
 import type { SqlDatabase, SqlValue } from './types.js';
 
@@ -274,15 +276,59 @@ export async function listVodItems(
     params.push(Math.max(1, Math.trunc(opts.limit)));
   }
   const rows = await db.getAllAsync<ItemRow>(`${SELECT_ITEM} ${clause} ${order} ${limit}`, params);
-  return rows.map(toStored);
+  const dead = await deadLogoOrigins(db);
+  return rows.map((row) => withoutDeadPoster(toStored(row), dead));
 }
 
 export async function getVodItem(db: SqlDatabase, key: string): Promise<StoredVodItem | null> {
   const row = await db.getFirstAsync<ItemRow>(`${SELECT_ITEM} WHERE i.key = ?`, [key]);
-  return row ? toStored(row) : null;
+  if (!row) return null;
+  return withoutDeadPoster(toStored(row), await deadLogoOrigins(db));
+}
+
+/**
+ * Plakaten tages ud naar dens vaert er maalt doed.
+ *
+ * Samme grund som for kanallogoerne: en vaert uden rute fejler ikke, den
+ * svarer aldrig, og `Image` staar og venter i stedet for at vise titlen.
+ * Brugerens panel oplyser plakater paa den samme doede vaert som logoerne.
+ */
+function withoutDeadPoster(item: StoredVodItem, dead: ReadonlySet<string>): StoredVodItem {
+  if (item.posterUrl === null || dead.size === 0) return item;
+  const origin = originOf(item.posterUrl);
+  if (origin === null || !dead.has(origin)) return item;
+  return { ...item, posterUrl: null };
+}
+
+/**
+ * Bytter listens plakat ud med opslagets naar listens ikke kan bruges.
+ *
+ * Listen peger paa panelets egen vaert; opslaget peger tit paa en
+ * billeddatabase. Er panelets vaert doed, er opslagets adresse den eneste
+ * der tegner noget — og den er der foerst naar titlen er aabnet én gang.
+ */
+export async function adoptDetailsPoster(
+  db: SqlDatabase,
+  key: string,
+  posterUrl: string | null,
+): Promise<void> {
+  if (posterUrl === null) return;
+  const row = await db.getFirstAsync<{ poster_url: string | null }>(
+    'SELECT poster_url FROM vod_items WHERE key = ?',
+    [key],
+  );
+  if (!row) return;
+  const current = row.poster_url ?? '';
+  let replace = current.length === 0;
+  if (!replace) {
+    const origin = originOf(current);
+    replace = origin !== null && (await deadLogoOrigins(db)).has(origin);
+  }
+  if (replace) await db.runAsync('UPDATE vod_items SET poster_url = ? WHERE key = ?', [posterUrl, key]);
 }
 
 interface DetailsRow {
+  poster_url: string | null;
   plot: string | null;
   genre: string | null;
   cast: string | null;
@@ -306,6 +352,7 @@ export async function getVodDetails(
   if (!row) return null;
   return {
     details: {
+      posterUrl: row.poster_url,
       plot: row.plot,
       genre: row.genre,
       cast: row.cast,
@@ -328,11 +375,12 @@ export async function saveVodDetails(
 ): Promise<void> {
   await db.runAsync(
     `INSERT OR REPLACE INTO vod_details
-       (item_key, plot, genre, cast, director, duration_min, trailer_id, backdrop_url,
-        rating, year, fetched_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (item_key, poster_url, plot, genre, cast, director, duration_min, trailer_id,
+        backdrop_url, rating, year, fetched_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       key,
+      details.posterUrl,
       details.plot,
       details.genre,
       details.cast,

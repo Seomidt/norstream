@@ -104,7 +104,19 @@ async function sampleLogoUrls(db: SqlDatabase): Promise<Map<string, string>> {
     [SAMPLE],
   );
 
+  // Plakaterne ogsaa. Panelet oplyser dem paa den samme vaert som logoerne,
+  // og en doed vaert skal maales én gang for begge.
+  const posters = await db.getAllAsync<{ poster_url: string | null }>(
+    "SELECT poster_url FROM vod_items WHERE poster_url IS NOT NULL AND poster_url <> '' LIMIT ?",
+    [SAMPLE],
+  );
+
   const byOrigin = new Map<string, string>();
+  for (const poster of posters) {
+    if (poster.poster_url === null) continue;
+    const origin = originOf(poster.poster_url);
+    if (origin !== null && !byOrigin.has(origin)) byOrigin.set(origin, poster.poster_url);
+  }
   for (const row of rows) {
     // Begge kandidater taeller med: panelets egen vaert er anden udvej, og den
     // skal maales af samme grund som den foerste.

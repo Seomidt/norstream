@@ -574,7 +574,7 @@ function GuideRow({
   return (
     <View style={styles.row}>
       <View style={styles.channelCell}>
-        <ChannelLogo uris={channel.logoUrls} name={channel.name} size={26} />
+        <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={26} />
         <View style={styles.channelText}>
           <Text style={styles.channelName} numberOfLines={2}>
             {channel.name}

@@ -11,6 +11,7 @@ import {
   getMiniPreviewEnabled,
 } from '../../storage/settings.js';
 import { syncAllSources } from '../../sync/syncAll.js';
+import { prefetchFavouritesEpg } from '../../sync/prefetchEpg.js';
 import { theme } from '../../ui/theme.js';
 import { BrowseScreen } from '../browse/BrowseScreen.js';
 import type { Level } from '../browse/BrowseScreen.js';
@@ -149,6 +150,13 @@ export function HomeScreen({
         return;
       }
       setFavoritesToken((value) => value + 1);
+
+      // Bagefter, og uden at nogen venter paa det: favoritternes programtabel
+      // for det naeste doegn, saa guiden er fyldt naar den aabnes. Fejler det,
+      // henter guiden selv som foer.
+      void prefetchFavouritesEpg(session.db, session.credsBySource, session.fetchImpl).catch(
+        () => undefined,
+      );
     },
     [session, signOutFromPanel],
   );

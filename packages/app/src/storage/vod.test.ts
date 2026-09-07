@@ -113,6 +113,7 @@ describe('det panelet ved om en titel', () => {
   it('gemmes og laeses igen', async () => {
     const [item] = await listVodItems(db, { search: 'Materialists' });
     await saveVodDetails(db, item!.key, {
+      posterUrl: null,
       plot: 'Handling',
       genre: 'Drama',
       cast: 'A, B',

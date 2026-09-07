@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { initials } from './initials.js';
+import { forgetLogo, recallLogo, rememberLogo } from './logoMemory.js';
 import { theme } from './theme.js';
 
 interface Props {
@@ -11,6 +12,11 @@ interface Props {
   uris: readonly string[];
   name: string;
   size?: number;
+  /**
+   * Kanalens noegle. Med den huskes hvilken adresse der virkede, saa naeste
+   * gang begynder der frem for at proeve de doede forfra.
+   */
+  memoryKey?: string;
 }
 
 /**
@@ -28,15 +34,25 @@ interface Props {
  * sin aarsag og samme udseende. Nu falder den tilbage til forbogstaverne, som
  * i det mindste er det samme udfald man kan forklare.
  */
-export function ChannelLogo({ uris, name, size = 44 }: Props) {
-  const [attempt, setAttempt] = useState(0);
+export function ChannelLogo({ uris, name, size = 44, memoryKey }: Props) {
+  /** Der begyndes ved den adresse der virkede sidst, naar den stadig er i raekken. */
+  const startAt = (): number => {
+    if (memoryKey === undefined) return 0;
+    const remembered = recallLogo(memoryKey);
+    if (remembered === null) return 0;
+    const index = uris.indexOf(remembered);
+    return index === -1 ? 0 : index;
+  };
+  const [attempt, setAttempt] = useState(startAt);
 
   // Skifter raekken kanal — FlatList genbruger komponenter — skal et tidligere
   // mislykket forsoeg ikke haenge ved og skjule det naeste logo.
   const key = uris.join('|');
   useEffect(() => {
-    setAttempt(0);
-  }, [key]);
+    setAttempt(startAt());
+    // `startAt` laeser kun props der allerede er i afhaengighederne.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, memoryKey]);
 
   const uri = uris[attempt];
   const box = { width: size, height: size, borderRadius: Math.round(size / 6) };
@@ -56,7 +72,15 @@ export function ChannelLogo({ uris, name, size = 44 }: Props) {
       source={{ uri }}
       style={[styles.image, box]}
       resizeMode="contain"
-      onError={() => setAttempt((current) => current + 1)}
+      onLoad={() => {
+        if (memoryKey !== undefined) rememberLogo(memoryKey, uri);
+      }}
+      onError={() => {
+        // Var det den huskede adresse der fejlede, huskes den ikke laengere —
+        // ellers ville den blive proevet foerst igen naeste gang.
+        if (memoryKey !== undefined && recallLogo(memoryKey) === uri) forgetLogo(memoryKey);
+        setAttempt((current) => current + 1);
+      }}
     />
   );
 }

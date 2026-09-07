@@ -155,6 +155,7 @@ export function mapVodDetails(raw: unknown): VodDetails {
       ? ((raw as RawVodInfo).info as Record<string, unknown>)
       : {};
   return {
+    posterUrl: text(info.movie_image) ?? text(info.cover_big) ?? text(info.cover),
     plot: text(info.plot) ?? text(info.description),
     genre: text(info.genre),
     cast: text(info.cast) ?? text(info.actors),
