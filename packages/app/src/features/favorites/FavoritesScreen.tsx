@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  FlatList,
+  Animated,
+  PanResponder,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -192,10 +193,21 @@ export function FavoritesScreen({
   );
 }
 
+/** Raekkehoejden i sorteringen. Fast, saa en fingerposition kan regnes om til en plads. */
+const ROW_HEIGHT = 56;
+/** Saa taet paa kanten fingeren skal vaere foer listen ruller med. */
+const EDGE = 48;
+const EDGE_STEP = 8;
+
 /**
- * Raekkefoelgen, aendret med to tryk: ét paa kanalen der skal flyttes, ét paa
- * pladsen den skal have. Traek-og-slip kraever et bibliotek appen ikke har,
- * og pile der flytter én plads ad gangen er ubrugelige med 61 kanaler.
+ * Raekkefoelgen, aendret ved at traekke.
+ *
+ * Uden bibliotek: en PanResponder paa haandtaget, en fast raekkehoejde, og
+ * pladsen regnes ud af hvor langt fingeren er flyttet — plus hvor meget
+ * listen selv har rullet imens, for den ruller med naar fingeren naar en
+ * kant. Raekkerne imellem rykker sig, saa man kan se hvor kanalen lander.
+ * Den foerste udgave krævede to tryk, ét paa kanalen og ét paa pladsen;
+ * ingen fandt ud af det, for alle proevede at traekke.
  */
 function SortView({
   channels,
@@ -206,78 +218,154 @@ function SortView({
   onMove: (channel: StoredChannel, toIndex: number) => Promise<void>;
   onDone: () => void;
 }) {
-  const [picked, setPicked] = useState<StoredChannel | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [order, setOrder] = useState(channels);
+  useEffect(() => {
+    setOrder(channels);
+  }, [channels]);
 
-  async function move(toIndex: number): Promise<void> {
-    if (picked === null || busy) return;
-    setBusy(true);
-    try {
-      await onMove(picked, toIndex);
-    } finally {
-      setBusy(false);
-      setPicked(null);
+  const [drag, setDrag] = useState<{ index: number; hover: number } | null>(null);
+  const dragRef = useRef<{ index: number; hover: number; startScroll: number } | null>(null);
+  const translate = useRef(new Animated.Value(0)).current;
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollY = useRef(0);
+  const lastDy = useRef(0);
+  const frame = useRef({ top: 0, height: 0 });
+  const listRef = useRef<View>(null);
+  const edgeTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopEdgeScroll = (): void => {
+    if (edgeTimer.current !== null) clearInterval(edgeTimer.current);
+    edgeTimer.current = null;
+  };
+
+  const updateHover = (dy: number): void => {
+    const current = dragRef.current;
+    if (current === null) return;
+    const offset = dy + (scrollY.current - current.startScroll);
+    translate.setValue(offset);
+    const hover = Math.max(
+      0,
+      Math.min(order.length - 1, Math.round(current.index + offset / ROW_HEIGHT)),
+    );
+    if (hover !== current.hover) {
+      current.hover = hover;
+      setDrag({ index: current.index, hover });
     }
-  }
+  };
+
+  const edgeScroll = (fingerY: number): void => {
+    const { top, height } = frame.current;
+    const direction = fingerY < top + EDGE ? -1 : fingerY > top + height - EDGE ? 1 : 0;
+    if (direction === 0) {
+      stopEdgeScroll();
+      return;
+    }
+    if (edgeTimer.current !== null) return;
+    edgeTimer.current = setInterval(() => {
+      const max = Math.max(0, order.length * ROW_HEIGHT - height);
+      const next = Math.max(0, Math.min(max, scrollY.current + direction * EDGE_STEP));
+      if (next === scrollY.current) return;
+      scrollRef.current?.scrollTo({ y: next, animated: false });
+      scrollY.current = next;
+      updateHover(lastDy.current);
+    }, 16);
+  };
+
+  const finish = (): void => {
+    stopEdgeScroll();
+    const current = dragRef.current;
+    dragRef.current = null;
+    setDrag(null);
+    translate.setValue(0);
+    if (current === null || current.hover === current.index) return;
+    const moved = order[current.index];
+    if (moved === undefined) return;
+    // Vises med det samme; databasen foelger efter.
+    const next = [...order];
+    next.splice(current.index, 1);
+    next.splice(current.hover, 0, moved);
+    setOrder(next);
+    void onMove(moved, current.hover);
+  };
+
+  const responderFor = (index: number) =>
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      // Listen maa ikke tage fingeren fra os for at rulle selv.
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: () => {
+        dragRef.current = { index, hover: index, startScroll: scrollY.current };
+        lastDy.current = 0;
+        translate.setValue(0);
+        setDrag({ index, hover: index });
+      },
+      onPanResponderMove: (_, gesture) => {
+        lastDy.current = gesture.dy;
+        updateHover(gesture.dy);
+        edgeScroll(gesture.moveY);
+      },
+      onPanResponderRelease: finish,
+      onPanResponderTerminate: finish,
+    });
 
   return (
     <View style={styles.container}>
       <View style={styles.toolbar}>
-        <Text style={styles.sortHint}>
-          {picked === null
-            ? 'Tryk på den kanal der skal flyttes.'
-            : `Tryk på den plads “${picked.name}” skal have.`}
-        </Text>
+        <Text style={styles.sortHint}>Træk i ☰ og slip kanalen hvor den skal ligge.</Text>
         <View style={styles.toolbarRow}>
-          {picked !== null && (
-            <>
-              <Pressable style={styles.action} hitSlop={8} onPress={() => void move(0)}>
-                <Text style={styles.actionText}>Øverst</Text>
-              </Pressable>
-              <Pressable
-                style={styles.action}
-                hitSlop={8}
-                onPress={() => void move(channels.length)}
-              >
-                <Text style={styles.actionText}>Nederst</Text>
-              </Pressable>
-              <Pressable style={styles.action} hitSlop={8} onPress={() => setPicked(null)}>
-                <Text style={styles.actionText}>Fortryd</Text>
-              </Pressable>
-            </>
-          )}
           <View style={styles.spacer} />
           <Pressable style={[styles.action, styles.actionAccent]} hitSlop={8} onPress={onDone}>
             <Text style={styles.actionText}>Færdig</Text>
           </Pressable>
         </View>
       </View>
-      <FlatList
-        data={channels}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item, index }) => {
-          const isPicked = picked?.id === item.id;
-          return (
-            <Pressable
-              style={[styles.row, isPicked && styles.rowPicked]}
-              onPress={() => {
-                if (picked === null || isPicked) {
-                  setPicked(isPicked ? null : item);
-                  return;
-                }
-                void move(index);
-              }}
-            >
-              <Text style={styles.position}>{index + 1}</Text>
-              <ChannelLogo uris={item.logoUrls} name={item.name} memoryKey={item.id} size={36} />
-              <Text style={styles.channelName} numberOfLines={1}>
-                {item.name}
-              </Text>
-              <Text style={styles.handle}>{isPicked ? '✓' : '☰'}</Text>
-            </Pressable>
-          );
+      <View
+        ref={listRef}
+        style={styles.container}
+        onLayout={() => {
+          listRef.current?.measureInWindow((_x, y, _w, h) => {
+            frame.current = { top: y, height: h };
+          });
         }}
-      />
+      >
+        <ScrollView
+          ref={scrollRef}
+          scrollEnabled={drag === null}
+          scrollEventThrottle={16}
+          onScroll={(event) => {
+            scrollY.current = event.nativeEvent.contentOffset.y;
+          }}
+        >
+          {order.map((item, index) => {
+            const dragging = drag !== null && drag.index === index;
+            let shift = 0;
+            if (drag !== null && !dragging) {
+              if (drag.index < index && index <= drag.hover) shift = -ROW_HEIGHT;
+              else if (drag.hover <= index && index < drag.index) shift = ROW_HEIGHT;
+            }
+            return (
+              <Animated.View
+                key={item.id}
+                style={[
+                  styles.row,
+                  dragging && styles.rowDragging,
+                  { transform: [{ translateY: dragging ? translate : shift }] },
+                ]}
+              >
+                <Text style={styles.position}>{index + 1}</Text>
+                <ChannelLogo uris={item.logoUrls} name={item.name} memoryKey={item.id} size={36} />
+                <Text style={styles.channelName} numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <View style={styles.handle} hitSlop={12} {...responderFor(index).panHandlers}>
+                  <Text style={styles.handleText}>☰</Text>
+                </View>
+              </Animated.View>
+            );
+          })}
+        </ScrollView>
+      </View>
     </View>
   );
 }
@@ -331,16 +419,32 @@ const styles = StyleSheet.create({
   actionAccent: { backgroundColor: theme.colors.accent },
   actionText: { color: theme.colors.text, fontSize: 13, fontWeight: '600' },
   row: {
+    height: ROW_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
     borderBottomColor: theme.colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
+    backgroundColor: theme.colors.background,
   },
-  rowPicked: { backgroundColor: theme.colors.surfaceRaised },
+  rowDragging: {
+    backgroundColor: theme.colors.surfaceRaised,
+    zIndex: 10,
+    elevation: 6,
+    shadowColor: '#000000',
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
   position: { width: 28, color: theme.colors.textMuted, fontSize: 13, textAlign: 'right' },
   channelName: { flex: 1, color: theme.colors.text, fontSize: 16 },
-  handle: { color: theme.colors.textMuted, fontSize: 18 },
+  /** Bredt nok til en tommelfinger; det er det man traekker i. */
+  handle: {
+    width: 44,
+    height: ROW_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  handleText: { color: theme.colors.textMuted, fontSize: 20 },
 });

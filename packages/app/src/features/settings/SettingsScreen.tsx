@@ -3,6 +3,9 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from
 import { deriveCountry } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { vodCounts } from '../../storage/vod.js';
+import { createBackup, parseBackup, restoreBackup, serialiseBackup } from '../../storage/backup.js';
+import { forgetLogoMisses, resetLogo } from '../../ui/logoCache.js';
+import { readChosenBackupFile, saveBackupToChosenFolder } from './backupFiles.js';
 import { listHiddenCountries, unhideCountry } from '../../storage/countries.js';
 import { OTHER_COUNTRY_KEY } from '../../storage/countries.js';
 import { clearSourceCredentials } from '../../storage/credentials.js';
@@ -29,6 +32,8 @@ interface Props {
   previewEnabled: boolean;
   onPreviewEnabledChange: (enabled: boolean) => void;
   onSignedOut: (notice: string) => void;
+  /** En sikkerhedskopi er lagt ind: favoritter, logoer og indstillinger skal laeses igen. */
+  onRestored: () => void;
 }
 
 const SIGNED_OUT_MESSAGE = 'Du er logget ud. Log ind igen for at fortsætte.';
@@ -56,6 +61,7 @@ export function SettingsScreen({
   previewEnabled,
   onPreviewEnabledChange,
   onSignedOut,
+  onRestored,
 }: Props) {
   const [hidden, setHidden] = useState<string[]>([]);
   // Bekraeftelsen ligger i skaermen, ikke i en Alert: react-native-web
@@ -66,6 +72,9 @@ export function SettingsScreen({
   /** Brugerens egen noegle til YouTubes Data API, til at soege efter trailere. */
   const [youtubeKey, setYoutubeKey] = useState('');
   const [subtitles, setSubtitles] = useState<SubtitlePreference>('auto');
+  /** Hvad sidste sikkerhedskopiering eller gendannelse endte med. */
+  const [backupMessage, setBackupMessage] = useState<string | null>(null);
+  const [backupBusy, setBackupBusy] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
     const [hiddenCountries, format, key, preferredSubtitles, counts] = await Promise.all([
@@ -85,6 +94,47 @@ export function SettingsScreen({
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function saveBackup(): Promise<void> {
+    setBackupBusy(true);
+    try {
+      const json = serialiseBackup(await createBackup(session.db));
+      const saved = await saveBackupToChosenFolder(json);
+      setBackupMessage(saved ? 'Sikkerhedskopien er gemt i den valgte mappe.' : null);
+    } catch {
+      setBackupMessage('Sikkerhedskopien kunne ikke gemmes.');
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function restoreFromFile(): Promise<void> {
+    setBackupBusy(true);
+    try {
+      const text = await readChosenBackupFile();
+      if (text === null) return;
+      const result = await restoreBackup(session.db, parseBackup(text));
+      // De valgte logoer hentes om, saa filen paa telefonen er den valgte.
+      for (const key of result.overrideKeys) await resetLogo(key);
+      await forgetLogoMisses();
+      await load();
+      onRestored();
+      const parts = [
+        `${result.favorites} favoritter`,
+        `${result.logoOverrides} egne logoer`,
+        `${result.settings} indstillinger`,
+      ];
+      const missing =
+        result.missingSources.length === 0
+          ? ''
+          : ` Kilden ${result.missingSources.join(', ')} findes ikke her, så dens favoritter blev sprunget over — log ind på den først, og gendan igen.`;
+      setBackupMessage(`Gendannet: ${parts.join(', ')}.${missing}`);
+    } catch (cause) {
+      setBackupMessage(cause instanceof Error ? cause.message : 'Filen kunne ikke læses.');
+    } finally {
+      setBackupBusy(false);
+    }
+  }
 
   async function chooseSubtitles(value: SubtitlePreference): Promise<void> {
     setSubtitles(value);
@@ -255,6 +305,30 @@ export function SettingsScreen({
         Nøglen laves gratis i Google Cloud Console: opret et projekt, slå "YouTube Data API v3"
         til, og opret en API-nøgle under Legitimationsoplysninger. Den gemmes kun på telefonen.
       </Text>
+
+      <Text style={styles.sectionTitle}>Sikkerhedskopi</Text>
+      <Text style={styles.hint}>
+        Favoritter i din rækkefølge, egne logoer, skjulte lande, undertekster og de andre valg,
+        min liste og hvor langt film er set. Ikke adgangskoder: dem taster du igen. Gem filen
+        et sted du kan nå fra en ny telefon, og gendan efter du er logget ind på panelet.
+      </Text>
+      <Pressable style={styles.row} disabled={backupBusy} onPress={() => void saveBackup()}>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Gem sikkerhedskopi</Text>
+          <Text style={styles.rowHint}>Vælg en mappe. Filen hedder norstream-sikkerhedskopi.json.</Text>
+        </View>
+        <Text style={styles.actionText}>Gem</Text>
+      </Pressable>
+      <Pressable style={styles.row} disabled={backupBusy} onPress={() => void restoreFromFile()}>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Gendan fra fil</Text>
+          <Text style={styles.rowHint}>
+            Erstatter favoritter, egne logoer og skjulte lande med dem i filen.
+          </Text>
+        </View>
+        <Text style={styles.actionText}>Vælg fil</Text>
+      </Pressable>
+      {backupMessage !== null && <Text style={styles.hint}>{backupMessage}</Text>}
 
       <Text style={styles.sectionTitle}>Skjulte lande</Text>
       {hidden.length === 0 ? (

@@ -7,6 +7,7 @@ import type { StoredChannel } from '../../storage/channels.js';
 import {
   clearLastSyncMs,
   getMiniPreviewEnabled,
+  getStreamFormatSetting,
 } from '../../storage/settings.js';
 import { syncAllSources } from '../../sync/syncAll.js';
 import { prefetchFavouritesEpg } from '../../sync/prefetchEpg.js';
@@ -23,6 +24,7 @@ import { SettingsScreen } from '../settings/SettingsScreen.js';
 import { LogoGapsScreen } from '../settings/LogoGapsScreen.js';
 import { LogoPickerScreen } from '../settings/LogoPickerScreen.js';
 import { Notice } from '../../ui/Notice.js';
+import { applyStreamFormatSetting } from '../player/format.js';
 import { VodScreen } from '../vod/VodScreen.js';
 import type { VodLevel } from '../vod/VodScreen.js';
 import type { StoredVodItem } from '../../storage/vod.js';
@@ -360,6 +362,12 @@ export function HomeScreen({
             onOpenSources={() => setShowingSources(true)}
             onOpenLogos={() => setShowingLogos(true)}
             onSignedOut={onSignedOut}
+            onRestored={() => {
+              setFavoritesToken((value) => value + 1);
+              setLogoToken((value) => value + 1);
+              void getMiniPreviewEnabled(session.db).then(setPreviewEnabled);
+              void getStreamFormatSetting(session.db).then(applyStreamFormatSetting);
+            }}
           />
         )}
       </View>
