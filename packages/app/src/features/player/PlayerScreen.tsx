@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import type { SubtitleTrack } from 'expo-video';
 import { buildTimeshiftUrl, detectTimeshiftDialect } from '@norstream/core';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
@@ -9,9 +10,11 @@ import type { StoredChannel } from '../../storage/channels.js';
 import { getNowNext } from '../../storage/programmes.js';
 import {
   getPanelOffsetMinutes,
+  getSubtitlePreference,
   getTimeshiftDialect,
   setTimeshiftDialect,
 } from '../../storage/settings.js';
+import type { SubtitlePreference } from '../../storage/settings.js';
 import { isScheduled, scheduleRecording } from '../../storage/recordings.js';
 import { ensureEpg } from '../../sync/epgCache.js';
 import { canRecord } from '../recordings/plan.js';
@@ -20,6 +23,8 @@ import { liveUrlFor } from '../../sources/access.js';
 import { theme } from '../../ui/theme.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback } from './format.js';
 import { restartBlockFor, restartHint } from './restart.js';
+import { TrackPicker } from './TrackPicker.js';
+import { pickPreferredSubtitle, sameTrack, trackName } from './tracks.js';
 import type { RestartBlock } from './restart.js';
 
 interface Props {
@@ -89,6 +94,75 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
     p.loop = false;
     p.play();
   });
+
+  /**
+   * Undertekster i live-tv. Samme regler som for film: det foretrukne sprog
+   * fra Indstillinger vaelges af sig selv naar streamen melder sine spor,
+   * og man kan skifte i vaelgeren. Streamen skifter ved start-forfra og ved
+   * fallback til det andet format, og hver ny stream melder sine spor
+   * paa ny — derfor vaelges der igen for hver kilde, ikke kun én gang.
+   */
+  const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
+  const [subtitle, setSubtitle] = useState<SubtitleTrack | null>(null);
+  const [showingSubtitles, setShowingSubtitles] = useState(false);
+  const preference = useRef<SubtitlePreference | null>(null);
+  /** Kilden der sidst fik valgt spor af sig selv; en ny kilde faar et nyt valg. */
+  const autoPickedFor = useRef<string | null>(null);
+  /** Brugeren har valgt selv for denne kilde; saa roeres der ikke ved det. */
+  const userPickedFor = useRef<string | null>(null);
+
+  const autoSelectSubtitle = useCallback(
+    (tracks: SubtitleTrack[]): void => {
+      const preferred = preference.current;
+      if (preferred === null || source === null) return;
+      if (userPickedFor.current === source || autoPickedFor.current === source) return;
+      const track = pickPreferredSubtitle(tracks, preferred);
+      if (track === null) return;
+      autoPickedFor.current = source;
+      try {
+        player.subtitleTrack = track;
+        setSubtitle(track);
+      } catch {
+        // Afspilleren er vaek.
+      }
+    },
+    [player, source],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void getSubtitlePreference(session.db).then((value) => {
+      if (cancelled) return;
+      preference.current = value;
+      try {
+        autoSelectSubtitle(player.availableSubtitleTracks);
+      } catch {
+        // Afspilleren er vaek.
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session.db, player, autoSelectSubtitle]);
+
+  useEffect(() => {
+    const subscription = player.addListener(
+      'availableSubtitleTracksChange',
+      ({ availableSubtitleTracks }: { availableSubtitleTracks: SubtitleTrack[] }) => {
+        setSubtitleTracks(availableSubtitleTracks);
+        setSubtitle(player.subtitleTrack);
+        autoSelectSubtitle(availableSubtitleTracks);
+      },
+    );
+    return () => subscription.remove();
+  }, [player, autoSelectSubtitle]);
+
+  function chooseSubtitle(track: SubtitleTrack | null): void {
+    if (source !== null) userPickedFor.current = source;
+    player.subtitleTrack = track;
+    setSubtitle(track);
+    setShowingSubtitles(false);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -188,6 +262,10 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
           attempt = 0;
           clearStallTimer();
           setStreamError(null);
+          // Sporene kan vaere meldt foer lytteren kom paa. Laeses her igen.
+          setSubtitleTracks(player.availableSubtitleTracks);
+          setSubtitle(player.subtitleTrack);
+          autoSelectSubtitle(player.availableSubtitleTracks);
           return;
         }
 
@@ -212,7 +290,7 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
       if (retryTimer !== null) clearTimeout(retryTimer);
       subscription.remove();
     };
-  }, [player, source, triedFallback, restarted, access, channel]);
+  }, [player, source, triedFallback, restarted, access, channel, autoSelectSubtitle]);
 
   const playFromStart = useCallback(
     async (programme: Programme): Promise<void> => {
@@ -357,6 +435,18 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
         <Pressable style={styles.button} onPress={onBack}>
           <Text style={styles.buttonText}>Tilbage</Text>
         </Pressable>
+        <Pressable
+          style={styles.button}
+          onPress={() => {
+            setSubtitleTracks(player.availableSubtitleTracks);
+            setSubtitle(player.subtitleTrack);
+            setShowingSubtitles((value) => !value);
+          }}
+        >
+          <Text style={styles.buttonText}>
+            Tekst{subtitle !== null ? `: ${trackName(subtitle)}` : ''}
+          </Text>
+        </Pressable>
         {canRecord(channel) && (startFrom ?? now) !== null && (
           <Pressable
             style={[styles.button, recorded && styles.buttonDone]}
@@ -380,6 +470,22 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
         )}
       </View>
 
+      {showingSubtitles && (
+        <TrackPicker
+          title="Undertekster"
+          options={[
+            { key: 'none', label: 'Ingen', active: subtitle === null, onPress: () => chooseSubtitle(null) },
+            ...subtitleTracks.map((track, index) => ({
+              key: track.id ?? `${track.language}-${index}`,
+              label: trackName(track),
+              active: subtitle !== null && sameTrack(subtitle, track),
+              onPress: () => chooseSubtitle(track),
+            })),
+          ]}
+          emptyText="Streamen har ingen undertekstspor. De fleste live-kanaler sender teksten indbrændt i billedet eller slet ikke."
+          onClose={() => setShowingSubtitles(false)}
+        />
+      )}
       {(fellBackToLive || !restarted) && restartBlock !== null && restartBlock !== undefined && (
         <RestartBlocked
           block={restartBlock}
@@ -465,7 +571,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   error: { color: theme.colors.danger, fontSize: 13, marginTop: theme.spacing.sm },
-  actions: { flexDirection: 'row', padding: theme.spacing.md, gap: theme.spacing.sm },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', padding: theme.spacing.md, gap: theme.spacing.sm },
   button: {
     backgroundColor: theme.colors.surfaceRaised,
     borderRadius: theme.radius,

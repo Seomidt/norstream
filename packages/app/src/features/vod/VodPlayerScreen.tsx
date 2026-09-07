@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import type { AudioTrack, SubtitleTrack } from 'expo-video';
@@ -9,6 +9,8 @@ import type { SubtitlePreference } from '../../storage/settings.js';
 import { saveProgress } from '../../storage/vod.js';
 import { theme } from '../../ui/theme.js';
 import type { Playback } from './VodDetailScreen.js';
+import { TrackPicker } from '../player/TrackPicker.js';
+import { pickPreferredSubtitle, sameTrack, trackName } from '../player/tracks.js';
 
 interface Props {
   session: AppSession;
@@ -94,16 +96,11 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
         autoPicked.current = true;
         return;
       }
-      if (tracks.length === 0) return;
-      const wanted = preferred === 'auto' ? [deviceLanguage(), 'en'] : [preferred, 'en'];
-      for (const language of wanted) {
-        const track = tracks.find((candidate) => sameLanguage(candidate.language, language));
-        if (track !== undefined) {
-          autoPicked.current = true;
-          player.subtitleTrack = track;
-          setSubtitle(track);
-          return;
-        }
+      const track = pickPreferredSubtitle(tracks, preferred);
+      if (track !== null) {
+        autoPicked.current = true;
+        player.subtitleTrack = track;
+        setSubtitle(track);
       }
     },
     [player],
@@ -287,115 +284,6 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
   );
 }
 
-/** Telefonens sprog som en kort kode — `da`, `en`. Falder tilbage paa dansk. */
-function deviceLanguage(): string {
-  try {
-    const locale = Intl.DateTimeFormat().resolvedOptions().locale;
-    return locale.split(/[-_]/)[0]?.toLowerCase() ?? 'da';
-  } catch {
-    return 'da';
-  }
-}
-
-/** `da` og `dan` er samme sprog; filerne skriver begge dele. */
-function sameLanguage(a: string, b: string): boolean {
-  const norm = (code: string): string => {
-    const lower = code.toLowerCase();
-    return THREE_TO_TWO[lower] ?? lower;
-  };
-  return norm(a) === norm(b);
-}
-
-const THREE_TO_TWO: Record<string, string> = {
-  dan: 'da', eng: 'en', swe: 'sv', nor: 'no', nob: 'no', fin: 'fi', ger: 'de', deu: 'de',
-  fre: 'fr', fra: 'fr', spa: 'es', ita: 'it', dut: 'nl', nld: 'nl', pol: 'pl', ara: 'ar', tur: 'tr',
-};
-
-/** Sporets navn til visning: sprog, og navnet fra filen naar det siger mere. */
-function trackName(track: { language: string; label: string; name?: string }): string {
-  const language = LANGUAGES[track.language.toLowerCase()] ?? track.label ?? track.language;
-  const name = track.name?.trim() ?? '';
-  return name.length > 0 && name.toLowerCase() !== language.toLowerCase()
-    ? `${language} (${name})`
-    : language;
-}
-
-function sameTrack(a: { id?: string; language: string; label: string }, b: { id?: string; language: string; label: string }): boolean {
-  if (a.id !== undefined && b.id !== undefined) return a.id === b.id;
-  return a.language === b.language && a.label === b.label;
-}
-
-/** De sprog der er almindelige paa et nordisk panel, paa dansk. Resten viser sin kode. */
-const LANGUAGES: Record<string, string> = {
-  da: 'Dansk',
-  dan: 'Dansk',
-  en: 'Engelsk',
-  eng: 'Engelsk',
-  sv: 'Svensk',
-  swe: 'Svensk',
-  no: 'Norsk',
-  nor: 'Norsk',
-  nb: 'Norsk',
-  fi: 'Finsk',
-  fin: 'Finsk',
-  de: 'Tysk',
-  ger: 'Tysk',
-  deu: 'Tysk',
-  fr: 'Fransk',
-  fre: 'Fransk',
-  fra: 'Fransk',
-  es: 'Spansk',
-  spa: 'Spansk',
-  it: 'Italiensk',
-  ita: 'Italiensk',
-  nl: 'Hollandsk',
-  dut: 'Hollandsk',
-  nld: 'Hollandsk',
-  pl: 'Polsk',
-  pol: 'Polsk',
-  ar: 'Arabisk',
-  ara: 'Arabisk',
-  tr: 'Tyrkisk',
-  tur: 'Tyrkisk',
-  und: 'Ukendt sprog',
-};
-
-function TrackPicker({
-  title,
-  options,
-  emptyText,
-  onClose,
-}: {
-  title: string;
-  options: { key: string; label: string; active: boolean; onPress: () => void }[];
-  emptyText: string;
-  onClose: () => void;
-}) {
-  return (
-    <View style={styles.picker}>
-      <View style={styles.pickerHeader}>
-        <Text style={styles.pickerTitle}>{title}</Text>
-        <Pressable hitSlop={12} onPress={onClose}>
-          <Text style={styles.pickerClose}>✕</Text>
-        </Pressable>
-      </View>
-      <FlatList
-        data={options}
-        keyExtractor={(option) => option.key}
-        ListEmptyComponent={<Text style={styles.pickerEmpty}>{emptyText}</Text>}
-        renderItem={({ item }) => (
-          <Pressable style={styles.pickerRow} onPress={item.onPress}>
-            <Text style={[styles.pickerLabel, item.active && styles.pickerActive]}>
-              {item.active ? '✓ ' : ''}
-              {item.label}
-            </Text>
-          </Pressable>
-        )}
-      />
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   video: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000000' },
@@ -418,30 +306,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
   },
   buttonText: { color: theme.colors.text, fontSize: 14, fontWeight: '600' },
-  picker: {
-    position: 'absolute',
-    left: theme.spacing.md,
-    right: theme.spacing.md,
-    bottom: 96,
-    maxHeight: 320,
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    overflow: 'hidden',
-  },
-  pickerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: theme.spacing.md,
-    borderBottomColor: theme.colors.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  pickerTitle: { color: theme.colors.text, fontSize: 15, fontWeight: '700' },
-  pickerClose: { color: theme.colors.textMuted, fontSize: 18 },
-  pickerRow: { paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm + 2 },
-  pickerLabel: { color: theme.colors.text, fontSize: 15 },
-  pickerActive: { color: theme.colors.accent, fontWeight: '700' },
-  pickerEmpty: { color: theme.colors.textMuted, padding: theme.spacing.md },
 });

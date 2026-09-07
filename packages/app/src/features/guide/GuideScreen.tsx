@@ -399,6 +399,13 @@ export function GuideScreen({
    * To veje til det samme tal, hver med sin grund.
    */
   const [cellsWidth, setCellsWidth] = useState(0);
+  /**
+   * Gitterets hoejde. Listen faar luft i bunden svarende til hoejden minus
+   * én raekke, saa enhver raekke — ogsaa den sidste — kan rulles helt op i
+   * toppen. Uden det stod de nederste raekker for evigt nederst, halvt
+   * bag fanelinjen, og kunne aldrig blive den oeverste synlige.
+   */
+  const [gridHeight, setGridHeight] = useState(0);
   const dragStart = useRef(0);
   const offsetRef = useRef(offsetMinutes);
   offsetRef.current = offsetMinutes;
@@ -527,7 +534,11 @@ export function GuideScreen({
       {/* Traekfladen ligger om hele gitteret, ogsaa om kanalkolonnen: en
           finger der begynder paa et kanalnavn og trækker til siden mener
           stadig tiden. Bredden maales paa cellerne alene — se panResponder. */}
-      <View style={styles.grid} {...panResponder.panHandlers}>
+      <View
+        style={styles.grid}
+        onLayout={(event) => setGridHeight(event.nativeEvent.layout.height)}
+        {...panResponder.panHandlers}
+      >
         {/* Nu-stregen. Den ligger over gitteret og tager ingen tryk, saa en
             celle under den stadig kan aabnes. Den tegnes kun naar nu er inde i
             vinduet — en streg klistret til kanten ville paastaa at klokken er
@@ -551,7 +562,7 @@ export function GuideScreen({
             offset: ROW_HEIGHT * index,
             index,
           })}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={{ paddingBottom: Math.max(ROW_HEIGHT, gridHeight - ROW_HEIGHT) }}
           extraData={previewChannel?.id}
           renderItem={({ item }) => (
             <GuideRow
@@ -747,8 +758,6 @@ const styles = StyleSheet.create({
   timeSpacer: { width: CHANNEL_COLUMN },
   timeMark: { flex: 1, color: theme.colors.textMuted, fontSize: 11 },
   grid: { flex: 1 },
-  /** Luft under den sidste raekke, saa den kan rulles helt fri af fanelinjen. */
-  listContent: { paddingBottom: ROW_HEIGHT },
   // Bredden er ét fysisk punkt bred paa alle skaerme. En streg paa 2 dp ville
   // daekke et par minutter i et to timers vindue og saaledes lyve en smule om
   // hvor nu er.
