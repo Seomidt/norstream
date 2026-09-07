@@ -71,23 +71,49 @@ const EMBED_ORIGIN = 'https://norstream.app';
 
 export function TrailerScreen({ session, trailerId, title, year, kind, onBack }: Props) {
   const insets = useSafeAreaInsets();
-  const [source, setSource] = useState<Source>(
-    trailerId === null ? { kind: 'looking' } : { kind: 'measured', id: trailerId },
-  );
+  // Der begyndes altid med at lede: TMDB er foerste valg naar noeglen er der.
+  const [source, setSource] = useState<Source>({ kind: 'looking' });
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   /** Der soeges hoejst én gang; ellers kunne en fundet video sende os i ring. */
   const searched = useRef(false);
 
+  /** TMDB er spurgt én gang; den svarer ikke anderledes anden gang. */
+  const tmdbTried = useRef(false);
+
+  /**
+   * Foerste valg: TMDB. Den ved hvad der er en trailer og hvad der er en
+   * teaser, saa der er intet at maale. Kender den ikke titlen, eller er der
+   * ingen noegle, spilles udbyderens eget bud og maales som foer.
+   */
+  async function start(): Promise<void> {
+    const tmdbKey = await getTmdbApiKey(session.db);
+    if (tmdbKey !== null) {
+      tmdbTried.current = true;
+      const name = year === null ? title : `${title} (${year})`;
+      const found = await findTmdbTrailer(tmdbFetch, tmdbKey, kind, name);
+      if (found !== null) {
+        setNote(`Trailer fra TMDB: ${found.name}.`);
+        setSource({ kind: 'plain', id: found.youtubeId });
+        return;
+      }
+    }
+    if (trailerId !== null) {
+      setNote(tmdbKey === null ? 'Udbyderens trailer.' : 'TMDB kender ingen trailer til titlen; udbyderens spilles.');
+      setSource({ kind: 'measured', id: trailerId });
+      return;
+    }
+    await lookForBetter('Udbyderen har ingen trailer til titlen.');
+  }
+
   async function lookForBetter(reason: string): Promise<void> {
     if (searched.current) return;
     searched.current = true;
     setSource({ kind: 'looking' });
-    // TMDB foerst: den ved hvad der er en trailer og hvad der er en teaser,
-    // saa der er intet at maale. Titlen slaas op med aarstallet i navnet.
-    const tmdbKey = await getTmdbApiKey(session.db);
+    const tmdbKey = tmdbTried.current ? null : await getTmdbApiKey(session.db);
     if (tmdbKey !== null) {
+      tmdbTried.current = true;
       const name = year === null ? title : `${title} (${year})`;
       const found = await findTmdbTrailer(tmdbFetch, tmdbKey, kind, name);
       if (found !== null && found.youtubeId !== trailerId) {
@@ -109,7 +135,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
       setNote(`${reason} Søgningen fandt ingen lang nok, så her er YouTubes egen søgning.`);
     } else {
       setNote(
-        `${reason} ${tmdbKey === null ? 'Uden en TMDB-nøgle under Indstillinger' : 'TMDB kender ingen trailer til titlen, så'} vælger du selv her.`,
+        `${reason} ${tmdbTried.current ? 'TMDB kender ingen trailer til titlen, så' : 'Uden en TMDB-nøgle under Indstillinger'} vælger du selv her.`,
       );
     }
     setLoading(true);
@@ -117,7 +143,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   }
 
   useEffect(() => {
-    if (trailerId === null) void lookForBetter('Udbyderen har ingen trailer til titlen.');
+    void start();
     // Kun ved foerste visning; id'et aendrer sig ikke mens skaermen er aaben.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -333,11 +333,10 @@ export function SettingsScreen({
 
       <Text style={styles.sectionTitle}>Trailere</Text>
       <Text style={styles.hint}>
-        Udbyderen oplyser én trailer per titel, og den er ikke altid en trailer: nogle er
-        teasere på få sekunder. Er den under et minut, leder appen videre: først hos TMDB,
-        som ved hvad der er en rigtig trailer (nøglen ovenfor), så med en YouTube-nøgle
-        her, og ellers åbnes YouTubes søgning inde i appen, så du vælger selv. Har du
-        TMDB-nøglen, kan du roligt lade dette felt stå tomt.
+        Med TMDB-nøglen ovenfor er TMDB's officielle trailer altid første valg. Kender TMDB
+        ikke titlen, spilles udbyderens egen trailer, og er den under et minut, ledes der
+        videre: med en YouTube-nøgle her vælger appen selv en lang nok, og ellers åbnes
+        YouTubes søgning inde i appen. Har du TMDB-nøglen, kan dette felt roligt stå tomt.
       </Text>
       <TextInput
         style={styles.input}
