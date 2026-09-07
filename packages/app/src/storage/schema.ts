@@ -1,3 +1,4 @@
+import { MATCH_KEY_VERSION } from '@norstream/core';
 import type { SqlDatabase } from './types.js';
 
 /**
@@ -357,13 +358,35 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     await db.execAsync(SCHEMA);
     if (toV5) await clearV5Cache(db);
 
-    // v7 aendrer **ingen tabeller** — den aendrer hvordan `channels.match_key`
-    // regnes ud (plus bevares, landenavne fjernes). Noeglen ligger gemt i
-    // raekken, saa en database fra v6 baerer den gamle udregning rundt indtil
-    // kanalerne hentes igen — og det sker foerst om et doegn. Hentetiden
-    // nulstilles, saa opslaget passer med det samme.
-    if (version >= REBUILD_BELOW_VERSION && version < 7) await clearSyncTimes(db);
   }
 
   await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  await refreshChannelsWhenMatchRulesChanged(db);
+}
+
+/**
+ * Faar kanalerne hentet igen naar reglerne for `channels.match_key` er
+ * aendret.
+ *
+ * Noeglen regnes ud naar kanalerne hentes og ligger gemt i raekken. Aendres
+ * reglerne — og det goer de, hver gang et nyt navnemoenster dukker op — staar
+ * telefonen med noegler efter de gamle regler og et register efter de nye, og
+ * logoer der virkede i gaar er vaek indtil den daglige hentning. Det skete
+ * med TV3+.
+ *
+ * Foer laa det som et skema-trin (v7), som skulle huskes hver gang. Nu er det
+ * et tal i core, ved siden af reglerne det gaelder for, og det her sted
+ * sammenligner. Ingen tabeller aendres; kun hentetiden nulstilles.
+ */
+async function refreshChannelsWhenMatchRulesChanged(db: SqlDatabase): Promise<void> {
+  const row = await db.getFirstAsync<{ value: string }>(
+    "SELECT value FROM settings WHERE key = 'match_key_version'",
+  );
+  if (row?.value === String(MATCH_KEY_VERSION)) return;
+  await clearSyncTimes(db);
+  await db.runAsync(
+    `INSERT INTO settings (key, value) VALUES ('match_key_version', ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [String(MATCH_KEY_VERSION)],
+  );
 }

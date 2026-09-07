@@ -153,7 +153,7 @@ describe('migrate fra v1', () => {
     await migrate(db);
 
     const rows = await db.getAllAsync<{ key: string; value: string }>(
-      'SELECT key, value FROM settings ORDER BY key',
+      "SELECT key, value FROM settings WHERE key <> 'match_key_version' ORDER BY key",
     );
     expect(rows).toEqual([
       { key: 'panel_offset_minutes', value: '120' },
@@ -389,15 +389,16 @@ PRAGMA user_version = 4;
   });
 });
 
-describe('migrate fra v6', () => {
-  // v7 aendrer ingen tabeller — den aendrer hvordan `channels.match_key`
-  // regnes ud. Noeglen ligger gemt i raekken, saa uden det her baerer en v6-
-  // database den gamle udregning rundt i op til et doegn, og logoerne bliver
-  // ved med at mangle efter en opgradering der netop skulle rette dem.
+describe('naar reglerne for match_key er aendret', () => {
+  // Noeglen regnes ud naar kanalerne hentes og ligger gemt i raekken. Aendres
+  // reglerne uden at kanalerne hentes igen, staar telefonen med noegler efter
+  // de gamle regler og et register efter de nye — og logoer der virkede i
+  // gaar er vaek. Det skete med TV3+, da plus blev til PLUS.
   it('faar kanalerne hentet igen, uden at roere brugerens eget', async () => {
     const db = createTestDatabase();
     await migrate(db);
-    await db.runAsync("PRAGMA user_version = 6");
+    // Som en telefon der har koert en aeldre udgave af reglerne.
+    await db.runAsync("UPDATE settings SET value = '0' WHERE key = 'match_key_version'");
     await db.runAsync("INSERT INTO settings (key, value) VALUES ('last_sync_ms', '111')");
     await db.runAsync("INSERT INTO settings (key, value) VALUES ('last_sync_ms:s1', '222')");
     await db.runAsync(
@@ -414,5 +415,21 @@ describe('migrate fra v6', () => {
     // Dialekten er resultatet af en probing og maa ikke ryge med.
     expect(keys).toContain('timeshift_dialect:s1');
     expect(await db.getAllAsync('SELECT * FROM favorites')).toHaveLength(1);
+  });
+});
+
+describe('naar reglerne for match_key er de samme', () => {
+  it('lader hentetiden staa', async () => {
+    // Ellers ville hver eneste opstart hente 22.142 kanaler forfra.
+    const db = createTestDatabase();
+    await migrate(db);
+    await db.runAsync("INSERT INTO settings (key, value) VALUES ('last_sync_ms:s1', '222')");
+
+    await migrate(db);
+
+    const keys = (await db.getAllAsync<{ key: string }>('SELECT key FROM settings')).map(
+      (row) => row.key,
+    );
+    expect(keys).toContain('last_sync_ms:s1');
   });
 });

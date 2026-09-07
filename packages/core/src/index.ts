@@ -50,10 +50,11 @@ export { channelKey, isValidSourceId, parseChannelKey } from './source/source.js
 export { logoCandidates, originOf } from './source/logo.js';
 export { parseCsv, parseCsvRecords } from './source/csv.js';
 export {
+  MATCH_KEY_VERSION,
   buildNameIndex,
+  legacyNamesFor,
   matchRegistryChannel,
   normaliseChannelName,
-  legacyNamesFor,
 } from './source/match.js';
 export type { RegistryChannel } from './source/match.js';
 export type { ChannelKeyParts, Source, SourceKind } from './source/source.js';

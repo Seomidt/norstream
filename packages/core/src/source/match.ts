@@ -108,6 +108,19 @@ export function legacyNamesFor(normalised: string): string[] {
   return names;
 }
 
+/**
+ * Udgaven af normaliseringen.
+ *
+ * Noeglen gemmes paa hver kanalraekke naar kanalerne hentes. Aendres reglerne
+ * her uden at kanalerne hentes igen, staar telefonen med noegler efter de
+ * gamle regler og et register efter de nye — og logoer der virkede i gaar,
+ * forsvinder. Det skete: `+` blev til `PLUS`, og TV3+ mistede sit logo.
+ *
+ * **Tael op hver gang reglerne aendres.** Appen sammenligner tallet med det
+ * gemte ved opstart og henter kanalerne igen naar de er forskellige.
+ */
+export const MATCH_KEY_VERSION = 3;
+
 export function normaliseChannelName(name: string): string {
   // Alt foer en lodret streg er panelets eget praefiks: `DNK|`, `DK |`.
   const withoutPrefix = name.includes('|') ? name.slice(name.lastIndexOf('|') + 1) : name;
