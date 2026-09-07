@@ -312,10 +312,13 @@ export function SettingsScreen({
       <TextInput
         style={styles.input}
         value={tmdbKey}
-        onChangeText={setTmdbKey}
-        onBlur={() => {
-          void setTmdbApiKey(session.db, tmdbKey);
-          setPosterApiKey(tmdbKey);
+        onChangeText={(value) => {
+          // Gemmes ved hvert tastetryk. Kun ved tab af fokus var ikke nok:
+          // gaar man ud af skaermen med tastaturet aabent, mister feltet
+          // aldrig fokus, og noeglen stod der uden at vaere gemt.
+          setTmdbKey(value);
+          void setTmdbApiKey(session.db, value);
+          setPosterApiKey(value);
         }}
         placeholder="TMDB API-nøgle (valgfri)"
         placeholderTextColor={theme.colors.textMuted}
@@ -339,9 +342,9 @@ export function SettingsScreen({
       <TextInput
         style={styles.input}
         value={youtubeKey}
-        onChangeText={setYoutubeKey}
-        onBlur={() => {
-          void setYoutubeApiKey(session.db, youtubeKey);
+        onChangeText={(value) => {
+          setYoutubeKey(value);
+          void setYoutubeApiKey(session.db, value);
         }}
         placeholder="YouTube API-nøgle (valgfri)"
         placeholderTextColor={theme.colors.textMuted}
