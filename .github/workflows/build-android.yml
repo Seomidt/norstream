@@ -21,7 +21,16 @@ on:
         # herfra opgraderes oven i hinanden. **Den foerste** kan ikke laegges
         # oven i en APK fra EAS: den er signeret med en anden noegle, og
         # Android naegter at opgradere paa tvaers af signaturer.
-        options: [runner, eas]
+        # `probe` bygger ingenting: den maaler den adresse der staar i `url`
+        # og skriver hvad den svarede. Udviklingsmiljoeet bag appen sidder
+        # bag en proxy med en kort liste af tilladte vaerter og kan ikke selv
+        # afgoere om brugerens logo-vaert svarer fra internettet — og det
+        # spoergsmaal afgoer om 22.071 logoer kan reddes paa én gang.
+        options: [runner, eas, probe]
+      url:
+        description: 'Adresse at maale (kun naar motor er probe)'
+        required: false
+        type: string
       profile:
         description: 'EAS-byggeprofil (kun naar motor er eas)'
         required: true
@@ -46,9 +55,27 @@ jobs:
         ${{ secrets.EXPO_TOKEN || secrets.EXPO_ACCESS_TOKEN || secrets.EAS_TOKEN
         || secrets.EXPO }}
     steps:
+      - name: Maal en adresse
+        if: inputs.motor == 'probe'
+        run: |
+          url='${{ inputs.url }}'
+          echo "### Maaling af $url" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          # Hoveder alene foerst; fejler det, en rigtig GET — nogle vaerter
+          # afviser HEAD. Ingen af delene henter filen.
+          {
+            curl -sS -o /dev/null -m 20 -I \
+              -w 'HEAD status=%{http_code} type=%{content_type} ip=%{remote_ip} tid=%{time_total}s\n' "$url" \
+            || curl -sS -o /dev/null -m 20 \
+              -w 'GET  status=%{http_code} type=%{content_type} bytes=%{size_download} ip=%{remote_ip} tid=%{time_total}s\n' "$url"
+          } 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/checkout@v5
+        if: inputs.motor != 'probe'
 
       - uses: actions/setup-node@v5
+        if: inputs.motor != 'probe'
         with:
           node-version: 24
           cache: npm
@@ -100,10 +127,12 @@ jobs:
           exit 1
 
       - run: npm ci
+        if: inputs.motor != 'probe'
 
       # Samme porte som CI. Et build af kode der ikke kan bestaa sine egne
       # tests er spildt byggetid.
       - name: Typecheck og tests
+        if: inputs.motor != 'probe'
         run: |
           npm run typecheck --workspaces
           npm test --workspaces
@@ -116,6 +145,7 @@ jobs:
       # kun sporede filer — mappen naar derfor aldrig builden, uanset at den
       # ligger her paa runneren.
       - name: Verificér AndroidManifest
+        if: inputs.motor != 'probe'
         working-directory: packages/app
         run: |
           npx expo prebuild --platform android --no-install
