@@ -14,10 +14,19 @@ const TIMEOUT_MS = 15_000;
 /** Saa meget laeses for at afgoere om filen er et billede. */
 const HEAD_BYTES = 16;
 
+let directory: Directory | null = null;
+
+/**
+ * Mappen, oprettet hvis den mangler. Huskes: ved opstart bygges stien til
+ * hver gemt fil herfra, og det skal ikke koste et opslag i filsystemet per
+ * kanal.
+ */
 function logosDirectory(): Directory {
-  const directory = new Directory(Paths.document, FOLDER);
-  if (!directory.exists) directory.create({ intermediates: true });
-  return directory;
+  if (directory !== null) return directory;
+  const created = new Directory(Paths.document, FOLDER);
+  if (!created.exists) created.create({ intermediates: true });
+  directory = created;
+  return created;
 }
 
 /**
@@ -66,8 +75,9 @@ export function createLogoFileStore(): LogoFileStore {
 
     async removeAll() {
       try {
-        const directory = new Directory(Paths.document, FOLDER);
-        if (directory.exists) directory.delete();
+        const folder = new Directory(Paths.document, FOLDER);
+        if (folder.exists) folder.delete();
+        directory = null;
       } catch {
         // Mappen kunne ikke slettes; de enkelte filer overskrives naar de hentes igen.
       }
