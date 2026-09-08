@@ -69,7 +69,7 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
     // Soeger paa det der staar i feltet, saa man kan rette navnet og proeve igen.
     const name = search.trim().length > 0 ? search : channel.name;
     const country = await channelCountry(session.db, channelKey);
-    setWeb(await findLogoCandidates(session.fetchImpl, { name, country, google }));
+    setWeb(await findLogoCandidates({ name, country, google }));
     setWebBusy(false);
   }
 

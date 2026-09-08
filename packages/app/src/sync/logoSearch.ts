@@ -1,5 +1,6 @@
 import { deriveCountry } from '@norstream/core';
 import type { FetchLikeResponse } from '@norstream/core';
+import { APP_USER_AGENT } from '../net/userAgent.js';
 
 /**
  * Logoer fra nettet til de kanaler intet arkiv kender.
@@ -19,8 +20,40 @@ import type { FetchLikeResponse } from '@norstream/core';
 
 export type LogoSearchFetch = (url: string) => Promise<FetchLikeResponse>;
 
+const TIMEOUT_MS = 15_000;
+
+/**
+ * Den rigtige hentning, med tidsgraense og vores egen User-Agent.
+ *
+ * Ikke sessionens `fetchImpl`: den ligger bag panel-pausen, som giver en
+ * vaert ti minutters fred efter ét 403. Wikidata svarede 403 paa den
+ * generiske klient, og saa blev *alle* de naeste 2.000 opslag afvist
+ * lokalt uden at nogen naaede nettet — nul logoer af to tusinde. Her er
+ * ingen pause, og klienten praesenterer sig som Wikimedia beder om.
+ */
+export const logoSearchFetch: LogoSearchFetch = async (url) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': APP_USER_AGENT, Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    return {
+      ok: response.ok,
+      status: response.status,
+      json: () => response.json() as Promise<unknown>,
+      text: () => response.text(),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 export interface LogoCandidate {
   url: string;
+  /** En anden adresse paa det samme billede, at proeve naar den foerste ikke svarer med et. */
+  fallbackUrl?: string | null;
   /** Hvad kilden kaldte opslaget, saa man kan se om det er den rigtige. */
   label: string;
   source: 'wikidata' | 'google';
@@ -104,10 +137,20 @@ export function looksLikeChannel(description: string | undefined | null): boolea
   );
 }
 
-/** Adressen paa en fil paa Commons, i den bredde telefonen skal bruge. */
-export function commonsFileUrl(fileName: string, width = LOGO_WIDTH): string {
+/**
+ * Adressen paa en fil paa Commons, i den bredde telefonen skal bruge.
+ * Uden bredde: filen som den er. Det er reserven for en PNG eller JPG der
+ * er mindre end den bredde vi beder om — Commons skalerer ikke op, den
+ * svarer med en fejl.
+ */
+export function commonsFileUrl(fileName: string, width: number | null = LOGO_WIDTH): string {
   const bare = fileName.replace(/^File:/i, '').trim().replace(/ /g, '_');
-  return `${COMMONS_FILE_PATH}${encodeURIComponent(bare)}?width=${width}`;
+  return `${COMMONS_FILE_PATH}${encodeURIComponent(bare)}${width === null ? '' : `?width=${width}`}`;
+}
+
+/** SVG kan telefonen ikke tegne selv; den skal altid have Commons' PNG-udgave. */
+export function isVectorFile(fileName: string): boolean {
+  return /\.svgz?$/i.test(fileName.trim());
 }
 
 interface WikidataHit {
@@ -192,7 +235,14 @@ export async function findWikidataLogo(
     );
     for (const hit of hits) {
       const file = files.get(hit.id);
-      if (file !== undefined) return { url: commonsFileUrl(file), label: hit.label, source: 'wikidata' };
+      if (file !== undefined) {
+        return {
+          url: commonsFileUrl(file),
+          fallbackUrl: isVectorFile(file) ? null : commonsFileUrl(file, null),
+          label: hit.label,
+          source: 'wikidata',
+        };
+      }
     }
   }
   return null;
@@ -232,8 +282,8 @@ export async function findGoogleLogos(
  * sat. Den automatiske soegning tager det foerste; vaelgeren viser dem alle.
  */
 export async function findLogoCandidates(
-  fetchImpl: LogoSearchFetch,
   options: LogoSearchOptions,
+  fetchImpl: LogoSearchFetch = logoSearchFetch,
 ): Promise<LogoCandidate[]> {
   const name = searchNameFor(options.name);
   if (name.length === 0) return [];

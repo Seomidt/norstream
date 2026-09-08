@@ -1,4 +1,5 @@
 import { Directory, File, Paths } from 'expo-file-system';
+import { APP_USER_AGENT } from '../net/userAgent.js';
 import type { LogoFileStore } from './logoCache.js';
 
 /**
@@ -44,7 +45,9 @@ export function createLogoFileStore(): LogoFileStore {
       try {
         file = await File.downloadFileAsync(url, target, {
           idempotent: true,
-          headers: { Accept: 'image/*' },
+          // Commons afviser generiske klienter; se userAgent.ts. Panelernes
+          // logo-vaerter er ligeglade.
+          headers: { Accept: 'image/*', 'User-Agent': APP_USER_AGENT },
           signal: controller.signal,
         });
       } finally {

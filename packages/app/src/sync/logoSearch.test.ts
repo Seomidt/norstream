@@ -90,6 +90,7 @@ describe('findWikidataLogo', () => {
     ]);
     expect(await findWikidataLogo(fetchImpl, 'TV 2 Fri', 'da')).toEqual({
       url: 'https://commons.wikimedia.org/wiki/Special:FilePath/TV_2_Fri_logo.svg?width=400',
+      fallbackUrl: null,
       label: 'TV 2 Fri',
       source: 'wikidata',
     });
@@ -105,7 +106,10 @@ describe('findWikidataLogo', () => {
       [/language=en/, { search: [{ id: 'Q9', label: 'DR P3', description: 'Danish radio station' }] }],
       [/wbgetentities/, { entities: { Q9: { claims: { P154: [{ mainsnak: { datavalue: { value: 'P3.png' } } }] } } } }],
     ]);
-    expect((await findWikidataLogo(fetchImpl, 'DR P3', 'da'))?.url).toContain('P3.png');
+    const found = await findWikidataLogo(fetchImpl, 'DR P3', 'da');
+    expect(found?.url).toContain('P3.png?width=400');
+    // En PNG kan ogsaa hentes som den er, hvis den er for lille til at skaleres.
+    expect(found?.fallbackUrl).toBe('https://commons.wikimedia.org/wiki/Special:FilePath/P3.png');
     expect(fetchImpl.calls).toHaveLength(3);
   });
 
@@ -181,11 +185,10 @@ describe('findLogoCandidates', () => {
       [/wbgetentities/, { entities: { Q2: { claims: { P154: [{ mainsnak: { datavalue: { value: 'Fri.svg' } } }] } } } }],
       [/customsearch/, { items: [{ link: 'https://g/fri.png', mime: 'image/png' }] }],
     ]);
-    const hits = await findLogoCandidates(fetchImpl, {
-      name: 'DNK| TV 2 Fri HD',
-      country: 'DK',
-      google: { key: 'K', cx: 'C' },
-    });
+    const hits = await findLogoCandidates(
+      { name: 'DNK| TV 2 Fri HD', country: 'DK', google: { key: 'K', cx: 'C' } },
+      fetchImpl,
+    );
     expect(hits.map((hit) => hit.source)).toEqual(['wikidata', 'google']);
     expect(fetchImpl.calls[0]).toMatch(/search=TV%202%20Fri$/);
     expect(fetchImpl.calls[0]).toContain('language=da');
@@ -193,9 +196,9 @@ describe('findLogoCandidates', () => {
 
   it('spoerger ikke Google uden noegle, og slet ikke naar navnet er tomt', async () => {
     const fetchImpl = fakeFetch([]);
-    expect(await findLogoCandidates(fetchImpl, { name: 'DNK| HD', country: 'DK' })).toEqual([]);
+    expect(await findLogoCandidates({ name: 'DNK| HD', country: 'DK' }, fetchImpl)).toEqual([]);
     expect(fetchImpl.calls).toHaveLength(0);
-    await findLogoCandidates(fetchImpl, { name: 'DR1', country: 'DK', google: null });
+    await findLogoCandidates({ name: 'DR1', country: 'DK', google: null }, fetchImpl);
     expect(fetchImpl.calls.every((url) => !url.includes('customsearch'))).toBe(true);
   });
 });

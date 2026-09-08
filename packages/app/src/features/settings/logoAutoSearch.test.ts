@@ -52,7 +52,7 @@ describe('autoSearchLogos', () => {
       channels,
       (p) => progress.push(p),
     );
-    expect(await handle.result).toEqual({ found: 1, tried: 2, skipped: 0 });
+    expect(await handle.result).toEqual({ found: 1, tried: 2, skipped: 0, withBids: 1 });
     expect(await getLogoOverride(db, 's:1')).toContain('Fri.svg');
     expect(await getLogoOverride(db, 's:2')).toBeNull();
     expect(await getLogoOverride(db, 's:3')).toBeNull();
@@ -88,7 +88,7 @@ describe('autoSearchLogos', () => {
       channels,
       () => undefined,
     );
-    expect(await handle.result).toEqual({ found: 0, tried: 1, skipped: 1 });
+    expect(await handle.result).toEqual({ found: 0, tried: 1, skipped: 1, withBids: 0 });
   });
 
   it('kan standses undervejs', async () => {

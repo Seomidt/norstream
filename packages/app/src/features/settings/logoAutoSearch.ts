@@ -7,8 +7,8 @@ import {
 } from '../../storage/logoOverrides.js';
 import type { ChannelWithoutLogo } from '../../storage/logoOverrides.js';
 import type { SqlDatabase } from '../../storage/types.js';
-import { findLogoCandidates } from '../../sync/logoSearch.js';
-import type { GoogleSearchKeys, LogoCandidate } from '../../sync/logoSearch.js';
+import { findLogoCandidates, logoSearchFetch } from '../../sync/logoSearch.js';
+import type { GoogleSearchKeys, LogoCandidate, LogoSearchFetch } from '../../sync/logoSearch.js';
 
 /**
  * Logoer til alle kanaler uden ét, paa én gang.
@@ -36,11 +36,14 @@ export interface AutoSearchResult {
   tried: number;
   /** Sprunget over fordi de blev soegt for nylig. */
   skipped: number;
+  /** Kanaler nettet havde et bud til — ogsaa dem hvor billedet saa ikke kunne hentes. */
+  withBids: number;
 }
 
 export interface AutoSearchDeps {
   db: SqlDatabase;
-  fetchImpl: FetchLike;
+  /** Hentningen til opslagene. Ikke sessionens: se `logoSearchFetch`. */
+  fetchImpl?: LogoSearchFetch | FetchLike;
   google: GoogleSearchKeys | null;
   /** Henter logoet ned med det samme. Falsk naar adressen ikke gav et billede. */
   replaceLogo: (channelKey: string, url: string) => Promise<boolean>;
@@ -77,15 +80,16 @@ export function autoSearchLogos(
     const total = queue.length;
     let done = 0;
     let found = 0;
+    let withBids = 0;
     let next = 0;
 
     async function one(channel: ChannelWithoutLogo): Promise<void> {
       onProgress({ done, total, found, current: channel.name });
-      const bids = await findLogoCandidates(deps.fetchImpl, {
-        name: channel.name,
-        country: channel.country,
-        google: deps.google,
-      });
+      const bids = await findLogoCandidates(
+        { name: channel.name, country: channel.country, google: deps.google },
+        deps.fetchImpl ?? logoSearchFetch,
+      );
+      if (bids.length > 0) withBids += 1;
       const got = await tryCandidates(deps, channel.id, bids.slice(0, MAX_TRIES));
       if (got) found += 1;
       else await markLogoSearched(deps.db, channel.id, now());
@@ -103,7 +107,7 @@ export function autoSearchLogos(
     }
 
     await Promise.all(Array.from({ length: Math.min(PARALLEL, queue.length) }, () => worker()));
-    return { found, tried: done, skipped: recent.size };
+    return { found, tried: done, skipped: recent.size, withBids };
   })();
 
   return {
@@ -116,10 +120,13 @@ export function autoSearchLogos(
 
 async function tryCandidates(deps: AutoSearchDeps, channelKey: string, bids: LogoCandidate[]): Promise<boolean> {
   for (const bid of bids) {
-    await setLogoOverride(deps.db, channelKey, bid.url);
-    if (await deps.replaceLogo(channelKey, bid.url)) return true;
-    await clearLogoOverride(deps.db, channelKey);
-    await deps.resetLogo(channelKey);
+    const urls = [bid.url, ...(bid.fallbackUrl !== undefined && bid.fallbackUrl !== null ? [bid.fallbackUrl] : [])];
+    for (const url of urls) {
+      await setLogoOverride(deps.db, channelKey, url);
+      if (await deps.replaceLogo(channelKey, url)) return true;
+      await clearLogoOverride(deps.db, channelKey);
+      await deps.resetLogo(channelKey);
+    }
   }
   return false;
 }

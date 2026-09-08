@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { AppSession } from '../../session.js';
-import { listChannelsWithoutArchiveLogo } from '../../storage/logoOverrides.js';
+import { forgetLogoSearches, listChannelsWithoutArchiveLogo } from '../../storage/logoOverrides.js';
 import type { ChannelWithoutLogo } from '../../storage/logoOverrides.js';
 import { getGoogleSearchKeys } from '../../storage/settings.js';
 import { replaceLogo, resetLogo } from '../../ui/logoCache.js';
@@ -35,6 +35,8 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
   const [rows, setRows] = useState<ChannelWithoutLogo[] | null>(null);
   const [progress, setProgress] = useState<AutoSearchProgress | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
+  /** Hvor mange sidste soegning sprang over; giver knappen til at proeve dem igen. */
+  const [skipped, setSkipped] = useState(0);
   const running = useRef<AutoSearchHandle | null>(null);
 
   // Lukkes skaermen midt i det, standser soegningen; det der er fundet, er gemt.
@@ -48,7 +50,7 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
       getGoogleSearchKeys(session.db),
     ]);
     const handle = autoSearchLogos(
-      { db: session.db, fetchImpl: session.fetchImpl, google, replaceLogo, resetLogo },
+      { db: session.db, google, replaceLogo, resetLogo },
       all,
       (p) => {
         setProgress(p);
@@ -60,10 +62,14 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
     const result = await handle.result;
     running.current = null;
     setProgress(null);
+    setSkipped(result.skipped);
     setSummary(
       result.tried === 0 && result.skipped > 0
-        ? `Alle ${result.skipped} blev søgt for nylig uden held. De prøves igen om en uge.`
+        ? `Alle ${result.skipped} blev søgt for nylig uden held.`
         : `Fandt ${result.found} logo${result.found === 1 ? '' : 'er'} til ${result.tried} kanal${result.tried === 1 ? '' : 'er'}.` +
+            (result.withBids > result.found
+              ? ` Nettet havde et bud til ${result.withBids - result.found} mere, men billedet kunne ikke hentes.`
+              : '') +
             (result.skipped > 0 ? ` ${result.skipped} blev sprunget over, søgt for nylig.` : ''),
     );
     if (result.found > 0) onChanged();
@@ -119,6 +125,16 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
         </View>
       )}
       {summary !== null && <Text style={styles.summary}>{summary}</Text>}
+      {summary !== null && skipped > 0 && progress === null && (
+        <Pressable
+          style={styles.retry}
+          onPress={() => {
+            void forgetLogoSearches(session.db).then(() => searchAll());
+          }}
+        >
+          <Text style={styles.retryText}>Prøv de {skipped} oversprungne igen</Text>
+        </Pressable>
+      )}
       <TextInput
         style={styles.input}
         value={search}
@@ -199,6 +215,8 @@ const styles = StyleSheet.create({
   progressCurrent: { color: theme.colors.textMuted, fontSize: 12 },
   stop: { color: theme.colors.danger, fontSize: 15, fontWeight: '600' },
   summary: { color: theme.colors.accent, fontSize: 13, paddingHorizontal: theme.spacing.md, marginBottom: theme.spacing.sm },
+  retry: { paddingHorizontal: theme.spacing.md, marginBottom: theme.spacing.sm },
+  retryText: { color: theme.colors.text, fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' },
   star: { color: theme.colors.accent, width: 20, fontSize: 14 },
   name: { flex: 1, color: theme.colors.text, fontSize: 15 },
   chevron: { color: theme.colors.textMuted, fontSize: 22 },
