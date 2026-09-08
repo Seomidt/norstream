@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -250,19 +250,33 @@ export function GuideScreen({
    * ventetiden nedenfor gaelder kun turen til panelet, som ikke maa ske paa
    * hvert femte minut man traekker forbi.
    */
+  /**
+   * Hvilket vindue hver kanal sidst blev tegnet for. Rulning melder de
+   * synlige raekker igen og igen, og foer blev hver melding til én
+   * forespoergsel per synlig raekke og en omtegning af hele gitteret —
+   * paa en bred skaerm med mange raekker fremme hakkede det. Nu springes
+   * raekker over der allerede staar tegnet for vinduet; kun en hentning
+   * fra panelet tvinger dem laest igen.
+   */
+  const drawnFor = useRef(new Map<string, string>());
   const drawFromCache = useCallback(
-    async (visible: readonly StoredChannel[], from: Date, to: Date): Promise<boolean> => {
+    async (visible: readonly StoredChannel[], from: Date, to: Date, force = false): Promise<boolean> => {
       if (visible.length === 0) return false;
-      const loaded: Record<string, Programme[]> = {};
-      for (const channel of visible) {
-        loaded[channel.id] = await listProgrammes(session.db, channel.id, from, to);
-      }
+      const windowKey = `${from.getTime()}-${to.getTime()}`;
+      const wanted = force ? [...visible] : visible.filter((channel) => drawnFor.current.get(channel.id) !== windowKey);
+      if (wanted.length === 0) return true;
+      const found = await Promise.all(wanted.map((channel) => listProgrammes(session.db, channel.id, from, to)));
       if (
         currentWindow.current.from !== from.getTime() ||
         currentWindow.current.to !== to.getTime()
       ) {
         return false;
       }
+      const loaded: Record<string, Programme[]> = {};
+      wanted.forEach((channel, index) => {
+        loaded[channel.id] = found[index] ?? [];
+        drawnFor.current.set(channel.id, windowKey);
+      });
       setRows((previous) => ({ ...previous, ...loaded }));
       return true;
     },
@@ -276,13 +290,13 @@ export function GuideScreen({
     async (visible: StoredChannel[], from: Date, to: Date): Promise<void> => {
       if (visible.length === 0) return;
       const streamIds = visible.map((channel) => channel.id);
-      const draw = (): Promise<boolean> => drawFromCache(visible, from, to);
+      const draw = (): Promise<boolean> => drawFromCache(visible, from, to, true);
 
       // **Cachen foerst.** Foer tegnede guiden efter hentningen, saa hver gang
       // programdata var mere end en halv time gamle, stod skaermen tom mens
       // panelet svarede — ogsaa naar cachen laa med aftenens programmer klar.
       // Det man har, skal vises med det samme; hentningen er en opdatering.
-      if (!(await draw())) return;
+      if (!(await drawFromCache(visible, from, to))) return;
 
       try {
         await ensureEpg(session.db, session.credsBySource, session.fetchImpl, streamIds);
@@ -458,6 +472,42 @@ export function GuideScreen({
         },
       }),
     [],
+  );
+
+  // Raekkens tilbagekald er stabile, saa den memoiserede raekke kun tegnes
+  // om naar dens egne data aendrer sig, ikke ved hver rulning.
+  const onPreviewRow = useCallback((channel: StoredChannel): void => {
+    pinnedPreview.current = channel;
+    setPreviewChannel(channel);
+  }, []);
+  const onMeasureCells = useCallback((width: number): void => {
+    gridWidth.current = width;
+    setCellsWidth((current) => (current === width ? current : width));
+  }, []);
+  const onOpenCell = useCallback(
+    (channel: StoredChannel, cell: GuideCell): void => {
+      void openSheet(channel, cell);
+    },
+    [openSheet],
+  );
+  const nowMs = now.getTime();
+  const previewingId = previewChannel?.id ?? null;
+  const renderRow = useCallback(
+    ({ item }: { item: StoredChannel }) => (
+      <GuideRow
+        channel={item}
+        programmes={rows[item.id] ?? NO_PROGRAMMES}
+        windowStartMs={windowStartMs}
+        windowEndMs={windowEndMs}
+        nowMs={nowMs}
+        hasDialect={hasDialectFor(item)}
+        previewing={previewingId === item.id}
+        onPreview={onPreviewRow}
+        onMeasureCells={onMeasureCells}
+        onOpen={onOpenCell}
+      />
+    ),
+    [rows, windowStartMs, windowEndMs, nowMs, hasDialectFor, previewingId, onPreviewRow, onMeasureCells, onOpenCell],
   );
 
   if (loading) {
@@ -656,32 +706,22 @@ export function GuideScreen({
             index,
           })}
           contentContainerStyle={{ paddingBottom: Math.max(ROW_HEIGHT, gridHeight - ROW_HEIGHT) }}
-          extraData={previewChannel?.id}
-          renderItem={({ item }) => (
-            <GuideRow
-              channel={item}
-              cells={layoutRow(rows[item.id] ?? [], window.start, window.end, now)}
-              hasDialect={hasDialectFor(item)}
-              previewing={previewChannel?.id === item.id}
-              onPreview={(channel) => {
-                pinnedPreview.current = channel;
-                setPreviewChannel(channel);
-              }}
-              onMeasureCells={(width) => {
-                gridWidth.current = width;
-                setCellsWidth((current) => (current === width ? current : width));
-              }}
-              onOpen={(channel, cell) => {
-                void openSheet(channel, cell);
-              }}
-            />
-          )}
+          // Faa skaermfulde i live ad gangen. Standarden holder ti skaermfulde
+          // tegnet over og under, og paa en stor skaerm er det hundredvis af
+          // raekker der skal med i hver omtegning.
+          windowSize={5}
+          maxToRenderPerBatch={8}
+          initialNumToRender={16}
+          renderItem={renderRow}
         />
       </View>
       {dayView}
     </View>
   );
 }
+
+/** Én tom liste til alle kanaler uden programdata, saa raekken ser de samme props igen. */
+const NO_PROGRAMMES: Programme[] = [];
 
 /** Cellen et tryk paa kanalnavnet aabner bladet med: ingen udsendelse, bare kanalen. */
 const CHANNEL_CELL: GuideCell = {
@@ -693,9 +733,18 @@ const CHANNEL_CELL: GuideCell = {
   clippedEnd: false,
 };
 
-function GuideRow({
+/**
+ * Én raekke i gitteret. Memoiseret: ved rulning aendrer kun previewet sig,
+ * og saa skal kun to raekker tegnes om, ikke alle dem der er i live.
+ * Cellerne regnes ud her fra tal, saa to renders med samme vindue giver
+ * samme props.
+ */
+const GuideRow = memo(function GuideRow({
   channel,
-  cells,
+  programmes,
+  windowStartMs,
+  windowEndMs,
+  nowMs,
   hasDialect,
   previewing,
   onPreview,
@@ -703,7 +752,10 @@ function GuideRow({
   onMeasureCells,
 }: {
   channel: StoredChannel;
-  cells: GuideCell[];
+  programmes: readonly Programme[];
+  windowStartMs: number;
+  windowEndMs: number;
+  nowMs: number;
   hasDialect: boolean;
   /** Sand for den kanal previewet viser lige nu. */
   previewing: boolean;
@@ -713,6 +765,10 @@ function GuideRow({
   /** Bredden paa tidsaksen. Traekket regner minutter ud af den. */
   onMeasureCells: (width: number) => void;
 }) {
+  const cells = useMemo(
+    () => layoutRow(programmes, new Date(windowStartMs), new Date(windowEndMs), new Date(nowMs)),
+    [programmes, windowStartMs, windowEndMs, nowMs],
+  );
   return (
     <View style={styles.row}>
       {/* Et tryk paa kanalen viser den i previewet; hold fingeren for
@@ -769,7 +825,7 @@ function GuideRow({
       </View>
     </View>
   );
-}
+});
 
 /** Kolonneoverskrifter for vinduet: én per halve time. */
 function halfHourMarks(start: Date): Date[] {
