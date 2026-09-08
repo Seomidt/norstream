@@ -120,7 +120,6 @@ export function PlayerScreen({
    * (og med hvor mange lydspor), eller fejl. Det er ogsaa det der skal til
    * for at kunne sige *hvorfor* en radiokanal er stum.
    */
-  const isRadio = /radio/i.test(channel.name) || isRadioKey(channel.id);
   const [audioState, setAudioState] = useState<string>('Forbinder …');
   const [radioState, setRadioState] = useState<RadioState>('connecting');
   const [playing, setPlaying] = useState(true);
@@ -160,10 +159,27 @@ export function PlayerScreen({
   }, [bannerUntil]);
   const bannerShown = bannerUntil > Date.now() && bannerTick >= 0;
 
+  /**
+   * Radio spiller videre naar skaermen slukkes eller appen gaar i baggrunden,
+   * med styring i notifikationen. Kraever supportsBackgroundPlayback i
+   * app.json (forgrundstjeneste paa Android). Tv goer det ikke: et
+   * billede uden skaerm er bare panelets ene forbindelse brugt paa ingenting.
+   */
+  const isRadio = /radio/i.test(channel.name) || isRadioKey(channel.id);
   const player = useVideoPlayer(source, (p) => {
     p.loop = false;
+    p.staysActiveInBackground = isRadio;
+    p.showNowPlayingNotification = isRadio;
     p.play();
   });
+  useEffect(() => {
+    try {
+      player.staysActiveInBackground = isRadio;
+      player.showNowPlayingNotification = isRadio;
+    } catch {
+      // Afspilleren er vaek.
+    }
+  }, [player, isRadio]);
 
   /**
    * Undertekster i live-tv. Samme regler som for film: det foretrukne sprog

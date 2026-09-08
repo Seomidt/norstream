@@ -62,7 +62,7 @@ export function RadioView({
       <View style={styles.glowBottom} pointerEvents="none" />
 
       <View style={[styles.stage, landscape && styles.stageLandscape]}>
-        <View style={[styles.disc, playing && styles.discPlaying]}>
+        <View style={styles.disc}>
           <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={landscape ? 120 : 168} />
         </View>
         <View style={styles.text}>
@@ -187,14 +187,7 @@ const styles = StyleSheet.create({
   },
   stage: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: theme.spacing.lg },
   stageLandscape: { flexDirection: 'row', gap: theme.spacing.xl },
-  disc: {
-    padding: theme.spacing.lg,
-    borderRadius: 999,
-    backgroundColor: '#ffffff0d',
-    borderWidth: 1,
-    borderColor: '#ffffff1a',
-  },
-  discPlaying: { borderColor: theme.colors.accent, shadowColor: theme.colors.accent, shadowOpacity: 0.6, shadowRadius: 24, elevation: 12 },
+  disc: { borderRadius: theme.radius, overflow: 'hidden' },
   text: { alignItems: 'center', gap: theme.spacing.xs, maxWidth: 420 },
   kicker: { color: theme.colors.accent, fontSize: 12, fontWeight: '800', letterSpacing: 3 },
   title: { color: theme.colors.text, fontSize: 26, fontWeight: '800', textAlign: 'center' },

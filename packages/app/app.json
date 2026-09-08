@@ -26,7 +26,12 @@
     "plugins": [
       "expo-sqlite",
       "expo-secure-store",
-      "expo-video",
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": true
+        }
+      ],
       [
         "expo-build-properties",
         {
