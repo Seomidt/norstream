@@ -297,8 +297,6 @@ export function HomeScreen({
             refreshing={refreshing}
             onRefresh={refresh}
             reloadToken={favoritesToken + logoToken}
-            previewEnabled={previewEnabled}
-            previewHandle={previewHandle}
           />
         )}
         {tab === 'favorites' && (

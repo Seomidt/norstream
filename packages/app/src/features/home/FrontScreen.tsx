@@ -24,8 +24,6 @@ import { justWatchLink, providerShelf, serviceSearchUrl, trendingTitles } from '
 import type { TmdbTitle } from '../../sync/tmdbHome.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
-import { MiniPreview } from '../preview/MiniPreview.js';
-import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { Poster } from '../vod/VodScreen.js';
 import { findInPanel } from './panelMatch.js';
 
@@ -39,18 +37,7 @@ interface Props {
   onRefresh: () => void;
   /** Aendres naar favoritter eller logoer er aendret, saa raekkerne laeses igen. */
   reloadToken: number;
-  /** Det lille live-vindue over favoritterne. Samme ene forbindelse som alle andre lister. */
-  previewEnabled: boolean;
-  previewHandle: { current: PreviewHandle | null };
 }
-
-/**
- * Hvor laenge live-vinduet bliver paa én favorit foer det gaar til naeste.
- * Panelet har én forbindelse, saa der kan ikke vaere et vindue per kanal;
- * i stedet gaar det ene vindue raekken rundt, og et langt tryk paa et kort
- * flytter det dertil med det samme.
- */
-const PREVIEW_CYCLE_MS = 15_000;
 
 /** Hvor mange favoritter der vises i raekken. Resten er paa deres egen fane. */
 const FAVOURITES_LIMIT = 12;
@@ -116,13 +103,8 @@ export function FrontScreen({
   refreshing,
   onRefresh,
   reloadToken,
-  previewEnabled,
-  previewHandle,
 }: Props) {
   const [lastChannel, setLastChannel] = useState<StoredChannel | null>(null);
-  /** Favoritten live-vinduet viser lige nu. */
-  const [previewIndex, setPreviewIndex] = useState(0);
-  const [previewHeld, setPreviewHeld] = useState(false);
   const [favourites, setFavourites] = useState<FavouriteNow[] | null>(null);
   const [inProgress, setInProgress] = useState<StoredVodItem[]>([]);
   const [newest, setNewest] = useState<StoredVodItem[]>([]);
@@ -192,16 +174,6 @@ export function FrontScreen({
       cancelled = true;
     };
   }, [tmdbKey, providers]);
-
-  const favouriteCount = favourites?.length ?? 0;
-  useEffect(() => {
-    if (!previewEnabled || favouriteCount < 2 || previewHeld) return;
-    const timer = setInterval(() => setPreviewIndex((index) => (index + 1) % favouriteCount), PREVIEW_CYCLE_MS);
-    return () => clearInterval(timer);
-  }, [previewEnabled, favouriteCount, previewHeld]);
-  useEffect(() => {
-    if (previewIndex >= favouriteCount) setPreviewIndex(0);
-  }, [previewIndex, favouriteCount]);
 
   function openTitle(title: TmdbTitle, provider: HomeProvider | null): void {
     setSheet({ title, provider, inPanel: undefined, message: null });
@@ -273,35 +245,13 @@ export function FrontScreen({
                 <Text style={styles.cardAction}>Kanaler ›</Text>
               </Pressable>
             ) : (
-              <>
-                {previewEnabled && (
-                  <View style={styles.preview}>
-                    <MiniPreview
-                      session={session}
-                      channel={favourites[previewIndex]?.channel ?? null}
-                      enabled={previewEnabled}
-                      handle={previewHandle}
-                      onOpen={(channel) => onSelect(channel, favouriteChannels)}
-                    />
-                  </View>
+              <Shelf
+                data={favourites.map((entry) => ({ key: entry.channel.id, entry }))}
+                width={CHANNEL_WIDTH}
+                renderItem={({ entry }) => (
+                  <ChannelCard channel={entry.channel} now={entry.now} onPress={() => onSelect(entry.channel, favouriteChannels)} />
                 )}
-                <Shelf
-                  data={favourites.map((entry, index) => ({ key: entry.channel.id, entry, index }))}
-                  width={CHANNEL_WIDTH}
-                  renderItem={({ entry, index }) => (
-                    <ChannelCard
-                      channel={entry.channel}
-                      now={entry.now}
-                      live={previewEnabled && index === previewIndex}
-                      onPress={() => onSelect(entry.channel, favouriteChannels)}
-                      onLongPress={() => {
-                        setPreviewIndex(index);
-                        setPreviewHeld(true);
-                      }}
-                    />
-                  )}
-                />
-              </>
+              />
             )}
           </Section>
         );
@@ -494,26 +444,15 @@ const ChannelCard = memo(function ChannelCard({
   channel,
   now,
   wide,
-  live,
   onPress,
-  onLongPress,
 }: {
   channel: StoredChannel;
   now: Programme | null;
   wide?: boolean;
-  /** Kortet live-vinduet viser lige nu. */
-  live?: boolean;
   onPress: () => void;
-  onLongPress?: () => void;
 }) {
   return (
-    <Pressable
-      style={[styles.channel, wide === true && styles.channelWide, live === true && styles.channelLive]}
-      onPress={onPress}
-      onLongPress={onLongPress}
-      delayLongPress={300}
-    >
-      {live === true && <Text style={styles.liveMark}>● LIVE</Text>}
+    <Pressable style={[styles.channel, wide === true && styles.channelWide]} onPress={onPress}>
       <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={40} />
       <Text style={styles.channelName} numberOfLines={1}>
         {channel.name}
@@ -585,15 +524,6 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   channelWide: { width: 160 },
-  channelLive: { borderWidth: 1, borderColor: theme.colors.accent },
-  liveMark: { position: 'absolute', top: 6, right: 8, color: theme.colors.accent, fontSize: 9, fontWeight: '800' },
-  preview: {
-    width: 256,
-    marginLeft: theme.spacing.md,
-    marginBottom: theme.spacing.sm,
-    borderRadius: theme.radius,
-    overflow: 'hidden',
-  },
   channelName: { color: theme.colors.text, fontSize: 13, fontWeight: '600' },
   channelNow: { color: theme.colors.textMuted, fontSize: 12, minHeight: 32 },
   title: { width: POSTER_WIDTH },
