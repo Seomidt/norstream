@@ -31,6 +31,12 @@ on:
         # saa fejl 152); det her koerer en rigtig browser paa en rigtig side
         # med hver af de mulige base-adresser og siger hvilke der spiller.
         options: [runner, eas, probe, youtube]
+      app:
+        description: 'Hvilken app der bygges: NorStream (app) eller NorRadio (radio)'
+        required: false
+        default: app
+        type: choice
+        options: [app, radio]
       url:
         description: 'Adresse at maale (kun naar motor er probe)'
         required: false
@@ -236,7 +242,7 @@ jobs:
       # ligger her paa runneren.
       - name: Verificér AndroidManifest
         if: inputs.motor != 'probe' && inputs.motor != 'youtube'
-        working-directory: packages/app
+        working-directory: packages/${{ inputs.app || 'app' }}
         run: |
           npx expo prebuild --platform android --no-install
           manifest=android/app/src/main/AndroidManifest.xml
@@ -275,12 +281,12 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('packages/app/package.json') }}
+          key: gradle-${{ runner.os }}-${{ hashFiles('packages/*/package.json') }}
           restore-keys: gradle-${{ runner.os }}-
 
       - name: Byg APK med Gradle
         if: inputs.motor == 'runner'
-        working-directory: packages/app/android
+        working-directory: packages/${{ inputs.app || 'app' }}/android
         run: |
           chmod +x gradlew
           # `release` frem for `debug`: en debug-APK forventer en Metro-server
@@ -292,8 +298,8 @@ jobs:
         if: inputs.motor == 'runner'
         uses: actions/upload-artifact@v4
         with:
-          name: norstream-apk
-          path: packages/app/android/app/build/outputs/apk/release/app-release.apk
+          name: ${{ inputs.app == 'radio' && 'norradio-apk' || 'norstream-apk' }}
+          path: packages/${{ inputs.app || 'app' }}/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
 
       - name: Hvor ligger APK'en (runner)
@@ -303,7 +309,7 @@ jobs:
             echo "### APK'en er bygget her"
             echo ""
             echo "Hent den under **Artifacts** nederst paa denne side:"
-            echo "\`norstream-apk\` — pak zip-filen ud, og aabn APK'en paa telefonen."
+            echo "\`${{ inputs.app == 'radio' && 'norradio-apk' || 'norstream-apk' }}\` — pak zip-filen ud, og aabn APK'en paa telefonen."
             echo ""
             echo "**Afinstallér den nuvaerende app foerst.** Den her er signeret med"
             echo "Androids almindelige debug-noegle og ikke med EAS-noeglen, og Android"
@@ -315,7 +321,7 @@ jobs:
 
       - name: Byg APK paa EAS
         if: inputs.motor == 'eas'
-        working-directory: packages/app
+        working-directory: packages/${{ inputs.app || 'app' }}
         run: |
           npx eas-cli@latest build \
             --platform "${{ inputs.platform || 'android' }}" \
