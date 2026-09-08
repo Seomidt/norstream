@@ -302,14 +302,14 @@ jobs:
 
       - name: Java til Gradle
         if: inputs.motor == 'runner'
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Gradle-cache
         if: inputs.motor == 'runner'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.gradle/caches
@@ -329,7 +329,7 @@ jobs:
 
       - name: Læg APK'en op
         if: inputs.motor == 'runner'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ inputs.app == 'radio' && 'norradio' || 'norstream' }}${{ inputs.tv && '-tv' || '' }}-apk
           path: packages/${{ inputs.app || 'app' }}/android/app/build/outputs/apk/release/app-release.apk
