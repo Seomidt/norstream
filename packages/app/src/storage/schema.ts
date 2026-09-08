@@ -205,6 +205,31 @@ CREATE TABLE IF NOT EXISTS logo_search_tried (
   tried_ms    INTEGER NOT NULL
 );
 
+-- Internetradio fra Radio Browser, per land. Hentes naar landet aabnes og
+-- gemmes en uge; stemmerne bestemmer raekkefoelgen.
+CREATE TABLE IF NOT EXISTS radio_stations (
+  id         TEXT PRIMARY KEY,
+  country    TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  url        TEXT NOT NULL,
+  logo_url   TEXT,
+  homepage   TEXT,
+  votes      INTEGER NOT NULL DEFAULT 0,
+  codec      TEXT NOT NULL DEFAULT '',
+  bitrate    INTEGER NOT NULL DEFAULT 0,
+  tags       TEXT NOT NULL DEFAULT '',
+  rank       INTEGER NOT NULL DEFAULT 0,
+  fetched_ms INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_radio_stations_country ON radio_stations (country, rank);
+
+-- Brugerens egne internetradio-favoritter, i den orden de blev valgt.
+CREATE TABLE IF NOT EXISTS radio_favorites (
+  station_id TEXT PRIMARY KEY,
+  position   INTEGER NOT NULL
+);
+
 -- Film og serier. Samme moenster som kanalerne: listen hentes én gang i
 -- doegnet per kilde; det panelet ved om den enkelte titel hentes foerst naar
 -- den aabnes, og ligger i vod_details og episodes.
@@ -318,6 +343,8 @@ const TABLES = [
   'logo_files',
   'logo_misses',
   'logo_search_tried',
+  'radio_stations',
+  'radio_favorites',
   'vod_posters',
   'vod_watched',
 ] as const;
@@ -328,7 +355,8 @@ const TABLES = [
 // v11: logo_overrides. v12: logo_files og logo_misses. v13: favorites.position.
 // v14: vod_posters. v15: vod_posters.rating. v16: vod_watched.
 // v17: logo_search_tried. v18: samme tabel toemt én gang (se migrate).
-const SCHEMA_VERSION = 18;
+// v19: radio_stations og radio_favorites.
+const SCHEMA_VERSION = 19;
 
 /**
  * Foerste version der kan opgraderes additivt.

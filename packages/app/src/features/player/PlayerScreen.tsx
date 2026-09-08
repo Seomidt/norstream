@@ -24,6 +24,7 @@ import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback } from './format.
 import { restartBlockFor, restartHint } from './restart.js';
 import { TrackPicker } from './TrackPicker.js';
 import { LandscapePlayer, useLandscape } from './Landscape.js';
+import { isRadioKey } from '../../sync/radioBrowser.js';
 import { RadioView } from './RadioView.js';
 import type { RadioState } from './RadioView.js';
 import { pickPreferredSubtitle, sameTrack, trackName } from './tracks.js';
@@ -119,7 +120,7 @@ export function PlayerScreen({
    * (og med hvor mange lydspor), eller fejl. Det er ogsaa det der skal til
    * for at kunne sige *hvorfor* en radiokanal er stum.
    */
-  const isRadio = /radio/i.test(channel.name);
+  const isRadio = /radio/i.test(channel.name) || isRadioKey(channel.id);
   const [audioState, setAudioState] = useState<string>('Forbinder …');
   const [radioState, setRadioState] = useState<RadioState>('connecting');
   const [playing, setPlaying] = useState(true);

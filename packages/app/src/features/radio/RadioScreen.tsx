@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { AppSession } from '../../session.js';
 import { listChannels, setFavorite } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { theme } from '../../ui/theme.js';
 import { ChannelList } from '../channels/ChannelList.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
+import { InternetRadio } from './InternetRadio.js';
 
 interface Props {
   session: AppSession;
@@ -13,7 +14,11 @@ interface Props {
   onAuthError: () => void;
   previewHandle: { current: PreviewHandle | null };
   onPickLogo: (channel: StoredChannel) => void;
+  /** Udfyldes med det tilbage-knappen skal goere her (internetradioens land). */
+  backRef: { current: () => boolean };
 }
+
+type Part = 'panel' | 'internet';
 
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -25,7 +30,11 @@ const SEARCH_DEBOUNCE_MS = 250;
  * kanaler — logo, favoritstjerne, zap i afspilleren — men uden preview:
  * previewet er lydloest, og for radio er der intet at se.
  */
-export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onPickLogo }: Props) {
+export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onPickLogo, backRef }: Props) {
+  /** Panelets radiokanaler, eller internetradio fra Radio Browser. */
+  const [part, setPart] = useState<Part>('internet');
+  const internetBack = useRef<() => boolean>(() => false);
+  backRef.current = (): boolean => (part === 'internet' ? internetBack.current() : false);
   const [channels, setChannels] = useState<StoredChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -55,12 +64,39 @@ export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onP
     );
   }
 
+  const parts: { id: Part; label: string }[] = [
+    { id: 'internet', label: 'Internetradio' },
+    { id: 'panel', label: `Fra panelet${loading ? '' : ` (${channels.length})`}` },
+  ];
+  const header = (
+    <View style={styles.header}>
+      <Text style={styles.title}>Radio</Text>
+      <View style={styles.parts}>
+        {parts.map((entry) => (
+          <Pressable
+            key={entry.id}
+            style={[styles.part, part === entry.id && styles.partActive]}
+            onPress={() => setPart(entry.id)}
+          >
+            <Text style={[styles.partText, part === entry.id && styles.partTextActive]}>{entry.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+
+  if (part === 'internet') {
+    return (
+      <View style={styles.container}>
+        {header}
+        <InternetRadio session={session} onSelect={onSelect} onPickLogo={onPickLogo} backRef={internetBack} />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Radio</Text>
-        <Text style={styles.count}>{loading ? '' : `${channels.length}`}</Text>
-      </View>
+      {header}
       <TextInput
         style={styles.input}
         value={search}
@@ -92,14 +128,22 @@ export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onP
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   header: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
     paddingHorizontal: theme.spacing.md,
     paddingTop: theme.spacing.sm,
+    paddingBottom: theme.spacing.sm,
     gap: theme.spacing.sm,
   },
   title: { color: theme.colors.text, fontSize: 20, fontWeight: '700' },
-  count: { color: theme.colors.textMuted, fontSize: 13 },
+  parts: { flexDirection: 'row', gap: theme.spacing.xs },
+  part: {
+    paddingHorizontal: theme.spacing.sm + 4,
+    paddingVertical: theme.spacing.xs + 2,
+    borderRadius: 16,
+    backgroundColor: theme.colors.surface,
+  },
+  partActive: { backgroundColor: theme.colors.accent },
+  partText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '600' },
+  partTextActive: { color: theme.colors.text },
   input: {
     backgroundColor: theme.colors.surface,
     borderColor: theme.colors.border,

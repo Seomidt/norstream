@@ -110,6 +110,8 @@ export function HomeScreen({
   const [showingCheck, setShowingCheck] = useState(false);
   /** Guidens egen tilbage-vej (dagssiden), foer fanens. */
   const guideBack = useRef<() => boolean>(() => false);
+  /** Radioens egen tilbage-vej (internetradioens land og soegning), foer fanens. */
+  const radioBack = useRef<() => boolean>(() => false);
   const [pickingLogoFor, setPickingLogoFor] = useState<string | null>(null);
   const [logoToken, setLogoToken] = useState(0);
 
@@ -126,6 +128,7 @@ export function HomeScreen({
   // titler i Film. Paa forsiden af en fane: intet at gaa op i.
   backRef.current = (): boolean => {
     if (tab === 'guide' && guideBack.current()) return true;
+    if (tab === 'radio' && radioBack.current()) return true;
     if (tab === 'settings' && pickingLogoFor !== null) {
       setPickingLogoFor(null);
       return true;
@@ -353,6 +356,7 @@ export function HomeScreen({
             onAuthError={handleAuthError}
             previewHandle={previewHandle}
             onPickLogo={pickLogo}
+            backRef={radioBack}
           />
         )}
 
