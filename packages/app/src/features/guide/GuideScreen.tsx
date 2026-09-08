@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { XtreamAuthError } from '@norstream/core';
 import type { Programme } from '@norstream/core';
@@ -25,6 +26,8 @@ import { MiniPreview } from '../preview/MiniPreview.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
 import { ChannelDayScreen } from './ChannelDayScreen.js';
+import { NowNextBox } from './NowNextBox.js';
+import { SIDE_PREVIEW_FRACTION, guideTopLayout } from './nowNext.js';
 import {
   DRAG_MAX_MINUTES,
   DRAG_MIN_MINUTES,
@@ -35,6 +38,7 @@ import {
   nowRatio,
   offsetForTarget,
   shiftedWindow,
+  stateOf,
 } from './layout.js';
 import type { GuideCell } from './layout.js';
 
@@ -134,6 +138,14 @@ export function GuideScreen({
    * derfor aldrig vises i previewet.
    */
   const pinnedPreview = useRef<StoredChannel | null>(null);
+  /**
+   * Previewkanalens udsendelser omkring nu, til boksen ved siden af.
+   * Ikke gitterets vindue: traekker man guiden til i morgen aften, skal
+   * boksen stadig sige hvad der sendes *nu*.
+   */
+  const [previewProgrammes, setPreviewProgrammes] = useState<Programme[]>([]);
+  const { width: screenWidth } = useWindowDimensions();
+  const sideBySide = guideTopLayout(screenWidth) === 'side';
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   /** Den celle bladet er aabnet for, eller null naar det er lukket. */
@@ -152,6 +164,28 @@ export function GuideScreen({
 
   const window = shiftedWindow(now, offsetMinutes);
   const liveRatio = nowRatio(now, window.start, window.end);
+
+  // Boksen laeser fra cachen, som gitteret; den opdateres naar kanalen
+  // skifter, naar minuttet skifter, og naar en hentning har skrevet nye
+  // programmer for kanalen (rows aendrer sig).
+  const previewId = previewChannel?.id ?? null;
+  const previewRows = previewId === null ? undefined : rows[previewId];
+  useEffect(() => {
+    if (previewId === null) {
+      setPreviewProgrammes([]);
+      return;
+    }
+    let cancelled = false;
+    const from = new Date(now.getTime() - 6 * 60 * 60_000);
+    const to = new Date(now.getTime() + 12 * 60 * 60_000);
+    void listProgrammes(session.db, previewId, from, to).then((found) => {
+      if (!cancelled) setPreviewProgrammes(found);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.db, previewId, now, previewRows]);
 
   useEffect(() => {
     let cancelled = false;
@@ -467,13 +501,36 @@ export function GuideScreen({
   return (
     <View style={styles.container}>
       {notice !== null && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
-      <MiniPreview
-        session={session}
-        channel={dayFor === null ? previewChannel : null}
-        enabled={previewEnabled}
-        handle={previewHandle}
-        onOpen={(channel) => onPlay(channel, channels)}
-      />
+      {/* Smal skaerm: previewet som en stribe, boksen som to linjer under.
+          Bred skaerm (foldet telefon slaaet ud, tablet, tv): previewet til
+          venstre i 42 % af bredden, boksen ved siden af, og guiden faar
+          resten af hoejden i stedet for to raekker. */}
+      <View style={sideBySide ? styles.topSide : undefined}>
+        <View style={sideBySide ? { width: `${Math.round(SIDE_PREVIEW_FRACTION * 100)}%` } : undefined}>
+          <MiniPreview
+            session={session}
+            channel={dayFor === null ? previewChannel : null}
+            enabled={previewEnabled}
+            handle={previewHandle}
+            onOpen={(channel) => onPlay(channel, channels)}
+          />
+        </View>
+        <NowNextBox
+          channel={previewChannel}
+          programmes={previewProgrammes}
+          now={now}
+          compact={!sideBySide}
+          onOpen={(channel, programme) =>
+            setSheet({
+              channel,
+              cell:
+                programme === null
+                  ? CHANNEL_CELL
+                  : { key: 'now', programme, state: stateOf(programme, now), weight: 0, clippedStart: false, clippedEnd: false },
+            })
+          }
+        />
+      </View>
 
       <View style={styles.toolbar}>
         <Pressable
@@ -775,6 +832,7 @@ function dayDeltaOf(start: Date, now: Date): number {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
+  topSide: { flexDirection: 'row', alignItems: 'stretch', backgroundColor: theme.colors.surface },
   dayOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.background },
   centered: {
     flex: 1,

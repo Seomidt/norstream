@@ -141,7 +141,8 @@ export function nowRatio(now: Date, windowStart: Date, windowEnd: Date): number 
   return (ms - from) / (to - from);
 }
 
-function stateOf(programme: Programme, now: Date): CellState {
+/** Hvor en udsendelse er i forhold til nu: slut, i gang, eller senere. */
+export function stateOf(programme: Programme, now: Date): CellState {
   const ms = now.getTime();
   if (programme.stop.getTime() <= ms) return 'past';
   if (programme.start.getTime() > ms) return 'future';
