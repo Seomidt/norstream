@@ -48,6 +48,8 @@ const SETTING_KEYS = [
   'mini_preview_enabled',
   'youtube_api_key',
   'tmdb_api_key',
+  'google_search_key',
+  'google_search_cx',
   'logo_registry_enabled',
 ];
 /** Indstillinger per kilde: noeglen ender paa kildens id. */

@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { AppSession } from '../../session.js';
 import { listChannelsWithoutArchiveLogo } from '../../storage/logoOverrides.js';
 import type { ChannelWithoutLogo } from '../../storage/logoOverrides.js';
+import { getGoogleSearchKeys } from '../../storage/settings.js';
+import { replaceLogo, resetLogo } from '../../ui/logoCache.js';
 import { theme } from '../../ui/theme.js';
+import { autoSearchLogos } from './logoAutoSearch.js';
+import type { AutoSearchHandle, AutoSearchProgress } from './logoAutoSearch.js';
 
 interface Props {
   session: AppSession;
@@ -11,7 +15,12 @@ interface Props {
   onPick: (channelKey: string) => void;
   /** Aendres naar et logo er valgt, saa listen tegnes igen. */
   reloadToken: number;
+  /** Kaldes naar den automatiske soegning har givet kanaler et logo. */
+  onChanged: () => void;
 }
+
+/** Hvor mange kanaler den automatiske soegning tager med paa ét tryk. */
+const AUTO_SEARCH_LIMIT = 2_000;
 
 const SEARCH_DEBOUNCE_MS = 200;
 
@@ -20,10 +29,46 @@ const SEARCH_DEBOUNCE_MS = 200;
  * foerst. Ét tryk aabner valget. Listen bliver kortere for hver kanal man
  * giver et logo.
  */
-export function LogoGapsScreen({ session, onBack, onPick, reloadToken }: Props) {
+export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged }: Props) {
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<ChannelWithoutLogo[] | null>(null);
+  const [progress, setProgress] = useState<AutoSearchProgress | null>(null);
+  const [summary, setSummary] = useState<string | null>(null);
+  const running = useRef<AutoSearchHandle | null>(null);
+
+  // Lukkes skaermen midt i det, standser soegningen; det der er fundet, er gemt.
+  useEffect(() => () => running.current?.cancel(), []);
+
+  async function searchAll(): Promise<void> {
+    if (running.current !== null) return;
+    setSummary(null);
+    const [all, google] = await Promise.all([
+      listChannelsWithoutArchiveLogo(session.db, { limit: AUTO_SEARCH_LIMIT }),
+      getGoogleSearchKeys(session.db),
+    ]);
+    const handle = autoSearchLogos(
+      { db: session.db, fetchImpl: session.fetchImpl, google, replaceLogo, resetLogo },
+      all,
+      (p) => {
+        setProgress(p);
+        // Listen tegnes om undervejs, saa man ser kanalerne forsvinde.
+        if (p.found > 0 && p.done % 5 === 0) void load();
+      },
+    );
+    running.current = handle;
+    const result = await handle.result;
+    running.current = null;
+    setProgress(null);
+    setSummary(
+      result.tried === 0 && result.skipped > 0
+        ? `Alle ${result.skipped} blev søgt for nylig uden held. De prøves igen om en uge.`
+        : `Fandt ${result.found} logo${result.found === 1 ? '' : 'er'} til ${result.tried} kanal${result.tried === 1 ? '' : 'er'}.` +
+            (result.skipped > 0 ? ` ${result.skipped} blev sprunget over, søgt for nylig.` : ''),
+    );
+    if (result.found > 0) onChanged();
+    void load();
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => setQuery(search), SEARCH_DEBOUNCE_MS);
@@ -46,8 +91,34 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken }: Props) 
       </Pressable>
       <Text style={styles.hint}>
         Dem ingen af arkiverne kender. Favoritterne står øverst. Tryk på en kanal for at
-        vælge et logo selv.
+        vælge et logo selv, eller lad appen søge på nettet efter dem alle.
       </Text>
+      {progress === null ? (
+        <Pressable
+          style={styles.button}
+          onPress={() => {
+            void searchAll();
+          }}
+        >
+          <Text style={styles.buttonText}>Søg logoer på nettet til alle</Text>
+        </Pressable>
+      ) : (
+        <View style={styles.progress}>
+          <ActivityIndicator color={theme.colors.accent} />
+          <View style={styles.progressText}>
+            <Text style={styles.progressLine}>
+              {progress.done} af {progress.total} · {progress.found} fundet
+            </Text>
+            <Text style={styles.progressCurrent} numberOfLines={1}>
+              {progress.current}
+            </Text>
+          </View>
+          <Pressable hitSlop={8} onPress={() => running.current?.cancel()}>
+            <Text style={styles.stop}>Stop</Text>
+          </Pressable>
+        </View>
+      )}
+      {summary !== null && <Text style={styles.summary}>{summary}</Text>}
       <TextInput
         style={styles.input}
         value={search}
@@ -104,6 +175,30 @@ const styles = StyleSheet.create({
     borderBottomColor: theme.colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  button: {
+    backgroundColor: theme.colors.accent,
+    borderRadius: theme.radius,
+    padding: theme.spacing.sm + 2,
+    alignItems: 'center',
+    marginHorizontal: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
+  },
+  buttonText: { color: theme.colors.text, fontSize: 15, fontWeight: '700' },
+  progress: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    marginHorizontal: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
+    padding: theme.spacing.sm,
+    borderRadius: theme.radius,
+    backgroundColor: theme.colors.surface,
+  },
+  progressText: { flex: 1 },
+  progressLine: { color: theme.colors.text, fontSize: 14, fontWeight: '600' },
+  progressCurrent: { color: theme.colors.textMuted, fontSize: 12 },
+  stop: { color: theme.colors.danger, fontSize: 15, fontWeight: '600' },
+  summary: { color: theme.colors.accent, fontSize: 13, paddingHorizontal: theme.spacing.md, marginBottom: theme.spacing.sm },
   star: { color: theme.colors.accent, width: 20, fontSize: 14 },
   name: { flex: 1, color: theme.colors.text, fontSize: 15 },
   chevron: { color: theme.colors.textMuted, fontSize: 22 },

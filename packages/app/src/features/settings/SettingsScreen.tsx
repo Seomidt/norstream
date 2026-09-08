@@ -14,10 +14,13 @@ import { clearSourceCredentials } from '../../storage/credentials.js';
 import { deleteSource, listSources } from '../../storage/sources.js';
 import {
   clearLastSyncMs,
+  getGoogleSearchFields,
   getStreamFormatSetting,
   getSubtitlePreference,
   getTmdbApiKey,
   getYoutubeApiKey,
+  setGoogleSearchCx,
+  setGoogleSearchKey,
   setSubtitlePreference,
   setTmdbApiKey,
   setYoutubeApiKey,
@@ -81,20 +84,26 @@ export function SettingsScreen({
   const [youtubeKey, setYoutubeKey] = useState('');
   /** Brugerens egen noegle til TMDB, til plakater panelet ikke gav. */
   const [tmdbKey, setTmdbKey] = useState('');
+  /** Noegle og soegemaskine-id til Googles billedsoegning, til logoer. */
+  const [googleKey, setGoogleKey] = useState('');
+  const [googleCx, setGoogleCx] = useState('');
   const [subtitles, setSubtitles] = useState<SubtitlePreference>('auto');
   /** Hvad sidste sikkerhedskopiering eller gendannelse endte med. */
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
 
   const load = useCallback(async (): Promise<void> => {
-    const [hiddenCountries, format, key, tmdb, preferredSubtitles, counts] = await Promise.all([
+    const [hiddenCountries, format, key, tmdb, preferredSubtitles, counts, google] = await Promise.all([
       listHiddenCountries(session.db),
       getStreamFormatSetting(session.db),
       getYoutubeApiKey(session.db),
       getTmdbApiKey(session.db),
       getSubtitlePreference(session.db),
       vodCounts(session.db),
+      getGoogleSearchFields(session.db),
     ]);
+    setGoogleKey(google.key);
+    setGoogleCx(google.cx);
     setHidden(hiddenCountries);
     setStreamFormat(format);
     setYoutubeKey(key ?? '');
@@ -243,13 +252,43 @@ export function SettingsScreen({
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>Kanaler uden logo</Text>
           <Text style={styles.rowHint}>
-            Logoerne hentes selv, én gang, og gemmes på telefonen. Vælg selv et logo for dem
-            arkiverne ikke kender — søg i registret eller indsæt en adresse. Du kan også holde
+            Logoerne hentes selv, én gang, og gemmes på telefonen. Dem arkiverne ikke kender, kan
+            appen søge efter på nettet, alle på én gang — eller du vælger selv. Du kan også holde
             fingeren på en kanal i listerne.
           </Text>
         </View>
         <Text style={styles.actionText}>Åbn</Text>
       </Pressable>
+      <Text style={styles.hint}>
+        Søgningen bruger Wikidata, som er gratis og uden nøgle. Vil du også have Googles
+        billedsøgning med, laves en nøgle og en søgemaskine (cx) i Google Cloud Console under
+        "Custom Search JSON API" og programmablesearchengine.google.com. Begge felter skal
+        udfyldes.
+      </Text>
+      <TextInput
+        style={styles.input}
+        value={googleKey}
+        onChangeText={(value) => {
+          setGoogleKey(value);
+          void setGoogleSearchKey(session.db, value);
+        }}
+        placeholder="Google API-nøgle (valgfri)"
+        placeholderTextColor={theme.colors.textMuted}
+        autoCorrect={false}
+        autoCapitalize="none"
+      />
+      <TextInput
+        style={styles.input}
+        value={googleCx}
+        onChangeText={(value) => {
+          setGoogleCx(value);
+          void setGoogleSearchCx(session.db, value);
+        }}
+        placeholder="Søgemaskinens id, cx (valgfri)"
+        placeholderTextColor={theme.colors.textMuted}
+        autoCorrect={false}
+        autoCapitalize="none"
+      />
 
       <Text style={styles.sectionTitle}>Undertekster</Text>
       <Text style={styles.hint}>

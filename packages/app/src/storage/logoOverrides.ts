@@ -79,6 +79,8 @@ export async function searchRegistryLogos(
 export interface ChannelWithoutLogo {
   id: string;
   name: string;
+  /** ISO 3166-1 alpha-2, eller tom. Vaelger sproget en netsoegning bruger. */
+  country: string;
   isFavorite: boolean;
   hasOverride: boolean;
 }
@@ -102,8 +104,14 @@ export async function listChannelsWithoutArchiveLogo(
     params.push(`%${search.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`);
   }
   params.push(Math.max(1, Math.trunc(opts.limit ?? 200)));
-  const rows = await db.getAllAsync<{ id: string; name: string; is_favorite: number | null; has_override: number | null }>(
-    `SELECT c.id, c.name,
+  const rows = await db.getAllAsync<{
+    id: string;
+    name: string;
+    country: string | null;
+    is_favorite: number | null;
+    has_override: number | null;
+  }>(
+    `SELECT c.id, c.name, c.country,
             CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE 0 END AS is_favorite,
             CASE WHEN lo.channel_key IS NOT NULL THEN 1 ELSE 0 END AS has_override
      FROM channels c
@@ -123,7 +131,48 @@ export async function listChannelsWithoutArchiveLogo(
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
+    country: row.country ?? '',
     isFavorite: row.is_favorite === 1,
     hasOverride: row.has_override === 1,
   }));
+}
+
+/** Hvor laenge en forgaeves netsoegning huskes, foer kanalen proeves igen. */
+export const LOGO_SEARCH_TTL_MS = 7 * 24 * 60 * 60_000;
+
+/** Kanalen blev soegt paa nettet uden held. */
+export async function markLogoSearched(db: SqlDatabase, channelKey: string, now = Date.now()): Promise<void> {
+  await db.runAsync('INSERT OR REPLACE INTO logo_search_tried (channel_key, tried_ms) VALUES (?, ?)', [
+    channelKey,
+    now,
+  ]);
+}
+
+/** Kanalerne blandt de givne der er soegt for nylig, og som ikke skal proeves igen endnu. */
+export async function recentlySearchedLogos(
+  db: SqlDatabase,
+  channelKeys: readonly string[],
+  now = Date.now(),
+): Promise<Set<string>> {
+  const rows = await db.getAllAsync<{ channel_key: string }>(
+    'SELECT channel_key FROM logo_search_tried WHERE tried_ms > ?',
+    [now - LOGO_SEARCH_TTL_MS],
+  );
+  const wanted = new Set(channelKeys);
+  const recent = new Set<string>();
+  for (const row of rows) if (wanted.has(row.channel_key)) recent.add(row.channel_key);
+  return recent;
+}
+
+/** Glemmer alle forgaeves netsoegninger, saa alle proeves igen. */
+export async function forgetLogoSearches(db: SqlDatabase): Promise<void> {
+  await db.runAsync('DELETE FROM logo_search_tried', []);
+}
+
+/** Kanalens land, som kategorien gav det, eller tom. Vaelger sproget en netsoegning bruger. */
+export async function channelCountry(db: SqlDatabase, channelKey: string): Promise<string> {
+  const row = await db.getFirstAsync<{ country: string | null }>('SELECT country FROM channels WHERE id = ?', [
+    channelKey,
+  ]);
+  return row?.country ?? '';
 }

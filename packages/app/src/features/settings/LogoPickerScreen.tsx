@@ -15,12 +15,16 @@ import type { AppSession } from '../../session.js';
 import { getChannel } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import {
+  channelCountry,
   clearLogoOverride,
   getLogoOverride,
   searchRegistryLogos,
   setLogoOverride,
 } from '../../storage/logoOverrides.js';
 import type { RegistryLogoHit } from '../../storage/logoOverrides.js';
+import { getGoogleSearchKeys } from '../../storage/settings.js';
+import { findLogoCandidates } from '../../sync/logoSearch.js';
+import type { LogoCandidate } from '../../sync/logoSearch.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { replaceLogo, resetLogo } from '../../ui/logoCache.js';
 import { theme } from '../../ui/theme.js';
@@ -54,6 +58,20 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
   const [hits, setHits] = useState<RegistryLogoHit[]>([]);
   const [manual, setManual] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  /** Bud fra nettet: null foer der er soegt, tom naar intet blev fundet. */
+  const [web, setWeb] = useState<LogoCandidate[] | null>(null);
+  const [webBusy, setWebBusy] = useState(false);
+
+  async function searchWeb(): Promise<void> {
+    if (channel === null || channel === undefined || webBusy) return;
+    setWebBusy(true);
+    const google = await getGoogleSearchKeys(session.db);
+    // Soeger paa det der staar i feltet, saa man kan rette navnet og proeve igen.
+    const name = search.trim().length > 0 ? search : channel.name;
+    const country = await channelCountry(session.db, channelKey);
+    setWeb(await findLogoCandidates(session.fetchImpl, { name, country, google }));
+    setWebBusy(false);
+  }
 
   const load = useCallback(async (): Promise<void> => {
     const stored = await getChannel(session.db, channelKey);
@@ -204,6 +222,47 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
         )}
         ListFooterComponent={
           <View style={[styles.manual, { paddingBottom: insets.bottom + theme.spacing.lg }]}>
+            <Text style={styles.sectionTitle}>Eller søg på nettet</Text>
+            <Text style={styles.hint}>
+              Wikidata kender de fleste kanaler og har deres logo. Har du sat en Google-nøgle i
+              indstillingerne, søges der også der.
+            </Text>
+            <Pressable
+              style={[styles.button, webBusy && styles.buttonDisabled]}
+              disabled={webBusy}
+              onPress={() => {
+                void searchWeb();
+              }}
+            >
+              {webBusy ? (
+                <ActivityIndicator color={theme.colors.text} />
+              ) : (
+                <Text style={styles.buttonText}>Søg på nettet efter “{search.trim() || channel.name}”</Text>
+              )}
+            </Pressable>
+            {web !== null && web.length === 0 && (
+              <Text style={styles.hint}>Intet fundet. Prøv et kortere navn i feltet ovenfor, og søg igen.</Text>
+            )}
+            {web !== null && web.length > 0 && (
+              <View style={styles.webRow}>
+                {web.map((bid) => (
+                  <Pressable
+                    key={bid.url}
+                    style={[styles.hit, styles.webHit, bid.url === current && styles.hitActive]}
+                    onPress={() => {
+                      void choose(bid.url);
+                    }}
+                  >
+                    <Image source={{ uri: bid.url }} style={styles.hitImage} resizeMode="contain" />
+                    <Text style={styles.hitName} numberOfLines={1}>
+                      {bid.label}
+                    </Text>
+                    <Text style={styles.hitCountry}>{bid.source === 'wikidata' ? 'Wikidata' : 'Google'}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
             <Text style={styles.sectionTitle}>Eller indsæt en adresse</Text>
             <TextInput
               style={styles.input}
@@ -286,6 +345,14 @@ const styles = StyleSheet.create({
   hitName: { color: theme.colors.text, fontSize: 10, marginTop: 4 },
   hitCountry: { color: theme.colors.textMuted, fontSize: 10 },
   manual: { marginTop: theme.spacing.md },
+  webRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    marginTop: theme.spacing.sm,
+  },
+  webHit: { flex: 0, width: 88 },
   button: {
     backgroundColor: theme.colors.accent,
     borderRadius: theme.radius,

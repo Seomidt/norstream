@@ -358,6 +358,10 @@ export function HomeScreen({
             onBack={() => setShowingLogos(false)}
             onPick={(channelKey) => setPickingLogoFor(channelKey)}
             reloadToken={logoToken}
+            onChanged={() => {
+              setLogoToken((value) => value + 1);
+              setFavoritesToken((value) => value + 1);
+            }}
           />
         )}
         {tab === 'settings' && pickingLogoFor === null && !showingLogos && showingCheck && (

@@ -89,3 +89,22 @@ describe('listChannelsWithoutArchiveLogo', () => {
     expect((await listChannelsWithoutArchiveLogo(db, { search: 'zzz' })).length).toBe(0);
   });
 });
+
+describe('netsoegning, husket', () => {
+  it('husker en forgaeves soegning i en uge og glemmer den igen', async () => {
+    const { forgetLogoSearches, markLogoSearched, recentlySearchedLogos } = await import('./logoOverrides.js');
+    const key = `${sourceId}:2`;
+    const now = 1_000_000_000_000;
+    expect(await recentlySearchedLogos(db, [key], now)).toEqual(new Set());
+    await markLogoSearched(db, key, now);
+    expect(await recentlySearchedLogos(db, [key, 'x:9'], now + 1)).toEqual(new Set([key]));
+    expect(await recentlySearchedLogos(db, [key], now + 8 * 24 * 60 * 60_000)).toEqual(new Set());
+    await forgetLogoSearches(db);
+    expect(await recentlySearchedLogos(db, [key], now + 1)).toEqual(new Set());
+  });
+
+  it('giver landet med, saa soegningen kan vaelge sprog', async () => {
+    const rows = await listChannelsWithoutArchiveLogo(db);
+    expect(rows[0]?.country).toBe('DK');
+  });
+});

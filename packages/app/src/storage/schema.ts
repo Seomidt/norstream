@@ -198,6 +198,13 @@ CREATE TABLE IF NOT EXISTS logo_misses (
   tried_ms    INTEGER NOT NULL
 );
 
+-- Kanaler der er soegt logo til paa nettet (Wikidata, Google) uden held,
+-- saa naeste soegning ikke spoerger om de samme igen med det samme.
+CREATE TABLE IF NOT EXISTS logo_search_tried (
+  channel_key TEXT PRIMARY KEY,
+  tried_ms    INTEGER NOT NULL
+);
+
 -- Film og serier. Samme moenster som kanalerne: listen hentes én gang i
 -- doegnet per kilde; det panelet ved om den enkelte titel hentes foerst naar
 -- den aabnes, og ligger i vod_details og episodes.
@@ -310,6 +317,7 @@ const TABLES = [
   'logo_overrides',
   'logo_files',
   'logo_misses',
+  'logo_search_tried',
   'vod_posters',
   'vod_watched',
 ] as const;
@@ -319,7 +327,8 @@ const TABLES = [
 // kolonnen har sit eget ALTER-trin.
 // v11: logo_overrides. v12: logo_files og logo_misses. v13: favorites.position.
 // v14: vod_posters. v15: vod_posters.rating. v16: vod_watched.
-const SCHEMA_VERSION = 16;
+// v17: logo_search_tried.
+const SCHEMA_VERSION = 17;
 
 /**
  * Foerste version der kan opgraderes additivt.

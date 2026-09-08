@@ -12,6 +12,8 @@ const KEY_REGISTRY_ENABLED = 'logo_registry_enabled';
 const KEY_YOUTUBE_API_KEY = 'youtube_api_key';
 const KEY_SUBTITLE_LANGUAGE = 'subtitle_language';
 const KEY_TMDB_API_KEY = 'tmdb_api_key';
+const KEY_GOOGLE_SEARCH_KEY = 'google_search_key';
+const KEY_GOOGLE_SEARCH_CX = 'google_search_cx';
 const KEY_LAST_CHANNEL = 'last_channel_id';
 const KEY_RESTART_ONLY = 'restart_only_filter';
 
@@ -337,4 +339,27 @@ export async function getLastChannelId(db: SqlDatabase): Promise<string | null> 
 
 export async function setLastChannelId(db: SqlDatabase, channelId: string): Promise<void> {
   await setSetting(db, KEY_LAST_CHANNEL, channelId);
+}
+
+/**
+ * Brugerens egen noegle og soegemaskine-id (cx) til Googles billedsoegning,
+ * til logoer Wikidata ikke har. Begge skal vaere sat foer der spoerges.
+ */
+export async function getGoogleSearchKeys(db: SqlDatabase): Promise<{ key: string; cx: string } | null> {
+  const [key, cx] = await Promise.all([getSetting(db, KEY_GOOGLE_SEARCH_KEY), getSetting(db, KEY_GOOGLE_SEARCH_CX)]);
+  if (key === null || cx === null || key.trim().length === 0 || cx.trim().length === 0) return null;
+  return { key: key.trim(), cx: cx.trim() };
+}
+
+export async function getGoogleSearchFields(db: SqlDatabase): Promise<{ key: string; cx: string }> {
+  const [key, cx] = await Promise.all([getSetting(db, KEY_GOOGLE_SEARCH_KEY), getSetting(db, KEY_GOOGLE_SEARCH_CX)]);
+  return { key: key ?? '', cx: cx ?? '' };
+}
+
+export async function setGoogleSearchKey(db: SqlDatabase, key: string): Promise<void> {
+  await setSetting(db, KEY_GOOGLE_SEARCH_KEY, key.trim());
+}
+
+export async function setGoogleSearchCx(db: SqlDatabase, cx: string): Promise<void> {
+  await setSetting(db, KEY_GOOGLE_SEARCH_CX, cx.trim());
 }
