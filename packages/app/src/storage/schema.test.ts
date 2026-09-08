@@ -56,3 +56,18 @@ describe('migrate', () => {
     ).rejects.toThrow();
   });
 });
+
+describe('indekser', () => {
+  it('kan sortere kanallisten paa indeks i stedet for et midlertidigt trae', async () => {
+    const db = createTestDatabase();
+    await migrate(db);
+    const plan = await db.getAllAsync<{ detail: string }>(
+      'EXPLAIN QUERY PLAN SELECT id FROM channels ORDER BY sort_order',
+    );
+    const detail = plan.map((r) => r.detail).join(' | ');
+    // Uden idx_channels_sort svarer SQLite "USE TEMP B-TREE FOR ORDER BY" og
+    // bygger et trae over alle 22.142 raekker ved hvert opslag.
+    expect(detail).toContain('idx_channels_sort');
+    expect(detail).not.toContain('TEMP B-TREE');
+  });
+});

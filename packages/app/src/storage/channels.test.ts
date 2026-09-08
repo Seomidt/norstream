@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Channel } from '@norstream/core';
 import { migrate } from './schema.js';
 import { createTestDatabase } from './testDb.js';
-import type { SqlDatabase } from './types.js';
+import type { SqlDatabase, SqlValue } from './types.js';
 import {
   getChannel,
   listCategories,
@@ -21,6 +21,22 @@ function channel(over: Partial<Channel> & { id: string; name: string }): Channel
     hasArchive: false,
     archiveDays: 0,
     ...over,
+  };
+}
+
+/**
+ * Bygger en database hvor `runAsync` kaster efter N kald. Det er den eneste
+ * maade at ramme "appen doer midt i en synkronisering" i en test.
+ */
+function failAfter(inner: SqlDatabase, calls: number): SqlDatabase {
+  let seen = 0;
+  return {
+    ...inner,
+    runAsync: async (sql: string, params?: SqlValue[]) => {
+      seen += 1;
+      if (seen > calls) throw new Error('forbindelsen forsvandt');
+      return inner.runAsync(sql, params);
+    },
   };
 }
 
@@ -198,5 +214,48 @@ describe('search escaping', () => {
 
   it('behandler understreg i soegningen som tekst, ikke som joker', async () => {
     expect(await listChannels(db, { search: '_' })).toHaveLength(0);
+  });
+});
+
+describe('atomaritet under synkronisering', () => {
+  it('bevarer den gamle kanalliste naar synkroniseringen afbrydes midtvejs', async () => {
+    await replaceChannels(db, [
+      channel({ id: 'a', name: 'DR1' }),
+      channel({ id: 'b', name: 'TV 2' }),
+    ]);
+
+    // Trin 1 (UPDATE ... is_stale = 1) plus de to foerste upserts faar lov;
+    // derefter falder forbindelsen bort — praecis som naar Android draeber
+    // appen midt i en synkronisering af 22.142 kanaler.
+    await expect(
+      replaceChannels(failAfter(db, 3), [
+        channel({ id: 'c', name: 'Kanal 5' }),
+        channel({ id: 'd', name: 'DR2' }),
+        channel({ id: 'e', name: 'TV3' }),
+      ]),
+    ).rejects.toThrow('forbindelsen forsvandt');
+
+    // Uden transaktionen stod DR1 og TV 2 tilbage med is_stale = 1 og et par
+    // halvskrevne nye kanaler ved siden af. Med den er intet sket.
+    const names = (await listChannels(db)).map((c) => c.name);
+    expect(names).toEqual(['DR1', 'TV 2']);
+    const stale = await db.getFirstAsync<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM channels WHERE is_stale = 1',
+    );
+    expect(stale?.n).toBe(0);
+  });
+
+  it('bevarer de gamle kategorier naar kategori-synkroniseringen afbrydes', async () => {
+    await replaceCategories(db, [{ id: '1', name: 'Danmark' }]);
+
+    await expect(
+      // DELETE faar lov, den foerste INSERT kaster.
+      replaceCategories(failAfter(db, 1), [
+        { id: '2', name: 'Sport' },
+        { id: '3', name: 'Film' },
+      ]),
+    ).rejects.toThrow('forbindelsen forsvandt');
+
+    expect(await listCategories(db)).toEqual([{ id: '1', name: 'Danmark' }]);
   });
 });
