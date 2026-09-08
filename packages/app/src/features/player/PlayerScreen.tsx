@@ -21,6 +21,7 @@ import { canRecord } from '../recordings/plan.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { liveUrlFor } from '../../sources/access.js';
 import { theme } from '../../ui/theme.js';
+import { setLastChannelId } from '../../storage/settings.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback } from './format.js';
 import { restartBlockFor, restartHint } from './restart.js';
 import { TrackPicker } from './TrackPicker.js';
@@ -38,6 +39,11 @@ interface Props {
    * ikke paa en knap man skal vide findes.
    */
   startFrom?: Programme;
+  /**
+   * Listen kanalen stod i, til at zappe op og ned uden at gaa tilbage.
+   * Uden den er der ingen pile.
+   */
+  zap?: StoredChannel[];
 }
 
 const MAX_RETRIES = 2;
@@ -45,8 +51,26 @@ const RETRY_BACKOFF_MS = 1500;
 /** Hvor laenge afspilleren maa haenge i buffering foer vi kalder det et udfald. */
 const STALL_TIMEOUT_MS = 15_000;
 
-export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
+export function PlayerScreen({
+  session,
+  channel: initialChannel,
+  onBack,
+  startFrom: initialStartFrom,
+  zap,
+}: Props) {
   const landscape = useLandscape();
+  /**
+   * Kanalen der spilles. Begynder som den man kom med, og skifter naar man
+   * zapper: samme skaerm, samme afspiller, ny stream — saa panelets ene
+   * forbindelse slippes og tages igen ét sted, ikke gennem en ny skaerm.
+   */
+  const [channel, setChannel] = useState(initialChannel);
+  /** Start-forfra gaelder kun den kanal man kom med; et zap er altid direkte. */
+  const [startFrom, setStartFrom] = useState(initialStartFrom);
+  /** Kanalen foer sidste zap, til ⇄ mellem kampen og nyhederne. */
+  const [previous, setPrevious] = useState<StoredChannel | null>(null);
+  /** Banneret efter et zap: navn og nu-titel, i tre sekunder. */
+  const [bannerUntil, setBannerUntil] = useState(0);
   // Uden den ligger Tilbage-knappen under telefonens navigationslinje.
   const insets = useSafeAreaInsets();
   /**
@@ -91,6 +115,42 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
   const [restarted, setRestarted] = useState(startFrom !== undefined);
   const [triedFallback, setTriedFallback] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
+
+  // "Se videre" oeverst i favoritterne: den kanal der sidst blev set.
+  useEffect(() => {
+    void setLastChannelId(session.db, channel.id).catch(() => undefined);
+  }, [session.db, channel.id]);
+
+  const zapList = zap ?? [];
+  const zapIndex = zapList.findIndex((entry) => entry.id === channel.id);
+
+  const zapTo = useCallback(
+    (target: StoredChannel): void => {
+      if (target.id === channel.id) return;
+      setPrevious(channel);
+      setChannel(target);
+      setStartFrom(undefined);
+      setRestarted(false);
+      setFellBackToLive(false);
+      setTriedFallback(false);
+      setStreamError(null);
+      setRecorded(false);
+      setRestartBlock(undefined);
+      setNow(null);
+      setNext(null);
+      setBannerUntil(Date.now() + 3_000);
+      setSource(liveUrlFor(session.access(target.sourceId), target, formatForPlatform()));
+    },
+    [channel, session],
+  );
+
+  const [bannerTick, setBannerTick] = useState(0);
+  useEffect(() => {
+    if (bannerUntil === 0) return;
+    const timer = setTimeout(() => setBannerTick((value) => value + 1), Math.max(0, bannerUntil - Date.now()));
+    return () => clearTimeout(timer);
+  }, [bannerUntil]);
+  const bannerShown = bannerUntil > Date.now() && bannerTick >= 0;
 
   const player = useVideoPlayer(source, (p) => {
     p.loop = false;
@@ -407,6 +467,35 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
       <Pressable style={styles.button} onPress={onBack}>
         <Text style={styles.buttonText}>Tilbage</Text>
       </Pressable>
+      {zapList.length > 1 && zapIndex !== -1 && (
+        <>
+          <Pressable
+            style={styles.button}
+            hitSlop={6}
+            onPress={() => {
+              const target = zapList[(zapIndex - 1 + zapList.length) % zapList.length];
+              if (target !== undefined) zapTo(target);
+            }}
+          >
+            <Text style={styles.buttonText}>‹</Text>
+          </Pressable>
+          <Pressable
+            style={styles.button}
+            hitSlop={6}
+            onPress={() => {
+              const target = zapList[(zapIndex + 1) % zapList.length];
+              if (target !== undefined) zapTo(target);
+            }}
+          >
+            <Text style={styles.buttonText}>›</Text>
+          </Pressable>
+        </>
+      )}
+      {previous !== null && (
+        <Pressable style={styles.button} hitSlop={6} onPress={() => zapTo(previous)}>
+          <Text style={styles.buttonText}>⇄ {shortName(previous.name)}</Text>
+        </Pressable>
+      )}
       <Pressable
         style={styles.button}
         onPress={() => {
@@ -460,12 +549,30 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
     />
   ) : null;
 
+  const banner = bannerShown ? (
+    <View style={styles.banner} pointerEvents="none">
+      <Text style={styles.bannerName} numberOfLines={1}>
+        {zapIndex === -1 ? '' : `${zapIndex + 1} · `}
+        {channel.name}
+      </Text>
+      <Text style={styles.bannerTitle} numberOfLines={1}>
+        {now?.title ?? 'Henter programdata …'}
+        {next !== null ? `  ·  Derefter: ${next.title}` : ''}
+      </Text>
+    </View>
+  ) : null;
+
   if (landscape) {
     return (
       <LandscapePlayer
         video={<VideoView style={StyleSheet.absoluteFill} player={player} nativeControls />}
         bar={actions}
-        overlays={subtitlePicker}
+        overlays={
+          <>
+            {banner}
+            {subtitlePicker}
+          </>
+        }
       />
     );
   }
@@ -474,7 +581,10 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* allowsFullscreen findes ikke i den installerede expo-video (57.0.3) —
           fuldskaerm er slaaet til som standard via fullscreenOptions.enable. */}
-      <VideoView style={styles.video} player={player} nativeControls />
+      <View>
+        <VideoView style={styles.video} player={player} nativeControls />
+        {banner}
+      </View>
 
       <View style={styles.info}>
         <View style={styles.channelLine}>
@@ -557,7 +667,24 @@ function airtime(programme: Programme | null | undefined): string {
   return `${clock(programme.start)} – ${clock(programme.stop)}`;
 }
 
+/** Kanalnavnet uden panelets praefiks og kvalitetsmaerke, til en lille knap. */
+function shortName(name: string): string {
+  const withoutPrefix = name.includes('|') ? name.slice(name.lastIndexOf('|') + 1) : name;
+  return withoutPrefix.replace(/\b(FHD|UHD|HD|SD|4K|HEVC|RAW)\b/gi, '').replace(/\s+/g, ' ').trim().slice(0, 14);
+}
+
 const styles = StyleSheet.create({
+  banner: {
+    position: 'absolute',
+    top: theme.spacing.sm,
+    left: theme.spacing.sm,
+    right: 64,
+    padding: theme.spacing.sm,
+    borderRadius: theme.radius,
+    backgroundColor: '#000000aa',
+  },
+  bannerName: { color: theme.colors.text, fontSize: 16, fontWeight: '700' },
+  bannerTitle: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
   container: { flex: 1, backgroundColor: '#000000' },
   video: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000000' },
   info: { padding: theme.spacing.md },

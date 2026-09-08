@@ -41,7 +41,7 @@ import type { GuideCell } from './layout.js';
 
 interface Props {
   session: AppSession;
-  onPlay: (channel: StoredChannel) => void;
+  onPlay: (channel: StoredChannel, neighbours: StoredChannel[]) => void;
   onRestart: (channel: StoredChannel, programme: Programme) => void;
   onAuthError: () => void;
   onBrowse: () => void;
@@ -466,7 +466,7 @@ export function GuideScreen({
         channel={previewChannel}
         enabled={previewEnabled}
         handle={previewHandle}
-        onOpen={(channel) => onPlay(channel)}
+        onOpen={(channel) => onPlay(channel, channels)}
       />
 
       <View style={styles.toolbar}>
@@ -547,7 +547,7 @@ export function GuideScreen({
           onClose={() => setSheet(null)}
           onPlay={() => {
             setSheet(null);
-            onPlay(sheet.channel);
+            onPlay(sheet.channel, channels);
           }}
           onRestart={() => {
             const programme = sheet.cell.programme;

@@ -28,7 +28,7 @@ import type { PreviewHandle } from '../preview/MiniPreview.js';
 
 interface Props {
   session: AppSession;
-  onSelect: (channel: StoredChannel) => void;
+  onSelect: (channel: StoredChannel, neighbours: StoredChannel[]) => void;
   onAuthError: () => void;
   previewEnabled: boolean;
   previewHandle: { current: PreviewHandle | null };

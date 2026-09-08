@@ -11,7 +11,8 @@ import {
   View,
 } from 'react-native';
 import type { AppSession } from '../../session.js';
-import { listChannels, setFavorite } from '../../storage/channels.js';
+import { getChannel, listChannels, setFavorite } from '../../storage/channels.js';
+import { getLastChannelId } from '../../storage/settings.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { addCategoryToFavorites, favoriteCategories, moveFavorite } from '../../storage/favorites.js';
 import type { FavoriteCategory } from '../../storage/favorites.js';
@@ -24,7 +25,7 @@ import type { PreviewHandle } from '../preview/MiniPreview.js';
 
 interface Props {
   session: AppSession;
-  onSelect: (channel: StoredChannel) => void;
+  onSelect: (channel: StoredChannel, neighbours: StoredChannel[]) => void;
   onAuthError: () => void;
   onBrowse: () => void;
   previewEnabled: boolean;
@@ -66,6 +67,8 @@ export function FavoritesScreen({
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [sorting, setSorting] = useState(false);
+  /** Den kanal der sidst blev set: "Se videre" oeverst. */
+  const [lastChannel, setLastChannel] = useState<StoredChannel | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
@@ -75,6 +78,8 @@ export function FavoritesScreen({
       ]);
       setChannels(list);
       setCategories(fromCategories);
+      const lastId = await getLastChannelId(session.db);
+      setLastChannel(lastId === null ? null : await getChannel(session.db, lastId));
     } finally {
       setLoading(false);
     }
@@ -152,6 +157,18 @@ export function FavoritesScreen({
   const header = (
     <View style={styles.toolbar}>
       <Notice notice={notice} onDismiss={() => setNotice(null)} />
+      {lastChannel !== null && (
+        <Pressable style={styles.resume} onPress={() => onSelect(lastChannel, channels)}>
+          <ChannelLogo uris={lastChannel.logoUrls} name={lastChannel.name} memoryKey={lastChannel.id} size={32} />
+          <View style={styles.resumeText}>
+            <Text style={styles.resumeLabel}>Se videre</Text>
+            <Text style={styles.resumeName} numberOfLines={1}>
+              {lastChannel.name}
+            </Text>
+          </View>
+          <Text style={styles.resumePlay}>▶</Text>
+        </Pressable>
+      )}
       <View style={styles.toolbarRow}>
         <Text style={styles.toolbarCount}>{channels.length} kanaler</Text>
         {categories.length > 0 && (
@@ -407,6 +424,17 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.sm,
   },
   toolbarRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
+  resume: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+    marginBottom: theme.spacing.xs,
+  },
+  resumeText: { flex: 1 },
+  resumeLabel: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600', textTransform: 'uppercase' },
+  resumeName: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
+  resumePlay: { color: theme.colors.accent, fontSize: 18 },
   toolbarCount: { flex: 1, color: theme.colors.textMuted, fontSize: 13 },
   spacer: { flex: 1 },
   sortHint: { color: theme.colors.text, fontSize: 14, marginBottom: theme.spacing.sm },

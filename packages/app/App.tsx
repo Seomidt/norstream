@@ -25,7 +25,7 @@ type Route =
   | { name: 'onboarding'; notice?: string }
   | { name: 'home' }
   /** `startFrom` er sat naar afspilningen kommer fra guidens start-forfra. */
-  | { name: 'player'; channel: StoredChannel; startFrom?: Programme }
+  | { name: 'player'; channel: StoredChannel; startFrom?: Programme; zap?: StoredChannel[] }
   /** En film eller serie. Afspilleren husker hvilken titel den kom fra. */
   | { name: 'vodDetail'; itemKey: string }
   | { name: 'vodPlayer'; itemKey: string; playback: Playback }
@@ -170,8 +170,8 @@ export default function App() {
           session={session}
           place={place}
           onPlaceChange={setPlace}
-          onSelect={(channel, startFrom) =>
-            setRoute({ name: 'player', channel, startFrom })
+          onSelect={(channel, startFrom, neighbours) =>
+            setRoute({ name: 'player', channel, startFrom, zap: neighbours })
           }
           onOpenVod={(item) => setRoute({ name: 'vodDetail', itemKey: item.key })}
           backRef={homeBack}
@@ -195,6 +195,7 @@ export default function App() {
           session={session}
           channel={route.channel}
           startFrom={route.startFrom}
+          zap={route.zap}
           onBack={() => setRoute({ name: 'home' })}
         />
       )}

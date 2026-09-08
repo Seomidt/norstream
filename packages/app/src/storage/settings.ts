@@ -12,6 +12,7 @@ const KEY_REGISTRY_ENABLED = 'logo_registry_enabled';
 const KEY_YOUTUBE_API_KEY = 'youtube_api_key';
 const KEY_SUBTITLE_LANGUAGE = 'subtitle_language';
 const KEY_TMDB_API_KEY = 'tmdb_api_key';
+const KEY_LAST_CHANNEL = 'last_channel_id';
 const KEY_RESTART_ONLY = 'restart_only_filter';
 
 export async function getSetting(
@@ -326,4 +327,14 @@ export async function getRestartOnlyFilter(db: SqlDatabase): Promise<boolean> {
 
 export async function setRestartOnlyFilter(db: SqlDatabase, enabled: boolean): Promise<void> {
   await setSetting(db, KEY_RESTART_ONLY, enabled ? 'on' : 'off');
+}
+
+/** Den kanal der sidst blev aabnet, til "Se videre" oeverst i favoritterne. */
+export async function getLastChannelId(db: SqlDatabase): Promise<string | null> {
+  const value = await getSetting(db, KEY_LAST_CHANNEL);
+  return value === null || value.length === 0 ? null : value;
+}
+
+export async function setLastChannelId(db: SqlDatabase, channelId: string): Promise<void> {
+  await setSetting(db, KEY_LAST_CHANNEL, channelId);
 }

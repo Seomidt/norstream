@@ -49,7 +49,7 @@ interface Props {
   session: AppSession;
   place: HomePlace;
   onPlaceChange: (place: HomePlace) => void;
-  onSelect: (channel: StoredChannel, startFrom?: Programme) => void;
+  onSelect: (channel: StoredChannel, startFrom?: Programme, neighbours?: StoredChannel[]) => void;
   /** En film eller serie aabnes. Selve afspilningen sker fra dens egen skaerm. */
   onOpenVod: (item: StoredVodItem) => void;
   onSignedOut: (notice: string) => void;
@@ -251,14 +251,14 @@ export function HomeScreen({
    * noget er vaerre end en stream der maaske skal proeve igen.
    */
   const open = useCallback(
-    (channel: StoredChannel, startFrom?: Programme): void => {
+    (channel: StoredChannel, startFrom?: Programme, neighbours?: StoredChannel[]): void => {
       void (async () => {
         try {
           await previewHandle.current?.release();
         } catch {
           // Med vilje.
         }
-        onSelect(channel, startFrom);
+        onSelect(channel, startFrom, neighbours);
       })();
     },
     [onSelect],
@@ -284,7 +284,7 @@ export function HomeScreen({
         {tab === 'favorites' && (
           <FavoritesScreen
             session={session}
-            onSelect={open}
+            onSelect={(channel, neighbours) => open(channel, undefined, neighbours)}
             onAuthError={handleAuthError}
             onBrowse={() => setTab('browse')}
             previewEnabled={previewEnabled}
@@ -298,7 +298,7 @@ export function HomeScreen({
         {tab === 'browse' && (
           <BrowseScreen
             session={session}
-            onSelect={open}
+            onSelect={(channel, neighbours) => open(channel, undefined, neighbours)}
             onAuthError={handleAuthError}
             previewEnabled={previewEnabled}
             previewHandle={previewHandle}
@@ -311,7 +311,7 @@ export function HomeScreen({
         {tab === 'guide' && (
           <GuideScreen
             session={session}
-            onPlay={(channel) => open(channel)}
+            onPlay={(channel, neighbours) => open(channel, undefined, neighbours)}
             onRestart={(channel, programme) => open(channel, programme)}
             onAuthError={handleAuthError}
             onBrowse={() => setTab('browse')}

@@ -25,7 +25,8 @@ interface Props {
   channels: StoredChannel[];
   loading: boolean;
   emptyText: string;
-  onSelect: (channel: StoredChannel) => void;
+  /** Kanalen, og listen den stod i — saa afspilleren kan zappe til naboerne. */
+  onSelect: (channel: StoredChannel, neighbours: StoredChannel[]) => void;
   onToggleFavorite: (channel: StoredChannel) => void;
   onAuthError: () => void;
   previewEnabled: boolean;
@@ -176,7 +177,7 @@ export function ChannelList({
     } catch {
       // Med vilje.
     }
-    onSelect(channel);
+    onSelect(channel, shown);
   }
 
   if (loading) {
