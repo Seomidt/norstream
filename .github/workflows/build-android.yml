@@ -79,8 +79,9 @@ jobs:
         ${{ secrets.EXPO_TOKEN || secrets.EXPO_ACCESS_TOKEN || secrets.EAS_TOKEN
         || secrets.EXPO }}
       # Tv-pluginet laeser EXPO_TV under prebuild: leanback-launcher, banner,
-      # beroeringsskaerm ikke paakraevet. Tom betyder telefon.
-      EXPO_TV: ${{ inputs.tv && '1' || '' }}
+      # beroeringsskaerm ikke paakraevet. 0 betyder telefon: pluginet laeser
+      # variablen som boolsk og afviser en tom streng.
+      EXPO_TV: ${{ inputs.tv && '1' || '0' }}
     steps:
       - name: Maal en adresse
         if: inputs.motor == 'probe'
