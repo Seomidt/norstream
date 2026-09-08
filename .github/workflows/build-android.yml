@@ -259,8 +259,9 @@ jobs:
             echo "::error::INTERNET-rettigheden mangler i manifestet."
             fail=1
           }
-          grep -q "applicationId 'dk.seomidt.norstream'" android/app/build.gradle || {
-            echo "::error::applicationId er ikke dk.seomidt.norstream."
+          expected='${{ inputs.app == 'radio' && 'dk.seomidt.norradio' || 'dk.seomidt.norstream' }}'
+          grep -q "applicationId '$expected'" android/app/build.gradle || {
+            echo "::error::applicationId er ikke $expected."
             fail=1
           }
           exit $fail
