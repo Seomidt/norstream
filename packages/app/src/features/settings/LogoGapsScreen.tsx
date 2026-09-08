@@ -65,11 +65,12 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
     setSkipped(result.skipped);
     setSummary(
       result.tried === 0 && result.skipped > 0
-        ? `Alle ${result.skipped} blev søgt for nylig uden held.`
-        : `Fandt ${result.found} logo${result.found === 1 ? '' : 'er'} til ${result.tried} kanal${result.tried === 1 ? '' : 'er'}.` +
+        ? `Ingen undersøgt: alle ${result.skipped} blev sprunget over, fordi de blev søgt for nylig uden held. Tryk nedenfor for at prøve dem igen.`
+        : `Fandt ${result.found} logo${result.found === 1 ? '' : 'er'} til ${result.tried} undersøgt${result.tried === 1 ? '' : 'e'}.` +
             (result.withBids > result.found
               ? ` Nettet havde et bud til ${result.withBids - result.found} mere, men billedet kunne ikke hentes.`
               : '') +
+            (result.found === 0 && result.problem !== null ? ` Sidste fejl fra nettet: ${result.problem}.` : '') +
             (result.skipped > 0 ? ` ${result.skipped} blev sprunget over, søgt for nylig.` : ''),
     );
     if (result.found > 0) onChanged();

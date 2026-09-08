@@ -327,8 +327,8 @@ const TABLES = [
 // kolonnen har sit eget ALTER-trin.
 // v11: logo_overrides. v12: logo_files og logo_misses. v13: favorites.position.
 // v14: vod_posters. v15: vod_posters.rating. v16: vod_watched.
-// v17: logo_search_tried.
-const SCHEMA_VERSION = 17;
+// v17: logo_search_tried. v18: samme tabel toemt én gang (se migrate).
+const SCHEMA_VERSION = 18;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -572,6 +572,11 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     if (version >= 8 && version < 10) await addV10Columns(db);
     if (version > 0 && version < 13) await addV13Columns(db);
     if (version === 14) await addV15Columns(db);
+    // v17 -> v18: den foerste netsoegning noterede 2.000 kanaler som soegt
+    // uden held, fordi alle opslag blev afvist lokalt af panel-pausen. De
+    // noter er ikke sande og skal vaek, ellers springes kanalerne over i
+    // en uge.
+    if (version === 17) await db.execAsync('DELETE FROM logo_search_tried');
 
   }
 

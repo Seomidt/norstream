@@ -7,7 +7,7 @@ import {
 } from '../../storage/logoOverrides.js';
 import type { ChannelWithoutLogo } from '../../storage/logoOverrides.js';
 import type { SqlDatabase } from '../../storage/types.js';
-import { findLogoCandidates, logoSearchFetch } from '../../sync/logoSearch.js';
+import { findLogoCandidates, lastLogoSearchProblem, logoSearchFetch, resetLogoSearchProblem } from '../../sync/logoSearch.js';
 import type { GoogleSearchKeys, LogoCandidate, LogoSearchFetch } from '../../sync/logoSearch.js';
 
 /**
@@ -38,6 +38,8 @@ export interface AutoSearchResult {
   skipped: number;
   /** Kanaler nettet havde et bud til — ogsaa dem hvor billedet saa ikke kunne hentes. */
   withBids: number;
+  /** Det sidste netvaerket meldte af fejl, eller null. */
+  problem: string | null;
 }
 
 export interface AutoSearchDeps {
@@ -70,6 +72,7 @@ export function autoSearchLogos(
   const now = deps.now ?? Date.now;
 
   const result = (async (): Promise<AutoSearchResult> => {
+    resetLogoSearchProblem();
     const candidates = channels.filter((channel) => !channel.hasOverride);
     const recent = await recentlySearchedLogos(
       deps.db,
@@ -107,7 +110,7 @@ export function autoSearchLogos(
     }
 
     await Promise.all(Array.from({ length: Math.min(PARALLEL, queue.length) }, () => worker()));
-    return { found, tried: done, skipped: recent.size, withBids };
+    return { found, tried: done, skipped: recent.size, withBids, problem: lastLogoSearchProblem() };
   })();
 
   return {

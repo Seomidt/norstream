@@ -159,12 +159,36 @@ interface WikidataHit {
   description: string | undefined;
 }
 
+/**
+ * Det sidste der gik galt paa nettet, med ord — "Wikidata svarede 403",
+ * "Network request failed". Vises naar en soegning intet fandt, saa man
+ * kan se om det var nettet eller kanalerne. Nulstilles foer hver koersel.
+ */
+let lastProblem: string | null = null;
+
+export function lastLogoSearchProblem(): string | null {
+  return lastProblem;
+}
+
+export function resetLogoSearchProblem(): void {
+  lastProblem = null;
+}
+
+function hostOf(url: string): string {
+  const match = /^https?:\/\/([^/]+)/.exec(url);
+  return match?.[1] ?? url;
+}
+
 async function readJson(fetchImpl: LogoSearchFetch, url: string): Promise<unknown> {
   try {
     const response = await fetchImpl(url);
-    if (!response.ok) return null;
+    if (!response.ok) {
+      lastProblem = `${hostOf(url)} svarede ${response.status}`;
+      return null;
+    }
     return await response.json();
-  } catch {
+  } catch (error) {
+    lastProblem = `${hostOf(url)}: ${error instanceof Error ? error.message : String(error)}`;
     return null;
   }
 }
