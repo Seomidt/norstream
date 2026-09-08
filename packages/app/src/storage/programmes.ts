@@ -1,4 +1,5 @@
 import type { Programme } from '@norstream/core';
+import { withTransaction } from './transaction.js';
 import type { SqlDatabase } from './types.js';
 
 interface ProgrammeRow {
@@ -23,17 +24,21 @@ export async function upsertProgrammes(
   db: SqlDatabase,
   programmes: Programme[],
 ): Promise<void> {
-  for (const p of programmes) {
-    await db.runAsync(
-      `INSERT INTO programmes (channel_id, start_ms, stop_ms, title, description)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(channel_id, start_ms) DO UPDATE SET
-         stop_ms     = excluded.stop_ms,
-         title       = excluded.title,
-         description = excluded.description`,
-      [p.channelId, p.start.getTime(), p.stop.getTime(), p.title, p.description],
-    );
-  }
+  if (programmes.length === 0) return;
+  // Én transaktion: en programtabel paa tusind raekker er én skrivning.
+  await withTransaction(db, async () => {
+    for (const p of programmes) {
+      await db.runAsync(
+        `INSERT INTO programmes (channel_id, start_ms, stop_ms, title, description)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(channel_id, start_ms) DO UPDATE SET
+           stop_ms     = excluded.stop_ms,
+           title       = excluded.title,
+           description = excluded.description`,
+        [p.channelId, p.start.getTime(), p.stop.getTime(), p.title, p.description],
+      );
+    }
+  });
 }
 
 /**

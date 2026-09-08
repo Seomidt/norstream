@@ -5,6 +5,7 @@ import { originOf } from '@norstream/core';
 import { OTHER_COUNTRY_FLAG, OTHER_COUNTRY_KEY } from './countries.js';
 import { deadLogoOrigins } from './logoHosts.js';
 import type { CountryGroup } from './countries.js';
+import { withTransaction } from './transaction.js';
 import type { SqlDatabase, SqlValue } from './types.js';
 
 /**
@@ -118,16 +119,18 @@ export async function replaceVodCategories(
   kind: VodKind,
   categories: readonly Category[],
 ): Promise<void> {
-  await db.runAsync('DELETE FROM vod_categories WHERE source_id = ? AND kind = ?', [
-    sourceId,
-    kind,
-  ]);
-  for (const category of categories) {
-    await db.runAsync(
-      'INSERT INTO vod_categories (id, source_id, kind, name) VALUES (?, ?, ?, ?)',
-      [channelKey(sourceId, `${kind}-${category.id}`), sourceId, kind, category.name],
-    );
-  }
+  await withTransaction(db, async () => {
+    await db.runAsync('DELETE FROM vod_categories WHERE source_id = ? AND kind = ?', [
+      sourceId,
+      kind,
+    ]);
+    for (const category of categories) {
+      await db.runAsync(
+        'INSERT INTO vod_categories (id, source_id, kind, name) VALUES (?, ?, ?, ?)',
+        [channelKey(sourceId, `${kind}-${category.id}`), sourceId, kind, category.name],
+      );
+    }
+  });
 }
 
 /**
@@ -143,8 +146,7 @@ export async function replaceVodItems(
   kind: VodKind,
   items: readonly VodItem[],
 ): Promise<void> {
-  await db.execAsync('BEGIN');
-  try {
+  await withTransaction(db, async () => {
     await db.runAsync('DELETE FROM vod_items WHERE source_id = ? AND kind = ?', [sourceId, kind]);
     for (let index = 0; index < items.length; index += BATCH) {
       const slice = items.slice(index, index + BATCH);
@@ -174,11 +176,7 @@ export async function replaceVodItems(
         params,
       );
     }
-    await db.execAsync('COMMIT');
-  } catch (cause) {
-    await db.execAsync('ROLLBACK').catch(() => undefined);
-    throw cause;
-  }
+  });
 }
 
 /** Alle kategorier af den ene slags, med antal og udledt land, i ét opslag. */
@@ -426,27 +424,29 @@ export async function replaceEpisodes(
   seriesKey: string,
   episodes: readonly Episode[],
 ): Promise<void> {
-  await db.runAsync('DELETE FROM episodes WHERE series_key = ?', [seriesKey]);
-  for (const episode of episodes) {
-    await db.runAsync(
-      `INSERT OR REPLACE INTO episodes
-         (key, series_key, episode_id, season, episode, title, plot, duration_min,
-          container_ext, air_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        `${seriesKey}:${episode.id}`,
-        seriesKey,
-        episode.id,
-        episode.season,
-        episode.episode,
-        episode.title,
-        episode.plot,
-        episode.durationMinutes,
-        episode.containerExtension,
-        episode.airDate,
-      ],
-    );
-  }
+  await withTransaction(db, async () => {
+    await db.runAsync('DELETE FROM episodes WHERE series_key = ?', [seriesKey]);
+    for (const episode of episodes) {
+      await db.runAsync(
+        `INSERT OR REPLACE INTO episodes
+           (key, series_key, episode_id, season, episode, title, plot, duration_min,
+            container_ext, air_date)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          `${seriesKey}:${episode.id}`,
+          seriesKey,
+          episode.id,
+          episode.season,
+          episode.episode,
+          episode.title,
+          episode.plot,
+          episode.durationMinutes,
+          episode.containerExtension,
+          episode.airDate,
+        ],
+      );
+    }
+  });
 }
 
 export interface StoredEpisode extends Episode {

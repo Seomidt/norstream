@@ -7,6 +7,7 @@ import {
 } from '@norstream/core';
 import type { Category, Channel } from '@norstream/core';
 import { deadLogoOrigins } from './logoHosts.js';
+import { withTransaction } from './transaction.js';
 import type { SqlDatabase, SqlValue } from './types.js';
 
 export interface StoredChannel extends Channel {
@@ -105,14 +106,16 @@ export async function replaceCategories(
   sourceId: string,
   categories: Category[],
 ): Promise<void> {
-  await db.runAsync('DELETE FROM categories WHERE source_id = ?', [sourceId]);
-  for (const category of categories) {
-    await db.runAsync('INSERT INTO categories (id, source_id, name) VALUES (?, ?, ?)', [
-      channelKey(sourceId, category.id),
-      sourceId,
-      category.name,
-    ]);
-  }
+  await withTransaction(db, async () => {
+    await db.runAsync('DELETE FROM categories WHERE source_id = ?', [sourceId]);
+    for (const category of categories) {
+      await db.runAsync('INSERT INTO categories (id, source_id, name) VALUES (?, ?, ?)', [
+        channelKey(sourceId, category.id),
+        sourceId,
+        category.name,
+      ]);
+    }
+  });
 }
 
 export async function listCategories(db: SqlDatabase): Promise<Category[]> {
@@ -134,6 +137,9 @@ export async function replaceChannels(
   /** Landet for hver kategori, saa kanalen kan slaas op i logo-registret. */
   countryByCategory?: ReadonlyMap<string, string>,
 ): Promise<void> {
+  // Én transaktion om det hele: 22.000 raekker som én skrivning, og et
+  // afbrudt sync efterlader den gamle liste hel.
+  await withTransaction(db, async () => {
   // Trin 1: Mark denne kildes kanaler som stale. De andre kilders roeres ikke.
   await db.runAsync('UPDATE channels SET is_stale = 1 WHERE source_id = ?', [sourceId]);
 
@@ -191,6 +197,7 @@ export async function replaceChannels(
   // Trin 3: Slet denne kildes kanaler der stadig er stale — de fandtes ikke i
   // den nye liste. En anden kildes kanaler maa ikke ryge med.
   await db.runAsync('DELETE FROM channels WHERE is_stale = 1 AND source_id = ?', [sourceId]);
+  });
 }
 
 /**

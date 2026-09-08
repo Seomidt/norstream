@@ -91,6 +91,8 @@ CREATE TABLE IF NOT EXISTS programmes (
 
 CREATE INDEX IF NOT EXISTS idx_programmes_window
   ON programmes (channel_id, start_ms, stop_ms);
+-- Til oprydningen af gamle programmer, som ellers laeser hele tabellen.
+CREATE INDEX IF NOT EXISTS idx_programmes_stop ON programmes (stop_ms);
 
 CREATE TABLE IF NOT EXISTS epg_fetch (
   stream_id  TEXT    PRIMARY KEY,
