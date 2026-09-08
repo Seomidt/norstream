@@ -5,10 +5,13 @@ import { StatusBar } from 'expo-status-bar';
 import type { StoredChannel } from '@norstream/app/src/storage/channels.js';
 import { createSession } from '@norstream/app/src/session.js';
 import type { AppSession } from '@norstream/app/src/session.js';
-import { PlayerScreen } from '@norstream/app/src/features/player/PlayerScreen.js';
 import { InternetRadio } from '@norstream/app/src/features/radio/InternetRadio.js';
 import type { RadioCountry } from '@norstream/app/src/sync/radioBrowser.js';
 import { theme } from '@norstream/app/src/ui/theme.js';
+import { RadioPlayerScreen } from './src/RadioPlayerScreen.js';
+import { syncAutoLibrary } from './src/library.js';
+import { current, subscribe } from './modules/radio-auto/index.js';
+import type { AutoSnapshot } from './modules/radio-auto/index.js';
 
 /**
  * NorRadio: internetradioen fra NorStream som sin egen app.
@@ -26,6 +29,15 @@ export default function App() {
   /** Landet der er aabnet. Ligger her, saa det overlever afspilleren. */
   const [country, setCountry] = useState<RadioCountry | null>(null);
   const listBack = useRef<() => boolean>(() => false);
+  /** Hvad tjenesten spiller lige nu, ogsaa naar det er bilen der valgte. */
+  const [playing, setPlaying] = useState<AutoSnapshot>(() => current());
+  useEffect(() => subscribe(setPlaying), []);
+
+  // Bibliotek til bilen: ved start, og hver gang man er tilbage paa listen.
+  useEffect(() => {
+    if (session === null || route.name !== 'home') return;
+    void syncAutoLibrary(session.db);
+  }, [session, route.name]);
 
   useEffect(() => {
     let cancelled = false;
@@ -81,11 +93,18 @@ export default function App() {
               onSelect={(channel, zap) => setRoute({ name: 'player', channel, zap })}
               backRef={listBack}
             />
+            {playing.state !== 'idle' && playing.title !== null && route.name === 'home' && (
+              <View style={styles.nowPlaying}>
+                <Text style={styles.nowPlayingText} numberOfLines={1}>
+                  {playing.state === 'playing' ? '▶' : playing.state === 'paused' ? '❚❚' : '…'} {playing.title}
+                </Text>
+              </View>
+            )}
           </View>
         )}
         {route.name === 'player' && session !== null && (
           <View style={styles.overlay}>
-            <PlayerScreen session={session} channel={route.channel} zap={route.zap} onBack={() => setRoute({ name: 'home' })} />
+            <RadioPlayerScreen channel={route.channel} zap={route.zap} onBack={() => setRoute({ name: 'home' })} />
           </View>
         )}
       </SafeAreaView>
@@ -101,4 +120,12 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.lg },
   errorText: { color: theme.colors.text, fontSize: 15, textAlign: 'center' },
   overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.background },
+  nowPlaying: {
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    backgroundColor: theme.colors.surface,
+    borderTopColor: theme.colors.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  nowPlayingText: { color: theme.colors.text, fontSize: 14, fontWeight: '600' },
 });

@@ -1,0 +1,26 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'dk.seomidt.norradio'
+version = '1.0.0'
+
+android {
+  namespace "dk.seomidt.norradio.auto"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
+}
+
+dependencies {
+  implementation 'com.facebook.react:react-android'
+
+  // Samme version som expo-video, ellers ligger der to media3 i appen.
+  def androidxMedia3Version = "1.9.0"
+  implementation "androidx.media3:media3-session:${androidxMedia3Version}"
+  implementation "androidx.media3:media3-exoplayer:${androidxMedia3Version}"
+  implementation "androidx.media3:media3-exoplayer-hls:${androidxMedia3Version}"
+  implementation "com.google.guava:guava:33.4.0-android"
+}
