@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { AppSession } from '../../session.js';
 import { runConnectionCheck } from '../../net/connectionCheck.js';
-import { appleFetch, findAppleTrailer } from '../../sync/appleTrailers.js';
 import type { CheckReport, Probe } from '../../net/connectionCheck.js';
 import { theme } from '../../ui/theme.js';
 
@@ -50,27 +49,6 @@ export function ConnectionCheckScreen({ session, onBack }: Props) {
   const [running, setRunning] = useState(false);
   const [report, setReport] = useState<CheckReport | null>(null);
   const panelUrl = session.sources[0]?.source.url ?? null;
-  /** Svarer Apples filmbutik fra dette netvaerk? Fra GitHubs maskiner svarede den tomt. */
-  const [apple, setApple] = useState<string | null>(null);
-  const [appleBusy, setAppleBusy] = useState(false);
-
-  async function checkApple(): Promise<void> {
-    setAppleBusy(true);
-    const started = Date.now();
-    try {
-      const found = await findAppleTrailer(appleFetch, 'Dune', 2021);
-      const ms = Date.now() - started;
-      setApple(
-        found === null
-          ? `Butikken svarede, men uden trailer til "Dune" (${ms} ms). Så virker Apple-trailere ikke herfra.`
-          : `Fandt "${found.name}" i den ${found.store === 'dk' ? 'danske' : 'amerikanske'} butik på ${ms} ms. Apple-trailere virker herfra.`,
-      );
-    } catch {
-      setApple('Butikken svarede ikke.');
-    } finally {
-      setAppleBusy(false);
-    }
-  }
 
   async function run(): Promise<void> {
     if (panelUrl === null) return;
@@ -105,16 +83,6 @@ export function ConnectionCheckScreen({ session, onBack }: Props) {
             )}
           </Pressable>
         )}
-        <Text style={styles.sectionTitle}>Apple-trailere</Text>
-        <Text style={styles.hint}>
-          Trailere hentes først fra Apples filmbutik. Målingen slår "Dune" op og siger om butikken
-          svarer fra dette netværk.
-        </Text>
-        <Pressable style={[styles.button, appleBusy && styles.buttonBusy]} disabled={appleBusy} onPress={() => void checkApple()}>
-          {appleBusy ? <ActivityIndicator color={theme.colors.text} /> : <Text style={styles.buttonText}>Mål Apple-trailere</Text>}
-        </Pressable>
-        {apple !== null && <Text style={styles.hint}>{apple}</Text>}
-
         {report !== null && (
           <View style={styles.report}>
             <Text style={styles.verdict}>{VERDICT_TITLES[report.verdict]}</Text>
@@ -151,15 +119,6 @@ const styles = StyleSheet.create({
   crumbLabel: { color: theme.colors.text, fontSize: 17, fontWeight: '700' },
   content: { padding: theme.spacing.md, paddingBottom: theme.spacing.xl },
   hint: { color: theme.colors.textMuted, fontSize: 14, lineHeight: 20, marginBottom: theme.spacing.md },
-  sectionTitle: {
-    color: theme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginTop: theme.spacing.lg,
-    marginBottom: theme.spacing.xs,
-  },
   button: {
     backgroundColor: theme.colors.accent,
     borderRadius: theme.radius,

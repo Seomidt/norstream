@@ -3,10 +3,8 @@ import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'r
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import type { WebViewMessageEvent } from 'react-native-webview';
-import { VideoView, useVideoPlayer } from 'expo-video';
 import type { AppSession } from '../../session.js';
 import { getTmdbApiKey, getYoutubeApiKey } from '../../storage/settings.js';
-import { appleFetch, findAppleTrailer } from '../../sync/appleTrailers.js';
 import { findTmdbTrailer, tmdbFetch } from '../../sync/tmdb.js';
 import { theme } from '../../ui/theme.js';
 import { MIN_TRAILER_SECONDS, findLongerTrailer, youtubeSearchUrl } from './trailerSearch.js';
@@ -35,7 +33,6 @@ interface Props {
  * - `looking`: soegningen gennem Data API'et er i gang.
  */
 type Source =
-  | { kind: 'native'; url: string }
   | { kind: 'measured'; id: string }
   | { kind: 'plain'; id: string }
   | { kind: 'search'; url: string }
@@ -91,19 +88,6 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
    * ingen noegle, spilles udbyderens eget bud og maales som foer.
    */
   async function start(): Promise<void> {
-    // Foerst Apples egen filmbutik: en MP4 til appens egen afspiller, uden
-    // webvisning. Det er den eneste trailer der kan spilles paa Apple TV,
-    // og paa telefonen er den bedre end YouTubes indlejring: ingen
-    // reklamer, ingen "maa ikke vises her".
-    if (kind === 'movie') {
-      const apple = await findAppleTrailer(appleFetch, title, year);
-      if (apple !== null) {
-        setNote(`Trailer fra Apples filmbutik: ${apple.name}${apple.year !== null ? ` (${apple.year})` : ''}.`);
-        setLoading(false);
-        setSource({ kind: 'native', url: apple.url });
-        return;
-      }
-    }
     const tmdbKey = await getTmdbApiKey(session.db);
     if (tmdbKey !== null) {
       tmdbTried.current = true;
@@ -185,11 +169,6 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     }
   }
 
-  const player = useVideoPlayer(source.kind === 'native' ? source.url : null, (p) => {
-    p.loop = false;
-    p.play();
-  });
-
   const webSource =
     source.kind === 'measured'
       ? { html: measuredEmbedPage(source.id), baseUrl: EMBED_ORIGIN }
@@ -206,7 +185,6 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   return (
     <View style={styles.container}>
       <View style={[styles.frame, source.kind === 'search' && styles.frameTall]}>
-        {source.kind === 'native' && <VideoView style={styles.web} player={player} nativeControls />}
         {!failed && webSource !== null && (
           <WebView
             key={
