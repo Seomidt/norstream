@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { initials } from './initials.js';
+import { bareName, initials, tileColour } from './initials.js';
 
 describe('initials', () => {
   it('tager forbogstaverne fra de to foerste ord', () => {
@@ -20,5 +20,19 @@ describe('initials', () => {
   it('giver altid noget at tegne', () => {
     expect(initials('')).toBe('?');
     expect(initials('   ')).toBe('?');
+  });
+});
+
+describe('bareName og tileColour', () => {
+  it('tager pynten af og giver initialer fra selve navnet', () => {
+    expect(bareName('SWE| [Radio][SE] Bandit Metal HD')).toBe('Bandit Metal');
+    expect(initials('SWE| [Radio][SE] Bandit Metal HD')).toBe('BM');
+    expect(initials('DK: DR P3 (RADIO)')).toBe('DP');
+  });
+
+  it('giver samme farve for samme navn, uanset pynt', () => {
+    expect(tileColour('SWE| Bandit Metal HD')).toBe(tileColour('Bandit Metal'));
+    expect(tileColour('Bandit Metal')).toMatch(/^hsl\(\d+, 45%, 38%\)$/);
+    expect(tileColour('DR1')).not.toBe(tileColour('DR2'));
   });
 });

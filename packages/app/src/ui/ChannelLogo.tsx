@@ -1,7 +1,7 @@
 import { useEffect, useReducer, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
-import { initials } from './initials.js';
+import { initials, tileColour } from './initials.js';
 import { cachedLogoUri, ensureLogo, logoFailedToRender, subscribeLogo } from './logoCache.js';
 import { theme } from './theme.js';
 
@@ -42,7 +42,7 @@ interface Props {
 export function ChannelLogo({ uris, name, size = 44, memoryKey }: Props) {
   const box = { width: size, height: size, borderRadius: Math.round(size / 6) };
   const fallback = (
-    <View style={[styles.fallback, box]}>
+    <View style={[styles.fallback, box, { backgroundColor: tileColour(name) }]}>
       <Text style={[styles.initials, { fontSize: Math.round(size / 2.6) }]}>{initials(name)}</Text>
     </View>
   );
@@ -129,5 +129,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  initials: { color: theme.colors.textMuted, fontWeight: '700' },
+  initials: { color: '#ffffff', fontWeight: '700' },
 });
