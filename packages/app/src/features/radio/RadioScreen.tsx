@@ -6,6 +6,7 @@ import type { StoredChannel } from '../../storage/channels.js';
 import { theme } from '../../ui/theme.js';
 import { ChannelList } from '../channels/ChannelList.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
+import type { RadioCountry } from '../../sync/radioBrowser.js';
 import { InternetRadio } from './InternetRadio.js';
 
 interface Props {
@@ -16,9 +17,20 @@ interface Props {
   onPickLogo: (channel: StoredChannel) => void;
   /** Udfyldes med det tilbage-knappen skal goere her (internetradioens land). */
   backRef: { current: () => boolean };
+  /** Hvor man staar i Radio. Ligger i App.tsx, saa det overlever afspilleren. */
+  place: RadioPlace;
+  onPlaceChange: (place: RadioPlace) => void;
 }
 
-type Part = 'panel' | 'internet';
+export type RadioPart = 'panel' | 'internet';
+
+export interface RadioPlace {
+  part: RadioPart;
+  /** Internetradioens aabne land, eller null for landelisten. */
+  country: RadioCountry | null;
+}
+
+export const RADIO_START: RadioPlace = { part: 'internet', country: null };
 
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -30,9 +42,10 @@ const SEARCH_DEBOUNCE_MS = 250;
  * kanaler — logo, favoritstjerne, zap i afspilleren — men uden preview:
  * previewet er lydloest, og for radio er der intet at se.
  */
-export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onPickLogo, backRef }: Props) {
+export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onPickLogo, backRef, place, onPlaceChange }: Props) {
   /** Panelets radiokanaler, eller internetradio fra Radio Browser. */
-  const [part, setPart] = useState<Part>('internet');
+  const part = place.part;
+  const setPart = (next: RadioPart): void => onPlaceChange({ ...place, part: next });
   const internetBack = useRef<() => boolean>(() => false);
   backRef.current = (): boolean => (part === 'internet' ? internetBack.current() : false);
   const [channels, setChannels] = useState<StoredChannel[]>([]);
@@ -64,7 +77,7 @@ export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onP
     );
   }
 
-  const parts: { id: Part; label: string }[] = [
+  const parts: { id: RadioPart; label: string }[] = [
     { id: 'internet', label: 'Internetradio' },
     { id: 'panel', label: `Fra panelet${loading ? '' : ` (${channels.length})`}` },
   ];
@@ -89,7 +102,14 @@ export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onP
     return (
       <View style={styles.container}>
         {header}
-        <InternetRadio session={session} onSelect={onSelect} onPickLogo={onPickLogo} backRef={internetBack} />
+        <InternetRadio
+          session={session}
+          country={place.country}
+          onCountryChange={(country) => onPlaceChange({ ...place, country })}
+          onSelect={onSelect}
+          onPickLogo={onPickLogo}
+          backRef={internetBack}
+        />
       </View>
     );
   }

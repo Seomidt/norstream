@@ -17,7 +17,8 @@ import type { Level } from '../browse/BrowseScreen.js';
 import { FavoritesScreen } from '../favorites/FavoritesScreen.js';
 import { FrontScreen } from './FrontScreen.js';
 import { GuideScreen } from '../guide/GuideScreen.js';
-import { RadioScreen } from '../radio/RadioScreen.js';
+import { RADIO_START, RadioScreen } from '../radio/RadioScreen.js';
+import type { RadioPlace } from '../radio/RadioScreen.js';
 import { SourcesScreen } from '../sources/SourcesScreen.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -44,6 +45,8 @@ export interface HomePlace {
   browse: Level | null;
   /** Film-fanens niveau, eller null for forsiden. */
   vod: VodLevel | null;
+  /** Radio-fanens sted: del og aabent land. Null for udgangspunktet. */
+  radio?: RadioPlace | null;
 }
 
 interface Props {
@@ -357,6 +360,8 @@ export function HomeScreen({
             previewHandle={previewHandle}
             onPickLogo={pickLogo}
             backRef={radioBack}
+            place={place.radio ?? RADIO_START}
+            onPlaceChange={(radio) => onPlaceChange({ ...place, radio })}
           />
         )}
 

@@ -27,6 +27,14 @@ import { theme } from '../../ui/theme.js';
 
 interface Props {
   session: AppSession;
+  /**
+   * Landet der er aabnet, eller null for landelisten. Ligger hos
+   * foraelderen (og i sidste ende i App.tsx), fordi hele Hjem afmonteres
+   * naar afspilleren aabnes: uden det landede man paa landelisten hver
+   * gang man kom tilbage fra en station.
+   */
+  country: RadioCountry | null;
+  onCountryChange: (country: RadioCountry | null) => void;
   onSelect: (channel: StoredChannel, neighbours: StoredChannel[]) => void;
   /** Hold fingeren paa en station: vaelg dens logo selv. */
   onPickLogo?: (channel: StoredChannel) => void;
@@ -44,9 +52,8 @@ const COUNTRIES_AT_KEY = 'radio_countries_ms';
  * med flag, Norden foerst. Favoritterne staar oeverst som deres egen
  * gruppe, og soegefeltet soeger paa tvaers af alle lande.
  */
-export function InternetRadio({ session, onSelect, onPickLogo, backRef }: Props) {
+export function InternetRadio({ session, country, onCountryChange, onSelect, onPickLogo, backRef }: Props) {
   const [countries, setCountries] = useState<RadioCountry[] | null>(null);
-  const [country, setCountry] = useState<RadioCountry | null>(null);
   const [stations, setStations] = useState<RadioStation[] | null>(null);
   const [favourites, setFavourites] = useState<RadioStation[]>([]);
   const [favouriteIds, setFavouriteIds] = useState<Set<string>>(new Set());
@@ -62,7 +69,7 @@ export function InternetRadio({ session, onSelect, onPickLogo, backRef }: Props)
       return true;
     }
     if (country !== null) {
-      setCountry(null);
+      onCountryChange(null);
       setStations(null);
       return true;
     }
@@ -296,7 +303,7 @@ export function InternetRadio({ session, onSelect, onPickLogo, backRef }: Props)
           }
           ListEmptyComponent={<Text style={styles.empty}>Ingen lande endnu. Er der forbindelse til nettet?</Text>}
           renderItem={({ item }) => (
-            <Pressable style={styles.row} onPress={() => setCountry(item)}>
+            <Pressable style={styles.row} onPress={() => onCountryChange(item)}>
               <Text style={styles.flag}>{item.flag}</Text>
               <Text style={styles.name} numberOfLines={1}>
                 {item.name}
