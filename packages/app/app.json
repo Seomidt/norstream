@@ -28,7 +28,8 @@
         "@react-native-tvos/config-tv",
         {
           "isTV": false,
-          "tvosDeploymentTarget": "16.4"
+          "tvosDeploymentTarget": "16.4",
+          "androidTVBanner": "./assets/tv-banner.png"
         }
       ],
       "expo-sqlite",

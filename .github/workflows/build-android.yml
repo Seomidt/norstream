@@ -40,6 +40,11 @@ on:
         default: app
         type: choice
         options: [app, radio]
+      tv:
+        description: 'Byg til Android TV / Google TV (leanback-launcher, banner, ingen krav om beroeringsskaerm). Kun motor runner.'
+        required: false
+        default: false
+        type: boolean
       url:
         description: 'Adresse at maale (motor probe) eller navn paa maaleskript (motor maal)'
         required: false
@@ -73,6 +78,9 @@ jobs:
       EXPO_TOKEN: >-
         ${{ secrets.EXPO_TOKEN || secrets.EXPO_ACCESS_TOKEN || secrets.EAS_TOKEN
         || secrets.EXPO }}
+      # Tv-pluginet laeser EXPO_TV under prebuild: leanback-launcher, banner,
+      # beroeringsskaerm ikke paakraevet. Tom betyder telefon.
+      EXPO_TV: ${{ inputs.tv && '1' || '' }}
     steps:
       - name: Maal en adresse
         if: inputs.motor == 'probe'
@@ -276,6 +284,17 @@ jobs:
             echo "::error::applicationId er ikke $expected."
             fail=1
           }
+          if [ "${EXPO_TV}" = "1" ]; then
+            grep -q 'android.intent.category.LEANBACK_LAUNCHER' "$manifest" || {
+              echo "::error::LEANBACK_LAUNCHER mangler: tv-pluginet har ikke koert." \
+                   "Uden den viser Google TV ikke appen i sin launcher."
+              fail=1
+            }
+            test -f android/app/src/main/res/drawable/tv_banner.png || {
+              echo "::error::tv_banner.png mangler i res/drawable."
+              fail=1
+            }
+          fi
           exit $fail
 
       # --- Vej 1: byg her paa maskinen ---
@@ -311,7 +330,7 @@ jobs:
         if: inputs.motor == 'runner'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.app == 'radio' && 'norradio-apk' || 'norstream-apk' }}
+          name: ${{ inputs.app == 'radio' && 'norradio' || 'norstream' }}${{ inputs.tv && '-tv' || '' }}-apk
           path: packages/${{ inputs.app || 'app' }}/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
 
@@ -322,7 +341,7 @@ jobs:
             echo "### APK'en er bygget her"
             echo ""
             echo "Hent den under **Artifacts** nederst paa denne side:"
-            echo "\`${{ inputs.app == 'radio' && 'norradio-apk' || 'norstream-apk' }}\` — pak zip-filen ud, og aabn APK'en paa telefonen."
+            echo "\`${{ inputs.app == 'radio' && 'norradio' || 'norstream' }}${{ inputs.tv && '-tv' || '' }}-apk\` — pak zip-filen ud, og aabn APK'en paa telefonen."
             echo ""
             echo "**Afinstallér den nuvaerende app foerst.** Den her er signeret med"
             echo "Androids almindelige debug-noegle og ikke med EAS-noeglen, og Android"
