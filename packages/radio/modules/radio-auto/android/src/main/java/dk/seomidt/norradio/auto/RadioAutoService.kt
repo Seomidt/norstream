@@ -72,7 +72,7 @@ class RadioAutoService : MediaLibraryService() {
       pageSize: Int,
       params: LibraryParams?,
     ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-      val children = Library.read(service).children(parentId)
+      val children = Library.read(service).children(parentId, service)
       return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(children), params))
     }
 
@@ -84,7 +84,7 @@ class RadioAutoService : MediaLibraryService() {
       val station = Library.read(service).find(mediaId)
       return Futures.immediateFuture(
         if (station == null) LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
-        else LibraryResult.ofItem(Library.item(station), null),
+        else LibraryResult.ofItem(Library.item(station, service), null),
       )
     }
 
@@ -101,7 +101,7 @@ class RadioAutoService : MediaLibraryService() {
       val resolved =
         mediaItems.mapNotNull { item ->
           if (item.localConfiguration != null) item
-          else (Library.fromRequest(item) ?: library.find(item.mediaId))?.let { Library.item(it) }
+          else (Library.fromRequest(item) ?: library.find(item.mediaId))?.let { Library.item(it, service) }
         }
       return Futures.immediateFuture(resolved.toMutableList())
     }

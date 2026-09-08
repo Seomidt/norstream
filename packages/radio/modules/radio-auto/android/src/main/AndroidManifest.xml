@@ -5,6 +5,13 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
   <application>
+    <!-- Smaa, cachede logoer til bilens lister; se Artwork.kt. -->
+    <provider
+      android:name="dk.seomidt.norradio.auto.ArtworkProvider"
+      android:authorities="${applicationId}.art"
+      android:exported="true"
+      android:grantUriPermissions="true" />
+
     <!-- Siger til Android Auto at appen er en medie-app. -->
     <meta-data
       android:name="com.google.android.gms.car.application"

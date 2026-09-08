@@ -59,9 +59,10 @@ class RadioAutoModule : Module() {
     }
 
     AsyncFunction("play") { json: String ->
+      val context = appContext.reactContext ?: throw IllegalStateException("Ingen kontekst")
       val station = Library.station(JSONObject(json)) ?: throw IllegalArgumentException("Stationen mangler adresse")
       withController { c ->
-        c.setMediaItem(Library.item(station))
+        c.setMediaItem(Library.item(station, context))
         c.prepare()
         c.play()
       }

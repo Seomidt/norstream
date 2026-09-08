@@ -34,14 +34,28 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
       file(context).writeText(json)
     }
 
+    /** Hvor mange stationer et land faar med i bilen; listen er sorteret efter stemmer, saa toppen er den gode del. */
+    const val MAX_IN_CAR = 100
+
+    private var cached: Library? = null
+    private var cachedStamp = 0L
+
+    /** Filen laeses og parses kun naar den har aendret sig, ikke for hver mappe bilen aabner. */
+    @Synchronized
     fun read(context: Context): Library {
       val f = file(context)
       if (!f.exists()) return Library(emptyList(), emptyList())
-      return try {
-        parse(JSONObject(f.readText()))
-      } catch (_: Exception) {
-        Library(emptyList(), emptyList())
-      }
+      val stamp = f.lastModified() xor f.length()
+      cached?.let { if (stamp == cachedStamp) return it }
+      val parsed =
+        try {
+          parse(JSONObject(f.readText()))
+        } catch (_: Exception) {
+          Library(emptyList(), emptyList())
+        }
+      cached = parsed
+      cachedStamp = stamp
+      return parsed
     }
 
     fun parse(root: JSONObject): Library {
@@ -88,7 +102,8 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
       val id = item.mediaId.removePrefix(STATION_PREFIX)
       if (id.isEmpty()) return null
       val name = item.mediaMetadata.title?.toString() ?: extras?.getString(EXTRA_NAME) ?: id
-      val logo = item.mediaMetadata.artworkUri?.toString() ?: extras?.getString(EXTRA_LOGO)
+      // artworkUri peger paa vores egen provider; den rigtige adresse ligger i extras.
+      val logo = extras?.getString(EXTRA_LOGO)
       val country = item.mediaMetadata.artist?.toString() ?: extras?.getString(EXTRA_COUNTRY) ?: ""
       return Station(id, name, uri.toString(), logo, country)
     }
@@ -114,7 +129,7 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
      * finde adressen igen i fromRequest, ogsaa for stationer der ikke staar
      * i biblioteket (fx fra en soegning).
      */
-    fun item(station: Station): MediaItem =
+    fun item(station: Station, context: Context): MediaItem =
       MediaItem.Builder()
         .setMediaId(STATION_PREFIX + station.id)
         .setUri(station.url)
@@ -135,7 +150,7 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
             .setTitle(station.name)
             .setArtist(station.country)
             .setStation(station.name)
-            .setArtworkUri(station.logoUrl?.let { Uri.parse(it) })
+            .setArtworkUri(station.logoUrl?.let { Artwork.uri(context, it) })
             .setIsBrowsable(false)
             .setIsPlayable(true)
             .setMediaType(MediaMetadata.MEDIA_TYPE_RADIO_STATION)
@@ -151,18 +166,19 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
     return allStations().firstOrNull { it.id == id }
   }
 
-  fun children(parentId: String): List<MediaItem> =
+  fun children(parentId: String, context: Context): List<MediaItem> =
     when {
       parentId == ROOT ->
         listOf(
           folder(FAVOURITES, "Mine stationer", "${favourites.size}"),
           folder(COUNTRIES, "Lande", "${countries.size}"),
         )
-      parentId == FAVOURITES -> favourites.map { item(it) }
-      parentId == COUNTRIES -> countries.map { folder(COUNTRY_PREFIX + it.code, "${it.flag} ${it.name}", "${it.stations.size}") }
+      parentId == FAVOURITES -> favourites.map { item(it, context) }
+      parentId == COUNTRIES ->
+        countries.map { folder(COUNTRY_PREFIX + it.code, "${it.flag} ${it.name}", "${minOf(it.stations.size, MAX_IN_CAR)}") }
       parentId.startsWith(COUNTRY_PREFIX) -> {
         val code = parentId.removePrefix(COUNTRY_PREFIX)
-        countries.firstOrNull { it.code == code }?.stations?.map { item(it) } ?: emptyList()
+        countries.firstOrNull { it.code == code }?.stations?.take(MAX_IN_CAR)?.map { item(it, context) } ?: emptyList()
       }
       else -> emptyList()
     }
