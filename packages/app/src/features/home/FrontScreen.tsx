@@ -24,6 +24,7 @@ import { justWatchLink, providerShelf, serviceSearchUrl, trendingTitles } from '
 import type { TmdbTitle } from '../../sync/tmdbHome.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 import { Poster } from '../vod/VodScreen.js';
 import { findInPanel } from './panelMatch.js';
 
@@ -240,10 +241,10 @@ export function FrontScreen({
             {favourites === null ? (
               <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
             ) : favourites.length === 0 ? (
-              <Pressable style={styles.card} onPress={onBrowse}>
+              <TvPressable style={styles.card} onPress={onBrowse}>
                 <Text style={styles.cardText}>Ingen favoritter endnu. Find dine kanaler, og tryk på stjernen.</Text>
                 <Text style={styles.cardAction}>Kanaler ›</Text>
-              </Pressable>
+              </TvPressable>
             ) : (
               <Shelf
                 data={favourites.map((entry) => ({ key: entry.channel.id, entry }))}
@@ -257,20 +258,20 @@ export function FrontScreen({
         );
       case 'card':
         return item.card === 'key' ? (
-          <Pressable style={styles.card} onPress={onOpenSettings}>
+          <TvPressable style={styles.card} onPress={onOpenSettings}>
             <Text style={styles.cardTitle}>Se hvad der er på Netflix, Viaplay og de andre</Text>
             <Text style={styles.cardText}>
               Med en TMDB-nøgle viser forsiden en hylde for hver tjeneste du vælger, og ugens mest
               sete. Findes en titel i din egen pakke, spilles den herfra.
             </Text>
             <Text style={styles.cardAction}>Indstillinger ›</Text>
-          </Pressable>
+          </TvPressable>
         ) : (
-          <Pressable style={styles.card} onPress={onOpenSettings}>
+          <TvPressable style={styles.card} onPress={onOpenSettings}>
             <Text style={styles.cardTitle}>Vælg dine streamingtjenester</Text>
             <Text style={styles.cardText}>Så får hver af dem en hylde her på forsiden.</Text>
             <Text style={styles.cardAction}>Indstillinger ›</Text>
-          </Pressable>
+          </TvPressable>
         );
       case 'provider': {
         const provider = item.provider;
@@ -336,7 +337,7 @@ export function FrontScreen({
 
       {sheet !== null && (
         <View style={styles.sheetBackdrop}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSheet(null)} />
+          <TvPressable style={StyleSheet.absoluteFill} onPress={() => setSheet(null)} />
           <View style={styles.sheet}>
             <View style={styles.sheetHead}>
               {sheet.title.posterUrl !== null && (
@@ -363,7 +364,7 @@ export function FrontScreen({
             ) : sheet.inPanel === null ? (
               <Text style={styles.sheetHint}>Findes ikke i din pakke.</Text>
             ) : (
-              <Pressable
+              <TvPressable
                 style={styles.button}
                 onPress={() => {
                   const item = sheet.inPanel;
@@ -372,9 +373,9 @@ export function FrontScreen({
                 }}
               >
                 <Text style={styles.buttonText}>Se i din pakke</Text>
-              </Pressable>
+              </TvPressable>
             )}
-            <Pressable
+            <TvPressable
               style={[styles.button, styles.buttonSecondary]}
               onPress={() => {
                 void openExternally(sheet);
@@ -383,11 +384,11 @@ export function FrontScreen({
               <Text style={styles.buttonText}>
                 {sheet.provider === null ? 'Se hvor den kan ses' : `Åbn i ${sheet.provider.name}`}
               </Text>
-            </Pressable>
+            </TvPressable>
             {sheet.message !== null && <Text style={styles.sheetHint}>{sheet.message}</Text>}
-            <Pressable style={styles.close} onPress={() => setSheet(null)} hitSlop={8}>
+            <TvPressable style={styles.close} onPress={() => setSheet(null)} hitSlop={8}>
               <Text style={styles.closeText}>Luk</Text>
-            </Pressable>
+            </TvPressable>
           </View>
         </View>
       )}
@@ -452,7 +453,7 @@ const ChannelCard = memo(function ChannelCard({
   onPress: () => void;
 }) {
   return (
-    <Pressable style={[styles.channel, wide === true && styles.channelWide]} onPress={onPress}>
+    <TvPressable style={[styles.channel, wide === true && styles.channelWide]} onPress={onPress}>
       <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={40} />
       <Text style={styles.channelName} numberOfLines={1}>
         {channel.name}
@@ -460,13 +461,13 @@ const ChannelCard = memo(function ChannelCard({
       <Text style={styles.channelNow} numberOfLines={2}>
         {now === null ? (wide === true ? 'Sidst set' : ' ') : now.title}
       </Text>
-    </Pressable>
+    </TvPressable>
   );
 });
 
 const TitleCard = memo(function TitleCard({ title, onPress }: { title: TmdbTitle; onPress: () => void }) {
   return (
-    <Pressable style={styles.title} onPress={onPress}>
+    <TvPressable style={styles.title} onPress={onPress}>
       <View style={styles.titleFrame}>
         {title.thumbUrl !== null ? (
           <Image source={{ uri: title.thumbUrl }} style={styles.titleImage} resizeMode="cover" />
@@ -485,7 +486,7 @@ const TitleCard = memo(function TitleCard({ title, onPress }: { title: TmdbTitle
         {title.year ?? ''}
         {title.rating !== null ? `  ★ ${title.rating.toFixed(1)}` : ''}
       </Text>
-    </Pressable>
+    </TvPressable>
   );
 });
 

@@ -22,6 +22,7 @@ import {
 } from '../../storage/vod.js';
 import type { StoredVodItem, VodCategorySummary } from '../../storage/vod.js';
 import { theme } from '../../ui/theme.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 import { ensurePoster, foundPoster, subscribePoster } from '../../ui/posterFill.js';
 
 /**
@@ -224,14 +225,14 @@ function Home({
   return (
     <ScrollView contentContainerStyle={styles.home}>
       <View style={styles.browseRow}>
-        <Pressable style={styles.browseButton} onPress={() => onBrowse('movie')}>
+        <TvPressable style={styles.browseButton} onPress={() => onBrowse('movie')}>
           <Text style={styles.browseTitle}>Film</Text>
           <Text style={styles.browseCount}>{counts.movies} · efter land</Text>
-        </Pressable>
-        <Pressable style={styles.browseButton} onPress={() => onBrowse('series')}>
+        </TvPressable>
+        <TvPressable style={styles.browseButton} onPress={() => onBrowse('series')}>
           <Text style={styles.browseTitle}>Serier</Text>
           <Text style={styles.browseCount}>{counts.series} · efter land</Text>
-        </Pressable>
+        </TvPressable>
       </View>
       {inProgress.length > 0 && <Shelf title="Fortsæt" items={inProgress} onOpen={onOpen} />}
       {watchlist.length > 0 && <Shelf title="Min liste" items={watchlist} onOpen={onOpen} />}
@@ -292,7 +293,7 @@ function Countries({
       keyExtractor={(item) => item.key}
       ListEmptyComponent={<Text style={styles.empty}>Ingen {kindLabel(kind).toLowerCase()} fundet.</Text>}
       renderItem={({ item }) => (
-        <Pressable style={styles.row} onPress={() => onPick(item)}>
+        <TvPressable style={styles.row} onPress={() => onPick(item)}>
           <Text style={styles.flag}>{item.flag}</Text>
           <View style={styles.rowMain}>
             <Text style={styles.rowTitle}>{item.name}</Text>
@@ -301,7 +302,7 @@ function Countries({
             </Text>
           </View>
           <Text style={styles.chevron}>›</Text>
-        </Pressable>
+        </TvPressable>
       )}
     />
   );
@@ -337,7 +338,7 @@ function Categories({
       data={categories}
       keyExtractor={(item) => item.id}
       renderItem={({ item }) => (
-        <Pressable style={styles.row} onPress={() => onPick(item)}>
+        <TvPressable style={styles.row} onPress={() => onPick(item)}>
           <Text style={styles.flag}>{item.country?.flag ?? OTHER_COUNTRY_FLAG}</Text>
           <View style={styles.rowMain}>
             <Text style={styles.rowTitle} numberOfLines={1}>
@@ -346,7 +347,7 @@ function Categories({
             <Text style={styles.rowCount}>{item.itemCount} titler</Text>
           </View>
           <Text style={styles.chevron}>›</Text>
-        </Pressable>
+        </TvPressable>
       )}
     />
   );
@@ -429,7 +430,7 @@ export function Poster({
       ? Math.min(1, item.positionSeconds / item.durationSeconds)
       : null;
   return (
-    <Pressable style={[styles.poster, sizing]} onPress={() => onOpen(item)}>
+    <TvPressable style={[styles.poster, sizing]} onPress={() => onOpen(item)}>
       <View style={styles.posterFrame}>
         {posterUrl !== null ? (
           <Image
@@ -468,18 +469,18 @@ export function Poster({
         {item.name}
       </Text>
       {item.year !== null && <Text style={styles.posterYear}>{item.year}</Text>}
-    </Pressable>
+    </TvPressable>
   );
 }
 
 function Crumb({ label, onBack }: { label: string; onBack: () => void }) {
   return (
-    <Pressable style={styles.crumb} onPress={onBack} hitSlop={8}>
+    <TvPressable style={styles.crumb} onPress={onBack} hitSlop={8}>
       <Text style={styles.crumbBack}>‹</Text>
       <Text style={styles.crumbLabel} numberOfLines={1}>
         {label}
       </Text>
-    </Pressable>
+    </TvPressable>
   );
 }
 

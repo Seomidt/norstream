@@ -20,6 +20,7 @@ import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 import { ChannelList } from '../channels/ChannelList.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 
@@ -134,9 +135,9 @@ export function FavoritesScreen({
         <Text style={styles.emptyText}>
           Under Kanaler kan du finde dine lande og lægge hele kategorier i favoritter på én gang.
         </Text>
-        <Pressable style={styles.button} onPress={onBrowse}>
+        <TvPressable style={styles.button} onPress={onBrowse}>
           <Text style={styles.buttonText}>Gå til Kanaler</Text>
-        </Pressable>
+        </TvPressable>
       </ScrollView>
     );
   }
@@ -158,7 +159,7 @@ export function FavoritesScreen({
     <View style={styles.toolbar}>
       <Notice notice={notice} onDismiss={() => setNotice(null)} />
       {lastChannel !== null && (
-        <Pressable style={styles.resume} onPress={() => onSelect(lastChannel, channels)}>
+        <TvPressable style={styles.resume} onPress={() => onSelect(lastChannel, channels)}>
           <ChannelLogo uris={lastChannel.logoUrls} name={lastChannel.name} memoryKey={lastChannel.id} size={32} />
           <View style={styles.resumeText}>
             <Text style={styles.resumeLabel}>Se videre</Text>
@@ -167,12 +168,12 @@ export function FavoritesScreen({
             </Text>
           </View>
           <Text style={styles.resumePlay}>▶</Text>
-        </Pressable>
+        </TvPressable>
       )}
       <View style={styles.toolbarRow}>
         <Text style={styles.toolbarCount}>{channels.length} kanaler</Text>
         {categories.length > 0 && (
-          <Pressable
+          <TvPressable
             style={styles.action}
             hitSlop={8}
             onPress={() => {
@@ -180,11 +181,11 @@ export function FavoritesScreen({
             }}
           >
             <Text style={styles.actionText}>Opdatér</Text>
-          </Pressable>
+          </TvPressable>
         )}
-        <Pressable style={styles.action} hitSlop={8} onPress={() => setSorting(true)}>
+        <TvPressable style={styles.action} hitSlop={8} onPress={() => setSorting(true)}>
           <Text style={styles.actionText}>Sortér</Text>
-        </Pressable>
+        </TvPressable>
       </View>
     </View>
   );
@@ -332,9 +333,9 @@ function SortView({
         <Text style={styles.sortHint}>Træk i ☰ og slip kanalen hvor den skal ligge.</Text>
         <View style={styles.toolbarRow}>
           <View style={styles.spacer} />
-          <Pressable style={[styles.action, styles.actionAccent]} hitSlop={8} onPress={onDone}>
+          <TvPressable style={[styles.action, styles.actionAccent]} hitSlop={8} onPress={onDone}>
             <Text style={styles.actionText}>Færdig</Text>
-          </Pressable>
+          </TvPressable>
         </View>
       </View>
       <View

@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
 import type { WebViewMessageEvent } from 'react-native-webview';
 import type { AppSession } from '../../session.js';
 import { getTmdbApiKey, getYoutubeApiKey } from '../../storage/settings.js';
 import { findTmdbTrailer, tmdbFetch } from '../../sync/tmdb.js';
 import { theme } from '../../ui/theme.js';
 import { MIN_TRAILER_SECONDS, findLongerTrailer, youtubeSearchUrl } from './trailerSearch.js';
+import { webView } from './webview.js';
+
+/** Webvisningen, eller null paa tv, hvor den ikke findes. */
+const WebView = webView();
 
 interface Props {
   session: AppSession;
@@ -185,7 +188,12 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   return (
     <View style={styles.container}>
       <View style={[styles.frame, source.kind === 'search' && styles.frameTall]}>
-        {!failed && webSource !== null && (
+        {WebView === null && (
+          <View style={styles.overlay}>
+            <Text style={styles.errorText}>Trailere fra YouTube kan ikke vises på Apple TV. Se den på telefonen.</Text>
+          </View>
+        )}
+        {WebView !== null && !failed && webSource !== null && (
           <WebView
             key={
               source.kind === 'search'

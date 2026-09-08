@@ -24,6 +24,7 @@ import {
 import type { RadioCountry, RadioStation } from '../../sync/radioBrowser.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
   session: AppSession;
@@ -209,7 +210,7 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
       .filter((part) => part.length > 0)
       .join(' · ');
     return (
-      <Pressable
+      <TvPressable
         style={styles.row}
         onPress={() => play(station, list)}
         onLongPress={onPickLogo === undefined ? undefined : () => onPickLogo(toRadioChannel(station))}
@@ -223,15 +224,15 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
             {meta}
           </Text>
         </View>
-        <Pressable
+        <TvPressable
           hitSlop={10}
           onPress={() => {
             void toggleFavourite(station);
           }}
         >
           <Text style={favourite ? styles.starOn : styles.starOff}>{favourite ? '★' : '☆'}</Text>
-        </Pressable>
-      </Pressable>
+        </TvPressable>
+      </TvPressable>
     );
   }
 
@@ -257,13 +258,13 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
     return (
       <View style={styles.container}>
         {searchField}
-        <Pressable style={styles.crumb} onPress={() => backRef.current()} hitSlop={8}>
+        <TvPressable style={styles.crumb} onPress={() => backRef.current()} hitSlop={8}>
           <Text style={styles.crumbBack}>‹</Text>
           <Text style={styles.crumbLabel} numberOfLines={1}>
             {country.flag} {country.name}
           </Text>
           <Text style={styles.count}>{stations === null ? '' : `${stations.length}`}</Text>
-        </Pressable>
+        </TvPressable>
         {stations === null ? (
           <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
         ) : (
@@ -303,14 +304,14 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
           }
           ListEmptyComponent={<Text style={styles.empty}>Ingen lande endnu. Er der forbindelse til nettet?</Text>}
           renderItem={({ item }) => (
-            <Pressable style={styles.row} onPress={() => onCountryChange(item)}>
+            <TvPressable style={styles.row} onPress={() => onCountryChange(item)}>
               <Text style={styles.flag}>{item.flag}</Text>
               <Text style={styles.name} numberOfLines={1}>
                 {item.name}
               </Text>
               <Text style={styles.count}>{item.stations}</Text>
               <Text style={styles.chevron}>›</Text>
-            </Pressable>
+            </TvPressable>
           )}
         />
       )}

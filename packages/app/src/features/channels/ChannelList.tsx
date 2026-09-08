@@ -18,6 +18,7 @@ import { restartFilterEnabled, setRestartFilterEnabled, subscribeRestartFilter }
 import { ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 import { MiniPreview } from '../preview/MiniPreview.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 
@@ -208,13 +209,13 @@ export function ChannelList({
           ingen kanal kan startes forfra. Foer forsvandt raekken netop dér, og
           listen stod tom uden at sige hvorfor: "der mangler en masse kanaler". */}
       {allowRestartFilter && (restartable > 0 || restartOnly) && (
-        <Pressable style={[styles.filter, restartOnly && styles.filterOn]} onPress={toggleRestartOnly} hitSlop={6}>
+        <TvPressable style={[styles.filter, restartOnly && styles.filterOn]} onPress={toggleRestartOnly} hitSlop={6}>
           <Text style={[styles.filterText, restartOnly && styles.filterTextOn]}>
             {restartOnly
               ? `✓ ⏱ Filter slået til: viser ${shown.length} af ${channels.length} kanaler, kun dem med start forfra. Tryk for at slå fra.`
               : `⏱ Kun kanaler med start forfra (${restartable})`}
           </Text>
-        </Pressable>
+        </TvPressable>
       )}
       <FlatList
         data={shown}
@@ -233,7 +234,7 @@ export function ChannelList({
         }
         ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
         renderItem={({ item }) => (
-          <Pressable
+          <TvPressable
             style={styles.row}
             onPress={() => {
               void open(item);
@@ -251,10 +252,10 @@ export function ChannelList({
                 {nowTitles[item.id] ?? 'Ingen programdata'}
               </Text>
             </View>
-            <Pressable hitSlop={12} onPress={() => onToggleFavorite(item)}>
+            <TvPressable hitSlop={12} onPress={() => onToggleFavorite(item)}>
               <Text style={item.isFavorite ? styles.starOn : styles.starOff}>★</Text>
-            </Pressable>
-          </Pressable>
+            </TvPressable>
+          </TvPressable>
         )}
       />
     </View>

@@ -36,11 +36,17 @@ on:
         required: false
         type: string
       profile:
-        description: 'EAS-byggeprofil (kun naar motor er eas)'
+        description: 'EAS-byggeprofil (kun naar motor er eas). *_tv bygger til Apple TV / Android TV.'
         required: true
         default: preview
         type: choice
-        options: [preview, development, production]
+        options: [preview, development, production, preview_tv, development_tv]
+      platform:
+        description: 'Platform paa EAS (kun naar motor er eas)'
+        required: false
+        default: android
+        type: choice
+        options: [android, ios]
 
 jobs:
   build:
@@ -312,7 +318,7 @@ jobs:
         working-directory: packages/app
         run: |
           npx eas-cli@latest build \
-            --platform android \
+            --platform "${{ inputs.platform || 'android' }}" \
             --profile "${{ inputs.profile }}" \
             --non-interactive \
             --no-wait

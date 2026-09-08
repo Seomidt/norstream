@@ -6,6 +6,7 @@ import type { StoredChannel } from '../../storage/channels.js';
 import { searchNameFor } from '../../sync/logoSearch.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 export type RadioState = 'connecting' | 'playing' | 'paused' | 'error';
 
@@ -81,28 +82,28 @@ export function RadioView({
       </View>
 
       <View style={styles.controls}>
-        <Pressable style={styles.side} onPress={onBack} hitSlop={8} accessibilityLabel="Tilbage">
+        <TvPressable style={styles.side} onPress={onBack} hitSlop={8} accessibilityLabel="Tilbage">
           <Text style={styles.sideText}>‹ Tilbage</Text>
-        </Pressable>
-        <Pressable
+        </TvPressable>
+        <TvPressable
           style={[styles.round, !hasPrevious && styles.roundDisabled]}
           disabled={!hasPrevious}
           onPress={onPrevious}
           accessibilityLabel="Forrige kanal"
         >
           <Text style={styles.roundText}>⏮</Text>
-        </Pressable>
-        <Pressable style={styles.play} onPress={onToggle} accessibilityLabel={playing ? 'Pause' : 'Afspil'}>
+        </TvPressable>
+        <TvPressable style={styles.play} onPress={onToggle} accessibilityLabel={playing ? 'Pause' : 'Afspil'}>
           <Text style={styles.playText}>{playing ? '❚❚' : '▶'}</Text>
-        </Pressable>
-        <Pressable
+        </TvPressable>
+        <TvPressable
           style={[styles.round, !hasNext && styles.roundDisabled]}
           disabled={!hasNext}
           onPress={onNext}
           accessibilityLabel="Næste kanal"
         >
           <Text style={styles.roundText}>⏭</Text>
-        </Pressable>
+        </TvPressable>
         <View style={styles.side} />
       </View>
     </View>

@@ -12,6 +12,7 @@ import {
 import { syncAllSources } from '../../sync/syncAll.js';
 import { prefetchFavouritesEpg } from '../../sync/prefetchEpg.js';
 import { theme } from '../../ui/theme.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 import { BrowseScreen } from '../browse/BrowseScreen.js';
 import type { Level } from '../browse/BrowseScreen.js';
 import { FavoritesScreen } from '../favorites/FavoritesScreen.js';
@@ -424,7 +425,7 @@ export function HomeScreen({
 
       <View style={[styles.tabBar, { paddingBottom: theme.spacing.sm + insets.bottom }]}>
         {TABS.map((item) => (
-          <Pressable
+          <TvPressable
             key={item.id}
             style={styles.tab}
             onPress={() => {
@@ -447,7 +448,7 @@ export function HomeScreen({
             <Text style={[styles.tabLabel, tab === item.id && styles.tabActive]}>
               {item.label}
             </Text>
-          </Pressable>
+          </TvPressable>
         ))}
       </View>
     </View>

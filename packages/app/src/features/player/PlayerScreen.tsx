@@ -19,6 +19,7 @@ import { ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { liveUrlFor } from '../../sources/access.js';
 import { theme } from '../../ui/theme.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 import { setLastChannelId } from '../../storage/settings.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback } from './format.js';
 import { restartBlockFor, restartHint } from './restart.js';
@@ -496,12 +497,12 @@ export function PlayerScreen({
 
   const actions = (
     <>
-      <Pressable style={styles.button} onPress={onBack}>
+      <TvPressable style={styles.button} onPress={onBack}>
         <Text style={styles.buttonText}>Tilbage</Text>
-      </Pressable>
+      </TvPressable>
       {zapList.length > 1 && zapIndex !== -1 && (
         <>
-          <Pressable
+          <TvPressable
             style={styles.button}
             hitSlop={6}
             onPress={() => {
@@ -510,8 +511,8 @@ export function PlayerScreen({
             }}
           >
             <Text style={styles.buttonText}>‹</Text>
-          </Pressable>
-          <Pressable
+          </TvPressable>
+          <TvPressable
             style={styles.button}
             hitSlop={6}
             onPress={() => {
@@ -520,15 +521,15 @@ export function PlayerScreen({
             }}
           >
             <Text style={styles.buttonText}>›</Text>
-          </Pressable>
+          </TvPressable>
         </>
       )}
       {previous !== null && (
-        <Pressable style={styles.button} hitSlop={6} onPress={() => zapTo(previous)}>
+        <TvPressable style={styles.button} hitSlop={6} onPress={() => zapTo(previous)}>
           <Text style={styles.buttonText}>⇄ {shortName(previous.name)}</Text>
-        </Pressable>
+        </TvPressable>
       )}
-      <Pressable
+      <TvPressable
         style={styles.button}
         onPress={() => {
           setSubtitleTracks(player.availableSubtitleTracks);
@@ -539,16 +540,16 @@ export function PlayerScreen({
         <Text style={styles.buttonText}>
           Tekst{subtitle !== null ? `: ${trackName(subtitle)}` : ''}
         </Text>
-      </Pressable>
+      </TvPressable>
       {!restarted && restartBlock === null && now !== null && (
-        <Pressable
+        <TvPressable
           style={[styles.button, styles.buttonAccent]}
           onPress={() => {
             void playFromStart(now);
           }}
         >
           <Text style={styles.buttonText}>Start forfra</Text>
-        </Pressable>
+        </TvPressable>
       )}
     </>
   );
@@ -699,13 +700,13 @@ function RestartBlocked({
       <Text style={styles.blockedTitle}>Start forfra er ikke klar</Text>
       <Text style={styles.blockedText}>{hint.text}</Text>
       {hint.action !== null && (
-        <Pressable style={styles.blockedAction} disabled={busy} onPress={onRepair}>
+        <TvPressable style={styles.blockedAction} disabled={busy} onPress={onRepair}>
           {busy ? (
             <ActivityIndicator color={theme.colors.accent} />
           ) : (
             <Text style={styles.blockedActionText}>{hint.action}</Text>
           )}
-        </Pressable>
+        </TvPressable>
       )}
     </View>
   );

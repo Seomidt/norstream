@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 // Ikke react-natives egen SafeAreaView: den gør **ingenting paa Android**.
 // Telefonens navigationslinje laa derfor oven i appens fanelinje, og det saa
 // ud som et layoutproblem i appen frem for en manglende indramning.
@@ -19,6 +19,7 @@ import type { AppSession } from './src/session.js';
 
 import type { StoredChannel } from './src/storage/channels.js';
 import { theme } from './src/ui/theme.js';
+import { TV_SCALE, isTV } from './src/ui/tv.js';
 
 type Route =
   | { name: 'loading' }
@@ -139,8 +140,23 @@ export default function App() {
   const overHome =
     route.name === 'player' || route.name === 'vodDetail' || route.name === 'trailer' || route.name === 'vodPlayer';
 
+  // Paa tv tegnes alt i 1280 x 720 og skaleres op: se ui/tv.ts.
+  const window = useWindowDimensions();
+  const canvas = isTV
+    ? {
+        width: window.width / TV_SCALE,
+        height: window.height / TV_SCALE,
+        transform: [
+          { translateX: -(window.width - window.width / TV_SCALE) / 2 },
+          { translateY: -(window.height - window.height / TV_SCALE) / 2 },
+          { scale: TV_SCALE },
+        ],
+      }
+    : null;
+
   return (
     <SafeAreaProvider>
+      <View style={[styles.root, canvas]}>
       {/* Afspillerne tager selv hoejde for udskaeringen: i landskab skal
           billedet helt ud til kanten, i portraet laegger de selv toppen til. */}
       <SafeAreaView
@@ -247,6 +263,7 @@ export default function App() {
         </View>
       )}
       </SafeAreaView>
+      </View>
     </SafeAreaProvider>
   );
 }

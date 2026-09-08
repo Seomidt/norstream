@@ -34,6 +34,7 @@ import { tmdbFetch } from '../../sync/tmdb.js';
 import { listTmdbProvidersWithUk } from '../../sync/tmdbHome.js';
 import { applyStreamFormatSetting } from '../player/format.js';
 import { theme } from '../../ui/theme.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
   session: AppSession;
@@ -251,7 +252,7 @@ export function SettingsScreen({
       </View>
 
       <Text style={styles.sectionTitle}>Kilder</Text>
-      <Pressable style={styles.row} onPress={onOpenSources}>
+      <TvPressable style={styles.row} onPress={onOpenSources}>
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>Paneler og M3U-lister</Text>
           <Text style={styles.rowHint}>
@@ -260,8 +261,8 @@ export function SettingsScreen({
           </Text>
         </View>
         <Text style={styles.actionText}>Åbn</Text>
-      </Pressable>
-      <Pressable style={styles.row} onPress={onOpenCheck}>
+      </TvPressable>
+      <TvPressable style={styles.row} onPress={onOpenCheck}>
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>Tjek forbindelsen til panelet</Text>
           <Text style={styles.rowHint}>
@@ -270,7 +271,7 @@ export function SettingsScreen({
           </Text>
         </View>
         <Text style={styles.actionText}>Åbn</Text>
-      </Pressable>
+      </TvPressable>
       {/* Tallet siger om film og serier faktisk kom med ved sidste hentning —
           det eneste sted man kan se det uden at gaa ind paa fanen. */}
       <Text style={styles.hint}>
@@ -283,7 +284,7 @@ export function SettingsScreen({
       </Text>
 
       <Text style={styles.sectionTitle}>Kanallogoer</Text>
-      <Pressable style={styles.row} onPress={onOpenLogos}>
+      <TvPressable style={styles.row} onPress={onOpenLogos}>
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>Kanaler uden logo</Text>
           <Text style={styles.rowHint}>
@@ -293,7 +294,7 @@ export function SettingsScreen({
           </Text>
         </View>
         <Text style={styles.actionText}>Åbn</Text>
-      </Pressable>
+      </TvPressable>
       <Text style={styles.hint}>
         Søgningen bruger Wikidata, som er gratis og uden nøgle. Vil du også have Googles
         billedsøgning med, laves en nøgle og en søgemaskine (cx) i Google Cloud Console under
@@ -332,7 +333,7 @@ export function SettingsScreen({
       </Text>
       <View style={styles.choices}>
         {SUBTITLE_CHOICES.map((option) => (
-          <Pressable
+          <TvPressable
             key={option.value}
             style={[styles.choice, subtitles === option.value && styles.choiceSelected]}
             onPress={() => {
@@ -344,7 +345,7 @@ export function SettingsScreen({
             >
               {option.label}
             </Text>
-          </Pressable>
+          </TvPressable>
         ))}
       </View>
 
@@ -356,7 +357,7 @@ export function SettingsScreen({
       </Text>
       <View style={styles.choices}>
         {STREAM_FORMATS.map((option) => (
-          <Pressable
+          <TvPressable
             key={option.value}
             style={[
               styles.choice,
@@ -374,7 +375,7 @@ export function SettingsScreen({
             >
               {option.label}
             </Text>
-          </Pressable>
+          </TvPressable>
         ))}
       </View>
       <Text style={styles.hint}>
@@ -439,7 +440,7 @@ export function SettingsScreen({
             .map((provider) => {
             const selected = chosenProviders.some((entry) => entry.id === provider.id);
             return (
-              <Pressable
+              <TvPressable
                 key={provider.id}
                 style={[styles.choice, selected && styles.choiceSelected]}
                 onPress={() => {
@@ -449,7 +450,7 @@ export function SettingsScreen({
                 <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>
                   {provider.region === 'DK' ? provider.name : `${provider.name} (UK)`}
                 </Text>
-              </Pressable>
+              </TvPressable>
             );
           })}
           </View>
@@ -486,14 +487,14 @@ export function SettingsScreen({
         min liste og hvor langt film er set. Ikke adgangskoder: dem taster du igen. Gem filen
         et sted du kan nå fra en ny telefon, og gendan efter du er logget ind på panelet.
       </Text>
-      <Pressable style={styles.row} disabled={backupBusy} onPress={() => void saveBackup()}>
+      <TvPressable style={styles.row} disabled={backupBusy} onPress={() => void saveBackup()}>
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>Gem sikkerhedskopi</Text>
           <Text style={styles.rowHint}>Vælg en mappe. Filen hedder norstream-sikkerhedskopi.json.</Text>
         </View>
         <Text style={styles.actionText}>Gem</Text>
-      </Pressable>
-      <Pressable style={styles.row} disabled={backupBusy} onPress={() => void restoreFromFile()}>
+      </TvPressable>
+      <TvPressable style={styles.row} disabled={backupBusy} onPress={() => void restoreFromFile()}>
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>Gendan fra fil</Text>
           <Text style={styles.rowHint}>
@@ -501,7 +502,7 @@ export function SettingsScreen({
           </Text>
         </View>
         <Text style={styles.actionText}>Vælg fil</Text>
-      </Pressable>
+      </TvPressable>
       {backupMessage !== null && <Text style={styles.hint}>{backupMessage}</Text>}
 
       <Text style={styles.sectionTitle}>Skjulte lande</Text>
@@ -513,7 +514,7 @@ export function SettingsScreen({
         hidden.map((key) => (
           <View key={key} style={styles.row}>
             <Text style={styles.rowTitle}>{countryLabel(key)}</Text>
-            <Pressable
+            <TvPressable
               style={styles.action}
               onPress={() => {
                 void (async () => {
@@ -523,7 +524,7 @@ export function SettingsScreen({
               }}
             >
               <Text style={styles.actionText}>Vis igen</Text>
-            </Pressable>
+            </TvPressable>
           </View>
         ))
       )}
@@ -535,23 +536,23 @@ export function SettingsScreen({
             Dine adgangsoplysninger slettes fra enheden.
           </Text>
           <View style={styles.confirmActions}>
-            <Pressable style={styles.action} onPress={() => setConfirmingSignOut(false)}>
+            <TvPressable style={styles.action} onPress={() => setConfirmingSignOut(false)}>
               <Text style={styles.actionText}>Annullér</Text>
-            </Pressable>
-            <Pressable
+            </TvPressable>
+            <TvPressable
               style={styles.action}
               onPress={() => {
                 void signOut();
               }}
             >
               <Text style={styles.dangerText}>Log ud</Text>
-            </Pressable>
+            </TvPressable>
           </View>
         </View>
       ) : (
-        <Pressable style={styles.dangerButton} onPress={() => setConfirmingSignOut(true)}>
+        <TvPressable style={styles.dangerButton} onPress={() => setConfirmingSignOut(true)}>
           <Text style={styles.dangerText}>Log ud</Text>
-        </Pressable>
+        </TvPressable>
       )}
     </ScrollView>
   );

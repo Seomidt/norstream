@@ -24,6 +24,13 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "@react-native-tvos/config-tv",
+        {
+          "isTV": false,
+          "tvosDeploymentTarget": "16.4"
+        }
+      ],
       "expo-sqlite",
       "expo-secure-store",
       [
