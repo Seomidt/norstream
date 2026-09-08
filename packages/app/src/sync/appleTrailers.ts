@@ -72,7 +72,12 @@ export function comparable(title: string): string {
  * soegte — "Dune" rammer "Dune (2021)" — og ellers ingen: en forkert
  * trailer er vaerre end ingen.
  */
-export function pickAppleTrailer(results: readonly RawResult[], title: string, year: number | null, store: string): AppleTrailer | null {
+export function pickAppleTrailer(
+  results: readonly RawResult[],
+  title: string,
+  year: number | null,
+  store = 'dk',
+): AppleTrailer | null {
   const wanted = comparable(title);
   if (wanted.length === 0) return null;
   let loose: AppleTrailer | null = null;

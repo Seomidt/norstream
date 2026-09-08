@@ -210,7 +210,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         {!failed && webSource !== null && (
           <WebView
             key={
-              source.kind === 'search'
+              source.kind === 'search' || source.kind === 'native'
                 ? source.url
                 : source.kind === 'looking'
                   ? 'looking'
