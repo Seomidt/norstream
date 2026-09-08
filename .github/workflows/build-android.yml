@@ -72,6 +72,9 @@ jobs:
               -w 'HEAD status=%{http_code} type=%{content_type} ip=%{remote_ip} tid=%{time_total}s\n' "$url" \
             || curl -sS -o /dev/null -m 20 \
               -w 'GET  status=%{http_code} type=%{content_type} bytes=%{size_download} ip=%{remote_ip} tid=%{time_total}s\n' "$url"
+            # De foerste tegn af svaret, saa et API-svars form kan ses uden at hente alt.
+            echo "--- krop (600 tegn) ---"
+            curl -sS -m 20 -L "$url" | head -c 600; echo
           } 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
