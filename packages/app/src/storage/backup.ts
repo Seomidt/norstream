@@ -50,6 +50,7 @@ const SETTING_KEYS = [
   'tmdb_api_key',
   'google_search_key',
   'google_search_cx',
+  'home_providers',
   'logo_registry_enabled',
 ];
 /** Indstillinger per kilde: noeglen ender paa kildens id. */

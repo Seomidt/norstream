@@ -15,19 +15,23 @@ import { deleteSource, listSources } from '../../storage/sources.js';
 import {
   clearLastSyncMs,
   getGoogleSearchFields,
+  getHomeProviders,
   getStreamFormatSetting,
   getSubtitlePreference,
   getTmdbApiKey,
   getYoutubeApiKey,
   setGoogleSearchCx,
   setGoogleSearchKey,
+  setHomeProviders,
   setSubtitlePreference,
   setTmdbApiKey,
   setYoutubeApiKey,
   setMiniPreviewEnabled,
   setStreamFormatSetting,
 } from '../../storage/settings.js';
-import type { StreamFormatSetting, SubtitlePreference } from '../../storage/settings.js';
+import type { HomeProvider, StreamFormatSetting, SubtitlePreference } from '../../storage/settings.js';
+import { tmdbFetch } from '../../sync/tmdb.js';
+import { listTmdbProviders } from '../../sync/tmdbHome.js';
 import { applyStreamFormatSetting } from '../player/format.js';
 import { theme } from '../../ui/theme.js';
 
@@ -88,6 +92,9 @@ export function SettingsScreen({
   const [googleKey, setGoogleKey] = useState('');
   const [googleCx, setGoogleCx] = useState('');
   const [subtitles, setSubtitles] = useState<SubtitlePreference>('auto');
+  /** Tjenesterne forsiden viser hylder for, og dem TMDB kender i landet. */
+  const [chosenProviders, setChosenProviders] = useState<HomeProvider[]>([]);
+  const [providers, setProviders] = useState<HomeProvider[] | null>(null);
   /** Hvad sidste sikkerhedskopiering eller gendannelse endte med. */
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
@@ -104,6 +111,7 @@ export function SettingsScreen({
     ]);
     setGoogleKey(google.key);
     setGoogleCx(google.cx);
+    setChosenProviders(await getHomeProviders(session.db));
     setHidden(hiddenCountries);
     setStreamFormat(format);
     setYoutubeKey(key ?? '');
@@ -117,6 +125,32 @@ export function SettingsScreen({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Tjenesterne i landet hentes naar der er en noegle, og igen naar den skiftes.
+  useEffect(() => {
+    if (tmdbKey.trim().length === 0) {
+      setProviders(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void listTmdbProviders(tmdbFetch, tmdbKey).then((list) => {
+        if (!cancelled) setProviders(list);
+      });
+    }, 600);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [tmdbKey]);
+
+  async function toggleProvider(provider: HomeProvider): Promise<void> {
+    const next = chosenProviders.some((entry) => entry.id === provider.id)
+      ? chosenProviders.filter((entry) => entry.id !== provider.id)
+      : [...chosenProviders, provider];
+    setChosenProviders(next);
+    await setHomeProviders(session.db, next);
+  }
 
   async function saveBackup(): Promise<void> {
     setBackupBusy(true);
@@ -373,6 +407,33 @@ export function SettingsScreen({
         enten "API Key" eller "API Read Access Token". Begge virker; du skal kun bruge én. Den
         gemmes kun på telefonen og i din sikkerhedskopi.
       </Text>
+
+      <Text style={styles.sectionTitle}>Forside</Text>
+      <Text style={styles.hint}>
+        Vælg de streamingtjenester du har. Forsiden viser en hylde for hver med det der er
+        populært på den lige nu, og ugens mest sete. Trykker du på en titel, spilles den fra din
+        egen pakke når den findes der, ellers åbnes tjenestens app. Kræver TMDB-nøglen ovenfor.
+      </Text>
+      {tmdbKey.trim().length === 0 ? null : providers === null ? (
+        <Text style={styles.hint}>Henter tjenesterne …</Text>
+      ) : (
+        <View style={styles.choices}>
+          {[...chosenProviders.filter((c) => !providers.some((p) => p.id === c.id)), ...providers].map((provider) => {
+            const selected = chosenProviders.some((entry) => entry.id === provider.id);
+            return (
+              <Pressable
+                key={provider.id}
+                style={[styles.choice, selected && styles.choiceSelected]}
+                onPress={() => {
+                  void toggleProvider(provider);
+                }}
+              >
+                <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>{provider.name}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
 
       <Text style={styles.sectionTitle}>Trailere</Text>
       <Text style={styles.hint}>

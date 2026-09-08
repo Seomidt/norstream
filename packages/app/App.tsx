@@ -61,7 +61,7 @@ export default function App() {
    * kanaler. "Tilbage" landede saa altid paa Favoritter, uanset hvor turen
    * begyndte. Tilstanden bor her, hvor den overlever afspilleren.
    */
-  const [place, setPlace] = useState<HomePlace>({ tab: 'favorites', browse: null, vod: null });
+  const [place, setPlace] = useState<HomePlace>({ tab: 'home', browse: null, vod: null });
 
   useEffect(() => {
     let cancelled = false;
@@ -185,7 +185,7 @@ export default function App() {
           }}
           onSignedOut={(notice) => {
             setSession(null);
-            setPlace({ tab: 'favorites', browse: null, vod: null });
+            setPlace({ tab: 'home', browse: null, vod: null });
             setRoute({ name: 'onboarding', notice });
           }}
         />

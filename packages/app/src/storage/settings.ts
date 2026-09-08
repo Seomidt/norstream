@@ -15,6 +15,7 @@ const KEY_TMDB_API_KEY = 'tmdb_api_key';
 const KEY_GOOGLE_SEARCH_KEY = 'google_search_key';
 const KEY_GOOGLE_SEARCH_CX = 'google_search_cx';
 const KEY_LAST_CHANNEL = 'last_channel_id';
+const KEY_HOME_PROVIDERS = 'home_providers';
 const KEY_RESTART_ONLY = 'restart_only_filter';
 
 export async function getSetting(
@@ -362,4 +363,34 @@ export async function setGoogleSearchKey(db: SqlDatabase, key: string): Promise<
 
 export async function setGoogleSearchCx(db: SqlDatabase, cx: string): Promise<void> {
   await setSetting(db, KEY_GOOGLE_SEARCH_CX, cx.trim());
+}
+
+/** En streamingtjeneste valgt til forsiden, som TMDB kender den. */
+export interface HomeProvider {
+  id: number;
+  name: string;
+  logoUrl: string | null;
+}
+
+/**
+ * Tjenesterne forsiden viser hylder for, i den orden de blev valgt.
+ * Gemmes som JSON i én raekke; det er en haandfuld, ikke en tabel.
+ */
+export async function getHomeProviders(db: SqlDatabase): Promise<HomeProvider[]> {
+  const value = await getSetting(db, KEY_HOME_PROVIDERS);
+  if (value === null || value.length === 0) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (entry): entry is HomeProvider =>
+        typeof entry === 'object' && entry !== null && typeof (entry as HomeProvider).id === 'number' && typeof (entry as HomeProvider).name === 'string',
+    ).map((entry) => ({ id: entry.id, name: entry.name, logoUrl: typeof entry.logoUrl === 'string' ? entry.logoUrl : null }));
+  } catch {
+    return [];
+  }
+}
+
+export async function setHomeProviders(db: SqlDatabase, providers: readonly HomeProvider[]): Promise<void> {
+  await setSetting(db, KEY_HOME_PROVIDERS, JSON.stringify(providers));
 }

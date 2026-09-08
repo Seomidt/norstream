@@ -15,6 +15,7 @@ import { theme } from '../../ui/theme.js';
 import { BrowseScreen } from '../browse/BrowseScreen.js';
 import type { Level } from '../browse/BrowseScreen.js';
 import { FavoritesScreen } from '../favorites/FavoritesScreen.js';
+import { FrontScreen } from './FrontScreen.js';
 import { GuideScreen } from '../guide/GuideScreen.js';
 import { RadioScreen } from '../radio/RadioScreen.js';
 import { SourcesScreen } from '../sources/SourcesScreen.js';
@@ -59,9 +60,10 @@ interface Props {
   backRef: { current: () => boolean };
 }
 
-export type Tab = 'favorites' | 'browse' | 'guide' | 'vod' | 'radio' | 'settings';
+export type Tab = 'home' | 'favorites' | 'browse' | 'guide' | 'vod' | 'radio' | 'settings';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
+  { id: 'home', label: 'Hjem', icon: '⌂' },
   { id: 'favorites', label: 'Favoritter', icon: '★' },
   { id: 'browse', label: 'Kanaler', icon: '☰' },
   { id: 'guide', label: 'Guide', icon: '▦' },
@@ -79,8 +81,9 @@ const SIGNED_OUT_MESSAGE =
  * Fire faneblade er ikke nok til at traekke et navigationsbibliotek ind; ruterne
  * bliver i den `Route`-union `App.tsx` allerede har.
  *
- * Startskaermen er **Favoritter**, som spec sec.5 beder om. EPG hentes ikke
- * her: den henter sig selv per synlig raekke gennem `epgCache`.
+ * Startskaermen er **Hjem**, forsiden som paa en tv-boks; Favoritter er
+ * fanen ved siden af. EPG hentes ikke her: den henter sig selv per synlig
+ * raekke gennem `epgCache`.
  */
 export function HomeScreen({
   session,
@@ -165,8 +168,8 @@ export function HomeScreen({
         return true;
       }
     }
-    if (tab !== 'favorites') {
-      onPlaceChange({ ...place, tab: 'favorites' });
+    if (tab !== 'home') {
+      onPlaceChange({ ...place, tab: 'home' });
       return true;
     }
     return false;
@@ -284,6 +287,18 @@ export function HomeScreen({
         />
       )}
       <View style={styles.body}>
+        {tab === 'home' && (
+          <FrontScreen
+            session={session}
+            onSelect={(channel, neighbours) => open(channel, undefined, neighbours)}
+            onOpenVod={onOpenVod}
+            onOpenSettings={() => setTab('settings')}
+            onBrowse={() => setTab('browse')}
+            refreshing={refreshing}
+            onRefresh={refresh}
+            reloadToken={favoritesToken + logoToken}
+          />
+        )}
         {tab === 'favorites' && (
           <FavoritesScreen
             session={session}
