@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { StoredChannel } from '@norstream/app/src/storage/channels.js';
 import { RadioView } from '@norstream/app/src/features/player/RadioView.js';
 import type { RadioState } from '@norstream/app/src/features/player/RadioView.js';
@@ -45,16 +45,37 @@ function describe(snapshot: AutoSnapshot): { state: RadioState; text: string } {
 export function RadioPlayerScreen({ channel: initial, zap, onBack }: Props) {
   const [channel, setChannel] = useState(initial);
   const [snapshot, setSnapshot] = useState<AutoSnapshot>(() => current());
+  /**
+   * Om tjenesten har bekraeftet den station skaermen bad om.
+   *
+   * Tjenestens tilstand halter efter et valg: aabnes skaermen paa en ny
+   * station mens den gamle spiller, siger tilstanden stadig den gamle.
+   * Uden det her tog skaermen det som at bilen havde skiftet, fulgte med
+   * og bad om den gamle igen — og den nye station vandt aldrig.
+   */
+  const acknowledged = useRef(false);
+
+  const choose = (next: StoredChannel): void => {
+    acknowledged.current = false;
+    setChannel(next);
+  };
 
   useEffect(() => {
+    acknowledged.current = false;
     void play(toAutoStationFromChannel(channel));
   }, [channel]);
 
   useEffect(() => subscribe(setSnapshot), []);
 
-  // Skifter bilen station, foelger skaermen med.
+  // Skifter bilen station, foelger skaermen med — men foerst naar tjenesten
+  // har naaet den station skaermen selv bad om.
   useEffect(() => {
-    if (snapshot.stationId === null || snapshot.stationId === channel.streamId) return;
+    if (snapshot.stationId === null) return;
+    if (snapshot.stationId === channel.streamId) {
+      acknowledged.current = true;
+      return;
+    }
+    if (!acknowledged.current) return;
     const picked = zap.find((entry) => entry.streamId === snapshot.stationId);
     if (picked !== undefined) setChannel(picked);
   }, [snapshot.stationId, channel.streamId, zap]);
@@ -73,11 +94,11 @@ export function RadioPlayerScreen({ channel: initial, zap, onBack }: Props) {
       onBack={onBack}
       onPrevious={() => {
         const target = zap[(index - 1 + zap.length) % zap.length];
-        if (target !== undefined) setChannel(target);
+        if (target !== undefined) choose(target);
       }}
       onNext={() => {
         const target = zap[(index + 1) % zap.length];
-        if (target !== undefined) setChannel(target);
+        if (target !== undefined) choose(target);
       }}
       onToggle={() => {
         void (snapshot.state === 'playing' ? pause() : resume());
