@@ -135,6 +135,10 @@ export default function App() {
     setBootAttempt((n) => n + 1);
   }
 
+  /** Skaermene der ligger oven paa Hjem, med Hjem i behold nedenunder. */
+  const overHome =
+    route.name === 'player' || route.name === 'vodDetail' || route.name === 'trailer' || route.name === 'vodPlayer';
+
   return (
     <SafeAreaProvider>
       {/* Afspillerne tager selv hoejde for udskaeringen: i landskab skal
@@ -165,7 +169,13 @@ export default function App() {
           }}
         />
       )}
-      {route.name === 'home' && session !== null && (
+      {/* Hjem bliver staaende under afspilleren og filmsiderne, ikke
+          afmonteret: saa staar kanallisten, favoritterne og guiden praecis
+          hvor man forlod dem naar man kommer tilbage, rullet og det hele.
+          Foer blev alt tegnet forfra fra toppen. Skaermene ovenpaa daekker
+          hele fladen, og Hjem tager ingen tryk imens. */}
+      {(route.name === 'home' || overHome) && session !== null && (
+        <View style={styles.homeHost} pointerEvents={route.name === 'home' ? 'auto' : 'none'}>
         <HomeScreen
           session={session}
           place={place}
@@ -189,43 +199,52 @@ export default function App() {
             setRoute({ name: 'onboarding', notice });
           }}
         />
+        </View>
       )}
       {route.name === 'player' && session !== null && (
-        <PlayerScreen
-          session={session}
-          channel={route.channel}
-          startFrom={route.startFrom}
-          zap={route.zap}
-          onBack={() => setRoute({ name: 'home' })}
-        />
+        <View style={styles.overlay}>
+          <PlayerScreen
+            session={session}
+            channel={route.channel}
+            startFrom={route.startFrom}
+            zap={route.zap}
+            onBack={() => setRoute({ name: 'home' })}
+          />
+        </View>
       )}
       {route.name === 'vodDetail' && session !== null && (
-        <VodDetailScreen
-          session={session}
-          itemKey={route.itemKey}
-          onBack={() => setRoute({ name: 'home' })}
-          onPlay={(playback) => setRoute({ name: 'vodPlayer', itemKey: route.itemKey, playback })}
-          onTrailer={(trailerId, title, year, kind) =>
-            setRoute({ name: 'trailer', itemKey: route.itemKey, trailerId, title, year, kind })
-          }
-        />
+        <View style={styles.overlay}>
+          <VodDetailScreen
+            session={session}
+            itemKey={route.itemKey}
+            onBack={() => setRoute({ name: 'home' })}
+            onPlay={(playback) => setRoute({ name: 'vodPlayer', itemKey: route.itemKey, playback })}
+            onTrailer={(trailerId, title, year, kind) =>
+              setRoute({ name: 'trailer', itemKey: route.itemKey, trailerId, title, year, kind })
+            }
+          />
+        </View>
       )}
       {route.name === 'trailer' && session !== null && (
-        <TrailerScreen
-          session={session}
-          trailerId={route.trailerId}
-          title={route.title}
-          year={route.year}
-          kind={route.kind}
-          onBack={() => setRoute({ name: 'vodDetail', itemKey: route.itemKey })}
-        />
+        <View style={styles.overlay}>
+          <TrailerScreen
+            session={session}
+            trailerId={route.trailerId}
+            title={route.title}
+            year={route.year}
+            kind={route.kind}
+            onBack={() => setRoute({ name: 'vodDetail', itemKey: route.itemKey })}
+          />
+        </View>
       )}
       {route.name === 'vodPlayer' && session !== null && (
-        <VodPlayerScreen
-          session={session}
-          playback={route.playback}
-          onBack={() => setRoute({ name: 'vodDetail', itemKey: route.itemKey })}
-        />
+        <View style={styles.overlay}>
+          <VodPlayerScreen
+            session={session}
+            playback={route.playback}
+            onBack={() => setRoute({ name: 'vodDetail', itemKey: route.itemKey })}
+          />
+        </View>
       )}
       </SafeAreaView>
     </SafeAreaProvider>
@@ -234,6 +253,15 @@ export default function App() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.colors.background },
+  homeHost: { flex: 1 },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: theme.colors.background,
+  },
   centered: {
     flex: 1,
     alignItems: 'center',
