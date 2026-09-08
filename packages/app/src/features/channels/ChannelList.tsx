@@ -208,10 +208,15 @@ export function ChannelList({
 
       {/* Filteret staar over listen, ikke i hver foraelders header: det er
           det samme valg alle steder, og det huskes. */}
-      {allowRestartFilter && restartable > 0 && (
-        <Pressable style={styles.filter} onPress={toggleRestartOnly} hitSlop={6}>
+      {/* Er filteret slaaet til, staar raekken altid — ogsaa i en liste hvor
+          ingen kanal kan startes forfra. Foer forsvandt raekken netop dér, og
+          listen stod tom uden at sige hvorfor: "der mangler en masse kanaler". */}
+      {allowRestartFilter && (restartable > 0 || restartOnly) && (
+        <Pressable style={[styles.filter, restartOnly && styles.filterOn]} onPress={toggleRestartOnly} hitSlop={6}>
           <Text style={[styles.filterText, restartOnly && styles.filterTextOn]}>
-            {restartOnly ? '✓ ' : ''}⏱ Kun kanaler med start forfra ({restartable})
+            {restartOnly
+              ? `✓ ⏱ Filter slået til: viser ${shown.length} af ${channels.length} kanaler, kun dem med start forfra. Tryk for at slå fra.`
+              : `⏱ Kun kanaler med start forfra (${restartable})`}
           </Text>
         </Pressable>
       )}
@@ -287,6 +292,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     backgroundColor: theme.colors.surface,
   },
+  filterOn: { backgroundColor: '#4c8dff22', borderBottomColor: theme.colors.accent },
   filterText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '600' },
   filterTextOn: { color: theme.colors.accent },
   nowTitle: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
