@@ -67,11 +67,22 @@ export function stop(): Promise<void> {
   return native?.stop() ?? Promise.resolve();
 }
 
+const IDLE: AutoSnapshot = { state: 'idle', stationId: null, title: null, message: null };
+
+/** Kaldes midt i en render; kaster broen, maa det ikke vaelte skaermen. */
 export function current(): AutoSnapshot {
-  return native?.current() ?? { state: 'idle', stationId: null, title: null, message: null };
+  try {
+    return native?.current() ?? IDLE;
+  } catch {
+    return IDLE;
+  }
 }
 
 export function subscribe(listener: (snapshot: AutoSnapshot) => void): () => void {
-  const subscription = native?.addListener('onState', listener);
-  return () => subscription?.remove();
+  try {
+    const subscription = native?.addListener('onState', listener);
+    return () => subscription?.remove();
+  } catch {
+    return () => {};
+  }
 }

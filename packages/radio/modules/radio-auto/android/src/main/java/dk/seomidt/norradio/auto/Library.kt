@@ -2,6 +2,7 @@ package dk.seomidt.norradio.auto
 
 import android.content.Context
 import android.net.Uri
+import android.os.Bundle
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import org.json.JSONArray
@@ -76,6 +77,22 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
       return out
     }
 
+    private const val EXTRA_NAME = "name"
+    private const val EXTRA_LOGO = "logoUrl"
+    private const val EXTRA_COUNTRY = "country"
+
+    /** Stationen bag et element der kom over broen uden uri, eller null hvis heller ikke requestMetadata har den. */
+    fun fromRequest(item: MediaItem): Station? {
+      val uri = item.requestMetadata.mediaUri ?: return null
+      val extras = item.requestMetadata.extras
+      val id = item.mediaId.removePrefix(STATION_PREFIX)
+      if (id.isEmpty()) return null
+      val name = item.mediaMetadata.title?.toString() ?: extras?.getString(EXTRA_NAME) ?: id
+      val logo = item.mediaMetadata.artworkUri?.toString() ?: extras?.getString(EXTRA_LOGO)
+      val country = item.mediaMetadata.artist?.toString() ?: extras?.getString(EXTRA_COUNTRY) ?: ""
+      return Station(id, name, uri.toString(), logo, country)
+    }
+
     fun folder(id: String, title: String, subtitle: String? = null): MediaItem =
       MediaItem.Builder()
         .setMediaId(id)
@@ -90,10 +107,29 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
         )
         .build()
 
+    /**
+     * Et element med adressen baade som uri og i requestMetadata: media3
+     * sender ikke uri'en fra appens controller til tjenesten (af
+     * sikkerhedsgrunde), men requestMetadata kommer med, saa tjenesten kan
+     * finde adressen igen i fromRequest, ogsaa for stationer der ikke staar
+     * i biblioteket (fx fra en soegning).
+     */
     fun item(station: Station): MediaItem =
       MediaItem.Builder()
         .setMediaId(STATION_PREFIX + station.id)
         .setUri(station.url)
+        .setRequestMetadata(
+          MediaItem.RequestMetadata.Builder()
+            .setMediaUri(Uri.parse(station.url))
+            .setExtras(
+              Bundle().apply {
+                putString(EXTRA_NAME, station.name)
+                putString(EXTRA_LOGO, station.logoUrl)
+                putString(EXTRA_COUNTRY, station.country)
+              },
+            )
+            .build(),
+        )
         .setMediaMetadata(
           MediaMetadata.Builder()
             .setTitle(station.name)

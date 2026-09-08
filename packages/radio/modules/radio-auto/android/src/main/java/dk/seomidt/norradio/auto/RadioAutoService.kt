@@ -93,12 +93,15 @@ class RadioAutoService : MediaLibraryService() {
       controller: MediaSession.ControllerInfo,
       mediaItems: MutableList<MediaItem>,
     ): ListenableFuture<MutableList<MediaItem>> {
-      // Fra bilen kommer et id uden adresse; fra appen kommer adressen med.
+      // Uri'en kommer aldrig med over broen. Fra appen ligger adressen i
+      // requestMetadata; fra bilen kommer kun et id, som biblioteket slaar
+      // op. Et element ingen af dem kender, smides vaek — et element uden
+      // adresse ville faa afspilleren til at gaa ned.
       val library = Library.read(service)
       val resolved =
-        mediaItems.map { item ->
+        mediaItems.mapNotNull { item ->
           if (item.localConfiguration != null) item
-          else library.find(item.mediaId)?.let { Library.item(it) } ?: item
+          else (Library.fromRequest(item) ?: library.find(item.mediaId))?.let { Library.item(it) }
         }
       return Futures.immediateFuture(resolved.toMutableList())
     }
