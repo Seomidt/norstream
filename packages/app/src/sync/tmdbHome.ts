@@ -16,6 +16,8 @@ import type { TmdbFetch } from './tmdb.js';
 
 const API = 'https://api.themoviedb.org/3';
 const POSTER_BASE = 'https://image.tmdb.org/t/p/w342';
+/** Til kortene paa hylderne: 104 punkter brede, saa 185 er rigeligt og en tredjedel af bytes. */
+const THUMB_BASE = 'https://image.tmdb.org/t/p/w185';
 const LOGO_BASE = 'https://image.tmdb.org/t/p/w92';
 export const HOME_REGION = 'DK';
 /**
@@ -40,6 +42,8 @@ export interface TmdbTitle {
   title: string;
   year: number | null;
   posterUrl: string | null;
+  /** Samme plakat, lille: til hylderne. */
+  thumbUrl: string | null;
   rating: number | null;
   overview: string;
 }
@@ -151,6 +155,7 @@ export function toTmdbTitle(raw: RawTitle, kind: 'movie' | 'series'): TmdbTitle 
     title,
     year,
     posterUrl: typeof raw.poster_path === 'string' ? `${POSTER_BASE}${raw.poster_path}` : null,
+    thumbUrl: typeof raw.poster_path === 'string' ? `${THUMB_BASE}${raw.poster_path}` : null,
     rating,
     overview: typeof raw.overview === 'string' ? raw.overview : '',
   };

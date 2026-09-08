@@ -83,6 +83,7 @@ export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onP
         previewEnabled={false}
         previewHandle={previewHandle}
         onLongPress={onPickLogo}
+        allowRestartFilter={false}
       />
     </View>
   );

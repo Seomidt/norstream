@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Image,
   Linking,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -60,6 +60,17 @@ async function cachedShelf(key: string, load: () => Promise<TmdbTitle[]>): Promi
   if (titles.length > 0) shelfCache.set(key, { at: Date.now(), titles });
   return titles;
 }
+
+type Row =
+  | { kind: 'continue' }
+  | { kind: 'favourites' }
+  | { kind: 'card'; card: 'key' | 'providers' }
+  | { kind: 'provider'; provider: HomeProvider }
+  | { kind: 'trending' }
+  | { kind: 'newest' };
+
+/** Bredden paa et kanalkort i raekken, til at regne placeringer ud uden at maale. */
+const CHANNEL_WIDTH = 132;
 
 interface FavouriteNow {
   channel: StoredChannel;
@@ -190,53 +201,62 @@ export function FrontScreen({
   const favouriteChannels = (favourites ?? []).map((entry) => entry.channel);
   const hasContinue = lastChannel !== null || inProgress.length > 0;
 
-  return (
-    <View style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.accent} />}
-      >
-        {hasContinue && (
+  /**
+   * Siden er en lodret liste af hylder, ikke én lang rulle: kun de hylder
+   * der er paa skaermen (og en enkelt paa hver side) er tegnet. Med ti
+   * tjenester a tyve plakater var alle 200 billeder ellers i live paa én
+   * gang, og rulningen hakkede.
+   */
+  const rows: Row[] = [];
+  if (hasContinue) rows.push({ kind: 'continue' });
+  rows.push({ kind: 'favourites' });
+  if (tmdbKey === null) rows.push({ kind: 'card', card: 'key' });
+  else if (providers.length === 0) rows.push({ kind: 'card', card: 'providers' });
+  for (const provider of providers) rows.push({ kind: 'provider', provider });
+  if (tmdbKey !== null && (trending.length > 0 || loadingShelves)) rows.push({ kind: 'trending' });
+  if (newest.length > 0) rows.push({ kind: 'newest' });
+
+  const renderRow = ({ item }: { item: Row }): React.ReactElement | null => {
+    switch (item.kind) {
+      case 'continue':
+        return (
           <Section title="Se videre">
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-              {lastChannel !== null && (
-                <ChannelCard
-                  channel={lastChannel}
-                  now={null}
-                  wide
-                  onPress={() => onSelect(lastChannel, favouriteChannels)}
-                />
-              )}
-              {inProgress.map((item) => (
-                <Poster key={item.key} item={item} width={POSTER_WIDTH} onOpen={onOpenVod} />
-              ))}
-            </ScrollView>
+            <Shelf
+              data={[...(lastChannel !== null ? [{ key: `channel:${lastChannel.id}`, channel: lastChannel }] : []), ...inProgress.map((vod) => ({ key: vod.key, vod }))]}
+              width={POSTER_WIDTH}
+              renderItem={(entry) =>
+                'channel' in entry ? (
+                  <ChannelCard channel={entry.channel} now={null} wide onPress={() => onSelect(entry.channel, favouriteChannels)} />
+                ) : (
+                  <Poster item={entry.vod} width={POSTER_WIDTH} onOpen={onOpenVod} />
+                )
+              }
+            />
           </Section>
-        )}
-
-        <Section title="Dine kanaler nu">
-          {favourites === null ? (
-            <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
-          ) : favourites.length === 0 ? (
-            <Pressable style={styles.card} onPress={onBrowse}>
-              <Text style={styles.cardText}>Ingen favoritter endnu. Find dine kanaler, og tryk på stjernen.</Text>
-              <Text style={styles.cardAction}>Kanaler ›</Text>
-            </Pressable>
-          ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-              {favourites.map((entry) => (
-                <ChannelCard
-                  key={entry.channel.id}
-                  channel={entry.channel}
-                  now={entry.now}
-                  onPress={() => onSelect(entry.channel, favouriteChannels)}
-                />
-              ))}
-            </ScrollView>
-          )}
-        </Section>
-
-        {tmdbKey === null ? (
+        );
+      case 'favourites':
+        return (
+          <Section title="Dine kanaler nu">
+            {favourites === null ? (
+              <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
+            ) : favourites.length === 0 ? (
+              <Pressable style={styles.card} onPress={onBrowse}>
+                <Text style={styles.cardText}>Ingen favoritter endnu. Find dine kanaler, og tryk på stjernen.</Text>
+                <Text style={styles.cardAction}>Kanaler ›</Text>
+              </Pressable>
+            ) : (
+              <Shelf
+                data={favourites.map((entry) => ({ key: entry.channel.id, entry }))}
+                width={CHANNEL_WIDTH}
+                renderItem={({ entry }) => (
+                  <ChannelCard channel={entry.channel} now={entry.now} onPress={() => onSelect(entry.channel, favouriteChannels)} />
+                )}
+              />
+            )}
+          </Section>
+        );
+      case 'card':
+        return item.card === 'key' ? (
           <Pressable style={styles.card} onPress={onOpenSettings}>
             <Text style={styles.cardTitle}>Se hvad der er på Netflix, Viaplay og de andre</Text>
             <Text style={styles.cardText}>
@@ -245,57 +265,74 @@ export function FrontScreen({
             </Text>
             <Text style={styles.cardAction}>Indstillinger ›</Text>
           </Pressable>
-        ) : providers.length === 0 ? (
+        ) : (
           <Pressable style={styles.card} onPress={onOpenSettings}>
             <Text style={styles.cardTitle}>Vælg dine streamingtjenester</Text>
             <Text style={styles.cardText}>Så får hver af dem en hylde her på forsiden.</Text>
             <Text style={styles.cardAction}>Indstillinger ›</Text>
           </Pressable>
-        ) : null}
-
-        {providers.map((provider) => {
-          const titles = shelves.get(provider.id);
-          return (
-            <Section key={provider.id} title={provider.name} logoUrl={provider.logoUrl}>
-              {titles === undefined ? (
-                <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
-              ) : titles.length === 0 ? (
-                <Text style={styles.empty}>TMDB gav ingen titler for tjenesten lige nu.</Text>
-              ) : (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-                  {titles.map((title) => (
-                    <TitleCard key={`${title.kind}:${title.id}`} title={title} onPress={() => openTitle(title, provider)} />
-                  ))}
-                </ScrollView>
-              )}
-            </Section>
-          );
-        })}
-
-        {tmdbKey !== null && (trending.length > 0 || loadingShelves) && (
+        );
+      case 'provider': {
+        const provider = item.provider;
+        const titles = shelves.get(provider.id);
+        return (
+          <Section title={provider.name} logoUrl={provider.logoUrl}>
+            {titles === undefined ? (
+              <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
+            ) : titles.length === 0 ? (
+              <Text style={styles.empty}>TMDB gav ingen titler for tjenesten lige nu.</Text>
+            ) : (
+              <Shelf
+                data={titles.map((title) => ({ key: `${title.kind}:${title.id}`, title }))}
+                width={POSTER_WIDTH}
+                renderItem={({ title }) => <TitleCard title={title} onPress={() => openTitle(title, provider)} />}
+              />
+            )}
+          </Section>
+        );
+      }
+      case 'trending':
+        return (
           <Section title="Populært lige nu">
             {trending.length === 0 ? (
               <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
             ) : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-                {trending.map((title) => (
-                  <TitleCard key={`${title.kind}:${title.id}`} title={title} onPress={() => openTitle(title, null)} />
-                ))}
-              </ScrollView>
+              <Shelf
+                data={trending.map((title) => ({ key: `${title.kind}:${title.id}`, title }))}
+                width={POSTER_WIDTH}
+                renderItem={({ title }) => <TitleCard title={title} onPress={() => openTitle(title, null)} />}
+              />
             )}
           </Section>
-        )}
-
-        {newest.length > 0 && (
+        );
+      case 'newest':
+        return (
           <Section title="Nyeste i din pakke">
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-              {newest.map((item) => (
-                <Poster key={item.key} item={item} width={POSTER_WIDTH} onOpen={onOpenVod} />
-              ))}
-            </ScrollView>
+            <Shelf
+              data={newest.map((vod) => ({ key: vod.key, vod }))}
+              width={POSTER_WIDTH}
+              renderItem={({ vod }) => <Poster item={vod} width={POSTER_WIDTH} onOpen={onOpenVod} />}
+            />
           </Section>
-        )}
-      </ScrollView>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <FlatList
+        data={rows}
+        keyExtractor={(row) => (row.kind === 'provider' ? `provider:${row.provider.id}` : row.kind)}
+        renderItem={renderRow}
+        contentContainerStyle={styles.content}
+        windowSize={3}
+        initialNumToRender={3}
+        maxToRenderPerBatch={2}
+        removeClippedSubviews
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.accent} />}
+      />
 
       {sheet !== null && (
         <View style={styles.sheetBackdrop}>
@@ -358,6 +395,37 @@ export function FrontScreen({
   );
 }
 
+/**
+ * En vandret hylde der kun tegner det der kan ses. Fast bredde per kort,
+ * saa listen kender alle placeringer paa forhaand og ikke skal maale.
+ */
+function Shelf<T extends { key: string }>({
+  data,
+  width,
+  renderItem,
+}: {
+  data: T[];
+  width: number;
+  renderItem: (item: T) => React.ReactElement;
+}) {
+  const stride = width + theme.spacing.sm;
+  return (
+    <FlatList
+      horizontal
+      data={data}
+      keyExtractor={(item) => item.key}
+      renderItem={({ item }) => renderItem(item)}
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.row}
+      initialNumToRender={4}
+      maxToRenderPerBatch={4}
+      windowSize={3}
+      removeClippedSubviews
+      getItemLayout={(_, index) => ({ length: stride, offset: stride * index, index })}
+    />
+  );
+}
+
 function Section({ title, logoUrl, children }: { title: string; logoUrl?: string | null; children: React.ReactNode }) {
   return (
     <View style={styles.section}>
@@ -372,7 +440,7 @@ function Section({ title, logoUrl, children }: { title: string; logoUrl?: string
   );
 }
 
-function ChannelCard({
+const ChannelCard = memo(function ChannelCard({
   channel,
   now,
   wide,
@@ -394,14 +462,14 @@ function ChannelCard({
       </Text>
     </Pressable>
   );
-}
+});
 
-function TitleCard({ title, onPress }: { title: TmdbTitle; onPress: () => void }) {
+const TitleCard = memo(function TitleCard({ title, onPress }: { title: TmdbTitle; onPress: () => void }) {
   return (
     <Pressable style={styles.title} onPress={onPress}>
       <View style={styles.titleFrame}>
-        {title.posterUrl !== null ? (
-          <Image source={{ uri: title.posterUrl }} style={styles.titleImage} resizeMode="cover" />
+        {title.thumbUrl !== null ? (
+          <Image source={{ uri: title.thumbUrl }} style={styles.titleImage} resizeMode="cover" />
         ) : (
           <View style={styles.titleFallback}>
             <Text style={styles.titleFallbackText} numberOfLines={4}>
@@ -419,7 +487,7 @@ function TitleCard({ title, onPress }: { title: TmdbTitle; onPress: () => void }
       </Text>
     </Pressable>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },

@@ -36,6 +36,11 @@ interface Props {
   header?: ReactNode;
   /** Hold fingeren paa en kanal: vaelg dens logo selv. */
   onLongPress?: (channel: StoredChannel) => void;
+  /**
+   * Om filteret "kun kanaler med start forfra" gaelder her. Radio har intet
+   * arkiv, saa filteret ville tage hele listen — det er slaaet fra dér.
+   */
+  allowRestartFilter?: boolean;
 }
 
 /**
@@ -60,6 +65,7 @@ export function ChannelList({
   onRefresh,
   header,
   onLongPress,
+  allowRestartFilter = true,
 }: Props) {
   const [nowTitles, setNowTitles] = useState<Record<string, string>>({});
   const [previewChannel, setPreviewChannel] = useState<StoredChannel | null>(null);
@@ -86,7 +92,7 @@ export function ChannelList({
   }, [session.db]);
   const canRestart = (channel: StoredChannel): boolean =>
     channel.hasArchive && dialects.has(channel.sourceId);
-  const shown = restartOnly ? channels.filter(canRestart) : channels;
+  const shown = restartOnly && allowRestartFilter ? channels.filter(canRestart) : channels;
   const restartable = channels.filter(canRestart).length;
 
   function toggleRestartOnly(): void {
@@ -202,7 +208,7 @@ export function ChannelList({
 
       {/* Filteret staar over listen, ikke i hver foraelders header: det er
           det samme valg alle steder, og det huskes. */}
-      {restartable > 0 && (
+      {allowRestartFilter && restartable > 0 && (
         <Pressable style={styles.filter} onPress={toggleRestartOnly} hitSlop={6}>
           <Text style={[styles.filterText, restartOnly && styles.filterTextOn]}>
             {restartOnly ? '✓ ' : ''}⏱ Kun kanaler med start forfra ({restartable})

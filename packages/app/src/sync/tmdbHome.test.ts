@@ -60,7 +60,16 @@ describe('toTmdbTitle', () => {
   it('laeser film og serier med hver deres felter', () => {
     expect(
       toTmdbTitle({ id: 1, title: 'Dune', release_date: '2021-10-22', poster_path: '/d.jpg', vote_average: 7.77, vote_count: 9 }, 'movie'),
-    ).toEqual({ id: 1, kind: 'movie', title: 'Dune', year: 2021, posterUrl: 'https://image.tmdb.org/t/p/w342/d.jpg', rating: 7.8, overview: '' });
+    ).toEqual({
+      id: 1,
+      kind: 'movie',
+      title: 'Dune',
+      year: 2021,
+      posterUrl: 'https://image.tmdb.org/t/p/w342/d.jpg',
+      thumbUrl: 'https://image.tmdb.org/t/p/w185/d.jpg',
+      rating: 7.8,
+      overview: '',
+    });
     expect(toTmdbTitle({ id: 2, name: 'The Crown', first_air_date: '2016-11-04', overview: 'Om…' }, 'series')).toMatchObject({
       kind: 'series',
       title: 'The Crown',
@@ -117,7 +126,7 @@ describe('trendingTitles', () => {
 describe('justWatchLink', () => {
   it('finder landets adresse under titlens udbydere', async () => {
     const fetchImpl = fakeFetch([[/movie\/5\/watch\/providers/, { results: { DK: { link: 'https://www.themoviedb.org/movie/5/watch?locale=DK' } } }]]);
-    const title = { id: 5, kind: 'movie' as const, title: 'X', year: null, posterUrl: null, rating: null, overview: '' };
+    const title = { id: 5, kind: 'movie' as const, title: 'X', year: null, posterUrl: null, thumbUrl: null, rating: null, overview: '' };
     expect(await justWatchLink(fetchImpl, 'KEY', title)).toContain('locale=DK');
     expect(await justWatchLink(fakeFetch([]), 'KEY', title)).toBeNull();
   });
