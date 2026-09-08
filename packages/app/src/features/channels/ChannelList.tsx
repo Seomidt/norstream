@@ -13,7 +13,8 @@ import { XtreamAuthError } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { getNowNext } from '../../storage/programmes.js';
-import { getRestartOnlyFilter, setRestartOnlyFilter, sourcesWithDialect } from '../../storage/settings.js';
+import { sourcesWithDialect } from '../../storage/settings.js';
+import { restartFilterEnabled, setRestartFilterEnabled, subscribeRestartFilter } from './restartFilter.js';
 import { ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
@@ -76,16 +77,13 @@ export function ChannelList({
    * Samme regel som i guiden, saa uret betyder det samme begge steder.
    */
   const [dialects, setDialects] = useState<Set<string>>(new Set());
-  const [restartOnly, setRestartOnly] = useState(false);
+  const [restartOnly, setRestartOnly] = useState(restartFilterEnabled());
+  useEffect(() => subscribeRestartFilter(() => setRestartOnly(restartFilterEnabled())), []);
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([sourcesWithDialect(session.db), getRestartOnlyFilter(session.db)]).then(
-      ([found, only]) => {
-        if (cancelled) return;
-        setDialects(found);
-        setRestartOnly(only);
-      },
-    );
+    void sourcesWithDialect(session.db).then((found) => {
+      if (!cancelled) setDialects(found);
+    });
     return () => {
       cancelled = true;
     };
@@ -96,9 +94,7 @@ export function ChannelList({
   const restartable = channels.filter(canRestart).length;
 
   function toggleRestartOnly(): void {
-    const next = !restartOnly;
-    setRestartOnly(next);
-    void setRestartOnlyFilter(session.db, next);
+    setRestartFilterEnabled(!restartOnly);
   }
 
   // Annulleringspolet: kun det nyeste opslag maa skrive til state. Uden det

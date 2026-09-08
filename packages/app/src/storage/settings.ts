@@ -16,7 +16,6 @@ const KEY_GOOGLE_SEARCH_KEY = 'google_search_key';
 const KEY_GOOGLE_SEARCH_CX = 'google_search_cx';
 const KEY_LAST_CHANNEL = 'last_channel_id';
 const KEY_HOME_PROVIDERS = 'home_providers';
-const KEY_RESTART_ONLY = 'restart_only_filter';
 
 export async function getSetting(
   db: SqlDatabase,
@@ -315,21 +314,6 @@ export async function getTmdbApiKey(db: SqlDatabase): Promise<string | null> {
 
 export async function setTmdbApiKey(db: SqlDatabase, key: string): Promise<void> {
   await setSetting(db, KEY_TMDB_API_KEY, key.trim());
-}
-
-/**
- * Om kanallisterne kun skal vise kanaler der kan startes forfra.
- *
- * Et filter, ikke en skjulning: kanalerne er der stadig, de vises bare
- * ikke mens det er slaaet til. Gaelder alle lister, saa man ikke skal
- * slaa det til i hver.
- */
-export async function getRestartOnlyFilter(db: SqlDatabase): Promise<boolean> {
-  return (await getSetting(db, KEY_RESTART_ONLY)) === 'on';
-}
-
-export async function setRestartOnlyFilter(db: SqlDatabase, enabled: boolean): Promise<void> {
-  await setSetting(db, KEY_RESTART_ONLY, enabled ? 'on' : 'off');
 }
 
 /** Den kanal der sidst blev aabnet, til "Se videre" oeverst i favoritterne. */
