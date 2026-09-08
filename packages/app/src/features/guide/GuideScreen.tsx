@@ -448,25 +448,28 @@ export function GuideScreen({
     );
   }
 
-  if (dayFor !== null) {
-    return (
-      <ChannelDayScreen
-        session={session}
-        channel={dayFor}
-        hasDialect={hasDialectFor(dayFor)}
-        onBack={() => setDayFor(null)}
-        onPlay={(channel) => onPlay(channel, channels)}
-        onRestart={(channel, programme) => onRestart(channel, programme)}
-      />
-    );
-  }
+  // Dagssiden laegges oven paa guiden, ikke i stedet for den: saa staar
+  // guiden praecis hvor man var, rullet og det hele, naar man gaar tilbage.
+  const dayView =
+    dayFor !== null ? (
+      <View style={styles.dayOverlay}>
+        <ChannelDayScreen
+          session={session}
+          channel={dayFor}
+          hasDialect={hasDialectFor(dayFor)}
+          onBack={() => setDayFor(null)}
+          onPlay={(channel) => onPlay(channel, channels)}
+          onRestart={(channel, programme) => onRestart(channel, programme)}
+        />
+      </View>
+    ) : null;
 
   return (
     <View style={styles.container}>
       {notice !== null && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
       <MiniPreview
         session={session}
-        channel={previewChannel}
+        channel={dayFor === null ? previewChannel : null}
         enabled={previewEnabled}
         handle={previewHandle}
         onOpen={(channel) => onPlay(channel, channels)}
@@ -618,6 +621,7 @@ export function GuideScreen({
           )}
         />
       </View>
+      {dayView}
     </View>
   );
 }
@@ -771,6 +775,7 @@ function dayDeltaOf(start: Date, now: Date): number {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
+  dayOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.background },
   centered: {
     flex: 1,
     alignItems: 'center',
