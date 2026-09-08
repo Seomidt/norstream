@@ -30,7 +30,10 @@ on:
         # accepterer fra en webvisning. To builds er gaaet paa gaet (fejl 153,
         # saa fejl 152); det her koerer en rigtig browser paa en rigtig side
         # med hver af de mulige base-adresser og siger hvilke der spiller.
-        options: [runner, eas, probe, youtube]
+        # `maal` koerer et maaleskript fra scripts/maal/<navn>.mjs (navnet
+        # staar i `url`) paa en maskine med frit internet, og skriver hvad
+        # det fandt. Til de spoergsmaal én adresse ikke kan svare paa.
+        options: [runner, eas, probe, youtube, maal]
       app:
         description: 'Hvilken app der bygges: NorStream (app) eller NorRadio (radio)'
         required: false
@@ -38,7 +41,7 @@ on:
         type: choice
         options: [app, radio]
       url:
-        description: 'Adresse at maale (kun naar motor er probe)'
+        description: 'Adresse at maale (motor probe) eller navn paa maaleskript (motor maal)'
         required: false
         type: string
       profile:
@@ -170,8 +173,17 @@ jobs:
       - uses: actions/checkout@v5
         if: inputs.motor != 'probe' && inputs.motor != 'youtube'
 
+      - name: Koer et maaleskript
+        if: inputs.motor == 'maal'
+        run: |
+          name='${{ inputs.url }}'
+          echo "### Maaling: $name" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          node "scripts/maal/$name.mjs" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/setup-node@v5
-        if: inputs.motor != 'probe' && inputs.motor != 'youtube'
+        if: inputs.motor != 'probe' && inputs.motor != 'youtube' && inputs.motor != 'maal'
         with:
           node-version: 24
           cache: npm
@@ -223,12 +235,12 @@ jobs:
           exit 1
 
       - run: npm ci
-        if: inputs.motor != 'probe' && inputs.motor != 'youtube'
+        if: inputs.motor != 'probe' && inputs.motor != 'youtube' && inputs.motor != 'maal'
 
       # Samme porte som CI. Et build af kode der ikke kan bestaa sine egne
       # tests er spildt byggetid.
       - name: Typecheck og tests
-        if: inputs.motor != 'probe' && inputs.motor != 'youtube'
+        if: inputs.motor != 'probe' && inputs.motor != 'youtube' && inputs.motor != 'maal'
         run: |
           npm run typecheck --workspaces
           npm test --workspaces
@@ -241,7 +253,7 @@ jobs:
       # kun sporede filer — mappen naar derfor aldrig builden, uanset at den
       # ligger her paa runneren.
       - name: Verificér AndroidManifest
-        if: inputs.motor != 'probe' && inputs.motor != 'youtube'
+        if: inputs.motor != 'probe' && inputs.motor != 'youtube' && inputs.motor != 'maal'
         working-directory: packages/${{ inputs.app || 'app' }}
         run: |
           npx expo prebuild --platform android --no-install
