@@ -137,7 +137,12 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
+      {/* Afspillerne tager selv hoejde for udskaeringen: i landskab skal
+          billedet helt ud til kanten, i portraet laegger de selv toppen til. */}
+      <SafeAreaView
+        style={styles.root}
+        edges={route.name === 'player' || route.name === 'vodPlayer' ? [] : ['top', 'left', 'right']}
+      >
         <StatusBar style="light" />
       {route.name === 'loading' && (
         <View style={styles.centered}>

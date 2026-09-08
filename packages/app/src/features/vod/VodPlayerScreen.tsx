@@ -10,6 +10,7 @@ import { saveProgress } from '../../storage/vod.js';
 import { theme } from '../../ui/theme.js';
 import type { Playback } from './VodDetailScreen.js';
 import { TrackPicker } from '../player/TrackPicker.js';
+import { LandscapePlayer, useLandscape } from '../player/Landscape.js';
 import { pickPreferredSubtitle, sameTrack, trackName } from '../player/tracks.js';
 
 interface Props {
@@ -37,6 +38,7 @@ type Picker = 'subtitles' | 'audio' | null;
  */
 export function VodPlayerScreen({ session, playback, onBack }: Props) {
   const insets = useSafeAreaInsets();
+  const landscape = useLandscape();
   const [picker, setPicker] = useState<Picker>(null);
   const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
   const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([]);
@@ -209,48 +211,36 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
     setPicker(null);
   }
 
-  return (
-    <View style={styles.container}>
-      <VideoView style={styles.video} player={player} nativeControls />
-
-      <View style={styles.info}>
-        <Text style={styles.title} numberOfLines={1}>
-          {playback.title}
+  const actions = (
+    <>
+      <Pressable style={styles.button} onPress={onBack}>
+        <Text style={styles.buttonText}>Tilbage</Text>
+      </Pressable>
+      <Pressable
+        style={styles.button}
+        onPress={() => {
+          readTracks();
+          setPicker(picker === 'subtitles' ? null : 'subtitles');
+        }}
+      >
+        <Text style={styles.buttonText}>
+          Undertekster{subtitle !== null ? `: ${trackName(subtitle)}` : ''}
         </Text>
-        {playback.subtitle !== null && (
-          <Text style={styles.subtitleLine} numberOfLines={1}>
-            {playback.subtitle}
-          </Text>
-        )}
-        {error !== null && <Text style={styles.error}>{error}</Text>}
-      </View>
+      </Pressable>
+      <Pressable
+        style={styles.button}
+        onPress={() => {
+          readTracks();
+          setPicker(picker === 'audio' ? null : 'audio');
+        }}
+      >
+        <Text style={styles.buttonText}>Lyd{audio !== null ? `: ${trackName(audio)}` : ''}</Text>
+      </Pressable>
+    </>
+  );
 
-      <View style={[styles.actions, { paddingBottom: theme.spacing.md + insets.bottom }]}>
-        <Pressable style={styles.button} onPress={onBack}>
-          <Text style={styles.buttonText}>Tilbage</Text>
-        </Pressable>
-        <Pressable
-          style={styles.button}
-          onPress={() => {
-            readTracks();
-            setPicker(picker === 'subtitles' ? null : 'subtitles');
-          }}
-        >
-          <Text style={styles.buttonText}>
-            Undertekster{subtitle !== null ? `: ${trackName(subtitle)}` : ''}
-          </Text>
-        </Pressable>
-        <Pressable
-          style={styles.button}
-          onPress={() => {
-            readTracks();
-            setPicker(picker === 'audio' ? null : 'audio');
-          }}
-        >
-          <Text style={styles.buttonText}>Lyd{audio !== null ? `: ${trackName(audio)}` : ''}</Text>
-        </Pressable>
-      </View>
-
+  const pickers = (
+    <>
       {picker === 'subtitles' && (
         <TrackPicker
           title="Undertekster"
@@ -280,6 +270,38 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
           onClose={() => setPicker(null)}
         />
       )}
+    </>
+  );
+
+  if (landscape) {
+    return (
+      <LandscapePlayer
+        video={<VideoView style={StyleSheet.absoluteFill} player={player} nativeControls />}
+        bar={actions}
+        overlays={pickers}
+      />
+    );
+  }
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <VideoView style={styles.video} player={player} nativeControls />
+
+      <View style={styles.info}>
+        <Text style={styles.title} numberOfLines={1}>
+          {playback.title}
+        </Text>
+        {playback.subtitle !== null && (
+          <Text style={styles.subtitleLine} numberOfLines={1}>
+            {playback.subtitle}
+          </Text>
+        )}
+        {error !== null && <Text style={styles.error}>{error}</Text>}
+      </View>
+
+      <View style={[styles.actions, { paddingBottom: theme.spacing.md + insets.bottom }]}>{actions}</View>
+
+      {pickers}
     </View>
   );
 }

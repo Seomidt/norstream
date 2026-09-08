@@ -24,6 +24,7 @@ import { theme } from '../../ui/theme.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback } from './format.js';
 import { restartBlockFor, restartHint } from './restart.js';
 import { TrackPicker } from './TrackPicker.js';
+import { LandscapePlayer, useLandscape } from './Landscape.js';
 import { pickPreferredSubtitle, sameTrack, trackName } from './tracks.js';
 import type { RestartBlock } from './restart.js';
 
@@ -45,6 +46,7 @@ const RETRY_BACKOFF_MS = 1500;
 const STALL_TIMEOUT_MS = 15_000;
 
 export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
+  const landscape = useLandscape();
   // Uden den ligger Tilbage-knappen under telefonens navigationslinje.
   const insets = useSafeAreaInsets();
   /**
@@ -400,8 +402,76 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
     void playFromStart(startFrom);
   }, [startFrom, playFromStart]);
 
+  const actions = (
+    <>
+      <Pressable style={styles.button} onPress={onBack}>
+        <Text style={styles.buttonText}>Tilbage</Text>
+      </Pressable>
+      <Pressable
+        style={styles.button}
+        onPress={() => {
+          setSubtitleTracks(player.availableSubtitleTracks);
+          setSubtitle(player.subtitleTrack);
+          setShowingSubtitles((value) => !value);
+        }}
+      >
+        <Text style={styles.buttonText}>
+          Tekst{subtitle !== null ? `: ${trackName(subtitle)}` : ''}
+        </Text>
+      </Pressable>
+      {canRecord(channel) && (startFrom ?? now) !== null && (
+        <Pressable
+          style={[styles.button, recorded && styles.buttonDone]}
+          disabled={recorded}
+          onPress={() => {
+            void record();
+          }}
+        >
+          <Text style={styles.buttonText}>{recorded ? '● Optages' : '● Optag'}</Text>
+        </Pressable>
+      )}
+      {!restarted && restartBlock === null && now !== null && (
+        <Pressable
+          style={[styles.button, styles.buttonAccent]}
+          onPress={() => {
+            void playFromStart(now);
+          }}
+        >
+          <Text style={styles.buttonText}>Start forfra</Text>
+        </Pressable>
+      )}
+    </>
+  );
+
+  const subtitlePicker = showingSubtitles ? (
+    <TrackPicker
+      title="Undertekster"
+      options={[
+        { key: 'none', label: 'Ingen', active: subtitle === null, onPress: () => chooseSubtitle(null) },
+        ...subtitleTracks.map((track, index) => ({
+          key: track.id ?? `${track.language}-${index}`,
+          label: trackName(track),
+          active: subtitle !== null && sameTrack(subtitle, track),
+          onPress: () => chooseSubtitle(track),
+        })),
+      ]}
+      emptyText="Streamen har ingen undertekstspor. De fleste live-kanaler sender teksten indbrændt i billedet eller slet ikke."
+      onClose={() => setShowingSubtitles(false)}
+    />
+  ) : null;
+
+  if (landscape) {
+    return (
+      <LandscapePlayer
+        video={<VideoView style={StyleSheet.absoluteFill} player={player} nativeControls />}
+        bar={actions}
+        overlays={subtitlePicker}
+      />
+    );
+  }
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* allowsFullscreen findes ikke i den installerede expo-video (57.0.3) —
           fuldskaerm er slaaet til som standard via fullscreenOptions.enable. */}
       <VideoView style={styles.video} player={player} nativeControls />
@@ -431,61 +501,9 @@ export function PlayerScreen({ session, channel, onBack, startFrom }: Props) {
         {streamError !== null && <Text style={styles.error}>{streamError}</Text>}
       </View>
 
-      <View style={[styles.actions, { paddingBottom: theme.spacing.md + insets.bottom }]}>
-        <Pressable style={styles.button} onPress={onBack}>
-          <Text style={styles.buttonText}>Tilbage</Text>
-        </Pressable>
-        <Pressable
-          style={styles.button}
-          onPress={() => {
-            setSubtitleTracks(player.availableSubtitleTracks);
-            setSubtitle(player.subtitleTrack);
-            setShowingSubtitles((value) => !value);
-          }}
-        >
-          <Text style={styles.buttonText}>
-            Tekst{subtitle !== null ? `: ${trackName(subtitle)}` : ''}
-          </Text>
-        </Pressable>
-        {canRecord(channel) && (startFrom ?? now) !== null && (
-          <Pressable
-            style={[styles.button, recorded && styles.buttonDone]}
-            disabled={recorded}
-            onPress={() => {
-              void record();
-            }}
-          >
-            <Text style={styles.buttonText}>{recorded ? '● Optages' : '● Optag'}</Text>
-          </Pressable>
-        )}
-        {!restarted && restartBlock === null && now !== null && (
-          <Pressable
-            style={[styles.button, styles.buttonAccent]}
-            onPress={() => {
-              void playFromStart(now);
-            }}
-          >
-            <Text style={styles.buttonText}>Start forfra</Text>
-          </Pressable>
-        )}
-      </View>
+      <View style={[styles.actions, { paddingBottom: theme.spacing.md + insets.bottom }]}>{actions}</View>
 
-      {showingSubtitles && (
-        <TrackPicker
-          title="Undertekster"
-          options={[
-            { key: 'none', label: 'Ingen', active: subtitle === null, onPress: () => chooseSubtitle(null) },
-            ...subtitleTracks.map((track, index) => ({
-              key: track.id ?? `${track.language}-${index}`,
-              label: trackName(track),
-              active: subtitle !== null && sameTrack(subtitle, track),
-              onPress: () => chooseSubtitle(track),
-            })),
-          ]}
-          emptyText="Streamen har ingen undertekstspor. De fleste live-kanaler sender teksten indbrændt i billedet eller slet ikke."
-          onClose={() => setShowingSubtitles(false)}
-        />
-      )}
+      {subtitlePicker}
       {(fellBackToLive || !restarted) && restartBlock !== null && restartBlock !== undefined && (
         <RestartBlocked
           block={restartBlock}
