@@ -373,3 +373,21 @@ export async function maxArchiveDays(db: SqlDatabase): Promise<number> {
   const days = row?.days;
   return typeof days === 'number' && Number.isFinite(days) && days > 0 ? days : 0;
 }
+
+/**
+ * Hvor mange af panelets kanaler der er radio.
+ *
+ * Xtream skiller ikke radio ud som en egen slags i listen appen henter;
+ * det er kategorien eller navnet der siger det. Tallet findes fordi
+ * brugeren spurgte om filen indeholder radio, og det kan kun maales paa
+ * telefonen — panelet laaser linjen til dens adresse.
+ */
+export async function countRadioChannels(db: SqlDatabase): Promise<number> {
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n
+     FROM channels c
+     LEFT JOIN categories cat ON cat.id = c.category_id
+     WHERE cat.name LIKE '%radio%' OR c.name LIKE '%radio%'`,
+  );
+  return row?.n ?? 0;
+}

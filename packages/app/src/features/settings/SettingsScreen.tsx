@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from
 import { deriveCountry } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { vodCounts } from '../../storage/vod.js';
+import { countRadioChannels } from '../../storage/channels.js';
 import { createBackup, parseBackup, restoreBackup, serialiseBackup } from '../../storage/backup.js';
 import { forgetLogoMisses, resetLogo } from '../../ui/logoCache.js';
 import { setPosterApiKey } from '../../ui/posterFill.js';
@@ -75,6 +76,7 @@ export function SettingsScreen({
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [streamFormat, setStreamFormat] = useState<StreamFormatSetting>('auto');
   const [vod, setVod] = useState<{ movies: number; series: number } | null>(null);
+  const [radio, setRadio] = useState<number | null>(null);
   /** Brugerens egen noegle til YouTubes Data API, til at soege efter trailere. */
   const [youtubeKey, setYoutubeKey] = useState('');
   /** Brugerens egen noegle til TMDB, til plakater panelet ikke gav. */
@@ -100,6 +102,7 @@ export function SettingsScreen({
     setPosterApiKey(tmdb);
     setSubtitles(preferredSubtitles);
     setVod(counts);
+    setRadio(await countRadioChannels(session.db));
   }, [session.db]);
 
   useEffect(() => {
@@ -232,6 +235,7 @@ export function SettingsScreen({
           : vod.movies + vod.series === 0
             ? 'Ingen film eller serier hentet endnu. De følger med næste gang kanalerne opdateres.'
             : `${vod.movies} film og ${vod.series} serier hentet fra dine kilder.`}
+        {radio === null ? '' : ` ${radio} kanaler ser ud til at være radio (kategori eller navn med "radio").`}
       </Text>
 
       <Text style={styles.sectionTitle}>Kanallogoer</Text>
