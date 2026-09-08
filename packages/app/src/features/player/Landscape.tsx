@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-na
 import type { ReactNode } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { useKeepAwake } from 'expo-keep-awake';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { theme } from '../../ui/theme.js';
 
 /**
@@ -16,6 +17,10 @@ import { theme } from '../../ui/theme.js';
  * Bjaelken taendes med en lille knap i hjoernet, ikke med et tryk hvor som
  * helst: afspillerens egne knapper (pause, spol) ligger paa selve billedet,
  * og et lag over dem ville tage deres tryk.
+ *
+ * Bjaelken og hjoerneknappen holder sig inden for de sikre kanter. Paa en
+ * foldet telefon slaaet ud ligger telefonens egen knaplinje nederst, og
+ * uden luften laa Tilbage praecis under den, saa linjen tog trykket.
  */
 export function useLandscape(): boolean {
   const { width, height } = useWindowDimensions();
@@ -38,6 +43,7 @@ export function LandscapePlayer({
   overlays?: ReactNode;
 }) {
   useKeepAwake();
+  const insets = useSafeAreaInsets();
   const [barShown, setBarShown] = useState(true);
   useEffect(() => {
     if (!barShown) return;
@@ -50,7 +56,7 @@ export function LandscapePlayer({
       <StatusBar hidden />
       <View style={StyleSheet.absoluteFill}>{video}</View>
       <Pressable
-        style={styles.corner}
+        style={[styles.corner, { top: theme.spacing.sm + insets.top, right: theme.spacing.md + insets.right }]}
         hitSlop={12}
         onPress={() => setBarShown((value) => !value)}
         accessibilityLabel="Vis knapper"
@@ -58,7 +64,17 @@ export function LandscapePlayer({
         <Text style={styles.cornerText}>{barShown ? '×' : '⋯'}</Text>
       </Pressable>
       {barShown && (
-        <View style={styles.bar} pointerEvents="box-none">
+        <View
+          style={[
+            styles.bar,
+            {
+              paddingBottom: theme.spacing.md + insets.bottom,
+              paddingLeft: theme.spacing.md + insets.left,
+              paddingRight: theme.spacing.md + insets.right,
+            },
+          ]}
+          pointerEvents="box-none"
+        >
           {bar}
         </View>
       )}
