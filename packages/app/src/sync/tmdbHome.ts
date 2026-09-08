@@ -18,13 +18,20 @@ const API = 'https://api.themoviedb.org/3';
 const POSTER_BASE = 'https://image.tmdb.org/t/p/w342';
 const LOGO_BASE = 'https://image.tmdb.org/t/p/w92';
 export const HOME_REGION = 'DK';
-/** Hvor mange tjenester der tilbydes i indstillingerne. De vigtigste foerst. */
-const PROVIDER_LIMIT = 24;
+/**
+ * Hvor mange tjenester der tilbydes i indstillingerne. De vigtigste foerst.
+ * Loftet var 24, og SkyShowtime roeg ud: TMDB regner den for mindre vigtig
+ * i Danmark end en raekke leje-butikker. Nu er alle med, og listen kan
+ * soeges i.
+ */
+const PROVIDER_LIMIT = 120;
 
 export interface TmdbProvider {
   id: number;
   name: string;
   logoUrl: string | null;
+  /** Landet tjenesten blev fundet i. Hylden slaas op i samme land. */
+  region: string;
 }
 
 export interface TmdbTitle {
@@ -66,6 +73,24 @@ export async function listTmdbProviders(
   apiKey: string,
   region = HOME_REGION,
 ): Promise<TmdbProvider[]> {
+  return listProvidersIn(fetchImpl, apiKey, region);
+}
+
+/**
+ * Tjenesterne i Danmark, og bagefter dem der kun findes i Storbritannien
+ * (BBC iPlayer, ITVX …), maerket med landet. Hylden for en britisk tjeneste
+ * slaas op i Storbritannien; det er dér den har noget.
+ */
+export async function listTmdbProvidersWithUk(fetchImpl: TmdbFetch, apiKey: string): Promise<TmdbProvider[]> {
+  const [home, uk] = await Promise.all([
+    listProvidersIn(fetchImpl, apiKey, HOME_REGION),
+    listProvidersIn(fetchImpl, apiKey, 'GB'),
+  ]);
+  const known = new Set(home.map((provider) => provider.id));
+  return [...home, ...uk.filter((provider) => !known.has(provider.id))];
+}
+
+async function listProvidersIn(fetchImpl: TmdbFetch, apiKey: string, region: string): Promise<TmdbProvider[]> {
   const [movies, series] = await Promise.all([
     getJson(fetchImpl, apiKey, '/watch/providers/movie', `watch_region=${region}`),
     getJson(fetchImpl, apiKey, '/watch/providers/tv', `watch_region=${region}`),
@@ -85,6 +110,7 @@ export async function listTmdbProviders(
           id: raw.provider_id,
           name: raw.provider_name,
           logoUrl: typeof raw.logo_path === 'string' ? `${LOGO_BASE}${raw.logo_path}` : null,
+          region,
         },
       });
     }
@@ -240,8 +266,12 @@ export function serviceSearchUrl(providerName: string, title: string): string | 
   if (name.includes('viaplay')) return `https://viaplay.dk/search?query=${q}`;
   if (name === 'max' || name.includes('hbo')) return `https://play.max.com/search?q=${q}`;
   if (name.includes('apple')) return `https://tv.apple.com/dk/search?term=${q}`;
-  if (name.includes('skyshowtime')) return `https://www.skyshowtime.com/dk/search?q=${q}`;
+  // Maalt fra en runner: play.tv2.dk/soeg svarer 200 med titlen udfyldt.
+  if (name.includes('tv 2') || name.includes('tv2')) return `https://play.tv2.dk/soeg?q=${q}`;
   if (name.includes('paramount')) return `https://www.paramountplus.com/search/?q=${q}`;
   if (name.includes('youtube')) return `https://www.youtube.com/results?search_query=${q}`;
+  if (name.includes('iplayer') || name.includes('bbc')) return `https://www.bbc.co.uk/iplayer/search?q=${q}`;
+  if (name.includes('itv')) return `https://www.itv.com/watch/search?q=${q}`;
+  if (name.includes('channel 4')) return `https://www.channel4.com/search?q=${q}`;
   return null;
 }

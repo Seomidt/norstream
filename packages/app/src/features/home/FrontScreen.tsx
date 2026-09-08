@@ -148,7 +148,9 @@ export function FrontScreen({
     setLoadingShelves(true);
     void (async () => {
       for (const provider of providers) {
-        const titles = await cachedShelf(`provider:${provider.id}`, () => providerShelf(tmdbFetch, tmdbKey, provider.id));
+        const titles = await cachedShelf(`provider:${provider.id}:${provider.region}`, () =>
+          providerShelf(tmdbFetch, tmdbKey, provider.id, undefined, provider.region),
+        );
         if (cancelled) return;
         setShelves((current) => new Map(current).set(provider.id, titles));
       }
@@ -172,7 +174,7 @@ export function FrontScreen({
   async function openExternally(current: Sheet): Promise<void> {
     const provider = current.provider;
     let url = provider === null ? null : serviceSearchUrl(provider.name, current.title.title);
-    if (url === null && tmdbKey !== null) url = await justWatchLink(tmdbFetch, tmdbKey, current.title);
+    if (url === null && tmdbKey !== null) url = await justWatchLink(tmdbFetch, tmdbKey, current.title, provider?.region);
     if (url === null) {
       const q = encodeURIComponent(`${current.title.title} ${provider?.name ?? 'streaming'}`);
       url = `https://www.google.com/search?q=${q}`;

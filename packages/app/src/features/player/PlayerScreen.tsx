@@ -111,6 +111,14 @@ export function PlayerScreen({
   const [restarted, setRestarted] = useState(startFrom !== undefined);
   const [triedFallback, setTriedFallback] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
+  /**
+   * Radio har intet billede, saa der er intet at se paa mens man venter.
+   * Derfor siges det med ord hvor langt afspilleren er: forbinder, spiller
+   * (og med hvor mange lydspor), eller fejl. Det er ogsaa det der skal til
+   * for at kunne sige *hvorfor* en radiokanal er stum.
+   */
+  const isRadio = /radio/i.test(channel.name);
+  const [audioState, setAudioState] = useState<string>('Forbinder …');
 
   // "Se videre" oeverst i favoritterne: den kanal der sidst blev set.
   useEffect(() => {
@@ -314,6 +322,23 @@ export function PlayerScreen({
           attempt = 0;
           clearStallTimer();
           setStreamError(null);
+          try {
+            const audioTracks = player.availableAudioTracks;
+            // Et spor der findes men ikke er valgt, vaelges. ExoPlayer goer
+            // det selv for video; for en stream uden billede har det vist
+            // sig ikke altid at ske.
+            if (player.audioTrack === null && audioTracks.length > 0) {
+              const first = audioTracks[0];
+              if (first !== undefined) player.audioTrack = first;
+            }
+            setAudioState(
+              audioTracks.length === 0
+                ? 'Spiller, men streamen melder intet lydspor'
+                : `Spiller · ${audioTracks.length} lydspor · lyd ${Math.round(player.volume * 100)} %${player.muted ? ' · dæmpet' : ''}`,
+            );
+          } catch {
+            setAudioState('Spiller');
+          }
           // Sporene kan vaere meldt foer lytteren kom paa. Laeses her igen.
           setSubtitleTracks(player.availableSubtitleTracks);
           setSubtitle(player.subtitleTrack);
@@ -322,9 +347,11 @@ export function PlayerScreen({
         }
 
         if (status === 'error') {
+          setAudioState('Streamen svarede med en fejl');
           handleFailure();
           return;
         }
+        if (status === 'loading') setAudioState('Forbinder …');
 
         // Spec sec.9 kraever ogsaa genforbindelse paa buffer-haendelser:
         // bliver afspilleren haengende i 'loading' uden at komme videre, er
@@ -544,6 +571,15 @@ export function PlayerScreen({
           fuldskaerm er slaaet til som standard via fullscreenOptions.enable. */}
       <View>
         <VideoView style={styles.video} player={player} nativeControls />
+        {isRadio && (
+          <View style={styles.radioPlacard} pointerEvents="none">
+            <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={72} />
+            <Text style={styles.radioName} numberOfLines={1}>
+              {channel.name}
+            </Text>
+            <Text style={styles.radioState}>{audioState}</Text>
+          </View>
+        )}
         {banner}
       </View>
 
@@ -648,6 +684,18 @@ const styles = StyleSheet.create({
   bannerTitle: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
   container: { flex: 1, backgroundColor: '#000000' },
   video: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000000' },
+  radioPlacard: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '70%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.xs,
+  },
+  radioName: { color: theme.colors.text, fontSize: 16, fontWeight: '700' },
+  radioState: { color: theme.colors.textMuted, fontSize: 13 },
   info: { padding: theme.spacing.md },
   channelLine: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
   channelName: { color: theme.colors.text, fontSize: 20, fontWeight: '600', flexShrink: 1 },

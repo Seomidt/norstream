@@ -31,7 +31,7 @@ import {
 } from '../../storage/settings.js';
 import type { HomeProvider, StreamFormatSetting, SubtitlePreference } from '../../storage/settings.js';
 import { tmdbFetch } from '../../sync/tmdb.js';
-import { listTmdbProviders } from '../../sync/tmdbHome.js';
+import { listTmdbProvidersWithUk } from '../../sync/tmdbHome.js';
 import { applyStreamFormatSetting } from '../player/format.js';
 import { theme } from '../../ui/theme.js';
 
@@ -95,6 +95,7 @@ export function SettingsScreen({
   /** Tjenesterne forsiden viser hylder for, og dem TMDB kender i landet. */
   const [chosenProviders, setChosenProviders] = useState<HomeProvider[]>([]);
   const [providers, setProviders] = useState<HomeProvider[] | null>(null);
+  const [providerSearch, setProviderSearch] = useState('');
   /** Hvad sidste sikkerhedskopiering eller gendannelse endte med. */
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
@@ -134,7 +135,7 @@ export function SettingsScreen({
     }
     let cancelled = false;
     const timer = setTimeout(() => {
-      void listTmdbProviders(tmdbFetch, tmdbKey).then((list) => {
+      void listTmdbProvidersWithUk(tmdbFetch, tmdbKey).then((list) => {
         if (!cancelled) setProviders(list);
       });
     }, 600);
@@ -411,14 +412,31 @@ export function SettingsScreen({
       <Text style={styles.sectionTitle}>Forside</Text>
       <Text style={styles.hint}>
         Vælg de streamingtjenester du har. Forsiden viser en hylde for hver med det der er
-        populært på den lige nu, og ugens mest sete. Trykker du på en titel, spilles den fra din
+        populært på den lige nu, og ugens mest sete. De danske står først; bagefter de
+        britiske (BBC iPlayer, ITVX), mærket UK, med det de har derovre. Trykker du på en titel, spilles den fra din
         egen pakke når den findes der, ellers åbnes tjenestens app. Kræver TMDB-nøglen ovenfor.
       </Text>
       {tmdbKey.trim().length === 0 ? null : providers === null ? (
         <Text style={styles.hint}>Henter tjenesterne …</Text>
       ) : (
-        <View style={styles.choices}>
-          {[...chosenProviders.filter((c) => !providers.some((p) => p.id === c.id)), ...providers].map((provider) => {
+        <>
+          <TextInput
+            style={styles.input}
+            value={providerSearch}
+            onChangeText={setProviderSearch}
+            placeholder="Find en tjeneste, fx SkyShowtime"
+            placeholderTextColor={theme.colors.textMuted}
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          <View style={styles.choices}>
+          {[...chosenProviders.filter((c) => !providers.some((p) => p.id === c.id)), ...providers]
+            .filter((provider) => {
+              const needle = providerSearch.trim().toLowerCase();
+              // De valgte staar der altid, saa man kan tage dem fra igen.
+              return needle.length === 0 || provider.name.toLowerCase().includes(needle) || chosenProviders.some((c) => c.id === provider.id);
+            })
+            .map((provider) => {
             const selected = chosenProviders.some((entry) => entry.id === provider.id);
             return (
               <Pressable
@@ -428,11 +446,14 @@ export function SettingsScreen({
                   void toggleProvider(provider);
                 }}
               >
-                <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>{provider.name}</Text>
+                <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>
+                  {provider.region === 'DK' ? provider.name : `${provider.name} (UK)`}
+                </Text>
               </Pressable>
             );
           })}
-        </View>
+          </View>
+        </>
       )}
 
       <Text style={styles.sectionTitle}>Trailere</Text>

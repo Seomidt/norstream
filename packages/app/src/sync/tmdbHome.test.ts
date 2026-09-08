@@ -5,6 +5,7 @@ import {
   interleave,
   justWatchLink,
   listTmdbProviders,
+  listTmdbProvidersWithUk,
   providerShelf,
   serviceSearchUrl,
   toTmdbTitle,
@@ -48,6 +49,7 @@ describe('listTmdbProviders', () => {
     const providers = await listTmdbProviders(fetchImpl, 'KEY');
     expect(providers.map((p) => p.name)).toEqual(['Netflix', 'Viaplay', 'TV 2 Play']);
     expect(providers[0]?.logoUrl).toBe('https://image.tmdb.org/t/p/w92/n.jpg');
+    expect(providers[0]?.region).toBe('DK');
     expect(providers[2]?.logoUrl).toBeNull();
     expect(fetchImpl.calls[0]).toContain('watch_region=DK');
     expect(fetchImpl.calls[0]).toContain('api_key=KEY');
@@ -129,6 +131,27 @@ describe('serviceSearchUrl', () => {
     expect(serviceSearchUrl('Viaplay', 'Broen')).toContain('viaplay.dk');
     expect(serviceSearchUrl('Max', 'Succession')).toContain('play.max.com');
     expect(serviceSearchUrl('Apple TV Plus', 'Severance')).toContain('tv.apple.com');
-    expect(serviceSearchUrl('TV 2 Play', 'Badehotellet')).toBeNull();
+    expect(serviceSearchUrl('TV 2 Play', 'Badehotellet')).toBe('https://play.tv2.dk/soeg?q=Badehotellet');
+    expect(serviceSearchUrl('BBC iPlayer', 'Doctor Who')).toContain('bbc.co.uk/iplayer');
+    expect(serviceSearchUrl('Blockbuster', 'X')).toBeNull();
+  });
+});
+
+describe('listTmdbProvidersWithUk', () => {
+  it('saetter de britiske efter de danske, uden dem der allerede er der', async () => {
+    const fetchImpl = fakeFetch([
+      [/watch_region=DK/, { results: [{ provider_id: 8, provider_name: 'Netflix', display_priorities: { DK: 1 } }] }],
+      [
+        /watch_region=GB/,
+        {
+          results: [
+            { provider_id: 8, provider_name: 'Netflix', display_priorities: { GB: 1 } },
+            { provider_id: 38, provider_name: 'BBC iPlayer', display_priorities: { GB: 2 } },
+          ],
+        },
+      ],
+    ]);
+    const providers = await listTmdbProvidersWithUk(fetchImpl, 'KEY');
+    expect(providers.map((p) => `${p.name}:${p.region}`)).toEqual(['Netflix:DK', 'BBC iPlayer:GB']);
   });
 });

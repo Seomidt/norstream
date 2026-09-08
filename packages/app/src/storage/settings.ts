@@ -370,6 +370,8 @@ export interface HomeProvider {
   id: number;
   name: string;
   logoUrl: string | null;
+  /** Landet hylden slaas op i. Aeldre gemte valg uden land er danske. */
+  region: string;
 }
 
 /**
@@ -385,7 +387,12 @@ export async function getHomeProviders(db: SqlDatabase): Promise<HomeProvider[]>
     return parsed.filter(
       (entry): entry is HomeProvider =>
         typeof entry === 'object' && entry !== null && typeof (entry as HomeProvider).id === 'number' && typeof (entry as HomeProvider).name === 'string',
-    ).map((entry) => ({ id: entry.id, name: entry.name, logoUrl: typeof entry.logoUrl === 'string' ? entry.logoUrl : null }));
+    ).map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      logoUrl: typeof entry.logoUrl === 'string' ? entry.logoUrl : null,
+      region: typeof entry.region === 'string' && entry.region.length > 0 ? entry.region : 'DK',
+    }));
   } catch {
     return [];
   }
