@@ -24,6 +24,8 @@ import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback } from './format.
 import { restartBlockFor, restartHint } from './restart.js';
 import { TrackPicker } from './TrackPicker.js';
 import { LandscapePlayer, useLandscape } from './Landscape.js';
+import { RadioView } from './RadioView.js';
+import type { RadioState } from './RadioView.js';
 import { pickPreferredSubtitle, sameTrack, trackName } from './tracks.js';
 import type { RestartBlock } from './restart.js';
 
@@ -119,6 +121,8 @@ export function PlayerScreen({
    */
   const isRadio = /radio/i.test(channel.name);
   const [audioState, setAudioState] = useState<string>('Forbinder …');
+  const [radioState, setRadioState] = useState<RadioState>('connecting');
+  const [playing, setPlaying] = useState(true);
 
   // "Se videre" oeverst i favoritterne: den kanal der sidst blev set.
   useEffect(() => {
@@ -209,6 +213,13 @@ export function PlayerScreen({
       cancelled = true;
     };
   }, [session.db, player, autoSelectSubtitle]);
+
+  useEffect(() => {
+    const subscription = player.addListener('playingChange', ({ isPlaying }: { isPlaying: boolean }) => {
+      setPlaying(isPlaying);
+    });
+    return () => subscription.remove();
+  }, [player]);
 
   useEffect(() => {
     const subscription = player.addListener(
@@ -339,6 +350,7 @@ export function PlayerScreen({
           } catch {
             setAudioState('Spiller');
           }
+          setRadioState('playing');
           // Sporene kan vaere meldt foer lytteren kom paa. Laeses her igen.
           setSubtitleTracks(player.availableSubtitleTracks);
           setSubtitle(player.subtitleTrack);
@@ -348,10 +360,14 @@ export function PlayerScreen({
 
         if (status === 'error') {
           setAudioState('Streamen svarede med en fejl');
+          setRadioState('error');
           handleFailure();
           return;
         }
-        if (status === 'loading') setAudioState('Forbinder …');
+        if (status === 'loading') {
+          setAudioState('Forbinder …');
+          setRadioState('connecting');
+        }
 
         // Spec sec.9 kraever ogsaa genforbindelse paa buffer-haendelser:
         // bliver afspilleren haengende i 'loading' uden at komme videre, er
@@ -550,6 +566,37 @@ export function PlayerScreen({
     </View>
   ) : null;
 
+  if (isRadio) {
+    const shown: RadioState = radioState === 'playing' && !playing ? 'paused' : radioState;
+    return (
+      <RadioView
+        channel={channel}
+        state={shown}
+        stateText={shown === 'paused' ? 'Pause' : streamError ?? audioState}
+        hiddenVideo={<VideoView style={styles.hiddenVideo} player={player} nativeControls={false} />}
+        hasPrevious={zapList.length > 1 && zapIndex !== -1}
+        hasNext={zapList.length > 1 && zapIndex !== -1}
+        onBack={onBack}
+        onPrevious={() => {
+          const target = zapList[(zapIndex - 1 + zapList.length) % zapList.length];
+          if (target !== undefined) zapTo(target);
+        }}
+        onNext={() => {
+          const target = zapList[(zapIndex + 1) % zapList.length];
+          if (target !== undefined) zapTo(target);
+        }}
+        onToggle={() => {
+          try {
+            if (player.playing) player.pause();
+            else player.play();
+          } catch {
+            // Afspilleren er vaek.
+          }
+        }}
+      />
+    );
+  }
+
   if (landscape) {
     return (
       <LandscapePlayer
@@ -571,15 +618,6 @@ export function PlayerScreen({
           fuldskaerm er slaaet til som standard via fullscreenOptions.enable. */}
       <View>
         <VideoView style={styles.video} player={player} nativeControls />
-        {isRadio && (
-          <View style={styles.radioPlacard} pointerEvents="none">
-            <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={72} />
-            <Text style={styles.radioName} numberOfLines={1}>
-              {channel.name}
-            </Text>
-            <Text style={styles.radioState}>{audioState}</Text>
-          </View>
-        )}
         {banner}
       </View>
 
@@ -684,18 +722,7 @@ const styles = StyleSheet.create({
   bannerTitle: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
   container: { flex: 1, backgroundColor: '#000000' },
   video: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000000' },
-  radioPlacard: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '70%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: theme.spacing.xs,
-  },
-  radioName: { color: theme.colors.text, fontSize: 16, fontWeight: '700' },
-  radioState: { color: theme.colors.textMuted, fontSize: 13 },
+  hiddenVideo: { width: 1, height: 1 },
   info: { padding: theme.spacing.md },
   channelLine: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
   channelName: { color: theme.colors.text, fontSize: 20, fontWeight: '600', flexShrink: 1 },
