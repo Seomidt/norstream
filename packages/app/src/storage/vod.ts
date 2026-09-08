@@ -28,6 +28,8 @@ export interface StoredVodItem extends VodItem {
   durationSeconds: number | null;
   /** Plakat fundet hos TMDB. Bruges naar panelets mangler eller er paa en doed vaert. */
   foundPosterUrl: string | null;
+  /** Set faerdig, af sig selv eller med et tryk. */
+  watched: boolean;
 }
 
 export interface VodCategorySummary {
@@ -62,6 +64,7 @@ interface ItemRow {
   found_poster_url: string | null;
   /** Karakter fra TMDB, til naar panelet ingen gav. */
   found_rating: number | null;
+  watched: number | null;
 }
 
 function toStored(row: ItemRow): StoredVodItem {
@@ -84,6 +87,7 @@ function toStored(row: ItemRow): StoredVodItem {
     positionSeconds: row.position_s,
     durationSeconds: row.duration_s,
     foundPosterUrl: row.found_poster_url,
+    watched: row.watched === 1,
   };
 }
 
@@ -93,12 +97,14 @@ const SELECT_ITEM = `
          CASE WHEN w.item_key IS NOT NULL THEN 1 ELSE NULL END AS in_watchlist,
          p.position_s, p.duration_s,
          fp.url AS found_poster_url,
-         fp.rating AS found_rating
+         fp.rating AS found_rating,
+         CASE WHEN wt.item_key IS NOT NULL THEN 1 ELSE NULL END AS watched
   FROM vod_items i
   LEFT JOIN vod_categories c ON c.id = i.category_id
   LEFT JOIN vod_watchlist w ON w.item_key = i.key
   LEFT JOIN vod_progress p ON p.item_key = i.key
-  LEFT JOIN vod_posters fp ON fp.item_key = i.key`;
+  LEFT JOIN vod_posters fp ON fp.item_key = i.key
+  LEFT JOIN vod_watched wt ON wt.item_key = i.key`;
 
 /** Hvor mange raekker der skrives per saetning. 999 variabler er graensen; 12 per raekke. */
 const BATCH = 80;
@@ -275,6 +281,7 @@ export async function listVodItems(
     // Set faerdig = de sidste par procent. Rulleteksterne taeller ikke.
     where.push('p.position_s IS NOT NULL AND p.position_s > 60');
     where.push('(p.duration_s IS NULL OR p.position_s < p.duration_s * 0.95)');
+    where.push('wt.item_key IS NULL');
   }
   const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
   const order = opts.newestFirst === true
@@ -446,6 +453,7 @@ export interface StoredEpisode extends Episode {
   key: string;
   positionSeconds: number | null;
   durationSeconds: number | null;
+  watched: boolean;
 }
 
 export async function listEpisodes(db: SqlDatabase, seriesKey: string): Promise<StoredEpisode[]> {
@@ -461,10 +469,13 @@ export async function listEpisodes(db: SqlDatabase, seriesKey: string): Promise<
     air_date: string | null;
     position_s: number | null;
     duration_s: number | null;
+    watched: number | null;
   }>(
-    `SELECT e.*, p.position_s, p.duration_s
+    `SELECT e.*, p.position_s, p.duration_s,
+            CASE WHEN wt.item_key IS NOT NULL THEN 1 ELSE NULL END AS watched
      FROM episodes e
      LEFT JOIN vod_progress p ON p.item_key = e.key
+     LEFT JOIN vod_watched wt ON wt.item_key = e.key
      WHERE e.series_key = ?
      ORDER BY e.season, e.episode`,
     [seriesKey],
@@ -482,8 +493,29 @@ export async function listEpisodes(db: SqlDatabase, seriesKey: string): Promise<
     airDate: row.air_date,
     positionSeconds: row.position_s,
     durationSeconds: row.duration_s,
+    watched: row.watched === 1,
   }));
 }
+
+/** Set faerdig — eller ikke alligevel. */
+export async function setWatched(
+  db: SqlDatabase,
+  key: string,
+  watched: boolean,
+  now: Date = new Date(),
+): Promise<void> {
+  if (watched) {
+    await db.runAsync('INSERT OR IGNORE INTO vod_watched (item_key, watched_ms) VALUES (?, ?)', [
+      key,
+      now.getTime(),
+    ]);
+  } else {
+    await db.runAsync('DELETE FROM vod_watched WHERE item_key = ?', [key]);
+  }
+}
+
+/** Hvor stor en del af titlen der taeller som "set faerdig". Rulleteksterne taeller ikke. */
+export const WATCHED_RATIO = 0.95;
 
 /** Min liste: det brugeren selv har lagt til side. */
 export async function setInWatchlist(
@@ -526,6 +558,10 @@ export async function saveProgress(
        updated_ms = excluded.updated_ms`,
     [key, Math.trunc(positionSeconds), durationSeconds === null ? null : Math.trunc(durationSeconds), now.getTime()],
   );
+  // Naaet rulleteksterne: set faerdig, uden at nogen skal trykke.
+  if (durationSeconds !== null && durationSeconds > 0 && positionSeconds >= durationSeconds * WATCHED_RATIO) {
+    await setWatched(db, key, true, now);
+  }
 }
 
 export async function getProgress(

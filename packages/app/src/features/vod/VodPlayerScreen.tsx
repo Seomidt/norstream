@@ -6,7 +6,10 @@ import type { AudioTrack, SubtitleTrack } from 'expo-video';
 import type { AppSession } from '../../session.js';
 import { getSubtitlePreference } from '../../storage/settings.js';
 import type { SubtitlePreference } from '../../storage/settings.js';
-import { saveProgress } from '../../storage/vod.js';
+import { listEpisodes, saveProgress, setWatched } from '../../storage/vod.js';
+import type { StoredEpisode } from '../../storage/vod.js';
+import { buildEpisodeUrl } from '@norstream/core';
+import { nextEpisode } from './episodes.js';
 import { theme } from '../../ui/theme.js';
 import type { Playback } from './VodDetailScreen.js';
 import { TrackPicker } from '../player/TrackPicker.js';
@@ -24,6 +27,9 @@ const PROGRESS_INTERVAL_MS = 10_000;
 
 type Picker = 'subtitles' | 'audio' | null;
 
+/** Sekunder fra et afsnit slutter til det naeste begynder af sig selv. */
+const NEXT_COUNTDOWN_S = 10;
+
 /**
  * Afspilleren for film og afsnit.
  *
@@ -39,6 +45,15 @@ type Picker = 'subtitles' | 'audio' | null;
 export function VodPlayerScreen({ session, playback, onBack }: Props) {
   const insets = useSafeAreaInsets();
   const landscape = useLandscape();
+  /**
+   * Det der spilles lige nu. Begynder som det man kom med, og skifter naar
+   * naeste afsnit tager over — samme skaerm, ny fil, saa panelets ene
+   * forbindelse slippes og tages ét sted.
+   */
+  const [current, setCurrent] = useState(playback);
+  /** Naeste afsnit, naar det nuvaerende er slut, med nedtaelling. */
+  const [upcoming, setUpcoming] = useState<StoredEpisode | null>(null);
+  const [countdown, setCountdown] = useState(NEXT_COUNTDOWN_S);
   const [picker, setPicker] = useState<Picker>(null);
   const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
   const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([]);
@@ -47,7 +62,7 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
   const [error, setError] = useState<string | null>(null);
   const resumed = useRef(false);
 
-  const player = useVideoPlayer(playback.url, (p) => {
+  const player = useVideoPlayer(current.url, (p) => {
     p.loop = false;
     // Én gang i sekundet melder afspilleren hvor langt den er. Det er den
     // eneste kilde til fremdriften ved afgang; se `lastKnown`.
@@ -65,7 +80,7 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
    * Derfor holdes tallet her, opdateret af afspilleren mens den lever.
    */
   const lastKnown = useRef<{ position: number; duration: number | null }>({
-    position: playback.resumeAtSeconds ?? 0,
+    position: current.resumeAtSeconds ?? 0,
     duration: null,
   });
 
@@ -155,9 +170,9 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
         readTracks();
         autoSelect(player.availableSubtitleTracks);
         // Foerst her: et hop foer filen er aabnet, bliver ignoreret.
-        if (!resumed.current && playback.resumeAtSeconds !== null && playback.resumeAtSeconds > 0) {
+        if (!resumed.current && current.resumeAtSeconds !== null && current.resumeAtSeconds > 0) {
           resumed.current = true;
-          player.currentTime = playback.resumeAtSeconds;
+          player.currentTime = current.resumeAtSeconds;
         }
       }
       if (status === 'error') {
@@ -167,7 +182,7 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
       }
     });
     return () => subscription.remove();
-  }, [player, playback.resumeAtSeconds, readTracks, autoSelect]);
+  }, [player, current.resumeAtSeconds, readTracks, autoSelect]);
 
   useEffect(() => {
     const subscription = player.addListener('timeUpdate', ({ currentTime }: { currentTime: number }) => {
@@ -183,13 +198,70 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
     return () => subscription.remove();
   }, [player]);
 
+  // En ny fil: hop, sprogvalg og kendt position begynder forfra.
+  useEffect(() => {
+    resumed.current = false;
+    autoPicked.current = false;
+    lastKnown.current = { position: current.resumeAtSeconds ?? 0, duration: null };
+  }, [current.url, current.resumeAtSeconds]);
+
+  /**
+   * Slut paa filen: set faerdig, og for et afsnit findes det naeste med
+   * en nedtaelling. Skiftet sker paa samme skaerm, saa panelets ene
+   * forbindelse slippes og tages ét sted.
+   */
+  useEffect(() => {
+    const subscription = player.addListener('playToEnd', () => {
+      void setWatched(session.db, current.progressKey, true).catch(() => undefined);
+      if (current.seriesKey === null || current.episodeKey === null) return;
+      const seriesKey = current.seriesKey;
+      const episodeKey = current.episodeKey;
+      void listEpisodes(session.db, seriesKey).then((episodes) => {
+        const next = nextEpisode(episodes, episodeKey);
+        if (next === null) return;
+        setCountdown(NEXT_COUNTDOWN_S);
+        setUpcoming(next);
+      });
+    });
+    return () => subscription.remove();
+  }, [player, session.db, current]);
+
+  const playNext = useCallback(
+    (episode: StoredEpisode): void => {
+      const creds = session.access(current.sourceId)?.creds ?? null;
+      setUpcoming(null);
+      if (creds === null) return;
+      setCurrent({
+        url: buildEpisodeUrl(creds, episode.id, episode.containerExtension),
+        title: current.title,
+        subtitle: `S${episode.season} · E${episode.episode} · ${episode.title}`,
+        progressKey: episode.key,
+        resumeAtSeconds: episode.positionSeconds,
+        sourceId: current.sourceId,
+        seriesKey: current.seriesKey,
+        episodeKey: episode.key,
+      });
+    },
+    [session, current],
+  );
+
+  useEffect(() => {
+    if (upcoming === null) return;
+    if (countdown <= 0) {
+      playNext(upcoming);
+      return;
+    }
+    const timer = setTimeout(() => setCountdown((value) => value - 1), 1_000);
+    return () => clearTimeout(timer);
+  }, [upcoming, countdown, playNext]);
+
   // Fremdriften. Skrives hvert tiende sekund og ved afgang — fra `lastKnown`,
   // aldrig fra afspilleren, som kan vaere frigivet naar oprydningen koerer.
   const persist = useCallback((): void => {
     const { position, duration } = lastKnown.current;
     if (position <= 0) return;
-    void saveProgress(session.db, playback.progressKey, position, duration).catch(() => undefined);
-  }, [session.db, playback.progressKey]);
+    void saveProgress(session.db, current.progressKey, position, duration).catch(() => undefined);
+  }, [session.db, current.progressKey]);
 
   useEffect(() => {
     const timer = setInterval(persist, PROGRESS_INTERVAL_MS);
@@ -239,8 +311,27 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
     </>
   );
 
+  const nextOverlay =
+    upcoming !== null ? (
+      <View style={styles.next}>
+        <Text style={styles.nextLabel}>Næste afsnit</Text>
+        <Text style={styles.nextTitle} numberOfLines={2}>
+          S{upcoming.season} · E{upcoming.episode} · {upcoming.title}
+        </Text>
+        <View style={styles.nextRow}>
+          <Pressable style={[styles.button, styles.buttonAccent]} onPress={() => playNext(upcoming)}>
+            <Text style={styles.buttonText}>▶ Afspil nu ({countdown})</Text>
+          </Pressable>
+          <Pressable style={styles.button} onPress={() => setUpcoming(null)}>
+            <Text style={styles.buttonText}>Annuller</Text>
+          </Pressable>
+        </View>
+      </View>
+    ) : null;
+
   const pickers = (
     <>
+      {nextOverlay}
       {picker === 'subtitles' && (
         <TrackPicker
           title="Undertekster"
@@ -289,11 +380,11 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
 
       <View style={styles.info}>
         <Text style={styles.title} numberOfLines={1}>
-          {playback.title}
+          {current.title}
         </Text>
-        {playback.subtitle !== null && (
+        {current.subtitle !== null && (
           <Text style={styles.subtitleLine} numberOfLines={1}>
-            {playback.subtitle}
+            {current.subtitle}
           </Text>
         )}
         {error !== null && <Text style={styles.error}>{error}</Text>}
@@ -328,4 +419,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
   },
   buttonText: { color: theme.colors.text, fontSize: 14, fontWeight: '600' },
+  buttonAccent: { backgroundColor: theme.colors.accent },
+  next: {
+    position: 'absolute',
+    left: theme.spacing.md,
+    right: theme.spacing.md,
+    bottom: 96,
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderWidth: StyleSheet.hairlineWidth,
+    elevation: 8,
+  },
+  nextLabel: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600', textTransform: 'uppercase' },
+  nextTitle: { color: theme.colors.text, fontSize: 16, fontWeight: '700', marginTop: 4 },
+  nextRow: { flexDirection: 'row', gap: theme.spacing.sm, marginTop: theme.spacing.sm },
 });

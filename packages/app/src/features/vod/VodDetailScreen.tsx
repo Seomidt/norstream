@@ -12,7 +12,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { buildEpisodeUrl, buildMovieUrl } from '@norstream/core';
 import type { VodDetails } from '@norstream/core';
 import type { AppSession } from '../../session.js';
-import { getVodItem, listEpisodes, setInWatchlist } from '../../storage/vod.js';
+import { getVodItem, listEpisodes, setInWatchlist, setWatched } from '../../storage/vod.js';
+import { continueEpisodeFor } from './episodes.js';
 import type { StoredEpisode, StoredVodItem } from '../../storage/vod.js';
 import { ensureVodDetails } from '../../sync/vodDetails.js';
 import { theme } from '../../ui/theme.js';
@@ -25,6 +26,11 @@ export interface Playback {
   /** Noeglen fremdriften gemmes under: titlen for film, afsnittet for serier. */
   progressKey: string;
   resumeAtSeconds: number | null;
+  /** Kilden, saa afspilleren selv kan bygge adressen paa naeste afsnit. */
+  sourceId: string;
+  /** Serien og afsnittet, naar det er et afsnit; ellers null. */
+  seriesKey: string | null;
+  episodeKey: string | null;
 }
 
 interface Props {
@@ -120,6 +126,9 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
       subtitle: null,
       progressKey: item.key,
       resumeAtSeconds: item.positionSeconds,
+      sourceId: item.sourceId,
+      seriesKey: null,
+      episodeKey: null,
     });
   }
 
@@ -131,7 +140,23 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
       subtitle: `S${episode.season} · E${episode.episode} · ${episode.title}`,
       progressKey: episode.key,
       resumeAtSeconds: episode.positionSeconds,
+      sourceId: item.sourceId,
+      seriesKey: item.key,
+      episodeKey: episode.key,
     });
+  }
+
+  async function toggleWatched(): Promise<void> {
+    if (item === null || item === undefined) return;
+    await setWatched(session.db, item.key, !item.watched);
+    setItem({ ...item, watched: !item.watched });
+  }
+
+  async function toggleEpisodeWatched(episode: StoredEpisode): Promise<void> {
+    await setWatched(session.db, episode.key, !episode.watched);
+    setEpisodes((current) =>
+      current.map((entry) => (entry.key === episode.key ? { ...entry, watched: !entry.watched } : entry)),
+    );
   }
 
   async function toggleWatchlist(): Promise<void> {
@@ -147,10 +172,9 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
 
   const seasons = [...new Set(episodes.map((episode) => episode.season))];
   const shownEpisodes = episodes.filter((episode) => episode.season === season);
-  // "Fortsaet" for serier peger paa det afsnit man senest var i gang med.
-  const continueEpisode = [...episodes]
-    .filter((episode) => episode.positionSeconds !== null)
-    .sort((a, b) => b.season - a.season || b.episode - a.episode)[0];
+  // "Fortsaet" for serier: det afsnit man var i gang med, ellers det naeste
+  // usete efter det sidste sete.
+  const continueEpisode = continueEpisodeFor(episodes) ?? undefined;
 
   return (
     <View style={styles.container}>
@@ -192,7 +216,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
               onPress={playMovie}
             >
               <Text style={styles.buttonText}>
-                {item.positionSeconds !== null ? '▶ Fortsæt' : '▶ Se'}
+                {item.positionSeconds !== null && !item.watched ? '▶ Fortsæt' : item.watched ? '▶ Se igen' : '▶ Se'}
               </Text>
             </Pressable>
           ) : continueEpisode !== undefined ? (
@@ -218,6 +242,16 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
           <Pressable style={styles.button} onPress={openTrailer}>
             <Text style={styles.buttonText}>Trailer</Text>
           </Pressable>
+          {item.kind === 'movie' && (
+            <Pressable
+              style={[styles.button, item.watched && styles.buttonDone]}
+              onPress={() => {
+                void toggleWatched();
+              }}
+            >
+              <Text style={styles.buttonText}>{item.watched ? '✓ Set' : 'Markér som set'}</Text>
+            </Pressable>
+          )}
           <Pressable
             style={[styles.button, item.inWatchlist && styles.buttonDone]}
             onPress={() => {
@@ -277,10 +311,25 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
               <Text style={styles.empty}>Panelet oplyste ingen afsnit.</Text>
             )}
             {shownEpisodes.map((episode) => (
-              <Pressable key={episode.key} style={styles.episode} onPress={() => playEpisode(episode)}>
-                <View style={styles.episodeNumber}>
-                  <Text style={styles.episodeNumberText}>{episode.episode}</Text>
-                </View>
+              <Pressable
+                key={episode.key}
+                style={[styles.episode, episode.watched && styles.episodeWatched]}
+                onPress={() => playEpisode(episode)}
+                onLongPress={() => {
+                  void toggleEpisodeWatched(episode);
+                }}
+                delayLongPress={400}
+              >
+                {/* Fluebenet kan ogsaa trykkes: set eller ikke set, uden at spille. */}
+                <Pressable
+                  style={styles.episodeNumber}
+                  hitSlop={8}
+                  onPress={() => {
+                    void toggleEpisodeWatched(episode);
+                  }}
+                >
+                  <Text style={styles.episodeNumberText}>{episode.watched ? '✓' : episode.episode}</Text>
+                </Pressable>
                 <View style={styles.episodeText}>
                   <Text style={styles.episodeTitle} numberOfLines={1}>
                     {episode.title}
@@ -294,7 +343,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
                     {[
                       episode.durationMinutes !== null ? `${episode.durationMinutes} min` : null,
                       episode.airDate,
-                      episode.positionSeconds !== null ? 'påbegyndt' : null,
+                      episode.watched ? 'set' : episode.positionSeconds !== null ? 'påbegyndt' : null,
                     ]
                       .filter(Boolean)
                       .join(' · ')}
@@ -414,6 +463,7 @@ const styles = StyleSheet.create({
     marginRight: theme.spacing.md,
   },
   episodeNumberText: { color: theme.colors.text, fontWeight: '700' },
+  episodeWatched: { opacity: 0.55 },
   episodeText: { flex: 1 },
   episodeTitle: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
   episodePlot: { color: theme.colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 2 },

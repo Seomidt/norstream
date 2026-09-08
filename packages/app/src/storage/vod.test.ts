@@ -18,6 +18,7 @@ import {
   saveProgress,
   saveVodDetails,
   setInWatchlist,
+  setWatched,
   vodCounts,
 } from './vod.js';
 
@@ -141,6 +142,8 @@ describe('det panelet ved om en titel', () => {
     const episodes = await listEpisodes(db, series!.key);
     expect(episodes.map((e) => e.title)).toEqual(['Pilot', 'S2E1']);
     expect(episodes[0]?.key).toBe(`${series!.key}:a`);
+    await setWatched(db, `${series!.key}:a`, true);
+    expect((await listEpisodes(db, series!.key)).map((e) => e.watched)).toEqual([true, false]);
   });
 });
 
@@ -168,10 +171,22 @@ describe('min liste og fortsaet', () => {
     expect(await getProgress(db, item!.key)).toBeNull();
   });
 
-  it('regner en titel der er set faerdig som faerdig', async () => {
+  it('regner en titel der er set faerdig som faerdig, og markerer den set', async () => {
     const [item] = await listVodItems(db, { search: 'Heat' });
     await saveProgress(db, item!.key, 10_100, 10_200);
     expect(await listVodItems(db, { inProgressOnly: true })).toEqual([]);
+    expect((await getVodItem(db, item!.key))?.watched).toBe(true);
+  });
+
+  it('kan markeres set og ikke set med et tryk, og set falder ud af Fortsaet', async () => {
+    const [item] = await listVodItems(db, { search: 'Heat' });
+    await saveProgress(db, item!.key, 1234, 10_200);
+    await setWatched(db, item!.key, true);
+    expect((await getVodItem(db, item!.key))?.watched).toBe(true);
+    expect(await listVodItems(db, { inProgressOnly: true })).toEqual([]);
+    await setWatched(db, item!.key, false);
+    expect((await getVodItem(db, item!.key))?.watched).toBe(false);
+    expect((await listVodItems(db, { inProgressOnly: true })).map((i) => i.name)).toEqual(['Heat']);
   });
 });
 

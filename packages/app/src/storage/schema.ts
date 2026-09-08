@@ -268,6 +268,14 @@ CREATE TABLE IF NOT EXISTS vod_posters (
   tried_ms INTEGER NOT NULL
 );
 
+-- Set faerdig: automatisk naar afspilningen naar slutningen, eller med et
+-- tryk for det man har set andetsteds. Skilt fra fremdriften, som er "hvor
+-- langt", ikke "faerdig".
+CREATE TABLE IF NOT EXISTS vod_watched (
+  item_key   TEXT PRIMARY KEY,
+  watched_ms INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS vod_progress (
   item_key   TEXT PRIMARY KEY,
   position_s INTEGER NOT NULL,
@@ -301,14 +309,15 @@ const TABLES = [
   'logo_files',
   'logo_misses',
   'vod_posters',
+  'vod_watched',
 ] as const;
 
 // v8 tilfoejer VOD-tabellerne, v9 xmltv_logos, v10 logo_resolved og en
 // kolonne paa vod_details. Tabellerne klarer `CREATE TABLE IF NOT EXISTS`;
 // kolonnen har sit eget ALTER-trin.
 // v11: logo_overrides. v12: logo_files og logo_misses. v13: favorites.position.
-// v14: vod_posters. v15: vod_posters.rating.
-const SCHEMA_VERSION = 15;
+// v14: vod_posters. v15: vod_posters.rating. v16: vod_watched.
+const SCHEMA_VERSION = 16;
 
 /**
  * Foerste version der kan opgraderes additivt.
