@@ -63,6 +63,22 @@ export const DRAG_MIN_MINUTES = -7 * 24 * 60;
 export const DRAG_MAX_MINUTES = 7 * 24 * 60;
 
 /**
+ * Forskydningen der stiller vinduet paa et bestemt klokkeslaet en bestemt
+ * dag: `dayDelta` dage fra i dag, klokken `hour`. Bruges af dagsknapperne,
+ * saa "i morgen aften" er ét tryk og ikke tolv traek. Klemt til det samme
+ * spaend som traekket, saa knapperne ikke kan naa laengere end fingeren.
+ */
+export function offsetForTarget(now: Date, dayDelta: number, hour: number): number {
+  const halfHourMs = 30 * 60_000;
+  const anchored = Math.floor(now.getTime() / halfHourMs) * halfHourMs;
+  const target = new Date(now);
+  target.setDate(target.getDate() + dayDelta);
+  target.setHours(hour, 0, 0, 0);
+  const minutes = Math.round((target.getTime() - anchored) / 60_000);
+  return Math.min(DRAG_MAX_MINUTES, Math.max(DRAG_MIN_MINUTES, minutes));
+}
+
+/**
  * Vinduet forskudt et vilkaarligt antal minutter fra nu.
  *
  * `guideWindow` flytter sig et helt vindue ad gangen, som pilene goer. Den her

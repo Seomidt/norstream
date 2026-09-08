@@ -9,6 +9,7 @@ import {
   guideWindow,
   layoutRow,
   nowRatio,
+  offsetForTarget,
   programmeOptions,
   shiftedWindow,
 } from './layout.js';
@@ -433,5 +434,24 @@ describe('nowRatio', () => {
 
   it('giver null paa et vindue uden laengde', () => {
     expect(nowRatio(start, start, start)).toBeNull();
+  });
+});
+
+describe('offsetForTarget', () => {
+  const now = new Date('2026-09-08T19:07:00');
+
+  it('stiller vinduet paa klokkeslaettet den dag, regnet fra den halve time foer nu', () => {
+    // Nu forankres til 19:00. I aften kl. 20 er 60 minutter frem.
+    expect(offsetForTarget(now, 0, 20)).toBe(60);
+    expect(shiftedWindow(now, offsetForTarget(now, 0, 20)).start.getHours()).toBe(20);
+    // I morgen kl. 20: et doegn og en time.
+    expect(offsetForTarget(now, 1, 20)).toBe(24 * 60 + 60);
+    // I gaar kl. 20.
+    expect(offsetForTarget(now, -1, 20)).toBe(-23 * 60);
+  });
+
+  it('holder sig inden for traekkets spaend', () => {
+    expect(offsetForTarget(now, 30, 20)).toBe(DRAG_MAX_MINUTES);
+    expect(offsetForTarget(now, -30, 20)).toBe(DRAG_MIN_MINUTES);
   });
 });

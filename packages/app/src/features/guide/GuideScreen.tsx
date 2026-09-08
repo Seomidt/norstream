@@ -4,6 +4,7 @@ import {
   FlatList,
   PanResponder,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -33,6 +34,7 @@ import {
   guideAction,
   layoutRow,
   nowRatio,
+  offsetForTarget,
   shiftedWindow,
 } from './layout.js';
 import type { GuideCell } from './layout.js';
@@ -491,6 +493,35 @@ export function GuideScreen({
         </Pressable>
       </View>
 
+      {/* Dagsknapperne: ét tryk til "i morgen aften" i stedet for tolv traek.
+          Det er ogsaa den eneste maade guiden kan styres med en
+          fjernbetjening. I dag = nu; de andre dage lander paa kl. 20. */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.dayRow}
+        contentContainerStyle={styles.dayRowContent}
+      >
+        {DAY_CHIPS.map((chip) => {
+          const active =
+            chip.dayDelta === dayDeltaOf(window.start, now) &&
+            (chip.hour === null ? offsetMinutes === 0 || chip.dayDelta !== 0 : window.start.getHours() >= chip.hour);
+          return (
+            <Pressable
+              key={`${chip.dayDelta}:${chip.hour ?? 'day'}`}
+              style={[styles.dayChip, active && styles.dayChipActive]}
+              onPress={() =>
+                setOffsetMinutes(chip.hour === null && chip.dayDelta === 0 ? 0 : offsetForTarget(now, chip.dayDelta, chip.hour ?? 20))
+              }
+            >
+              <Text style={[styles.dayChipText, active && styles.dayChipTextActive]}>
+                {chip.hour !== null ? chip.label : dayLabel(now, chip.dayDelta)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
       <View style={styles.timeHeader}>
         <View style={styles.timeSpacer} />
         {halfHourMarks(window.start).map((mark) => (
@@ -715,6 +746,34 @@ function formatDay(date: Date): string {
   return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}`;
 }
 
+/** Dagsknapperne: en uge tilbage (arkivet), seks dage frem (oversigten), og "Aften" for i dag. */
+const DAY_CHIPS: ReadonlyArray<{ dayDelta: number; hour: number | null; label: string }> = [
+  ...Array.from({ length: 7 }, (_, i) => ({ dayDelta: i - 7, hour: null, label: '' })),
+  { dayDelta: 0, hour: null, label: 'I dag' },
+  { dayDelta: 0, hour: 20, label: 'Aften' },
+  ...Array.from({ length: 6 }, (_, i) => ({ dayDelta: i + 1, hour: null, label: '' })),
+];
+
+const WEEKDAYS = ['søn', 'man', 'tir', 'ons', 'tor', 'fre', 'lør'];
+
+function dayLabel(now: Date, dayDelta: number): string {
+  if (dayDelta === 0) return 'I dag';
+  if (dayDelta === -1) return 'I går';
+  if (dayDelta === 1) return 'I morgen';
+  const date = new Date(now);
+  date.setDate(date.getDate() + dayDelta);
+  return `${WEEKDAYS[date.getDay()]} ${formatDay(date)}`;
+}
+
+/** Hvor mange dage vinduets start ligger fra i dag. */
+function dayDeltaOf(start: Date, now: Date): number {
+  const a = new Date(start);
+  a.setHours(0, 0, 0, 0);
+  const b = new Date(now);
+  b.setHours(0, 0, 0, 0);
+  return Math.round((a.getTime() - b.getTime()) / 86_400_000);
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   centered: {
@@ -748,6 +807,17 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.sm,
   },
   pager: { color: theme.colors.accent, fontSize: 26, paddingHorizontal: theme.spacing.sm },
+  dayRow: { flexGrow: 0 },
+  dayRowContent: { paddingHorizontal: theme.spacing.sm, paddingBottom: theme.spacing.xs, gap: theme.spacing.xs },
+  dayChip: {
+    paddingHorizontal: theme.spacing.sm + 2,
+    paddingVertical: theme.spacing.xs + 1,
+    borderRadius: 14,
+    backgroundColor: theme.colors.surface,
+  },
+  dayChipActive: { backgroundColor: theme.colors.accent },
+  dayChipText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600' },
+  dayChipTextActive: { color: theme.colors.text },
   windowLabel: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
   timeHeader: {
     flexDirection: 'row',
