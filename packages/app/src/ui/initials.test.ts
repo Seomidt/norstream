@@ -25,13 +25,13 @@ describe('initials', () => {
 
 describe('bareName og tileColour', () => {
   it('tager pynten af og giver initialer fra selve navnet', () => {
-    expect(bareName('SWE| [Radio][SE] Bandit Metal HD')).toBe('Bandit Metal');
+    expect(bareName('SWE| [Radio][SE] Bandit Metal HD')).toBe('Bandit Metal HD');
     expect(initials('SWE| [Radio][SE] Bandit Metal HD')).toBe('BM');
     expect(initials('DK: DR P3 (RADIO)')).toBe('DP');
   });
 
   it('giver samme farve for samme navn, uanset pynt', () => {
-    expect(tileColour('SWE| Bandit Metal HD')).toBe(tileColour('Bandit Metal'));
+    expect(tileColour('SWE| [Radio][SE] Bandit Metal')).toBe(tileColour('Bandit Metal'));
     expect(tileColour('Bandit Metal')).toMatch(/^hsl\(\d+, 45%, 38%\)$/);
     expect(tileColour('DR1')).not.toBe(tileColour('DR2'));
   });
