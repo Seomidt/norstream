@@ -105,6 +105,8 @@ export function HomeScreen({
   /** Indstillingers underskaerme til logoer: listen, og valget for én kanal. */
   const [showingLogos, setShowingLogos] = useState(false);
   const [showingCheck, setShowingCheck] = useState(false);
+  /** Guidens egen tilbage-vej (dagssiden), foer fanens. */
+  const guideBack = useRef<() => boolean>(() => false);
   const [pickingLogoFor, setPickingLogoFor] = useState<string | null>(null);
   const [logoToken, setLogoToken] = useState(0);
 
@@ -120,6 +122,7 @@ export function HomeScreen({
   // land -> kategori -> kanaler i Kanaler, og forsiden -> land -> kategori ->
   // titler i Film. Paa forsiden af en fane: intet at gaa op i.
   backRef.current = (): boolean => {
+    if (tab === 'guide' && guideBack.current()) return true;
     if (tab === 'settings' && pickingLogoFor !== null) {
       setPickingLogoFor(null);
       return true;
@@ -311,6 +314,7 @@ export function HomeScreen({
         {tab === 'guide' && (
           <GuideScreen
             session={session}
+            backRef={guideBack}
             onPlay={(channel, neighbours) => open(channel, undefined, neighbours)}
             onRestart={(channel, programme) => open(channel, programme)}
             onAuthError={handleAuthError}

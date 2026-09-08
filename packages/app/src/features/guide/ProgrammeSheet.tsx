@@ -19,6 +19,8 @@ interface Props {
   onRestart: () => void;
   onRecord: () => void;
   onClose: () => void;
+  /** Aabner kanalens hele dag: arkivet dag for dag. */
+  onDay?: () => void;
 }
 
 /**
@@ -41,6 +43,7 @@ export function ProgrammeSheet({
   onRestart,
   onRecord,
   onClose,
+  onDay,
 }: Props) {
   const insets = useSafeAreaInsets();
   const options = programmeOptions(state, channel, hasDialect);
@@ -106,6 +109,11 @@ export function ProgrammeSheet({
           )}
         </View>
 
+        {onDay !== undefined && (
+          <Pressable style={styles.button} onPress={onDay}>
+            <Text style={styles.buttonText}>Hele dagen på {channel.name.includes('|') ? channel.name.slice(channel.name.lastIndexOf('|') + 1).trim() : channel.name}</Text>
+          </Pressable>
+        )}
         <Pressable style={styles.close} onPress={onClose}>
           <Text style={styles.closeText}>Luk</Text>
         </Pressable>

@@ -26,6 +26,7 @@ import { canRecord } from '../recordings/plan.js';
 import { MiniPreview } from '../preview/MiniPreview.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
+import { ChannelDayScreen } from './ChannelDayScreen.js';
 import {
   DRAG_MAX_MINUTES,
   DRAG_MIN_MINUTES,
@@ -42,6 +43,8 @@ import type { GuideCell } from './layout.js';
 interface Props {
   session: AppSession;
   onPlay: (channel: StoredChannel, neighbours: StoredChannel[]) => void;
+  /** Telefonens tilbage-knap: lukker dagssiden foer noget andet. */
+  backRef?: { current: () => boolean };
   onRestart: (channel: StoredChannel, programme: Programme) => void;
   onAuthError: () => void;
   onBrowse: () => void;
@@ -94,6 +97,7 @@ const DRAG_SLOP = 10;
 export function GuideScreen({
   session,
   onPlay,
+  backRef,
   onRestart,
   onAuthError,
   onBrowse,
@@ -114,6 +118,15 @@ export function GuideScreen({
   );
   /** Hvor mange minutter vinduet er forskudt fra nu. Negativt er bagud. */
   const [offsetMinutes, setOffsetMinutes] = useState(0);
+  /** Kanalen hvis hele dag vises, i stedet for gitteret. */
+  const [dayFor, setDayFor] = useState<StoredChannel | null>(null);
+  if (backRef !== undefined) {
+    backRef.current = (): boolean => {
+      if (dayFor === null) return false;
+      setDayFor(null);
+      return true;
+    };
+  }
   /** Kanalen previewet viser, eller null. Foelger den oeverste synlige raekke. */
   const [previewChannel, setPreviewChannel] = useState<StoredChannel | null>(null);
   /**
@@ -458,6 +471,22 @@ export function GuideScreen({
     );
   }
 
+  if (dayFor !== null) {
+    return (
+      <ChannelDayScreen
+        session={session}
+        channel={dayFor}
+        hasDialect={hasDialectFor(dayFor)}
+        onBack={() => setDayFor(null)}
+        onPlay={(channel) => onPlay(channel, channels)}
+        onRestart={(channel, programme) => onRestart(channel, programme)}
+        onRecord={(channel, programme) => {
+          void record(channel, programme);
+        }}
+      />
+    );
+  }
+
   return (
     <View style={styles.container}>
       {notice !== null && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
@@ -558,6 +587,11 @@ export function GuideScreen({
             const programme = sheet.cell.programme;
             setSheet(null);
             if (programme !== null) void record(sheet.channel, programme);
+          }}
+          onDay={() => {
+            const channel = sheet.channel;
+            setSheet(null);
+            setDayFor(channel);
           }}
         />
       )}
