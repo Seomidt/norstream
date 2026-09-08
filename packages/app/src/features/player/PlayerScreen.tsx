@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -26,7 +26,6 @@ import { TrackPicker } from './TrackPicker.js';
 import { LandscapePlayer, useLandscape } from './Landscape.js';
 import { RadioView } from './RadioView.js';
 import type { RadioState } from './RadioView.js';
-import { vlcPlayer } from './vlc.js';
 import { pickPreferredSubtitle, sameTrack, trackName } from './tracks.js';
 import type { RestartBlock } from './restart.js';
 
@@ -120,6 +119,7 @@ export function PlayerScreen({
    * (og med hvor mange lydspor), eller fejl. Det er ogsaa det der skal til
    * for at kunne sige *hvorfor* en radiokanal er stum.
    */
+  const isRadio = /radio/i.test(channel.name);
   const [audioState, setAudioState] = useState<string>('Forbinder …');
   const [radioState, setRadioState] = useState<RadioState>('connecting');
   const [playing, setPlaying] = useState(true);
@@ -159,26 +159,10 @@ export function PlayerScreen({
   }, [bannerUntil]);
   const bannerShown = bannerUntil > Date.now() && bannerTick >= 0;
 
-  /**
-   * Radio spilles gennem VLC naar den findes (se vlc.ts), og saa maa
-   * ExoPlayer ikke ogsaa aabne streamen: panelet har én forbindelse.
-   */
-  const isRadio = /radio/i.test(channel.name);
-  const Vlc = useMemo(() => vlcPlayer(), []);
-  const radioViaVlc = isRadio && Vlc !== null;
-  const player = useVideoPlayer(radioViaVlc ? null : source, (p) => {
+  const player = useVideoPlayer(source, (p) => {
     p.loop = false;
     p.play();
   });
-  const [vlcState, setVlcState] = useState<RadioState>('connecting');
-  const [vlcText, setVlcText] = useState('Forbinder …');
-  const [vlcPaused, setVlcPaused] = useState(false);
-  // Ny stream (zap): VLC-elementet skiftes ud, og tilstanden begynder forfra.
-  useEffect(() => {
-    setVlcPaused(false);
-    setVlcState('connecting');
-    setVlcText('Forbinder …');
-  }, [source]);
 
   /**
    * Undertekster i live-tv. Samme regler som for film: det foretrukne sprog
@@ -281,10 +265,10 @@ export function PlayerScreen({
   }, [session.db, channel, startFrom]);
 
   useEffect(() => {
-    if (source === null || radioViaVlc) return;
+    if (source === null) return;
     player.replace(source);
     player.play();
-  }, [player, source, radioViaVlc]);
+  }, [player, source]);
 
   // Spec sec.9: IPTV-streams falder ud hele tiden. To forsoeg med backoff,
   // derefter fallback til det andet containerformat der hvor et saadant
@@ -292,7 +276,7 @@ export function PlayerScreen({
   // haenger midt i. Uden det opfoerer appen sig som de Norlys-anmeldelser
   // der klagede over konstante udfald.
   useEffect(() => {
-    if (source === null || radioViaVlc) return;
+    if (source === null) return;
 
     let cancelled = false;
     let attempt = 0;
@@ -401,7 +385,7 @@ export function PlayerScreen({
       if (retryTimer !== null) clearTimeout(retryTimer);
       subscription.remove();
     };
-  }, [player, source, triedFallback, restarted, access, channel, autoSelectSubtitle, radioViaVlc]);
+  }, [player, source, triedFallback, restarted, access, channel, autoSelectSubtitle]);
 
   const playFromStart = useCallback(
     async (programme: Programme): Promise<void> => {
@@ -583,50 +567,13 @@ export function PlayerScreen({
   ) : null;
 
   if (isRadio) {
-    const shown: RadioState = radioViaVlc
-      ? vlcPaused && vlcState !== 'error'
-        ? 'paused'
-        : vlcState
-      : radioState === 'playing' && !playing
-        ? 'paused'
-        : radioState;
-    const text = radioViaVlc ? (shown === 'paused' ? 'Pause' : vlcText) : shown === 'paused' ? 'Pause' : streamError ?? audioState;
-    const hidden =
-      radioViaVlc && Vlc !== null && source !== null ? (
-        <Vlc
-          key={source}
-          style={styles.hiddenVideo}
-          source={{ uri: source, initOptions: ['--network-caching=1500'] }}
-          paused={vlcPaused}
-          autoplay
-          playInBackground
-          onBuffering={() => {
-            setVlcState('connecting');
-            setVlcText('Forbinder …');
-          }}
-          onPlaying={() => {
-            setVlcState('playing');
-            setVlcText('Spiller · VLC');
-          }}
-          onPaused={() => setVlcText('Pause')}
-          onStopped={() => {
-            setVlcState('error');
-            setVlcText('Streamen stoppede');
-          }}
-          onError={() => {
-            setVlcState('error');
-            setVlcText('Streamen kunne ikke afspilles');
-          }}
-        />
-      ) : (
-        <VideoView style={styles.hiddenVideo} player={player} nativeControls={false} />
-      );
+    const shown: RadioState = radioState === 'playing' && !playing ? 'paused' : radioState;
     return (
       <RadioView
         channel={channel}
         state={shown}
-        stateText={text}
-        hiddenVideo={hidden}
+        stateText={shown === 'paused' ? 'Pause' : streamError ?? audioState}
+        hiddenVideo={<VideoView style={styles.hiddenVideo} player={player} nativeControls={false} />}
         hasPrevious={zapList.length > 1 && zapIndex !== -1}
         hasNext={zapList.length > 1 && zapIndex !== -1}
         onBack={onBack}
@@ -639,10 +586,6 @@ export function PlayerScreen({
           if (target !== undefined) zapTo(target);
         }}
         onToggle={() => {
-          if (radioViaVlc) {
-            setVlcPaused((value) => !value);
-            return;
-          }
           try {
             if (player.playing) player.pause();
             else player.play();

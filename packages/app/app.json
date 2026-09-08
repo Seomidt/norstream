@@ -31,10 +31,7 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true,
-            "packagingOptions": {
-              "pickFirst": ["**/libc++_shared.so"]
-            }
+            "usesCleartextTraffic": true
           }
         }
       ]
