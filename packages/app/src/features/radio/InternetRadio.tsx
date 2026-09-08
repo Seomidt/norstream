@@ -13,14 +13,7 @@ import {
   setRadioFavorite,
 } from '../../storage/radio.js';
 import { getSetting, setSetting } from '../../storage/settings.js';
-import {
-  fetchRadioCountries,
-  fetchRadioStations,
-  radioFetch,
-  searchRadioStations,
-  sortCountries,
-  toRadioChannel,
-} from '../../sync/radioBrowser.js';
+import { fetchRadioCountries, fetchRadioStations, radioFetch, radioLogoUrls, searchRadioStations, sortCountries, toRadioChannel } from '../../sync/radioBrowser.js';
 import type { RadioCountry, RadioStation } from '../../sync/radioBrowser.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
@@ -215,7 +208,7 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
         onPress={() => play(station, list)}
         onLongPress={onPickLogo === undefined ? undefined : () => onPickLogo(toRadioChannel(station))}
       >
-        <ChannelLogo uris={station.logoUrl === null ? [] : [station.logoUrl]} name={station.name} memoryKey={`rb:${station.id}`} size={44} />
+        <ChannelLogo uris={radioLogoUrls(station)} name={station.name} memoryKey={`rb:${station.id}`} size={44} />
         <View style={styles.rowText}>
           <Text style={styles.name} numberOfLines={1}>
             {station.name}

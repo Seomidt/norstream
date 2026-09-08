@@ -197,15 +197,16 @@ export async function searchRadioStations(fetchImpl: RadioFetch, query: string, 
  * saa afspilleren ved at det er radio uanset hvad stationen hedder.
  */
 export function toRadioChannel(station: RadioStation): StoredChannel {
+  const logoUrls = radioLogoUrls(station);
   return {
     id: `${RADIO_KEY_PREFIX}${station.id}`,
     sourceId: RADIO_SOURCE_ID,
     streamId: station.id,
     streamUrl: station.url,
-    logoUrls: station.logoUrl === null ? [] : [station.logoUrl],
+    logoUrls,
     name: station.name,
     number: null,
-    logoUrl: station.logoUrl,
+    logoUrl: logoUrls[0] ?? null,
     categoryId: null,
     epgChannelId: null,
     hasArchive: false,
@@ -216,4 +217,31 @@ export function toRadioChannel(station: RadioStation): StoredChannel {
 
 export function isRadioKey(channelKey: string): boolean {
   return channelKey.startsWith(RADIO_KEY_PREFIX);
+}
+
+/**
+ * Hjemmesidens ikon fra Googles ikontjeneste, naar registret intet logo
+ * har. Maalt paa 32 stationer uden favicon: 27 fik et rigtigt ikon, og de
+ * andre et rent 404, saa listen falder videre til initialerne i stedet for
+ * at vise en graa klode. Op til 128 px; mindre naar siden ikke har stoerre.
+ */
+export function homepageIconUrl(homepage: string | null): string | null {
+  if (homepage === null) return null;
+  let host: string;
+  try {
+    host = new URL(homepage).hostname.replace(/^www\./i, '').toLowerCase();
+  } catch {
+    return null;
+  }
+  if (host.length === 0 || !host.includes('.')) return null;
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=128`;
+}
+
+/** Logoerne at proeve i raekkefoelge: registrets favicon foerst, saa hjemmesidens ikon. */
+export function radioLogoUrls(station: Pick<RadioStation, 'logoUrl' | 'homepage'>): string[] {
+  const urls: string[] = [];
+  if (station.logoUrl !== null) urls.push(station.logoUrl);
+  const icon = homepageIconUrl(station.homepage);
+  if (icon !== null && !urls.includes(icon)) urls.push(icon);
+  return urls;
 }

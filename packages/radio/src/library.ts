@@ -2,7 +2,7 @@ import { listRadioFavorites, listRadioStations } from '@norstream/app/src/storag
 import { getSetting } from '@norstream/app/src/storage/settings.js';
 import type { SqlDatabase } from '@norstream/app/src/storage/types.js';
 import type { RadioCountry, RadioStation } from '@norstream/app/src/sync/radioBrowser.js';
-import { radioCountryName, sortCountries } from '@norstream/app/src/sync/radioBrowser.js';
+import { radioCountryName, radioLogoUrls, sortCountries } from '@norstream/app/src/sync/radioBrowser.js';
 import { countryFlag } from '@norstream/core';
 import { setLibrary } from '../modules/radio-auto/index.js';
 import type { AutoLibrary, AutoStation } from '../modules/radio-auto/index.js';
@@ -16,7 +16,8 @@ import type { AutoLibrary, AutoStation } from '../modules/radio-auto/index.js';
  * paa listen, saa en ny favorit er i bilen naeste gang.
  */
 export function toAutoStation(station: RadioStation): AutoStation {
-  return { id: station.id, name: station.name, url: station.url, logoUrl: station.logoUrl, country: station.country };
+  const logoUrls = radioLogoUrls(station);
+  return { id: station.id, name: station.name, url: station.url, logoUrl: logoUrls[0] ?? null, logoUrls, country: station.country };
 }
 
 export async function buildAutoLibrary(db: SqlDatabase): Promise<AutoLibrary> {

@@ -19,6 +19,7 @@ export function toAutoStationFromChannel(channel: StoredChannel): AutoStation {
     name: channel.name,
     url: channel.streamUrl ?? '',
     logoUrl: channel.logoUrls[0] ?? null,
+    logoUrls: [...channel.logoUrls],
     country: '',
   };
 }

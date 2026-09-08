@@ -33,13 +33,16 @@ object Artwork {
 
   fun authority(context: Context): String = "${context.packageName}.art"
 
-  /** content://<pakke>.art/<adresse>, det bilen faar som artworkUri. */
-  fun uri(context: Context, url: String): Uri = Uri.parse("content://${authority(context)}/${Uri.encode(url)}")
+  /** content://<pakke>.art/<adresser>, det bilen faar som artworkUri. Flere adresser adskilt af linjeskift proeves i raekkefoelge. */
+  fun uri(context: Context, urls: List<String>): Uri =
+    Uri.parse("content://${authority(context)}/${Uri.encode(urls.joinToString(Library.LOGO_SEPARATOR))}")
 
-  /** Den lille fil, hentet nu hvis den mangler; null hvis logoet ikke kan hentes. */
-  fun cached(context: Context, url: String): File? {
+  /** Den lille fil, hentet nu hvis den mangler; null hvis ingen af adresserne kan hentes. */
+  fun cached(context: Context, urlList: String): File? {
+    val urls = urlList.split(Library.LOGO_SEPARATOR).filter { it.isNotEmpty() }
+    if (urls.isEmpty()) return null
     val dir = File(context.cacheDir, "art").apply { mkdirs() }
-    val key = hash(url)
+    val key = hash(urlList)
     val file = File(dir, "$key.png")
     val miss = File(dir, "$key.miss")
     if (file.exists()) return file
@@ -47,7 +50,7 @@ object Artwork {
     val lock = locks.getOrPut(key) { Any() }
     synchronized(lock) {
       if (file.exists()) return file
-      val bitmap = fetch(url)
+      val bitmap = urls.firstNotNullOfOrNull { fetch(it) }
       if (bitmap == null) {
         miss.writeBytes(ByteArray(0))
         return null

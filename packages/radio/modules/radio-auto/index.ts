@@ -25,6 +25,8 @@ export interface AutoStation {
   name: string;
   url: string;
   logoUrl: string | null;
+  /** Adresser at proeve i raekkefoelge; tjenesten tager det foerste der kan hentes. */
+  logoUrls: string[];
   country: string;
 }
 

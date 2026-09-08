@@ -15,7 +15,8 @@ import java.io.File
  * laeses her, uden JavaScript: Android Auto starter tjenesten selv, ogsaa
  * naar appen ikke er aaben, og saa skal listen ligge klar paa disken.
  */
-data class Station(val id: String, val name: String, val url: String, val logoUrl: String?, val country: String)
+/** logoUrls: adresser at proeve i raekkefoelge; registrets favicon foerst, saa hjemmesidens ikon. */
+data class Station(val id: String, val name: String, val url: String, val logoUrls: List<String>, val country: String)
 
 data class Country(val code: String, val name: String, val flag: String, val stations: List<Station>)
 
@@ -80,8 +81,12 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
       val id = obj.optString("id")
       val url = obj.optString("url")
       if (id.isEmpty() || url.isEmpty()) return null
-      val logo = obj.optString("logoUrl")
-      return Station(id, obj.optString("name", id), url, if (logo.isEmpty()) null else logo, obj.optString("country"))
+      val logos = ArrayList<String>()
+      val list = obj.optJSONArray("logoUrls")
+      if (list != null) for (i in 0 until list.length()) list.optString(i).takeIf { it.isNotEmpty() }?.let { logos.add(it) }
+      val single = obj.optString("logoUrl")
+      if (logos.isEmpty() && single.isNotEmpty()) logos.add(single)
+      return Station(id, obj.optString("name", id), url, logos, obj.optString("country"))
     }
 
     private fun stations(array: JSONArray?): List<Station> {
@@ -94,6 +99,7 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
     private const val EXTRA_NAME = "name"
     private const val EXTRA_LOGO = "logoUrl"
     private const val EXTRA_COUNTRY = "country"
+    const val LOGO_SEPARATOR = "\n"
 
     /** Stationen bag et element der kom over broen uden uri, eller null hvis heller ikke requestMetadata har den. */
     fun fromRequest(item: MediaItem): Station? {
@@ -103,9 +109,9 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
       if (id.isEmpty()) return null
       val name = item.mediaMetadata.title?.toString() ?: extras?.getString(EXTRA_NAME) ?: id
       // artworkUri peger paa vores egen provider; den rigtige adresse ligger i extras.
-      val logo = extras?.getString(EXTRA_LOGO)
+      val logos = extras?.getString(EXTRA_LOGO)?.split(LOGO_SEPARATOR)?.filter { it.isNotEmpty() } ?: emptyList()
       val country = item.mediaMetadata.artist?.toString() ?: extras?.getString(EXTRA_COUNTRY) ?: ""
-      return Station(id, name, uri.toString(), logo, country)
+      return Station(id, name, uri.toString(), logos, country)
     }
 
     fun folder(id: String, title: String, subtitle: String? = null): MediaItem =
@@ -139,7 +145,7 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
             .setExtras(
               Bundle().apply {
                 putString(EXTRA_NAME, station.name)
-                putString(EXTRA_LOGO, station.logoUrl)
+                putString(EXTRA_LOGO, station.logoUrls.joinToString(LOGO_SEPARATOR))
                 putString(EXTRA_COUNTRY, station.country)
               },
             )
@@ -150,7 +156,7 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
             .setTitle(station.name)
             .setArtist(station.country)
             .setStation(station.name)
-            .setArtworkUri(station.logoUrl?.let { Artwork.uri(context, it) })
+            .setArtworkUri(if (station.logoUrls.isEmpty()) null else Artwork.uri(context, station.logoUrls))
             .setIsBrowsable(false)
             .setIsPlayable(true)
             .setMediaType(MediaMetadata.MEDIA_TYPE_RADIO_STATION)

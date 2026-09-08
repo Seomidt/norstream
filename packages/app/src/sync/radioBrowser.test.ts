@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   fetchRadioCountries,
   fetchRadioStations,
+  homepageIconUrl,
   isRadioKey,
+  radioLogoUrls,
   searchRadioStations,
   sortCountries,
   toRadioChannel,
@@ -122,9 +124,31 @@ describe('toRadioChannel', () => {
     const channel = toRadioChannel(station);
     expect(channel.id).toBe('rb:u1');
     expect(channel.streamUrl).toBe('http://live-icy.dr.dk/A/A05H.mp3');
-    expect(channel.logoUrls).toEqual(['https://dr.dk/p3.png']);
+    expect(channel.logoUrls).toEqual(['https://dr.dk/p3.png', 'https://www.google.com/s2/favicons?domain=dr.dk&sz=128']);
+    expect(channel.logoUrl).toBe('https://dr.dk/p3.png');
     expect(channel.hasArchive).toBe(false);
     expect(isRadioKey(channel.id)).toBe(true);
     expect(isRadioKey('src:12')).toBe(false);
+  });
+});
+
+describe('radioLogoUrls', () => {
+  it('registrets favicon foerst, hjemmesidens ikon som naeste', () => {
+    expect(radioLogoUrls({ logoUrl: 'https://dr.dk/p3.png', homepage: 'https://www.dr.dk/p3' })).toEqual([
+      'https://dr.dk/p3.png',
+      'https://www.google.com/s2/favicons?domain=dr.dk&sz=128',
+    ]);
+  });
+
+  it('uden favicon kun hjemmesidens ikon; uden begge intet', () => {
+    expect(radioLogoUrls({ logoUrl: null, homepage: 'http://Radio-Sun.fi/' })).toEqual([
+      'https://www.google.com/s2/favicons?domain=radio-sun.fi&sz=128',
+    ]);
+    expect(radioLogoUrls({ logoUrl: null, homepage: null })).toEqual([]);
+  });
+
+  it('afviser hjemmesider uden brugbart vaertsnavn', () => {
+    expect(homepageIconUrl('ikke en adresse')).toBeNull();
+    expect(homepageIconUrl('http://localhost/')).toBeNull();
   });
 });
