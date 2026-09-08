@@ -15,14 +15,12 @@ import type { AppSession } from '../../session.js';
 import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { listProgrammes } from '../../storage/programmes.js';
-import { deleteRecording, isScheduled, scheduleRecording } from '../../storage/recordings.js';
 import { sourcesWithDialect } from '../../storage/settings.js';
 import { ensureFullEpg, ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
-import { canRecord } from '../recordings/plan.js';
 import { MiniPreview } from '../preview/MiniPreview.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
@@ -142,7 +140,6 @@ export function GuideScreen({
   const [sheet, setSheet] = useState<{
     channel: StoredChannel;
     cell: GuideCell;
-    recorded: boolean;
   } | null>(null);
 
   // Nu-tidspunktet fastholdes mens skaermen er aaben, saa cellerne ikke
@@ -195,29 +192,9 @@ export function GuideScreen({
       // Et hul — kanalen uden programdata — aabner ogsaa bladet. Foer var
       // hullerne doede, og en kanal uden oversigt kunne ikke aabnes fra
       // guiden overhovedet. Bladet siger hvad der mangler og tilbyder kanalen.
-      if (cell.programme === null) {
-        setSheet({ channel, cell, recorded: false });
-        return;
-      }
-      const recorded = await isScheduled(session.db, channel.id, cell.programme.start);
-      setSheet({ channel, cell, recorded });
+      setSheet({ channel, cell });
     },
-    [session.db],
-  );
-
-  const record = useCallback(
-    async (channel: StoredChannel, programme: Programme): Promise<void> => {
-      const id = await scheduleRecording(session.db, channel, programme);
-      setNotice({
-        text: `“${programme.title}” hentes fra arkivet når den er sendt.`,
-        actionLabel: 'Fortryd',
-        onAction: () => {
-          void deleteRecording(session.db, id);
-          setNotice(null);
-        },
-      });
-    },
-    [session.db],
+    [],
   );
 
   /**
@@ -480,9 +457,6 @@ export function GuideScreen({
         onBack={() => setDayFor(null)}
         onPlay={(channel) => onPlay(channel, channels)}
         onRestart={(channel, programme) => onRestart(channel, programme)}
-        onRecord={(channel, programme) => {
-          void record(channel, programme);
-        }}
       />
     );
   }
@@ -572,7 +546,6 @@ export function GuideScreen({
           programme={sheet.cell.programme}
           state={sheet.cell.state}
           hasDialect={hasDialectFor(sheet.channel)}
-          alreadyRecorded={sheet.recorded}
           onClose={() => setSheet(null)}
           onPlay={() => {
             setSheet(null);
@@ -582,11 +555,6 @@ export function GuideScreen({
             const programme = sheet.cell.programme;
             setSheet(null);
             if (programme !== null) onRestart(sheet.channel, programme);
-          }}
-          onRecord={() => {
-            const programme = sheet.cell.programme;
-            setSheet(null);
-            if (programme !== null) void record(sheet.channel, programme);
           }}
           onDay={() => {
             const channel = sheet.channel;
@@ -700,15 +668,10 @@ function GuideRow({
           <Text style={styles.channelName} numberOfLines={2}>
             {channel.name}
           </Text>
-          {/* Uret siger at kanalen kan startes forfra, prikken at den kan
-              optages. Begge dele afhaenger af udbyderens arkiv, og det gaelder
-              langtfra alle kanaler — foer kunne man kun se det ved at proeve. */}
-          {hasDialect && (channel.hasArchive || canRecord(channel)) && (
-            <Text style={styles.channelBadges}>
-              {channel.hasArchive ? '⏱' : ''}
-              {canRecord(channel) ? '●' : ''}
-            </Text>
-          )}
+          {/* Uret siger at kanalen kan startes forfra. Det afhaenger af
+              udbyderens arkiv, og det gaelder langtfra alle kanaler — foer
+              kunne man kun se det ved at proeve. */}
+          {hasDialect && channel.hasArchive && <Text style={styles.channelBadges}>⏱</Text>}
         </View>
       </Pressable>
       <View
@@ -725,7 +688,6 @@ function GuideRow({
                 { flexGrow: cell.weight, flexShrink: cell.weight, flexBasis: 0 },
                 cell.state === 'live' && styles.cellLive,
                 action === 'restart' && styles.cellRestartable,
-                action === 'record' && styles.cellRecordable,
                 action === 'none' && styles.cellInactive,
               ]}
               onPress={() => onOpen(channel, cell)}
@@ -738,7 +700,6 @@ function GuideRow({
                 numberOfLines={2}
               >
                 {action === 'restart' ? '▶ ' : ''}
-                {action === 'record' ? '● ' : ''}
                 {cell.programme?.title ?? (cell.weight >= 30 ? 'Ingen programdata' : '')}
               </Text>
             </Pressable>
@@ -906,7 +867,6 @@ const styles = StyleSheet.create({
   },
   cellLive: { backgroundColor: theme.colors.surfaceRaised },
   cellRestartable: { borderLeftColor: theme.colors.accent, borderLeftWidth: 2 },
-  cellRecordable: { borderLeftColor: theme.colors.textMuted, borderLeftWidth: 2 },
   cellInactive: { opacity: 0.45 },
   cellText: { color: theme.colors.text, fontSize: 11 },
   cellTextMuted: { color: theme.colors.textMuted },

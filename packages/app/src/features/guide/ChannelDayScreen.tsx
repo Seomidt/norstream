@@ -4,7 +4,6 @@ import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { listProgrammes } from '../../storage/programmes.js';
-import { isScheduled } from '../../storage/recordings.js';
 import { ensureFullEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
@@ -18,7 +17,6 @@ interface Props {
   onBack: () => void;
   onPlay: (channel: StoredChannel) => void;
   onRestart: (channel: StoredChannel, programme: Programme) => void;
-  onRecord: (channel: StoredChannel, programme: Programme) => void;
 }
 
 /** Hvor mange dage frem oversigten typisk raekker. */
@@ -35,12 +33,12 @@ const MAX_DAYS_BACK = 7;
  * Programtabellen hentes én gang for kanalen (arkivets fulde tabel), saa
  * dagene bagud er fyldt; derefter laeses hver dag fra cachen.
  */
-export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay, onRestart, onRecord }: Props) {
+export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay, onRestart }: Props) {
   const daysBack = Math.min(MAX_DAYS_BACK, Math.max(0, channel.archiveDays));
   const [dayDelta, setDayDelta] = useState(0);
   const [programmes, setProgrammes] = useState<Programme[] | null>(null);
   const [fetching, setFetching] = useState(true);
-  const [sheet, setSheet] = useState<{ programme: Programme; state: CellState; recorded: boolean } | null>(null);
+  const [sheet, setSheet] = useState<{ programme: Programme; state: CellState } | null>(null);
   const now = new Date();
 
   const dayBounds = useCallback((delta: number): { from: Date; to: Date } => {
@@ -86,9 +84,8 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
     return 'live';
   }
 
-  async function openSheet(programme: Programme): Promise<void> {
-    const recorded = await isScheduled(session.db, channel.id, programme.start);
-    setSheet({ programme, state: stateOf(programme), recorded });
+  function openSheet(programme: Programme): void {
+    setSheet({ programme, state: stateOf(programme) });
   }
 
   const days: number[] = [];
@@ -142,9 +139,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
             return (
               <Pressable
                 style={[styles.row, state === 'live' && styles.rowLive]}
-                onPress={() => {
-                  void openSheet(item);
-                }}
+                onPress={() => openSheet(item)}
               >
                 <Text style={styles.time}>{clock(item.start)}</Text>
                 <View style={styles.rowText}>
@@ -170,7 +165,6 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
           programme={sheet.programme}
           state={sheet.state}
           hasDialect={hasDialect}
-          alreadyRecorded={sheet.recorded}
           onClose={() => setSheet(null)}
           onPlay={() => {
             setSheet(null);
@@ -180,11 +174,6 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
             const programme = sheet.programme;
             setSheet(null);
             onRestart(channel, programme);
-          }}
-          onRecord={() => {
-            const programme = sheet.programme;
-            setSheet(null);
-            onRecord(channel, programme);
           }}
         />
       )}

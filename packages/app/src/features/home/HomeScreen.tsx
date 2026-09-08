@@ -16,7 +16,7 @@ import { BrowseScreen } from '../browse/BrowseScreen.js';
 import type { Level } from '../browse/BrowseScreen.js';
 import { FavoritesScreen } from '../favorites/FavoritesScreen.js';
 import { GuideScreen } from '../guide/GuideScreen.js';
-import { RecordingsScreen } from '../recordings/RecordingsScreen.js';
+import { RadioScreen } from '../radio/RadioScreen.js';
 import { SourcesScreen } from '../sources/SourcesScreen.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -59,14 +59,14 @@ interface Props {
   backRef: { current: () => boolean };
 }
 
-export type Tab = 'favorites' | 'browse' | 'guide' | 'vod' | 'recordings' | 'settings';
+export type Tab = 'favorites' | 'browse' | 'guide' | 'vod' | 'radio' | 'settings';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'favorites', label: 'Favoritter', icon: '★' },
   { id: 'browse', label: 'Kanaler', icon: '☰' },
   { id: 'guide', label: 'Guide', icon: '▦' },
   { id: 'vod', label: 'Film', icon: '▶' },
-  { id: 'recordings', label: 'Optag.', icon: '●' },
+  { id: 'radio', label: 'Radio', icon: '♪' },
   { id: 'settings', label: 'Indstil.', icon: '⚙' },
 ];
 
@@ -331,7 +331,15 @@ export function HomeScreen({
             onOpen={onOpenVod}
           />
         )}
-        {tab === 'recordings' && <RecordingsScreen session={session} />}
+        {tab === 'radio' && (
+          <RadioScreen
+            session={session}
+            onSelect={(channel, neighbours) => open(channel, undefined, neighbours)}
+            onAuthError={handleAuthError}
+            previewHandle={previewHandle}
+            onPickLogo={pickLogo}
+          />
+        )}
 
         {tab === 'settings' && pickingLogoFor !== null && (
           <LogoPickerScreen

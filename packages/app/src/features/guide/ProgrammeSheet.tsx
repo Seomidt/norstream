@@ -13,11 +13,8 @@ interface Props {
   programme: Programme | null;
   state: CellState;
   hasDialect: boolean;
-  /** Sat naar der allerede er bestilt optagelse af netop denne udsendelse. */
-  alreadyRecorded: boolean;
   onPlay: () => void;
   onRestart: () => void;
-  onRecord: () => void;
   onClose: () => void;
   /** Aabner kanalens hele dag: arkivet dag for dag. */
   onDay?: () => void;
@@ -38,10 +35,8 @@ export function ProgrammeSheet({
   programme,
   state,
   hasDialect,
-  alreadyRecorded,
   onPlay,
   onRestart,
-  onRecord,
   onClose,
   onDay,
 }: Props) {
@@ -89,21 +84,10 @@ export function ProgrammeSheet({
               <Text style={styles.buttonText}>▶ Start forfra</Text>
             </Pressable>
           )}
-          {options.record && (
-            <Pressable
-              style={[styles.button, alreadyRecorded && styles.buttonDone]}
-              disabled={alreadyRecorded}
-              onPress={onRecord}
-            >
-              <Text style={styles.buttonText}>
-                {alreadyRecorded ? '● Optages' : '● Optag'}
-              </Text>
-            </Pressable>
-          )}
-          {!options.restart && !options.record && programme !== null && (
+          {!options.restart && programme !== null && (
             <Text style={styles.hint}>
               {channel.hasArchive
-                ? 'Appen har ikke fundet vejen til udbyderens arkiv endnu, så udsendelsen kan hverken startes forfra eller hentes.'
+                ? 'Appen har ikke fundet vejen til udbyderens arkiv endnu, så udsendelsen kan ikke startes forfra.'
                 : 'Kanalen har intet arkiv hos udbyderen, så kun direkte visning er mulig.'}
             </Text>
           )}
@@ -171,7 +155,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonAccent: { backgroundColor: theme.colors.accent },
-  buttonDone: { backgroundColor: theme.colors.surface },
   buttonText: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
   hint: { color: theme.colors.textMuted, fontSize: 13, lineHeight: 18 },
   close: { alignSelf: 'center', paddingVertical: theme.spacing.md },

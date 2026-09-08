@@ -243,8 +243,8 @@ describe('layoutRow', () => {
 
 describe('guideAction', () => {
   const NOW = new Date('2026-09-05T19:15:00.000Z');
-  const withArchive = { hasArchive: true, archiveDays: 7 };
-  const withoutArchive = { hasArchive: false, archiveDays: 0 };
+  const withArchive = { hasArchive: true };
+  const withoutArchive = { hasArchive: false };
 
   function cellFor(startIso: string, stopIso: string) {
     const cells = layoutRow([programme(startIso, stopIso)], WINDOW_START, WINDOW_END, NOW);
@@ -277,9 +277,9 @@ describe('guideAction', () => {
     expect(guideAction(cell, withArchive, false)).toBe('none');
   });
 
-  it('kommer senere, og kanalen har arkiv: bestil optagelse', () => {
+  it('kommer senere: ingenting, ogsaa med arkiv', () => {
     const cell = cellFor('2026-09-05T20:00:00.000Z', '2026-09-05T20:30:00.000Z');
-    expect(guideAction(cell, withArchive, true)).toBe('record');
+    expect(guideAction(cell, withArchive, true)).toBe('none');
   });
 
   it('kommer senere, uden arkiv: ingenting', () => {
@@ -293,10 +293,6 @@ describe('guideAction', () => {
     expect(guideAction(cell, withArchive, false)).toBe('none');
   });
 
-  it('kommer senere paa en kanal med arkivflag men nul dage: ingenting', () => {
-    const cell = cellFor('2026-09-05T20:00:00.000Z', '2026-09-05T20:30:00.000Z');
-    expect(guideAction(cell, { hasArchive: true, archiveDays: 0 }, true)).toBe('none');
-  });
 
   it('hul: ingenting', () => {
     const [gap] = layoutRow([], WINDOW_START, WINDOW_END, NOW);
@@ -306,8 +302,8 @@ describe('guideAction', () => {
 });
 
 describe('programmeOptions', () => {
-  const withArchive = { hasArchive: true, archiveDays: 7 };
-  const withoutArchive = { hasArchive: false, archiveDays: 0 };
+  const withArchive = { hasArchive: true };
+  const withoutArchive = { hasArchive: false };
 
   it('giver en afsluttet udsendelse kun start forfra', () => {
     // Man har rullet tilbage til noget bestemt. Kanalen live og optagelse
@@ -315,7 +311,6 @@ describe('programmeOptions', () => {
     expect(programmeOptions('past', withArchive, true)).toEqual({
       play: false,
       restart: true,
-      record: false,
     });
   });
 
@@ -323,20 +318,17 @@ describe('programmeOptions', () => {
     expect(programmeOptions('live', withArchive, true)).toEqual({
       play: true,
       restart: true,
-      record: true,
     });
   });
 
   it('kan ikke starte fremtiden forfra', () => {
     expect(programmeOptions('future', withArchive, true).restart).toBe(false);
-    expect(programmeOptions('future', withArchive, true).record).toBe(true);
   });
 
   it('tilbyder kun live naar kanalen ingen arkiv har', () => {
     expect(programmeOptions('past', withoutArchive, true)).toEqual({
       play: true,
       restart: false,
-      record: false,
     });
   });
 
@@ -344,14 +336,12 @@ describe('programmeOptions', () => {
     expect(programmeOptions('live', withArchive, false)).toEqual({
       play: true,
       restart: false,
-      record: false,
     });
   });
 
   it('tilbyder ingenting ud over live i et hul i programdata', () => {
     const options = programmeOptions('gap', withArchive, true);
     expect(options.restart).toBe(false);
-    expect(options.record).toBe(false);
   });
 });
 

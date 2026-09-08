@@ -225,6 +225,8 @@ export async function listChannels(
     categoryId?: string;
     search?: string;
     favouritesOnly?: boolean;
+    /** Kun radio: kanaler hvis navn eller kategori siger radio, typisk "(RADIO)". */
+    radioOnly?: boolean;
     /** Oevre graense paa antal raekker. Soegning paa tvaers af 22.142 kanaler skal have en. */
     limit?: number;
   } = {},
@@ -247,6 +249,9 @@ export async function listChannels(
   if (opts.favouritesOnly === true) {
     where.push('f.channel_id IS NOT NULL');
   }
+  if (opts.radioOnly === true) {
+    where.push("(c.name LIKE '%radio%' OR cat.name LIKE '%radio%')");
+  }
 
   const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
 
@@ -266,6 +271,7 @@ export async function listChannels(
      FROM channels c
      LEFT JOIN favorites f ON f.channel_id = c.id
      LEFT JOIN sources s ON s.id = c.source_id
+     LEFT JOIN categories cat ON cat.id = c.category_id
      LEFT JOIN logo_overrides lo ON lo.channel_key = c.id
      -- Udbyderens egen XMLTV-fil foerst: det er dens logo, for dens kanal.
      LEFT JOIN xmltv_logos xl ON xl.channel_key = c.id
@@ -297,6 +303,7 @@ export async function getChannel(
      FROM channels c
      LEFT JOIN favorites f ON f.channel_id = c.id
      LEFT JOIN sources s ON s.id = c.source_id
+     LEFT JOIN categories cat ON cat.id = c.category_id
      LEFT JOIN logo_overrides lo ON lo.channel_key = c.id
      -- Udbyderens egen XMLTV-fil foerst: det er dens logo, for dens kanal.
      LEFT JOIN xmltv_logos xl ON xl.channel_key = c.id
