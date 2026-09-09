@@ -21,13 +21,23 @@ for (const url of guesses) {
   }
 }
 for (const page of ['https://www.partyfm.dk/', 'https://partyfm.dk/', 'http://stream.partyfm.dk/status-json.xsl', 'http://stream.partyfm.dk/status.xsl']) {
+  // Tidsgraense ogsaa her: paa en stream-server kan "forsiden" vaere selve lydstroemmen, som aldrig slutter.
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), 8000);
   try {
-    const r = await fetch(page, { headers: { 'user-agent': 'Mozilla/5.0' } });
+    const r = await fetch(page, { headers: { 'user-agent': 'Mozilla/5.0' }, signal: c.signal });
+    if (!(r.headers.get('content-type') ?? '').includes('text') && !(r.headers.get('content-type') ?? '').includes('json')) {
+      await r.body?.cancel();
+      console.log(`\n${page} -> ${r.status}, ${r.headers.get('content-type')} (ikke tekst)`);
+      continue;
+    }
     const text = await r.text();
     const links = [...new Set([...text.matchAll(/https?:\/\/[^"'\s<>]*(?:stream|party|\.mp3|\.aac|listen)[^"'\s<>]*/gi)].map((m) => m[0]))].slice(0, 25);
     console.log(`\n${page} -> ${r.status}, ${text.length} tegn`);
     for (const l of links) console.log('  ' + l);
   } catch (e) {
     console.log(`\n${page} -> fejl ${e?.name ?? e}`);
+  } finally {
+    clearTimeout(t);
   }
 }
