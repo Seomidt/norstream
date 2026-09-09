@@ -1,5 +1,6 @@
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { theme } from '../../ui/theme.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 export interface TrackOption {
   key: string;
@@ -24,21 +25,21 @@ export function TrackPicker({
     <View style={styles.picker}>
       <View style={styles.pickerHeader}>
         <Text style={styles.pickerTitle}>{title}</Text>
-        <Pressable hitSlop={12} onPress={onClose}>
+        <TvPressable hitSlop={12} onPress={onClose}>
           <Text style={styles.pickerClose}>✕</Text>
-        </Pressable>
+        </TvPressable>
       </View>
       <FlatList
         data={options}
         keyExtractor={(option) => option.key}
         ListEmptyComponent={<Text style={styles.pickerEmpty}>{emptyText}</Text>}
         renderItem={({ item }) => (
-          <Pressable style={styles.pickerRow} onPress={item.onPress}>
+          <TvPressable style={styles.pickerRow} onPress={item.onPress}>
             <Text style={[styles.pickerLabel, item.active && styles.pickerActive]}>
               {item.active ? '✓ ' : ''}
               {item.label}
             </Text>
-          </Pressable>
+          </TvPressable>
         )}
       />
     </View>

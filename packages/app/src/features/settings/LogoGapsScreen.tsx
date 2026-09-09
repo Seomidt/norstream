@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { AppSession } from '../../session.js';
 import { forgetLogoSearches, listChannelsWithoutArchiveLogo } from '../../storage/logoOverrides.js';
 import type { ChannelWithoutLogo } from '../../storage/logoOverrides.js';
@@ -8,6 +8,7 @@ import { replaceLogo, resetLogo } from '../../ui/logoCache.js';
 import { theme } from '../../ui/theme.js';
 import { autoSearchLogos } from './logoAutoSearch.js';
 import type { AutoSearchHandle, AutoSearchProgress } from './logoAutoSearch.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
   session: AppSession;
@@ -92,23 +93,23 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
 
   return (
     <View style={styles.container}>
-      <Pressable style={styles.crumb} onPress={onBack} hitSlop={8}>
+      <TvPressable style={styles.crumb} onPress={onBack} hitSlop={8}>
         <Text style={styles.crumbBack}>‹</Text>
         <Text style={styles.crumbLabel}>Kanaler uden logo</Text>
-      </Pressable>
+      </TvPressable>
       <Text style={styles.hint}>
         Dem ingen af arkiverne kender. Favoritterne står øverst. Tryk på en kanal for at
         vælge et logo selv, eller lad appen søge på nettet efter dem alle.
       </Text>
       {progress === null ? (
-        <Pressable
+        <TvPressable
           style={styles.button}
           onPress={() => {
             void searchAll();
           }}
         >
           <Text style={styles.buttonText}>Søg logoer på nettet til alle</Text>
-        </Pressable>
+        </TvPressable>
       ) : (
         <View style={styles.progress}>
           <ActivityIndicator color={theme.colors.accent} />
@@ -120,21 +121,21 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
               {progress.current}
             </Text>
           </View>
-          <Pressable hitSlop={8} onPress={() => running.current?.cancel()}>
+          <TvPressable hitSlop={8} onPress={() => running.current?.cancel()}>
             <Text style={styles.stop}>Stop</Text>
-          </Pressable>
+          </TvPressable>
         </View>
       )}
       {summary !== null && <Text style={styles.summary}>{summary}</Text>}
       {summary !== null && skipped > 0 && progress === null && (
-        <Pressable
+        <TvPressable
           style={styles.retry}
           onPress={() => {
             void forgetLogoSearches(session.db).then(() => searchAll());
           }}
         >
           <Text style={styles.retryText}>Prøv de {skipped} oversprungne igen</Text>
-        </Pressable>
+        </TvPressable>
       )}
       <TextInput
         style={styles.input}
@@ -154,13 +155,13 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
           </Text>
         }
         renderItem={({ item }) => (
-          <Pressable style={styles.row} onPress={() => onPick(item.id)}>
+          <TvPressable style={styles.row} onPress={() => onPick(item.id)}>
             <Text style={styles.star}>{item.isFavorite ? '★' : ' '}</Text>
             <Text style={styles.name} numberOfLines={1}>
               {item.name}
             </Text>
             <Text style={styles.chevron}>›</Text>
-          </Pressable>
+          </TvPressable>
         )}
       />
     </View>

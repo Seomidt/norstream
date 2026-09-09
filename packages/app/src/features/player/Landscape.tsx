@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import type { ReactNode } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { theme } from '../../ui/theme.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 /**
  * Landskab er fuld skaerm.
@@ -55,14 +56,14 @@ export function LandscapePlayer({
     <View style={styles.root}>
       <StatusBar hidden />
       <View style={StyleSheet.absoluteFill}>{video}</View>
-      <Pressable
+      <TvPressable
         style={[styles.corner, { top: theme.spacing.sm + insets.top, right: theme.spacing.md + insets.right }]}
         hitSlop={12}
         onPress={() => setBarShown((value) => !value)}
         accessibilityLabel="Vis knapper"
       >
         <Text style={styles.cornerText}>{barShown ? '×' : '⋯'}</Text>
-      </Pressable>
+      </TvPressable>
       {barShown && (
         <View
           style={[

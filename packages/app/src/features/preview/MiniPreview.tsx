@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { buildLiveUrl } from '@norstream/core';
 import type { AppSession } from '../../session.js';
@@ -7,6 +7,7 @@ import type { StoredChannel } from '../../storage/channels.js';
 import { theme } from '../../ui/theme.js';
 import { liveUrlFor } from '../../sources/access.js';
 import { formatForPlatform } from '../player/format.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 /**
  * Giver forælderen mulighed for at frigive streamen og vente paa det.
@@ -175,7 +176,7 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
 
   return (
     <View style={styles.container}>
-      <Pressable
+      <TvPressable
         style={styles.frame}
         onPress={() => {
           if (target !== null) onOpen(target);
@@ -192,15 +193,15 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
             <Text style={styles.placeholder}>Forhåndsvisning</Text>
           </View>
         )}
-      </Pressable>
+      </TvPressable>
 
       <View style={styles.bar}>
         <Text style={styles.title} numberOfLines={1}>
           {target?.name ?? ''}
         </Text>
-        <Pressable hitSlop={12} onPress={() => setMuted((value) => !value)}>
+        <TvPressable hitSlop={12} onPress={() => setMuted((value) => !value)}>
           <Text style={styles.sound}>{muted ? '🔇' : '🔊'}</Text>
-        </Pressable>
+        </TvPressable>
       </View>
     </View>
   );

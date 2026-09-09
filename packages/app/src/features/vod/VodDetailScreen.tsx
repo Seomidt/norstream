@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -17,6 +16,7 @@ import { continueEpisodeFor } from './episodes.js';
 import type { StoredEpisode, StoredVodItem } from '../../storage/vod.js';
 import { ensureVodDetails } from '../../sync/vodDetails.js';
 import { theme } from '../../ui/theme.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 /** Det afspilleren skal bruge. Adressen baerer panelets kodeord; den vises aldrig. */
 export interface Playback {
@@ -100,9 +100,9 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
     return (
       <View style={styles.centered}>
         <Text style={styles.plot}>Titlen findes ikke længere.</Text>
-        <Pressable style={styles.button} onPress={onBack}>
+        <TvPressable style={styles.button} onPress={onBack}>
           <Text style={styles.buttonText}>Tilbage</Text>
-        </Pressable>
+        </TvPressable>
       </View>
     );
   }
@@ -189,9 +189,9 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
             />
           )}
           <View style={styles.heroScrim} />
-          <Pressable style={styles.back} onPress={onBack} hitSlop={12}>
+          <TvPressable style={styles.back} onPress={onBack} hitSlop={12}>
             <Text style={styles.backText}>‹ Tilbage</Text>
-          </Pressable>
+          </TvPressable>
           <View style={styles.heroBottom}>
             {item.posterUrl !== null && (
               <Image source={{ uri: item.posterUrl }} style={styles.poster} resizeMode="cover" />
@@ -210,7 +210,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
 
         <View style={styles.actions}>
           {item.kind === 'movie' ? (
-            <Pressable
+            <TvPressable
               style={[styles.button, styles.buttonAccent]}
               disabled={creds === null}
               onPress={playMovie}
@@ -218,18 +218,18 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
               <Text style={styles.buttonText}>
                 {item.positionSeconds !== null && !item.watched ? '▶ Fortsæt' : item.watched ? '▶ Se igen' : '▶ Se'}
               </Text>
-            </Pressable>
+            </TvPressable>
           ) : continueEpisode !== undefined ? (
-            <Pressable
+            <TvPressable
               style={[styles.button, styles.buttonAccent]}
               onPress={() => playEpisode(continueEpisode)}
             >
               <Text style={styles.buttonText}>
                 ▶ Fortsæt S{continueEpisode.season} E{continueEpisode.episode}
               </Text>
-            </Pressable>
+            </TvPressable>
           ) : shownEpisodes[0] !== undefined ? (
-            <Pressable
+            <TvPressable
               style={[styles.button, styles.buttonAccent]}
               onPress={() => {
                 const first = shownEpisodes[0];
@@ -237,29 +237,29 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
               }}
             >
               <Text style={styles.buttonText}>▶ Se første afsnit</Text>
-            </Pressable>
+            </TvPressable>
           ) : null}
-          <Pressable style={styles.button} onPress={openTrailer}>
+          <TvPressable style={styles.button} onPress={openTrailer}>
             <Text style={styles.buttonText}>Trailer</Text>
-          </Pressable>
+          </TvPressable>
           {item.kind === 'movie' && (
-            <Pressable
+            <TvPressable
               style={[styles.button, item.watched && styles.buttonDone]}
               onPress={() => {
                 void toggleWatched();
               }}
             >
               <Text style={styles.buttonText}>{item.watched ? '✓ Set' : 'Markér som set'}</Text>
-            </Pressable>
+            </TvPressable>
           )}
-          <Pressable
+          <TvPressable
             style={[styles.button, item.inWatchlist && styles.buttonDone]}
             onPress={() => {
               void toggleWatchlist();
             }}
           >
             <Text style={styles.buttonText}>{item.inWatchlist ? '✓ Min liste' : '+ Min liste'}</Text>
-          </Pressable>
+          </TvPressable>
         </View>
 
         {creds === null && (
@@ -295,7 +295,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
             {seasons.length > 1 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.seasons}>
                 {seasons.map((number) => (
-                  <Pressable
+                  <TvPressable
                     key={number}
                     style={[styles.seasonChip, season === number && styles.seasonChipActive]}
                     onPress={() => setSeason(number)}
@@ -303,7 +303,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
                     <Text style={[styles.seasonText, season === number && styles.seasonTextActive]}>
                       Sæson {number}
                     </Text>
-                  </Pressable>
+                  </TvPressable>
                 ))}
               </ScrollView>
             )}
@@ -311,7 +311,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
               <Text style={styles.empty}>Panelet oplyste ingen afsnit.</Text>
             )}
             {shownEpisodes.map((episode) => (
-              <Pressable
+              <TvPressable
                 key={episode.key}
                 style={[styles.episode, episode.watched && styles.episodeWatched]}
                 onPress={() => playEpisode(episode)}
@@ -321,7 +321,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
                 delayLongPress={400}
               >
                 {/* Fluebenet kan ogsaa trykkes: set eller ikke set, uden at spille. */}
-                <Pressable
+                <TvPressable
                   style={styles.episodeNumber}
                   hitSlop={8}
                   onPress={() => {
@@ -329,7 +329,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
                   }}
                 >
                   <Text style={styles.episodeNumberText}>{episode.watched ? '✓' : episode.episode}</Text>
-                </Pressable>
+                </TvPressable>
                 <View style={styles.episodeText}>
                   <Text style={styles.episodeTitle} numberOfLines={1}>
                     {episode.title}
@@ -350,7 +350,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
                   </Text>
                 </View>
                 <Text style={styles.play}>▶</Text>
-              </Pressable>
+              </TvPressable>
             ))}
           </View>
         )}

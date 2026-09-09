@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
@@ -9,6 +9,7 @@ import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
 import type { CellState } from './layout.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
   session: AppSession;
@@ -93,18 +94,18 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
 
   return (
     <View style={styles.container}>
-      <Pressable style={styles.crumb} onPress={onBack} hitSlop={8}>
+      <TvPressable style={styles.crumb} onPress={onBack} hitSlop={8}>
         <Text style={styles.crumbBack}>‹</Text>
         <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={28} />
         <Text style={styles.crumbLabel} numberOfLines={1}>
           {channel.name}
         </Text>
         {fetching && <ActivityIndicator color={theme.colors.accent} />}
-      </Pressable>
+      </TvPressable>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dayRow} contentContainerStyle={styles.dayRowContent}>
         {days.map((delta) => (
-          <Pressable
+          <TvPressable
             key={delta}
             style={[styles.dayChip, delta === dayDelta && styles.dayChipActive]}
             onPress={() => setDayDelta(delta)}
@@ -112,7 +113,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
             <Text style={[styles.dayChipText, delta === dayDelta && styles.dayChipTextActive]}>
               {dayLabel(now, delta)}
             </Text>
-          </Pressable>
+          </TvPressable>
         ))}
       </ScrollView>
 
@@ -137,7 +138,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
             const state = stateOf(item);
             const restartable = state === 'past' && channel.hasArchive && hasDialect;
             return (
-              <Pressable
+              <TvPressable
                 style={[styles.row, state === 'live' && styles.rowLive]}
                 onPress={() => openSheet(item)}
               >
@@ -153,7 +154,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
                   </Text>
                 </View>
                 <Text style={styles.chevron}>{state === 'future' ? '' : '▶'}</Text>
-              </Pressable>
+              </TvPressable>
             );
           }}
         />

@@ -1,5 +1,6 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { theme } from './theme.js';
+import { TvPressable } from '../ui/TvPressable.js';
 
 export interface NoticeState {
   text: string;
@@ -32,7 +33,7 @@ export function Notice({ notice, onDismiss }: Props) {
     <View style={styles.container}>
       <Text style={styles.text}>{notice.text}</Text>
       {notice.actionLabel !== undefined && (
-        <Pressable
+        <TvPressable
           hitSlop={8}
           onPress={() => {
             notice.onAction?.();
@@ -40,11 +41,11 @@ export function Notice({ notice, onDismiss }: Props) {
           }}
         >
           <Text style={styles.action}>{notice.actionLabel}</Text>
-        </Pressable>
+        </TvPressable>
       )}
-      <Pressable hitSlop={8} onPress={onDismiss}>
+      <TvPressable hitSlop={8} onPress={onDismiss}>
         <Text style={styles.dismiss}>✕</Text>
-      </Pressable>
+      </TvPressable>
     </View>
   );
 }

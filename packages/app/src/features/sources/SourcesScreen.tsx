@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -24,6 +23,7 @@ import { connectM3u, connectXtream, hostOf, probeArchive } from '../../sources/c
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
   session: AppSession;
@@ -168,7 +168,7 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
                     : 'Arkiv ikke fundet — start forfra og optagelse er slået fra'}
                 </Text>
                 {archive[source.id] !== true && (
-                  <Pressable
+                  <TvPressable
                     hitSlop={8}
                     disabled={probing === source.id}
                     onPress={() => {
@@ -180,7 +180,7 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
                     ) : (
                       <Text style={styles.action}>Prøv igen</Text>
                     )}
-                  </Pressable>
+                  </TvPressable>
                 )}
               </View>
             )}
@@ -195,23 +195,23 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
                   Fjerner også favoritter og optagelser fra denne kilde.
                 </Text>
                 <View style={styles.confirmRow}>
-                  <Pressable hitSlop={8} onPress={() => setConfirmDelete(null)}>
+                  <TvPressable hitSlop={8} onPress={() => setConfirmDelete(null)}>
                     <Text style={styles.action}>Annullér</Text>
-                  </Pressable>
-                  <Pressable
+                  </TvPressable>
+                  <TvPressable
                     hitSlop={8}
                     onPress={() => {
                       void remove(source);
                     }}
                   >
                     <Text style={styles.danger}>Fjern alligevel</Text>
-                  </Pressable>
+                  </TvPressable>
                 </View>
               </View>
             ) : (
-              <Pressable hitSlop={8} onPress={() => setConfirmDelete(source.id)}>
+              <TvPressable hitSlop={8} onPress={() => setConfirmDelete(source.id)}>
                 <Text style={styles.danger}>Fjern</Text>
-              </Pressable>
+              </TvPressable>
             )}
           </View>
           <Switch
@@ -224,12 +224,12 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
         </View>
       ))}
 
-      <Pressable style={styles.button} onPress={() => setAdding('xtream')}>
+      <TvPressable style={styles.button} onPress={() => setAdding('xtream')}>
         <Text style={styles.buttonText}>Tilføj panel</Text>
-      </Pressable>
-      <Pressable style={styles.button} onPress={() => setAdding('m3u')}>
+      </TvPressable>
+      <TvPressable style={styles.button} onPress={() => setAdding('m3u')}>
         <Text style={styles.buttonText}>Tilføj M3U-liste</Text>
-      </Pressable>
+      </TvPressable>
     </ScrollView>
   );
 }
@@ -335,10 +335,10 @@ function AddSource({
       {error !== null && <Text style={styles.error}>{error}</Text>}
 
       <View style={styles.actions}>
-        <Pressable style={styles.buttonQuiet} onPress={onCancel} disabled={busy}>
+        <TvPressable style={styles.buttonQuiet} onPress={onCancel} disabled={busy}>
           <Text style={styles.buttonText}>Annullér</Text>
-        </Pressable>
-        <Pressable
+        </TvPressable>
+        <TvPressable
           style={[styles.button, (!canSubmit || busy) && styles.buttonDisabled]}
           disabled={!canSubmit || busy}
           onPress={() => {
@@ -350,7 +350,7 @@ function AddSource({
           ) : (
             <Text style={styles.buttonText}>Tilføj</Text>
           )}
-        </Pressable>
+        </TvPressable>
       </View>
     </ScrollView>
   );

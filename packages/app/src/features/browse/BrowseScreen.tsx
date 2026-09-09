@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -25,6 +24,7 @@ import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
 import { ChannelList } from '../channels/ChannelList.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
   session: AppSession;
@@ -241,7 +241,7 @@ export function BrowseScreen({
               <Text style={styles.categoryFlag}>
                 {item.country?.flag ?? OTHER_COUNTRY_FLAG}
               </Text>
-              <Pressable
+              <TvPressable
                 style={styles.rowMain}
                 onPress={() =>
                   setLevel({ name: 'channels', country: level.country, category: item })
@@ -251,8 +251,8 @@ export function BrowseScreen({
                   {item.name}
                 </Text>
                 <Text style={styles.rowCount}>{item.channelCount} kanaler</Text>
-              </Pressable>
-              <Pressable
+              </TvPressable>
+              <TvPressable
                 style={styles.action}
                 hitSlop={8}
                 onPress={() => {
@@ -260,7 +260,7 @@ export function BrowseScreen({
                 }}
               >
                 <Text style={styles.actionText}>Tilføj alle</Text>
-              </Pressable>
+              </TvPressable>
             </View>
           )}
         />
@@ -281,7 +281,7 @@ export function BrowseScreen({
           </Text>
         }
         renderItem={({ item }) => (
-          <Pressable
+          <TvPressable
             style={styles.row}
             onPress={() => setLevel({ name: 'categories', country: item })}
             onLongPress={() => hide(item)}
@@ -293,7 +293,7 @@ export function BrowseScreen({
                 {item.channelCount} kanaler i {item.categoryCount} kategorier
               </Text>
             </View>
-          </Pressable>
+          </TvPressable>
         )}
       />
     </View>
@@ -302,11 +302,11 @@ export function BrowseScreen({
 
 function Crumb({ label, onBack }: { label: string; onBack: () => void }) {
   return (
-    <Pressable style={styles.crumb} onPress={onBack}>
+    <TvPressable style={styles.crumb} onPress={onBack}>
       <Text style={styles.crumbText} numberOfLines={1}>
         ‹ {label}
       </Text>
-    </Pressable>
+    </TvPressable>
   );
 }
 

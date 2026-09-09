@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { AppSession } from '../../session.js';
 import { runConnectionCheck } from '../../net/connectionCheck.js';
 import type { CheckReport, Probe } from '../../net/connectionCheck.js';
 import { theme } from '../../ui/theme.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
   session: AppSession;
@@ -62,10 +63,10 @@ export function ConnectionCheckScreen({ session, onBack }: Props) {
 
   return (
     <View style={styles.container}>
-      <Pressable style={styles.crumb} onPress={onBack} hitSlop={8}>
+      <TvPressable style={styles.crumb} onPress={onBack} hitSlop={8}>
         <Text style={styles.crumbBack}>‹</Text>
         <Text style={styles.crumbLabel}>Tjek forbindelsen</Text>
-      </Pressable>
+      </TvPressable>
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.hint}>
           Måler vejen fra telefonen til panelet, trin for trin: er der internet, svarer panelet
@@ -75,13 +76,13 @@ export function ConnectionCheckScreen({ session, onBack }: Props) {
         {panelUrl === null ? (
           <Text style={styles.hint}>Ingen kilde at måle på.</Text>
         ) : (
-          <Pressable style={[styles.button, running && styles.buttonBusy]} disabled={running} onPress={() => void run()}>
+          <TvPressable style={[styles.button, running && styles.buttonBusy]} disabled={running} onPress={() => void run()}>
             {running ? (
               <ActivityIndicator color={theme.colors.text} />
             ) : (
               <Text style={styles.buttonText}>{report === null ? 'Kør målingen' : 'Kør igen'}</Text>
             )}
-          </Pressable>
+          </TvPressable>
         )}
         {report !== null && (
           <View style={styles.report}>

@@ -1,4 +1,4 @@
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Programme } from '@norstream/core';
 import type { StoredChannel } from '../../storage/channels.js';
@@ -6,6 +6,7 @@ import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
 import { programmeOptions } from './layout.js';
 import type { CellState } from './layout.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
   channel: StoredChannel;
@@ -45,7 +46,7 @@ export function ProgrammeSheet({
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose} />
+      <TvPressable style={styles.backdrop} onPress={onClose} />
       <View style={[styles.sheet, { paddingBottom: theme.spacing.lg + insets.bottom }]}>
         <View style={styles.grabber} />
 
@@ -75,14 +76,14 @@ export function ProgrammeSheet({
 
         <View style={styles.actions}>
           {options.play && (
-            <Pressable style={[styles.button, styles.buttonAccent]} onPress={onPlay}>
+            <TvPressable style={[styles.button, styles.buttonAccent]} onPress={onPlay}>
               <Text style={styles.buttonText}>Se {channel.name}</Text>
-            </Pressable>
+            </TvPressable>
           )}
           {options.restart && (
-            <Pressable style={styles.button} onPress={onRestart}>
+            <TvPressable style={styles.button} onPress={onRestart}>
               <Text style={styles.buttonText}>▶ Start forfra</Text>
-            </Pressable>
+            </TvPressable>
           )}
           {!options.restart && programme !== null && (
             <Text style={styles.hint}>
@@ -94,13 +95,13 @@ export function ProgrammeSheet({
         </View>
 
         {onDay !== undefined && (
-          <Pressable style={styles.button} onPress={onDay}>
+          <TvPressable style={styles.button} onPress={onDay}>
             <Text style={styles.buttonText}>Hele dagen på {channel.name.includes('|') ? channel.name.slice(channel.name.lastIndexOf('|') + 1).trim() : channel.name}</Text>
-          </Pressable>
+          </TvPressable>
         )}
-        <Pressable style={styles.close} onPress={onClose}>
+        <TvPressable style={styles.close} onPress={onClose}>
           <Text style={styles.closeText}>Luk</Text>
-        </Pressable>
+        </TvPressable>
       </View>
     </Modal>
   );

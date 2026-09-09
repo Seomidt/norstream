@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import type { AudioTrack, SubtitleTrack } from 'expo-video';
@@ -15,6 +15,7 @@ import type { Playback } from './VodDetailScreen.js';
 import { TrackPicker } from '../player/TrackPicker.js';
 import { LandscapePlayer, useLandscape } from '../player/Landscape.js';
 import { pickPreferredSubtitle, sameTrack, trackName } from '../player/tracks.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
   session: AppSession;
@@ -285,10 +286,10 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
 
   const actions = (
     <>
-      <Pressable style={styles.button} onPress={onBack}>
+      <TvPressable style={styles.button} onPress={onBack}>
         <Text style={styles.buttonText}>Tilbage</Text>
-      </Pressable>
-      <Pressable
+      </TvPressable>
+      <TvPressable
         style={styles.button}
         onPress={() => {
           readTracks();
@@ -298,8 +299,8 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
         <Text style={styles.buttonText}>
           Undertekster{subtitle !== null ? `: ${trackName(subtitle)}` : ''}
         </Text>
-      </Pressable>
-      <Pressable
+      </TvPressable>
+      <TvPressable
         style={styles.button}
         onPress={() => {
           readTracks();
@@ -307,7 +308,7 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
         }}
       >
         <Text style={styles.buttonText}>Lyd{audio !== null ? `: ${trackName(audio)}` : ''}</Text>
-      </Pressable>
+      </TvPressable>
     </>
   );
 
@@ -319,12 +320,12 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
           S{upcoming.season} · E{upcoming.episode} · {upcoming.title}
         </Text>
         <View style={styles.nextRow}>
-          <Pressable style={[styles.button, styles.buttonAccent]} onPress={() => playNext(upcoming)}>
+          <TvPressable style={[styles.button, styles.buttonAccent]} onPress={() => playNext(upcoming)}>
             <Text style={styles.buttonText}>▶ Afspil nu ({countdown})</Text>
-          </Pressable>
-          <Pressable style={styles.button} onPress={() => setUpcoming(null)}>
+          </TvPressable>
+          <TvPressable style={styles.button} onPress={() => setUpcoming(null)}>
             <Text style={styles.buttonText}>Annuller</Text>
-          </Pressable>
+          </TvPressable>
         </View>
       </View>
     ) : null;

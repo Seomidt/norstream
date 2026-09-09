@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   FlatList,
   PanResponder,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -41,6 +40,7 @@ import {
   stateOf,
 } from './layout.js';
 import type { GuideCell } from './layout.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
   session: AppSession;
@@ -525,9 +525,9 @@ export function GuideScreen({
         <Text style={styles.emptyText}>
           Læg nogle kanaler i favoritter, så står de her med aftenens programmer.
         </Text>
-        <Pressable style={styles.button} onPress={onBrowse}>
+        <TvPressable style={styles.button} onPress={onBrowse}>
           <Text style={styles.buttonText}>Gå til Kanaler</Text>
-        </Pressable>
+        </TvPressable>
       </View>
     );
   }
@@ -583,27 +583,27 @@ export function GuideScreen({
       </View>
 
       <View style={styles.toolbar}>
-        <Pressable
+        <TvPressable
           hitSlop={12}
           onPress={() => setOffsetMinutes((value) => Math.max(DRAG_MIN_MINUTES, value - WINDOW_MINUTES))}
         >
           <Text style={styles.pager}>‹</Text>
-        </Pressable>
+        </TvPressable>
         {/* Etiketten er ogsaa vejen tilbage til nu. Efter et traek gennem tre
             doegn er en knap hurtigere end den samme vej tilbage. */}
-        <Pressable hitSlop={8} disabled={offsetMinutes === 0} onPress={() => setOffsetMinutes(0)}>
+        <TvPressable hitSlop={8} disabled={offsetMinutes === 0} onPress={() => setOffsetMinutes(0)}>
           <Text style={styles.windowLabel}>
             {formatTime(window.start)} – {formatTime(window.end)}
             {isSameDay(window.start, now) ? '' : ` · ${formatDay(window.start)}`}
             {offsetMinutes === 0 ? '' : '  ↺ Nu'}
           </Text>
-        </Pressable>
-        <Pressable
+        </TvPressable>
+        <TvPressable
           hitSlop={12}
           onPress={() => setOffsetMinutes((value) => Math.min(DRAG_MAX_MINUTES, value + WINDOW_MINUTES))}
         >
           <Text style={styles.pager}>›</Text>
-        </Pressable>
+        </TvPressable>
       </View>
 
       {/* Dagsknapperne: ét tryk til "i morgen aften" i stedet for tolv traek.
@@ -620,7 +620,7 @@ export function GuideScreen({
             chip.dayDelta === dayDeltaOf(window.start, now) &&
             (chip.hour === null ? offsetMinutes === 0 || chip.dayDelta !== 0 : window.start.getHours() >= chip.hour);
           return (
-            <Pressable
+            <TvPressable
               key={`${chip.dayDelta}:${chip.hour ?? 'day'}`}
               style={[styles.dayChip, active && styles.dayChipActive]}
               onPress={() =>
@@ -630,7 +630,7 @@ export function GuideScreen({
               <Text style={[styles.dayChipText, active && styles.dayChipTextActive]}>
                 {chip.hour !== null ? chip.label : dayLabel(now, chip.dayDelta)}
               </Text>
-            </Pressable>
+            </TvPressable>
           );
         })}
       </ScrollView>
@@ -774,7 +774,7 @@ const GuideRow = memo(function GuideRow({
       {/* Et tryk paa kanalen viser den i previewet; hold fingeren for
           bladet med "se kanalen". Previewet fulgte kun den oeverste synlige
           raekke, og de nederste kan aldrig rulles derop. */}
-      <Pressable
+      <TvPressable
         style={[styles.channelCell, previewing && styles.channelCellPreviewing]}
         onPress={() => onPreview(channel)}
         onLongPress={() => onOpen(channel, CHANNEL_CELL)}
@@ -790,7 +790,7 @@ const GuideRow = memo(function GuideRow({
               kunne man kun se det ved at proeve. */}
           {hasDialect && channel.hasArchive && <Text style={styles.channelBadges}>⏱</Text>}
         </View>
-      </Pressable>
+      </TvPressable>
       <View
         style={styles.cells}
         onLayout={(event) => onMeasureCells(event.nativeEvent.layout.width)}
@@ -798,7 +798,7 @@ const GuideRow = memo(function GuideRow({
         {cells.map((cell) => {
           const action = guideAction(cell, channel, hasDialect);
           return (
-            <Pressable
+            <TvPressable
               key={cell.key}
               style={[
                 styles.cell,
@@ -819,7 +819,7 @@ const GuideRow = memo(function GuideRow({
                 {action === 'restart' ? '▶ ' : ''}
                 {cell.programme?.title ?? (cell.weight >= 30 ? 'Ingen programdata' : '')}
               </Text>
-            </Pressable>
+            </TvPressable>
           );
         })}
       </View>

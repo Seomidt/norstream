@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -28,6 +27,7 @@ import type { LogoCandidate } from '../../sync/logoSearch.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { replaceLogo, resetLogo } from '../../ui/logoCache.js';
 import { theme } from '../../ui/theme.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
   session: AppSession;
@@ -142,21 +142,21 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
     return (
       <View style={styles.centered}>
         <Text style={styles.hint}>Kanalen findes ikke længere.</Text>
-        <Pressable style={styles.button} onPress={onBack}>
+        <TvPressable style={styles.button} onPress={onBack}>
           <Text style={styles.buttonText}>Tilbage</Text>
-        </Pressable>
+        </TvPressable>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <Pressable style={styles.crumb} onPress={onBack} hitSlop={8}>
+      <TvPressable style={styles.crumb} onPress={onBack} hitSlop={8}>
         <Text style={styles.crumbBack}>‹</Text>
         <Text style={styles.crumbLabel} numberOfLines={1}>
           Vælg logo
         </Text>
-      </Pressable>
+      </TvPressable>
 
       <View style={styles.channelRow}>
         <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={56} />
@@ -169,14 +169,14 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
           </Text>
         </View>
         {current !== null && (
-          <Pressable
+          <TvPressable
             hitSlop={8}
             onPress={() => {
               void reset();
             }}
           >
             <Text style={styles.actionText}>Fjern</Text>
-          </Pressable>
+          </TvPressable>
         )}
       </View>
 
@@ -207,7 +207,7 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
           </Text>
         }
         renderItem={({ item }) => (
-          <Pressable
+          <TvPressable
             style={[styles.hit, item.url === current && styles.hitActive]}
             onPress={() => {
               void choose(item.url);
@@ -218,7 +218,7 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
               {item.name}
             </Text>
             <Text style={styles.hitCountry}>{item.country === '*' ? '🌐' : item.country}</Text>
-          </Pressable>
+          </TvPressable>
         )}
         ListFooterComponent={
           <View style={[styles.manual, { paddingBottom: insets.bottom + theme.spacing.lg }]}>
@@ -227,7 +227,7 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
               Wikidata kender de fleste kanaler og har deres logo. Har du sat en Google-nøgle i
               indstillingerne, søges der også der.
             </Text>
-            <Pressable
+            <TvPressable
               style={[styles.button, webBusy && styles.buttonDisabled]}
               disabled={webBusy}
               onPress={() => {
@@ -239,14 +239,14 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
               ) : (
                 <Text style={styles.buttonText}>Søg på nettet efter “{search.trim() || channel.name}”</Text>
               )}
-            </Pressable>
+            </TvPressable>
             {web !== null && web.length === 0 && (
               <Text style={styles.hint}>Intet fundet. Prøv et kortere navn i feltet ovenfor, og søg igen.</Text>
             )}
             {web !== null && web.length > 0 && (
               <View style={styles.webRow}>
                 {web.map((bid) => (
-                  <Pressable
+                  <TvPressable
                     key={bid.url}
                     style={[styles.hit, styles.webHit, bid.url === current && styles.hitActive]}
                     onPress={() => {
@@ -258,7 +258,7 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
                       {bid.label}
                     </Text>
                     <Text style={styles.hitCountry}>{bid.source === 'wikidata' ? 'Wikidata' : 'Google'}</Text>
-                  </Pressable>
+                  </TvPressable>
                 ))}
               </View>
             )}
@@ -274,7 +274,7 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
               autoCapitalize="none"
               inputMode="url"
             />
-            <Pressable
+            <TvPressable
               style={[styles.button, manual.trim().length === 0 && styles.buttonDisabled]}
               disabled={manual.trim().length === 0}
               onPress={() => {
@@ -282,7 +282,7 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
               }}
             >
               <Text style={styles.buttonText}>Brug adressen</Text>
-            </Pressable>
+            </TvPressable>
           </View>
         }
       />

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import type { AppSession } from '../../session.js';
 import { listChannels, setFavorite } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
@@ -8,6 +8,7 @@ import { ChannelList } from '../channels/ChannelList.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import type { RadioCountry } from '../../sync/radioBrowser.js';
 import { InternetRadio } from './InternetRadio.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
   session: AppSession;
@@ -86,13 +87,13 @@ export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onP
       <Text style={styles.title}>Radio</Text>
       <View style={styles.parts}>
         {parts.map((entry) => (
-          <Pressable
+          <TvPressable
             key={entry.id}
             style={[styles.part, part === entry.id && styles.partActive]}
             onPress={() => setPart(entry.id)}
           >
             <Text style={[styles.partText, part === entry.id && styles.partTextActive]}>{entry.label}</Text>
-          </Pressable>
+          </TvPressable>
         ))}
       </View>
     </View>

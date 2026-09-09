@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { WebViewMessageEvent } from 'react-native-webview';
 import type { AppSession } from '../../session.js';
@@ -8,6 +8,7 @@ import { findTmdbTrailer, tmdbFetch } from '../../sync/tmdb.js';
 import { theme } from '../../ui/theme.js';
 import { MIN_TRAILER_SECONDS, findLongerTrailer, youtubeSearchUrl } from './trailerSearch.js';
 import { webView } from './webview.js';
+import { TvPressable } from '../../ui/TvPressable.js';
 
 /** Webvisningen, eller null paa tv, hvor den ikke findes. */
 const WebView = webView();
@@ -237,19 +238,19 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         <Text style={styles.hint}>{note ?? 'Trailer fra YouTube'}</Text>
       </View>
       <View style={[styles.actions, { paddingBottom: theme.spacing.md + insets.bottom }]}>
-        <Pressable style={styles.button} onPress={onBack}>
+        <TvPressable style={styles.button} onPress={onBack}>
           <Text style={styles.buttonText}>Tilbage</Text>
-        </Pressable>
+        </TvPressable>
         {/* Altid, ikke kun ved fejl: nogle trailere maa ifoelge deres ejer
             ikke vises uden for YouTube, og saa er det her den eneste vej. */}
-        <Pressable
+        <TvPressable
           style={styles.button}
           onPress={() => {
             void Linking.openURL(openUrl).catch(() => undefined);
           }}
         >
           <Text style={styles.buttonText}>Åbn i YouTube</Text>
-        </Pressable>
+        </TvPressable>
       </View>
     </View>
   );

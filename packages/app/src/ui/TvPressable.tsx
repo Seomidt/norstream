@@ -36,9 +36,13 @@ export function TvPressable({ style, onFocus, onBlur, children, ...rest }: Props
 }
 
 const styles = StyleSheet.create({
+  // Tydelig fra sofaen: bred ramme i appens farve, lysere flade, og en
+  // anelse stoerre. Det er det eneste der viser hvor fjernbetjeningen er.
   focused: {
     borderColor: theme.colors.accent,
-    borderWidth: 2,
+    borderWidth: 3,
+    borderRadius: theme.radius,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
     transform: [{ scale: 1.04 }],
   },
 });

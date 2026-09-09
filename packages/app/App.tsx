@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, BackHandler, StyleSheet, Text, View } from 'react-native';
 // Ikke react-natives egen SafeAreaView: den gør **ingenting paa Android**.
 // Telefonens navigationslinje laa derfor oven i appens fanelinje, og det saa
 // ud som et layoutproblem i appen frem for en manglende indramning.
@@ -20,6 +20,7 @@ import type { AppSession } from './src/session.js';
 import type { StoredChannel } from './src/storage/channels.js';
 import { theme } from './src/ui/theme.js';
 import { TV_SCALE, isTV } from './src/ui/tv.js';
+import { TvPressable } from './src/ui/TvPressable.js';
 
 type Route =
   | { name: 'loading' }
@@ -186,9 +187,9 @@ export default function App() {
       {route.name === 'error' && (
         <View style={styles.centered}>
           <Text style={styles.errorText}>{BOOT_ERROR_TEXT}</Text>
-          <Pressable style={styles.button} onPress={retryBoot}>
+          <TvPressable style={styles.button} onPress={retryBoot}>
             <Text style={styles.buttonText}>Prøv igen</Text>
-          </Pressable>
+          </TvPressable>
         </View>
       )}
       {route.name === 'onboarding' && (
