@@ -4,6 +4,7 @@ import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import {
   RADIO_TTL_MS,
+  countRadioStationsByCountry,
   listRadioFavoriteIds,
   listRadioFavorites,
   listRadioStations,
@@ -33,6 +34,8 @@ interface Props {
   onSelect: (channel: StoredChannel, neighbours: StoredChannel[]) => void;
   /** Luft i bunden af listerne, til en bjaelke der ligger oven paa dem. */
   contentBottom?: number;
+  /** Taelles op naar listen skal tilbage til sin gemte plads (afspilleren lukkede). */
+  restoreSignal?: number;
   /** Hold fingeren paa en station: vaelg dens logo selv. */
   onPickLogo?: (channel: StoredChannel) => void;
   /** Udfyldes med det tilbage-knappen skal goere her. Falsk = intet at gaa op i. */
@@ -52,8 +55,19 @@ const COUNTRIES_AT_KEY = 'radio_countries_ms';
  * med flag, Norden foerst. Favoritterne staar oeverst som deres egen
  * gruppe, og soegefeltet soeger paa tvaers af alle lande.
  */
-export function InternetRadio({ session, country, onCountryChange, onSelect, onPickLogo, backRef, contentBottom = 0 }: Props) {
+export function InternetRadio({
+  session,
+  country,
+  onCountryChange,
+  onSelect,
+  onPickLogo,
+  backRef,
+  contentBottom = 0,
+  restoreSignal = 0,
+}: Props) {
   const listPadding = { paddingBottom: contentBottom };
+  /** Antal per hentet land efter sammenlaegning; registrets tal for de andre. */
+  const [localCounts, setLocalCounts] = useState<Map<string, number>>(() => new Map());
   const [countries, setCountries] = useState<RadioCountry[] | null>(null);
   const [stations, setStations] = useState<RadioStation[] | null>(null);
   const [favourites, setFavourites] = useState<RadioStation[]>([]);
@@ -78,9 +92,14 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
   };
 
   const loadFavourites = useCallback(async (): Promise<void> => {
-    const [list, ids] = await Promise.all([listRadioFavorites(session.db), listRadioFavoriteIds(session.db)]);
+    const [list, ids, counts] = await Promise.all([
+      listRadioFavorites(session.db),
+      listRadioFavoriteIds(session.db),
+      countRadioStationsByCountry(session.db),
+    ]);
     setFavourites(list);
     setFavouriteIds(ids);
+    setLocalCounts(counts);
   }, [session.db]);
 
   // Landene: fra indstillingerne naar de er friske, ellers fra registret.
@@ -245,6 +264,7 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
         ) : (
           <RememberedList
             memoryKey={`radio:search:${query}`}
+            restoreSignal={restoreSignal}
             contentContainerStyle={listPadding}
             data={results}
             keyExtractor={(station) => station.id}
@@ -273,6 +293,7 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
         ) : (
           <RememberedList
             memoryKey={`radio:country:${country.code}`}
+            restoreSignal={restoreSignal}
             contentContainerStyle={listPadding}
             data={stations}
             keyExtractor={(station) => station.id}
@@ -294,6 +315,7 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
       ) : (
         <RememberedList
           memoryKey="radio:countries"
+          restoreSignal={restoreSignal}
           contentContainerStyle={listPadding}
           data={countries}
           keyExtractor={(entry) => entry.code}
@@ -319,7 +341,7 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
               <Text style={styles.name} numberOfLines={1}>
                 {item.name}
               </Text>
-              <Text style={styles.count}>{item.stations}</Text>
+              <Text style={styles.count}>{localCounts.get(item.code) ?? item.stations}</Text>
               <Text style={styles.chevron}>›</Text>
             </TvPressable>
           )}

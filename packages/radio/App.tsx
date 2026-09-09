@@ -32,6 +32,12 @@ export default function App() {
   /** Landet der er aabnet. Ligger her, saa det overlever afspilleren. */
   const [country, setCountry] = useState<RadioCountry | null>(null);
   const listBack = useRef<() => boolean>(() => false);
+  /** Taelles op hver gang afspilleren lukker, saa listen ruller tilbage til sin plads. */
+  const [returned, setReturned] = useState(0);
+  const closePlayer = (): void => {
+    setRoute({ name: 'home' });
+    setReturned((count) => count + 1);
+  };
   /** Hvad tjenesten spiller lige nu, ogsaa naar det er bilen der valgte. */
   const [playing, setPlaying] = useState<AutoSnapshot>(() => current());
   useEffect(() => subscribe(setPlaying), []);
@@ -61,7 +67,7 @@ export default function App() {
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       if (route.name === 'player') {
-        setRoute({ name: 'home' });
+        closePlayer();
         return true;
       }
       if (route.name === 'home') return listBack.current();
@@ -102,6 +108,7 @@ export default function App() {
               onSelect={(channel, zap) => setRoute({ name: 'player', channel, zap })}
               backRef={listBack}
               contentBottom={barShown ? BAR_HEIGHT : 0}
+              restoreSignal={returned}
             />
             {barShown && (
               <View style={styles.nowPlaying}>
@@ -116,7 +123,7 @@ export default function App() {
       </SafeAreaView>
       {route.name === 'player' && session !== null && (
         <View style={styles.overlay}>
-          <RadioPlayerScreen channel={route.channel} zap={route.zap} onBack={() => setRoute({ name: 'home' })} />
+          <RadioPlayerScreen channel={route.channel} zap={route.zap} onBack={closePlayer} />
         </View>
       )}
     </SafeAreaProvider>

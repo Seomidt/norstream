@@ -82,6 +82,14 @@ export async function listRadioStations(db: SqlDatabase, country: string): Promi
   return preferBestQuality(rows.map(toStation));
 }
 
+/** Antal stationer per hentet land, efter sammenlaegning — det tal listen faktisk viser. */
+export async function countRadioStationsByCountry(db: SqlDatabase): Promise<Map<string, number>> {
+  const rows = await db.getAllAsync<{ country: string }>('SELECT DISTINCT country FROM radio_stations WHERE rank < 100000');
+  const counts = new Map<string, number>();
+  for (const row of rows) counts.set(row.country, (await listRadioStations(db, row.country)).length);
+  return counts;
+}
+
 /** Hvornaar landets stationer sidst blev hentet, eller null naar aldrig. */
 export async function radioStationsFetchedMs(db: SqlDatabase, country: string): Promise<number | null> {
   const row = await db.getFirstAsync<{ fetched_ms: number | null }>(
