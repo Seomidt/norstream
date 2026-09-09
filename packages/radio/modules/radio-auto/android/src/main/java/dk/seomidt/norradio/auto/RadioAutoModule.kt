@@ -77,6 +77,8 @@ class RadioAutoModule : Module() {
 
     Function("current") { last }
     Function("autoLog") { AutoLog.all() }
+    Function("pendingFavourites") { appContext.reactContext?.let { Favourites.pending(it) } ?: emptyList<Map<String, Any?>>() }
+    Function("clearPendingFavourites") { appContext.reactContext?.let { Favourites.clearPending(it) } }
     Function("titledStations") { appContext.reactContext?.let { AutoLog.titledStations(it).toList() } ?: emptyList<String>() }
     Function("clearAutoLog") { AutoLog.clear() }
     Function("nowPlayingEnabled") { appContext.reactContext?.let { AutoLog.nowPlayingEnabled(it) } ?: true }

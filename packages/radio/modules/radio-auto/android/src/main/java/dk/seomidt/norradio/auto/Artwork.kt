@@ -42,8 +42,8 @@ object Artwork {
   private const val MAX_BYTES = 6L * 1024 * 1024
   private const val MISS_TTL_MS = 24L * 60 * 60 * 1000
   /** Hvor laenge en forespoergsel fra bilen hoejst venter paa en hentning. */
-  private const val WAIT_MS = 1500L
-  private val pool = Executors.newFixedThreadPool(3)
+  private const val WAIT_MS = 400L
+  private val pool = Executors.newFixedThreadPool(4)
   private val inFlight = ConcurrentHashMap<String, Future<File?>>()
 
   fun authority(context: Context): String = "${context.packageName}.art"

@@ -1,10 +1,10 @@
-import { listRadioFavorites, listRadioStations } from '@norstream/app/src/storage/radio.js';
+import { listRadioFavorites, listRadioStations, rememberRadioStation, setRadioFavorite } from '@norstream/app/src/storage/radio.js';
 import { getSetting } from '@norstream/app/src/storage/settings.js';
 import type { SqlDatabase } from '@norstream/app/src/storage/types.js';
 import type { RadioCountry, RadioStation } from '@norstream/app/src/sync/radioBrowser.js';
 import { radioCountryName, radioLogoUrls } from '@norstream/app/src/sync/radioBrowser.js';
 import { countryFlag } from '@norstream/core';
-import { setLibrary } from '../modules/radio-auto/index.js';
+import { clearPendingFavourites, pendingFavourites, setLibrary } from '../modules/radio-auto/index.js';
 import { withAllCountries } from './countries.js';
 import type { AutoLibrary, AutoStation } from '../modules/radio-auto/index.js';
 
@@ -50,8 +50,37 @@ export async function buildAutoLibrary(db: SqlDatabase): Promise<AutoLibrary> {
   return { favourites, countries: withAllCountries(countries, [...known.values()]) };
 }
 
+/**
+ * Favoritter slaaet til eller fra i bilen foeres ind i databasen. Svarer
+ * med om noget aendrede sig, saa listen kan laeses igen.
+ */
+export async function applyCarFavourites(db: SqlDatabase): Promise<boolean> {
+  const pending = pendingFavourites();
+  if (pending.length === 0) return false;
+  for (const entry of pending) {
+    if (entry.on) {
+      await rememberRadioStation(db, {
+        id: entry.id,
+        name: entry.name,
+        country: entry.country,
+        url: entry.url,
+        logoUrl: entry.logoUrls[0] ?? null,
+        homepage: null,
+        votes: 0,
+        codec: '',
+        bitrate: 0,
+        tags: [],
+      });
+    }
+    await setRadioFavorite(db, entry.id, entry.on);
+  }
+  clearPendingFavourites();
+  return true;
+}
+
 export async function syncAutoLibrary(db: SqlDatabase): Promise<void> {
   try {
+    await applyCarFavourites(db);
     await setLibrary(await buildAutoLibrary(db));
   } catch {
     // Bilen faar den gamle liste; naeste gang lykkes det.

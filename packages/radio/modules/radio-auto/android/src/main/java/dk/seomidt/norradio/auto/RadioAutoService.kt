@@ -14,9 +14,12 @@ import androidx.media3.common.Player
 import androidx.media3.extractor.metadata.icy.IcyInfo
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -124,9 +127,34 @@ class RadioAutoService : MediaLibraryService() {
   }
 
   private companion object {
-    /** Hvor mange logoer der hentes paa forhaand naar en liste gives til bilen: det foerste skaermfulde eller to. Resten hentes naar bilen beder om dem. */
-    const val PREFETCH = 40
+    /** Knappen i bilens afspilningsskaerm: favorit til/fra. */
+    const val CMD_FAVOURITE = "dk.seomidt.norradio.FAVOURITE"
   }
+
+  /** Stationen der spiller lige nu, som den staar i biblioteket eller blev fundet. */
+  private fun currentStation(): Station? {
+    val item = player?.currentMediaItem ?: return null
+    val id = item.mediaId.removePrefix(Library.STATION_PREFIX)
+    return Library.read(this).find(item.mediaId) ?: RadioBrowser.find(id) ?: Library.fromRequest(item)
+  }
+
+  /** Hjertet: fyldt naar stationen er favorit. Vises i bilen og i notifikationen. */
+  private fun favouriteButton(): CommandButton {
+    val on = currentStation()?.let { Favourites.isFavourite(this, it.id) } ?: false
+    return CommandButton.Builder(if (on) CommandButton.ICON_HEART_FILLED else CommandButton.ICON_HEART_UNFILLED)
+      .setDisplayName(if (on) "Fjern favorit" else "Gem som favorit")
+      .setSessionCommand(SessionCommand(CMD_FAVOURITE, Bundle.EMPTY))
+      .build()
+  }
+
+  fun refreshButtons() {
+    session?.setMediaButtonPreferences(ImmutableList.of(favouriteButton()))
+  }
+
+  private val buttonListener =
+    object : Player.Listener {
+      override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = refreshButtons()
+    }
 
   override fun onCreate() {
     super.onCreate()
@@ -141,9 +169,13 @@ class RadioAutoService : MediaLibraryService() {
         .setWakeMode(C.WAKE_MODE_NETWORK)
         .build()
     built.addListener(nowPlayingListener)
+    built.addListener(buttonListener)
     reconnect = Reconnect(this, built, main).also { it.start() }
     player = built
-    session = MediaLibrarySession.Builder(this, built, Callback(this)).build()
+    session =
+      MediaLibrarySession.Builder(this, built, Callback(this))
+        .setMediaButtonPreferences(ImmutableList.of(favouriteButton()))
+        .build()
   }
 
   override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
@@ -168,6 +200,73 @@ class RadioAutoService : MediaLibraryService() {
   }
 
   private class Callback(private val service: RadioAutoService) : MediaLibrarySession.Callback {
+    /** Seneste soegning per tekst, saa onGetSearchResult kan svare uden at soege igen. */
+    private val searches = HashMap<String, List<Station>>()
+
+    override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+      val commands =
+        MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
+          .add(SessionCommand(CMD_FAVOURITE, Bundle.EMPTY))
+          .build()
+      return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+        .setAvailableSessionCommands(commands)
+        .setMediaButtonPreferences(ImmutableList.of(service.favouriteButton()))
+        .build()
+    }
+
+    override fun onCustomCommand(
+      session: MediaSession,
+      controller: MediaSession.ControllerInfo,
+      customCommand: SessionCommand,
+      args: Bundle,
+    ): ListenableFuture<SessionResult> {
+      if (customCommand.customAction != CMD_FAVOURITE) return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED))
+      val station = service.currentStation() ?: return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE))
+      Favourites.toggle(service, station)
+      service.refreshButtons()
+      // Mine stationer i bilen har aendret sig.
+      (session as? MediaLibrarySession)?.notifyChildrenChanged(Library.FAVOURITES, Int.MAX_VALUE, null)
+      return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+    }
+
+    override fun onSearch(
+      session: MediaLibrarySession,
+      browser: MediaSession.ControllerInfo,
+      query: String,
+      params: LibraryParams?,
+    ): ListenableFuture<LibraryResult<Void>> {
+      AutoLog.add("search \"$query\" fra ${browser.packageName}")
+      service.fetcher.execute {
+        val found = RadioBrowser.search(service, query)
+        synchronized(searches) { searches[query] = found }
+        for (station in found.take(20)) Artwork.prefetch(service, station.logoUrls)
+        session.notifySearchResultChanged(browser, query, found.size, params)
+      }
+      return Futures.immediateFuture(LibraryResult.ofVoid(params))
+    }
+
+    override fun onGetSearchResult(
+      session: MediaLibrarySession,
+      browser: MediaSession.ControllerInfo,
+      query: String,
+      page: Int,
+      pageSize: Int,
+      params: LibraryParams?,
+    ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+      val known = synchronized(searches) { searches[query] }
+      if (known != null) {
+        return Futures.immediateFuture(LibraryResult.ofItemList(pageOf(known.map { Library.item(it, service) }, page, pageSize), params))
+      }
+      return Futures.submit(
+        Callable<LibraryResult<ImmutableList<MediaItem>>> {
+          val found = RadioBrowser.search(service, query)
+          synchronized(searches) { searches[query] = found }
+          LibraryResult.ofItemList(pageOf(found.map { Library.item(it, service) }, page, pageSize), params)
+        },
+        service.fetcher,
+      )
+    }
+
     override fun onGetLibraryRoot(
       session: MediaLibrarySession,
       browser: MediaSession.ControllerInfo,
@@ -192,7 +291,8 @@ class RadioAutoService : MediaLibraryService() {
         val onPhone = library.stationsOf(code)
         if (onPhone.isNotEmpty()) {
           RadioBrowser.remember(onPhone)
-          for (station in onPhone.take(PREFETCH)) Artwork.prefetch(service, station.logoUrls)
+          // Alle logoer i baggrunden, fra toppen og ned, saa rulningen ikke venter paa nettet.
+          for (station in onPhone) Artwork.prefetch(service, station.logoUrls)
         } else {
           // Landet er ikke hentet paa telefonen: tjenesten henter det selv,
           // i baggrunden, og bilen faar listen naar den er der.
@@ -200,14 +300,14 @@ class RadioAutoService : MediaLibraryService() {
             Callable<LibraryResult<ImmutableList<MediaItem>>> {
               val fetched = RadioBrowser.stations(service, code)
               AutoLog.add("hentede $code selv: ${fetched.size} stationer")
-              for (station in fetched.take(PREFETCH)) Artwork.prefetch(service, station.logoUrls)
+              for (station in fetched) Artwork.prefetch(service, station.logoUrls)
               LibraryResult.ofItemList(pageOf(fetched.map { Library.item(it, service) }, page, pageSize), params)
             },
             service.fetcher,
           )
         }
       }
-      if (parentId == Library.FAVOURITES) for (station in library.favourites.take(PREFETCH)) Artwork.prefetch(service, station.logoUrls)
+      if (parentId == Library.FAVOURITES) for (station in library.favourites) Artwork.prefetch(service, station.logoUrls)
       val children = library.children(parentId, service)
       val slice = pageOf(children, page, pageSize)
       AutoLog.add("svarer $parentId: ${slice.size} af ${children.size} elementer")
@@ -258,6 +358,19 @@ class RadioAutoService : MediaLibraryService() {
       // op. Et element ingen af dem kender, smides vaek — et element uden
       // adresse ville faa afspilleren til at gaa ned.
       val library = Library.read(service)
+      // "Afspil Skala FM paa NorRadio" med stemmen: et element uden id, kun en soegetekst.
+      val spoken = mediaItems.firstOrNull { it.mediaId.isEmpty() && !it.requestMetadata.searchQuery.isNullOrBlank() }
+      if (spoken != null) {
+        val query = spoken.requestMetadata.searchQuery ?: ""
+        return Futures.submit(
+          Callable<MutableList<MediaItem>> {
+            val found = RadioBrowser.search(service, query).firstOrNull()
+            AutoLog.add("afspil fra soegning \"$query\": ${found?.name ?: "intet"}")
+            if (found == null) mutableListOf() else mutableListOf(Library.item(found, service))
+          },
+          service.fetcher,
+        )
+      }
       val resolved =
         mediaItems.mapNotNull { item ->
           if (item.localConfiguration != null) item

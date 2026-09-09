@@ -38,6 +38,10 @@ interface Props {
   restoreSignal?: number;
   /** Stationer der har vist sig at sende titel paa det der spilles; faar ♪ i listen. */
   titledIds?: ReadonlySet<string>;
+  /** Kaldes naar en favorit er slaaet til eller fra her, saa bilen kan faa listen med det samme. */
+  onFavouritesChanged?: () => void;
+  /** Taelles op naar favoritterne er aendret udefra (bilen), saa de laeses igen. */
+  favouritesSignal?: number;
   /** Hold fingeren paa en station: vaelg dens logo selv. */
   onPickLogo?: (channel: StoredChannel) => void;
   /** Udfyldes med det tilbage-knappen skal goere her. Falsk = intet at gaa op i. */
@@ -67,6 +71,8 @@ export function InternetRadio({
   contentBottom = 0,
   restoreSignal = 0,
   titledIds,
+  onFavouritesChanged,
+  favouritesSignal = 0,
 }: Props) {
   const listPadding = { paddingBottom: contentBottom };
   /** Antal per hentet land efter sammenlaegning; registrets tal for de andre. */
@@ -153,7 +159,7 @@ export function InternetRadio({
 
   useEffect(() => {
     void loadFavourites();
-  }, [loadFavourites]);
+  }, [loadFavourites, favouritesSignal]);
 
   // Landets stationer: fra databasen naar de er friske, ellers fra registret.
   useEffect(() => {
@@ -211,6 +217,7 @@ export function InternetRadio({
     if (next) await rememberRadioStation(session.db, station);
     await setRadioFavorite(session.db, station.id, next);
     await loadFavourites();
+    onFavouritesChanged?.();
   }
 
   function play(station: RadioStation, list: RadioStation[]): void {

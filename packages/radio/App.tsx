@@ -9,7 +9,7 @@ import { InternetRadio } from '@norstream/app/src/features/radio/InternetRadio.j
 import type { RadioCountry } from '@norstream/app/src/sync/radioBrowser.js';
 import { theme } from '@norstream/app/src/ui/theme.js';
 import { RadioPlayerScreen } from './src/RadioPlayerScreen.js';
-import { syncAutoLibrary } from './src/library.js';
+import { applyCarFavourites, syncAutoLibrary } from './src/library.js';
 import { autoLog, clearAutoLog, current, nowPlayingEnabled, setNowPlayingEnabled, subscribe, titledStations } from './modules/radio-auto/index.js';
 import type { AutoSnapshot } from './modules/radio-auto/index.js';
 
@@ -54,10 +54,18 @@ export default function App() {
   const [playing, setPlaying] = useState<AutoSnapshot>(() => current());
   useEffect(() => subscribe(setPlaying), []);
 
+  /** Taelles op naar bilen har aendret favoritterne, saa listen laeser dem igen. */
+  const [favouritesSignal, setFavouritesSignal] = useState(0);
+
   // Bibliotek til bilen: ved start, og hver gang man er tilbage paa listen.
+  // Foerst foeres bilens favoritter ind; har den aendret noget, laeses listen igen.
   useEffect(() => {
     if (session === null || route.name !== 'home') return;
-    void syncAutoLibrary(session.db);
+    const db = session.db;
+    void (async () => {
+      if (await applyCarFavourites(db)) setFavouritesSignal((count) => count + 1);
+      await syncAutoLibrary(db);
+    })();
   }, [session, route.name]);
 
   useEffect(() => {
@@ -128,6 +136,10 @@ export default function App() {
               contentBottom={barShown ? BAR_HEIGHT : 0}
               restoreSignal={returned}
               titledIds={titled}
+              favouritesSignal={favouritesSignal}
+              onFavouritesChanged={() => {
+                void syncAutoLibrary(session.db);
+              }}
             />
             {barShown && (
               <View style={styles.nowPlaying}>

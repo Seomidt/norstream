@@ -67,9 +67,37 @@ object RadioBrowser {
     return stations
   }
 
+  /**
+   * Soegning: foerst det telefonen og tjenesten allerede kender, saa
+   * registret. Bilens egen soegning og "afspil X" med stemmen gaar herigennem.
+   */
+  fun search(context: Context, query: String): List<Station> {
+    val q = query.trim()
+    if (q.length < 2) return emptyList()
+    val out = LinkedHashMap<String, Station>()
+    for (station in Library.read(context).allStations() + known.values) {
+      if (station.name.contains(q, ignoreCase = true)) out[station.id] = station
+    }
+    val body =
+      fetchUrl("$API/stations/search?name=${Uri.encode(q)}&order=votes&reverse=true&hidebroken=true&limit=40")
+    if (body != null) {
+      try {
+        for (station in parse(JSONArray(body), "")) out.putIfAbsent(station.id, station)
+      } catch (_: Exception) {
+        // Registret svarede noget andet end en liste; det lokale staar.
+      }
+    }
+    val result = preferBestQuality(out.values.toList()) { streamScore(it.url, 0) }
+    remember(result)
+    AutoLog.add("soegning \"$q\": ${result.size} stationer")
+    return result
+  }
+
   private fun fetch(code: String): String? =
+    fetchUrl("$API/stations/bycountrycodeexact/${Uri.encode(code.uppercase())}?order=votes&reverse=true&hidebroken=true&limit=$LIMIT")
+
+  private fun fetchUrl(url: String): String? =
     try {
-      val url = "$API/stations/bycountrycodeexact/${Uri.encode(code.uppercase())}?order=votes&reverse=true&hidebroken=true&limit=$LIMIT"
       val connection = URL(url).openConnection() as HttpURLConnection
       connection.connectTimeout = 10000
       connection.readTimeout = 15000

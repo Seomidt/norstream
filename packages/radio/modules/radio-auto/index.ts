@@ -35,6 +35,16 @@ export interface AutoStation {
   country: string;
 }
 
+/** En favorit slaaet til eller fra i bilen, som appen skal foere ind i databasen. */
+export interface PendingFavourite {
+  id: string;
+  name: string;
+  url: string;
+  logoUrls: string[];
+  country: string;
+  on: boolean;
+}
+
 export interface AutoLibrary {
   favourites: AutoStation[];
   countries: { code: string; name: string; flag: string; stations: AutoStation[] }[];
@@ -49,6 +59,8 @@ interface NativeModule {
   current(): AutoSnapshot;
   autoLog(): string[];
   titledStations(): string[];
+  pendingFavourites(): PendingFavourite[];
+  clearPendingFavourites(): void;
   clearAutoLog(): void;
   nowPlayingEnabled(): boolean;
   setNowPlayingEnabled(enabled: boolean): void;
@@ -105,6 +117,22 @@ export function titledStations(): Set<string> {
     return new Set(native?.titledStations() ?? []);
   } catch {
     return new Set();
+  }
+}
+
+export function pendingFavourites(): PendingFavourite[] {
+  try {
+    return native?.pendingFavourites() ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export function clearPendingFavourites(): void {
+  try {
+    native?.clearPendingFavourites();
+  } catch {
+    // Intet at rydde.
   }
 }
 
