@@ -173,11 +173,14 @@ function stationsOf(body: unknown): RadioStation[] {
 /**
  * Det samme navn uden det der kun siger noget om streamen: bitrate, codec,
  * "HQ". "DR P3", "DR P3 192" og "DR P3 (AAC 96)" giver samme noegle.
+ *
+ * Kun de tal der er bitrates fjernes. Foer forsvandt alle tal, og saa
+ * blev "Radio 100" og "Radio 208" til én station, og den ene manglede.
  */
 export function qualityKey(name: string): string {
   return name
     .toLowerCase()
-    .replace(/\b\d{2,4}\s?(k|kbps|kbit|kb\/s)?\b/g, ' ')
+    .replace(/\b(32|40|48|56|64|80|96|112|128|160|192|224|256|320)\s?(k|kbps|kbit|kb\/s)?\b/g, ' ')
     .replace(/\b(hq|lq|hd|high|low|aac|aacp|aac\+|mp3|ogg|opus|flac|stereo|mono|kbps)\b/g, ' ')
     .replace(/[^a-z0-9æøåäöüß]+/g, '');
 }

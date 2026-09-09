@@ -110,7 +110,7 @@ object RadioBrowser {
   fun qualityKey(name: String): String =
     name
       .lowercase()
-      .replace(Regex("\\b\\d{2,4}\\s?(k|kbps|kbit|kb/s)?\\b"), " ")
+      .replace(Regex("\\b(32|40|48|56|64|80|96|112|128|160|192|224|256|320)\\s?(k|kbps|kbit|kb/s)?\\b"), " ")
       .replace(Regex("\\b(hq|lq|hd|high|low|aac|aacp|aac\\+|mp3|ogg|opus|flac|stereo|mono|kbps)\\b"), " ")
       .replace(Regex("[^a-z0-9æøåäöüß]+"), "")
 

@@ -174,6 +174,10 @@ describe('qualityKey og preferBestQuality', () => {
     expect(qualityKey('DR P3 (AAC 96)')).toBe(qualityKey('dr p3'));
     expect(qualityKey('Radio Soft HQ')).toBe(qualityKey('Radio Soft'));
     expect(qualityKey('Radio 24syv')).not.toBe(qualityKey('Radio'));
+    // Tal der ikke er bitrates er en del af navnet.
+    expect(qualityKey('Radio 100')).not.toBe(qualityKey('Radio 208'));
+    expect(qualityKey('Radio 100')).not.toBe(qualityKey('Radio'));
+    expect(qualityKey('Skala FM 93.1')).not.toBe(qualityKey('Skala FM'));
   });
 
   it('beholder den med hoejest bitrate, paa den foerstes plads', () => {
