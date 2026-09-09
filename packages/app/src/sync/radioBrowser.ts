@@ -180,6 +180,8 @@ function stationsOf(body: unknown): RadioStation[] {
 export function qualityKey(name: string): string {
   return name
     .toLowerCase()
+    // "(Danmark)", "[HQ]", "(AAC 96)" i slutningen siger ikke hvilken station det er.
+    .replace(/(\s*[([][^)\]]*[)\]])+\s*$/g, '')
     .replace(/\b(32|40|48|56|64|80|96|112|128|160|192|224|256|320)\s?(k|kbps|kbit|kb\/s)?\b/g, ' ')
     .replace(/\b(hq|lq|hd|high|low|aac|aacp|aac\+|mp3|ogg|opus|flac|stereo|mono|kbps)\b/g, ' ')
     .replace(/[^a-z0-9æøåäöüß]+/g, '');

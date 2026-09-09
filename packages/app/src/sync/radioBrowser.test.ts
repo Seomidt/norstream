@@ -178,6 +178,8 @@ describe('qualityKey og preferBestQuality', () => {
     expect(qualityKey('Radio 100')).not.toBe(qualityKey('Radio 208'));
     expect(qualityKey('Radio 100')).not.toBe(qualityKey('Radio'));
     expect(qualityKey('Skala FM 93.1')).not.toBe(qualityKey('Skala FM'));
+    expect(qualityKey('Radio Soft (Danmark)')).toBe(qualityKey('Radio Soft'));
+    expect(qualityKey('NOVA [HQ] (AAC 128)')).toBe(qualityKey('Nova'));
   });
 
   it('beholder den med hoejest bitrate, paa den foerstes plads', () => {

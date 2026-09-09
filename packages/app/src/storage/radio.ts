@@ -1,4 +1,5 @@
 import type { RadioStation } from '../sync/radioBrowser.js';
+import { preferBestQuality } from '../sync/radioBrowser.js';
 import { withTransaction } from './transaction.js';
 import type { SqlDatabase } from './types.js';
 
@@ -67,12 +68,18 @@ export async function saveRadioStations(
   });
 }
 
+/**
+ * Landets stationer, én per navn med den bedste stream.
+ *
+ * Sammenlaegningen sker ogsaa her og ikke kun ved hentningen: de gemte
+ * lister gaelder en uge, og uden den stod dubletterne der til den var gaaet.
+ */
 export async function listRadioStations(db: SqlDatabase, country: string): Promise<RadioStation[]> {
   const rows = await db.getAllAsync<StationRow>(
     'SELECT id, country, name, url, logo_url, homepage, votes, codec, bitrate, tags FROM radio_stations WHERE country = ? ORDER BY rank',
     [country],
   );
-  return rows.map(toStation);
+  return preferBestQuality(rows.map(toStation));
 }
 
 /** Hvornaar landets stationer sidst blev hentet, eller null naar aldrig. */
