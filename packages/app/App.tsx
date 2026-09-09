@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 // Ikke react-natives egen SafeAreaView: den gør **ingenting paa Android**.
 // Telefonens navigationslinje laa derfor oven i appens fanelinje, og det saa
 // ud som et layoutproblem i appen frem for en manglende indramning.
@@ -142,26 +142,34 @@ export default function App() {
 
   // Paa tv tegnes alt i et mindre laerred og skaleres op: se ui/tv.ts.
   // Skaleringen sker om laerredets midte, saa det skubbes foerst ind i
-  // skaermens midte (positivt: laerredet er mindre end skaermen) og
-  // vokser derfra ud til kanterne. Med negativt fortegn laa det oppe i
-  // venstre hjoerne og halvt uden for skaermen.
-  const window = useWindowDimensions();
-  const canvas = isTV
-    ? {
-        width: window.width / TV_SCALE,
-        height: window.height / TV_SCALE,
-        transform: [
-          { translateX: (window.width - window.width / TV_SCALE) / 2 },
-          { translateY: (window.height - window.height / TV_SCALE) / 2 },
-          { scale: TV_SCALE },
-        ],
-      }
-    : null;
+  // fladens midte (positivt: laerredet er mindre end fladen) og vokser
+  // derfra ud til kanterne. Fladen maales paa det yderste lag frem for at
+  // tages fra vinduesstoerrelsen: boksen meldte et vindue der var hoejere
+  // end det synlige, og saa laa menulinjen nederst under skaermens kant.
+  const [frame, setFrame] = useState({ width: 0, height: 0 });
+  const canvas =
+    isTV && frame.width > 0
+      ? {
+          width: frame.width / TV_SCALE,
+          height: frame.height / TV_SCALE,
+          transform: [
+            { translateX: (frame.width - frame.width / TV_SCALE) / 2 },
+            { translateY: (frame.height - frame.height / TV_SCALE) / 2 },
+            { scale: TV_SCALE },
+          ],
+        }
+      : null;
 
   return (
     <SafeAreaProvider>
-      {/* Det yderste lag males, saa der ikke staar hvidt uden om laerredet. */}
-      <View style={styles.root}>
+      {/* Det yderste lag males, saa der ikke staar hvidt uden om laerredet, og maales. */}
+      <View
+        style={styles.root}
+        onLayout={(event) => {
+          const { width, height } = event.nativeEvent.layout;
+          setFrame((current) => (current.width === width && current.height === height ? current : { width, height }));
+        }}
+      >
       <View style={[styles.root, canvas]}>
       {/* Afspillerne tager selv hoejde for udskaeringen: i landskab skal
           billedet helt ud til kanten, i portraet laegger de selv toppen til. */}

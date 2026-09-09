@@ -251,9 +251,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: theme.spacing.lg,
   },
-  contentTv: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.xl, justifyContent: 'flex-start' },
+  // Kortet oeverst, ikke midt paa: saa er knappen nederst i kortet paa skaermen.
+  contentTv: { flexDirection: 'row', alignItems: 'flex-start', gap: theme.spacing.xl, justifyContent: 'flex-start' },
   header: { alignItems: 'center', marginBottom: theme.spacing.xl },
-  headerTv: { flex: 1, marginBottom: 0 },
+  headerTv: { flex: 1, marginBottom: 0, paddingTop: theme.spacing.lg },
   titleTv: { fontSize: 30 },
   cardTv: { flex: 1.4 },
   title: {
