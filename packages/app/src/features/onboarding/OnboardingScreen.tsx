@@ -3,11 +3,9 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,6 +15,9 @@ import { connectM3u, connectXtream } from '../../sources/connect.js';
 import { Aurora } from '../../ui/Aurora.js';
 import { Logo } from '../../ui/Logo.js';
 import { theme } from '../../ui/theme.js';
+import { isTV } from '../../ui/tv.js';
+import { TvPressable } from '../../ui/TvPressable.js';
+import { TvTextInput } from '../../ui/TvTextInput.js';
 
 interface Props {
   onDone: () => void;
@@ -89,24 +90,27 @@ export function OnboardingScreen({ onDone, notice }: Props) {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
+        {/* Paa tv staar logoet til venstre og kortet til hoejre: skaermen er
+            bred og lav, og med logoet ovenover roeg knappen nederst ud af
+            billedet, hvor fjernbetjeningen ikke kunne naa den. */}
         <ScrollView
           contentContainerStyle={[
             styles.content,
-            { paddingTop: insets.top + theme.spacing.xl, paddingBottom: insets.bottom + theme.spacing.xl },
+            isTV && styles.contentTv,
+            { paddingTop: insets.top + (isTV ? theme.spacing.md : theme.spacing.xl), paddingBottom: insets.bottom + theme.spacing.xl },
           ]}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.header}>
-            <Logo />
-            <Text style={styles.title}>NorStream</Text>
+          <View style={[styles.header, isTV && styles.headerTv]}>
+            <Logo size={isTV ? 64 : 88} />
+            <Text style={[styles.title, isTV && styles.titleTv]}>NorStream</Text>
             <Text style={styles.subtitle}>
               {isPanel ? 'Forbind til dit panel' : 'Hent din M3U-liste'}
             </Text>
+            {notice !== undefined && <Text style={styles.notice}>{notice}</Text>}
           </View>
 
-          {notice !== undefined && <Text style={styles.notice}>{notice}</Text>}
-
-          <View style={styles.card}>
+          <View style={[styles.card, isTV && styles.cardTv]}>
             {/* Valget staar oeverst i kortet, ikke nede ved knappen: felterne
                 nedenfor skifter med det, og et valg man opdager bagefter er
                 et valg man har taget forkert. */}
@@ -125,7 +129,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
               />
             </View>
 
-            <TextInput
+            <TvTextInput
               style={styles.input}
               placeholder={isPanel ? 'http://panel.example:8080' : 'http://.../liste.m3u'}
               placeholderTextColor={theme.colors.textMuted}
@@ -138,7 +142,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
 
             {isPanel && (
               <>
-                <TextInput
+                <TvTextInput
                   style={styles.input}
                   placeholder="Brugernavn"
                   placeholderTextColor={theme.colors.textMuted}
@@ -147,7 +151,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
                   value={username}
                   onChangeText={setUsername}
                 />
-                <TextInput
+                <TvTextInput
                   style={styles.input}
                   placeholder="Adgangskode"
                   placeholderTextColor={theme.colors.textMuted}
@@ -160,7 +164,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
               </>
             )}
 
-            <TextInput
+            <TvTextInput
               style={styles.input}
               placeholder="XMLTV-adresse (valgfri)"
               placeholderTextColor={theme.colors.textMuted}
@@ -178,7 +182,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
 
             {error !== null && <Text style={styles.error}>{error}</Text>}
 
-            <Pressable
+            <TvPressable
               style={[styles.button, (!canSubmit || busy) && styles.buttonDisabled]}
               disabled={!canSubmit || busy}
               onPress={() => {
@@ -190,10 +194,10 @@ export function OnboardingScreen({ onDone, notice }: Props) {
               ) : (
                 <Text style={styles.buttonText}>{isPanel ? 'Forbind' : 'Hent listen'}</Text>
               )}
-            </Pressable>
+            </TvPressable>
           </View>
 
-          <Text style={styles.footer}>Du kan tilføje flere kilder senere under Indstillinger.</Text>
+          {!isTV && <Text style={styles.footer}>Du kan tilføje flere kilder senere under Indstillinger.</Text>}
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -212,10 +216,10 @@ function KindTab({
   onPress: () => void;
 }) {
   return (
-    <Pressable style={[styles.tab, active && styles.tabActive]} onPress={onPress}>
+    <TvPressable style={[styles.tab, active && styles.tabActive]} onPress={onPress}>
       <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
       <Text style={styles.tabHint}>{hint}</Text>
-    </Pressable>
+    </TvPressable>
   );
 }
 
@@ -227,7 +231,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: theme.spacing.lg,
   },
+  contentTv: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.xl, justifyContent: 'flex-start' },
   header: { alignItems: 'center', marginBottom: theme.spacing.xl },
+  headerTv: { flex: 1, marginBottom: 0 },
+  titleTv: { fontSize: 30 },
+  cardTv: { flex: 1.4 },
   title: {
     color: theme.colors.text,
     fontSize: 38,
