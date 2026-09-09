@@ -36,7 +36,10 @@ class RadioAutoModule : Module() {
       override fun onPlaybackStateChanged(playbackState: Int) = emit()
       override fun onIsPlayingChanged(isPlaying: Boolean) = emit()
       override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = emit()
-      override fun onPlayerError(error: PlaybackException) = emit(ERROR_TEXT)
+      override fun onPlayerError(error: PlaybackException) {
+        AutoLog.add("afspillerfejl ${error.errorCodeName}")
+        emit(ERROR_TEXT)
+      }
     }
 
   override fun definition() = ModuleDefinition {
@@ -73,6 +76,12 @@ class RadioAutoModule : Module() {
     AsyncFunction("stop") { withController { it.stop() } }
 
     Function("current") { last }
+    Function("autoLog") { AutoLog.all() }
+    Function("clearAutoLog") { AutoLog.clear() }
+    Function("nowPlayingEnabled") { appContext.reactContext?.let { AutoLog.nowPlayingEnabled(it) } ?: true }
+    Function("setNowPlayingEnabled") { enabled: Boolean ->
+      appContext.reactContext?.let { AutoLog.setNowPlayingEnabled(it, enabled) }
+    }
   }
 
   private fun connect() {

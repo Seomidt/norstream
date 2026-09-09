@@ -74,6 +74,8 @@ class RadioAutoService : MediaLibraryService() {
   private fun onStreamTitle(raw: String) {
     if (raw == lastTitle) return
     lastTitle = raw
+    if (!AutoLog.nowPlayingEnabled(this)) return
+    AutoLog.add("stream-titel: ${raw.take(80)}")
     val station = base?.title?.toString() ?: player?.currentMediaItem?.mediaMetadata?.title?.toString() ?: ""
     val playing = NowPlaying.parse(raw, station)
     apply(playing, null)
@@ -113,6 +115,7 @@ class RadioAutoService : MediaLibraryService() {
     builder.setExtras(extras)
     val updated = item.buildUpon().setMediaMetadata(builder.build()).build()
     try {
+      AutoLog.add("replaceMediaItem: ${playing?.let { "${it.artist} - ${it.track}" } ?: "kun station"}${if (coverUrl != null) " + cover" else ""}")
       p.replaceMediaItem(p.currentMediaItemIndex, updated)
     } catch (_: Exception) {
       // Ikke vaerd at afbryde lyden for.
@@ -168,8 +171,10 @@ class RadioAutoService : MediaLibraryService() {
       session: MediaLibrarySession,
       browser: MediaSession.ControllerInfo,
       params: LibraryParams?,
-    ): ListenableFuture<LibraryResult<MediaItem>> =
-      Futures.immediateFuture(LibraryResult.ofItem(Library.folder(Library.ROOT, "NorRadio"), params))
+    ): ListenableFuture<LibraryResult<MediaItem>> {
+      AutoLog.add("getLibraryRoot fra ${browser.packageName}")
+      return Futures.immediateFuture(LibraryResult.ofItem(Library.folder(Library.ROOT, "NorRadio"), params))
+    }
 
     override fun onGetChildren(
       session: MediaLibrarySession,
@@ -179,6 +184,7 @@ class RadioAutoService : MediaLibraryService() {
       pageSize: Int,
       params: LibraryParams?,
     ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+      AutoLog.add("getChildren $parentId side=$page str=$pageSize fra ${browser.packageName}")
       val library = Library.read(service)
       if (parentId.startsWith(Library.COUNTRY_PREFIX)) {
         val code = parentId.removePrefix(Library.COUNTRY_PREFIX)
@@ -192,6 +198,7 @@ class RadioAutoService : MediaLibraryService() {
           return Futures.submit(
             Callable<LibraryResult<ImmutableList<MediaItem>>> {
               val fetched = RadioBrowser.stations(service, code)
+              AutoLog.add("hentede $code selv: ${fetched.size} stationer")
               for (station in fetched.take(PREFETCH)) Artwork.prefetch(service, station.logoUrls)
               LibraryResult.ofItemList(ImmutableList.copyOf(fetched.map { Library.item(it, service) }), params)
             },
@@ -201,6 +208,7 @@ class RadioAutoService : MediaLibraryService() {
       }
       if (parentId == Library.FAVOURITES) for (station in library.favourites.take(PREFETCH)) Artwork.prefetch(service, station.logoUrls)
       val children = library.children(parentId, service)
+      AutoLog.add("svarer $parentId: ${children.size} elementer")
       return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(children), params))
     }
 
@@ -209,6 +217,7 @@ class RadioAutoService : MediaLibraryService() {
       browser: MediaSession.ControllerInfo,
       mediaId: String,
     ): ListenableFuture<LibraryResult<MediaItem>> {
+      AutoLog.add("getItem $mediaId")
       val station = Library.read(service).find(mediaId) ?: RadioBrowser.find(mediaId.removePrefix(Library.STATION_PREFIX))
       return Futures.immediateFuture(
         if (station == null) LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
@@ -221,6 +230,7 @@ class RadioAutoService : MediaLibraryService() {
       controller: MediaSession.ControllerInfo,
       mediaItems: MutableList<MediaItem>,
     ): ListenableFuture<MutableList<MediaItem>> {
+      AutoLog.add("addMediaItems ${mediaItems.joinToString { it.mediaId }} fra ${controller.packageName}")
       // Uri'en kommer aldrig med over broen. Fra appen ligger adressen i
       // requestMetadata; fra bilen kommer kun et id, som biblioteket slaar
       // op. Et element ingen af dem kender, smides vaek — et element uden

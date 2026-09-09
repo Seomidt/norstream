@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import type { StoredChannel } from '@norstream/app/src/storage/channels.js';
@@ -10,7 +10,7 @@ import type { RadioCountry } from '@norstream/app/src/sync/radioBrowser.js';
 import { theme } from '@norstream/app/src/ui/theme.js';
 import { RadioPlayerScreen } from './src/RadioPlayerScreen.js';
 import { syncAutoLibrary } from './src/library.js';
-import { current, subscribe } from './modules/radio-auto/index.js';
+import { autoLog, clearAutoLog, current, nowPlayingEnabled, setNowPlayingEnabled, subscribe } from './modules/radio-auto/index.js';
 import type { AutoSnapshot } from './modules/radio-auto/index.js';
 
 /**
@@ -34,6 +34,15 @@ export default function App() {
   const listBack = useRef<() => boolean>(() => false);
   /** Taelles op hver gang afspilleren lukker, saa listen ruller tilbage til sin plads. */
   const [returned, setReturned] = useState(0);
+  /** Den skjulte fejlsoegningsside: hold fingeren paa titlen. */
+  const [showLog, setShowLog] = useState(false);
+  const [log, setLog] = useState<string[]>([]);
+  const [nowPlayingOn, setNowPlayingOn] = useState(true);
+  const openLog = (): void => {
+    setLog(autoLog());
+    setNowPlayingOn(nowPlayingEnabled());
+    setShowLog(true);
+  };
   const closePlayer = (): void => {
     setRoute({ name: 'home' });
     setReturned((count) => count + 1);
@@ -66,6 +75,10 @@ export default function App() {
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (showLog) {
+        setShowLog(false);
+        return true;
+      }
       if (route.name === 'player') {
         closePlayer();
         return true;
@@ -74,7 +87,7 @@ export default function App() {
       return false;
     });
     return () => subscription.remove();
-  }, [route]);
+  }, [route, showLog]);
 
   const barShown = playing.state !== 'idle' && playing.title !== null;
 
@@ -99,7 +112,9 @@ export default function App() {
         {(route.name === 'home' || route.name === 'player') && session !== null && (
           <View style={styles.host} pointerEvents={route.name === 'home' ? 'auto' : 'none'}>
             <View style={styles.header}>
-              <Text style={styles.title}>NorRadio</Text>
+              <Pressable onLongPress={openLog} delayLongPress={800}>
+                <Text style={styles.title}>NorRadio</Text>
+              </Pressable>
             </View>
             <InternetRadio
               session={session}
@@ -121,6 +136,45 @@ export default function App() {
           </View>
         )}
       </SafeAreaView>
+      {showLog && (
+        <View style={styles.overlay}>
+          <SafeAreaView style={styles.root} edges={['top', 'left', 'right', 'bottom']}>
+            <View style={styles.logBar}>
+              <Text style={styles.title}>Tjenestens log</Text>
+              <Pressable onPress={() => setLog(autoLog())} hitSlop={8}>
+                <Text style={styles.logAction}>Opdatér</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  clearAutoLog();
+                  setLog([]);
+                }}
+                hitSlop={8}
+              >
+                <Text style={styles.logAction}>Ryd</Text>
+              </Pressable>
+              <Pressable onPress={() => setShowLog(false)} hitSlop={8}>
+                <Text style={styles.logAction}>Luk</Text>
+              </Pressable>
+            </View>
+            <View style={styles.logSwitch}>
+              <Text style={styles.logSwitchText}>Sang og cover i bilen</Text>
+              <Switch
+                value={nowPlayingOn}
+                onValueChange={(value) => {
+                  setNowPlayingEnabled(value);
+                  setNowPlayingOn(value);
+                }}
+              />
+            </View>
+            <ScrollView contentContainerStyle={styles.logContent}>
+              <Text style={styles.logText} selectable>
+                {log.length === 0 ? 'Ingen linjer endnu.' : log.join('\n')}
+              </Text>
+            </ScrollView>
+          </SafeAreaView>
+        </View>
+      )}
       {route.name === 'player' && session !== null && (
         <View style={styles.overlay}>
           <RadioPlayerScreen channel={route.channel} zap={route.zap} onBack={closePlayer} />
@@ -151,4 +205,16 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   nowPlayingText: { color: theme.colors.text, fontSize: 14, fontWeight: '600' },
+  logBar: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md, padding: theme.spacing.md },
+  logAction: { color: theme.colors.accent, fontSize: 15, fontWeight: '600' },
+  logSwitch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: theme.spacing.md,
+    paddingBottom: theme.spacing.sm,
+  },
+  logSwitchText: { color: theme.colors.text, fontSize: 15 },
+  logContent: { padding: theme.spacing.md },
+  logText: { color: theme.colors.textMuted, fontSize: 11, fontFamily: 'monospace', lineHeight: 15 },
 });

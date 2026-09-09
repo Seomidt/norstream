@@ -47,6 +47,10 @@ interface NativeModule {
   resume(): Promise<void>;
   stop(): Promise<void>;
   current(): AutoSnapshot;
+  autoLog(): string[];
+  clearAutoLog(): void;
+  nowPlayingEnabled(): boolean;
+  setNowPlayingEnabled(enabled: boolean): void;
   addListener(event: 'onState', listener: (snapshot: AutoSnapshot) => void): { remove: () => void };
 }
 
@@ -82,6 +86,39 @@ export function current(): AutoSnapshot {
     return native?.current() ?? IDLE;
   } catch {
     return IDLE;
+  }
+}
+
+/** Tjenestens egen log, nyeste nederst. Til fejlsoegning i bilen. */
+export function autoLog(): string[] {
+  try {
+    return native?.autoLog() ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export function clearAutoLog(): void {
+  try {
+    native?.clearAutoLog();
+  } catch {
+    // Ingen log at rydde.
+  }
+}
+
+export function nowPlayingEnabled(): boolean {
+  try {
+    return native?.nowPlayingEnabled() ?? true;
+  } catch {
+    return true;
+  }
+}
+
+export function setNowPlayingEnabled(enabled: boolean): void {
+  try {
+    native?.setNowPlayingEnabled(enabled);
+  } catch {
+    // Kontakten findes kun paa Android.
   }
 }
 

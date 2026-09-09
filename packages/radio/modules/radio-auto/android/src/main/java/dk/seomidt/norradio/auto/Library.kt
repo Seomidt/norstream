@@ -31,8 +31,13 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
 
     fun file(context: Context): File = File(context.filesDir, FILE)
 
+    /** Skrives til en midlertidig fil og flyttes paa plads: en laeser ser aldrig en halv fil. */
     fun write(context: Context, json: String) {
-      file(context).writeText(json)
+      val target = file(context)
+      val temp = File(target.parentFile, "$FILE.tmp")
+      temp.writeText(json)
+      if (!temp.renameTo(target)) target.writeText(json)
+      AutoLog.add("bibliotek skrevet (${json.length} tegn)")
     }
 
     private var cached: Library? = null
@@ -49,10 +54,13 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
         try {
           parse(JSONObject(f.readText()))
         } catch (_: Exception) {
-          Library(emptyList(), emptyList())
+          // En halv eller oedelagt fil: det sidste gode bibliotek er bedre end et tomt.
+          AutoLog.add("bibliotek kunne ikke laeses; beholder det gamle")
+          cached ?: Library(emptyList(), emptyList())
         }
       cached = parsed
       cachedStamp = stamp
+      AutoLog.add("bibliotek laest: ${parsed.favourites.size} favoritter, ${parsed.countries.size} lande")
       return parsed
     }
 
