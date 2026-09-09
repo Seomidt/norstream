@@ -198,6 +198,11 @@ describe('qualityKey og preferBestQuality', () => {
     expect(isHlsUrl('http://live-icy.dr.dk/A/A03H.mp3')).toBe(false);
   });
 
+  it('kendte doede streams fjernes helt, ogsaa uden en tvilling', () => {
+    const dead = { ...st('d', 'DR P5 Sjælland (AAC)', 324), url: 'https://drliveradio1.akamaized.net/hls/live/2097651/p5sjaelland/masterab.m3u8' };
+    expect(preferBestQuality([dead, st('m', 'DR P3', 128)]).map((s) => s.id)).toEqual(['m']);
+  });
+
   it('uden kendt bitrate beholdes den mest stemte (foerste)', () => {
     const list = [st('a', 'Radio X', 0, 900), st('b', 'Radio X HQ', 0, 40)];
     expect(preferBestQuality(list).map((s) => s.id)).toEqual(['a']);

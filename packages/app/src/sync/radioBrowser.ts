@@ -187,6 +187,25 @@ export function qualityKey(name: string): string {
     .replace(/[^a-z0-9æøåäöüß]+/g, '');
 }
 
+/**
+ * Streams der er maalt doede, selv om registret siger de virker.
+ *
+ * DR's HLS-lister: hovedlisten svarer 200, men alle underlisterne svarer
+ * 404 (maalt september 2026). Registrets tjek ser kun hovedlisten. DR har
+ * en direkte MP3-stream til hver kanal, som staar i registret ved siden af.
+ */
+const DEAD_STREAM_HOSTS = [/^drliveradio\d*\.akamaized\.net$/i];
+
+export function isKnownDeadUrl(url: string): boolean {
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return false;
+  }
+  return DEAD_STREAM_HOSTS.some((pattern) => pattern.test(host));
+}
+
 /** En HLS-afspilningsliste, ikke en direkte stream. */
 export function isHlsUrl(url: string): boolean {
   return /\.m3u8?(\?|#|$)/i.test(url) || /\/hls\//i.test(url);
@@ -216,6 +235,7 @@ export function preferBestQuality(stations: readonly RadioStation[]): RadioStati
   const groups = new Map<string, RadioStation[]>();
   const order: string[] = [];
   for (const station of stations) {
+    if (isKnownDeadUrl(station.url)) continue;
     const key = qualityKey(station.name);
     const group = groups.get(key);
     if (group === undefined) {

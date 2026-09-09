@@ -95,7 +95,7 @@ object RadioBrowser {
       val name = raw.optString("name").replace(Regex("\\s+"), " ").trim()
       val resolved = raw.optString("url_resolved")
       val url = if (resolved.isNotEmpty()) resolved else raw.optString("url")
-      if (id.isEmpty() || name.isEmpty() || !isHttp(url) || !seen.add(id)) continue
+      if (id.isEmpty() || name.isEmpty() || !isHttp(url) || isKnownDeadUrl(url) || !seen.add(id)) continue
       val logos = ArrayList<String>()
       val favicon = raw.optString("favicon")
       if (isHttp(favicon)) logos.add(favicon)
@@ -104,6 +104,12 @@ object RadioBrowser {
       bitrates[id] = raw.optInt("bitrate", 0)
     }
     return preferBestQuality(out) { streamScore(it.url, bitrates[it.id] ?: 0) }
+  }
+
+  /** Som isKnownDeadUrl i appen: DR's HLS-lister, hvor underlisterne svarer 404. */
+  fun isKnownDeadUrl(url: String): Boolean {
+    val host = try { Uri.parse(url).host ?: return false } catch (_: Exception) { return false }
+    return Regex("^drliveradio\\d*\\.akamaized\\.net$", RegexOption.IGNORE_CASE).matches(host)
   }
 
   fun isHlsUrl(url: String): Boolean = Regex("\\.m3u8?([?#]|$)", RegexOption.IGNORE_CASE).containsMatchIn(url) || url.contains("/hls/", ignoreCase = true)
