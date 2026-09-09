@@ -201,7 +201,7 @@ class RadioAutoService : MediaLibraryService() {
               val fetched = RadioBrowser.stations(service, code)
               AutoLog.add("hentede $code selv: ${fetched.size} stationer")
               for (station in fetched.take(PREFETCH)) Artwork.prefetch(service, station.logoUrls)
-              LibraryResult.ofItemList(ImmutableList.copyOf(fetched.map { Library.item(it, service) }), params)
+              LibraryResult.ofItemList(pageOf(fetched.map { Library.item(it, service) }, page, pageSize), params)
             },
             service.fetcher,
           )
@@ -209,8 +209,24 @@ class RadioAutoService : MediaLibraryService() {
       }
       if (parentId == Library.FAVOURITES) for (station in library.favourites.take(PREFETCH)) Artwork.prefetch(service, station.logoUrls)
       val children = library.children(parentId, service)
-      AutoLog.add("svarer $parentId: ${children.size} elementer")
-      return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(children), params))
+      val slice = pageOf(children, page, pageSize)
+      AutoLog.add("svarer $parentId: ${slice.size} af ${children.size} elementer")
+      return Futures.immediateFuture(LibraryResult.ofItemList(slice, params))
+    }
+
+    /**
+     * Kun den side bilen bad om.
+     *
+     * Beder bilen om listen i sider og faar hele listen hver gang, staar
+     * elementerne dobbelt, og bilen tegner mappen forfra — fra toppen.
+     * Uden sider (pageSize er uendelig) er det hele listen.
+     */
+    private fun pageOf(items: List<MediaItem>, page: Int, pageSize: Int): ImmutableList<MediaItem> {
+      if (pageSize <= 0 || pageSize == Int.MAX_VALUE || page < 0) return ImmutableList.copyOf(items)
+      val from = page.toLong() * pageSize
+      if (from >= items.size) return ImmutableList.of()
+      val to = minOf(items.size.toLong(), from + pageSize)
+      return ImmutableList.copyOf(items.subList(from.toInt(), to.toInt()))
     }
 
     override fun onGetItem(
