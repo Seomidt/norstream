@@ -15,3 +15,13 @@ export const isTV: boolean = Platform.isTV === true;
  * telefon uden at hver eneste stil skal aendres, og laesbar fra sofaen.
  */
 export const TV_SCALE = 1.5;
+
+/**
+ * Fri kant hele vejen rundt paa tv, som andel af skaermen.
+ *
+ * Mange fjernsyn beskaerer HDMI-billedet et par procent (overscan), saa
+ * det yderste forsvinder: menulinjen nederst laa under skaermens kant paa
+ * et Bang & Olufsen. Google anbefaler 5 % fri kant til tv-apps af netop
+ * den grund.
+ */
+export const TV_SAFE_MARGIN = 0.05;

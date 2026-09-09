@@ -19,7 +19,7 @@ import type { AppSession } from './src/session.js';
 
 import type { StoredChannel } from './src/storage/channels.js';
 import { theme } from './src/ui/theme.js';
-import { TV_SCALE, isTV } from './src/ui/tv.js';
+import { TV_SAFE_MARGIN, TV_SCALE, isTV } from './src/ui/tv.js';
 import { TvPressable } from './src/ui/TvPressable.js';
 
 type Route =
@@ -147,15 +147,18 @@ export default function App() {
   // derfra ud til kanterne. Fladen maales paa det yderste lag frem for at
   // tages fra vinduesstoerrelsen: boksen meldte et vindue der var hoejere
   // end det synlige, og saa laa menulinjen nederst under skaermens kant.
+  // Laerredet holder TV_SAFE_MARGIN fri langs alle kanter: fjernsynet kan
+  // beskaere billedet, og saa skal det yderste ikke vaere noget der bruges.
   const [frame, setFrame] = useState({ width: 0, height: 0 });
+  const visible = 1 - 2 * TV_SAFE_MARGIN;
   const canvas =
     isTV && frame.width > 0
       ? {
-          width: frame.width / TV_SCALE,
-          height: frame.height / TV_SCALE,
+          width: (frame.width * visible) / TV_SCALE,
+          height: (frame.height * visible) / TV_SCALE,
           transform: [
-            { translateX: (frame.width - frame.width / TV_SCALE) / 2 },
-            { translateY: (frame.height - frame.height / TV_SCALE) / 2 },
+            { translateX: (frame.width - (frame.width * visible) / TV_SCALE) / 2 },
+            { translateY: (frame.height - (frame.height * visible) / TV_SCALE) / 2 },
             { scale: TV_SCALE },
           ],
         }
