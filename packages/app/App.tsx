@@ -140,15 +140,19 @@ export default function App() {
   const overHome =
     route.name === 'player' || route.name === 'vodDetail' || route.name === 'trailer' || route.name === 'vodPlayer';
 
-  // Paa tv tegnes alt i 1280 x 720 og skaleres op: se ui/tv.ts.
+  // Paa tv tegnes alt i et mindre laerred og skaleres op: se ui/tv.ts.
+  // Skaleringen sker om laerredets midte, saa det skubbes foerst ind i
+  // skaermens midte (positivt: laerredet er mindre end skaermen) og
+  // vokser derfra ud til kanterne. Med negativt fortegn laa det oppe i
+  // venstre hjoerne og halvt uden for skaermen.
   const window = useWindowDimensions();
   const canvas = isTV
     ? {
         width: window.width / TV_SCALE,
         height: window.height / TV_SCALE,
         transform: [
-          { translateX: -(window.width - window.width / TV_SCALE) / 2 },
-          { translateY: -(window.height - window.height / TV_SCALE) / 2 },
+          { translateX: (window.width - window.width / TV_SCALE) / 2 },
+          { translateY: (window.height - window.height / TV_SCALE) / 2 },
           { scale: TV_SCALE },
         ],
       }
@@ -156,6 +160,8 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
+      {/* Det yderste lag males, saa der ikke staar hvidt uden om laerredet. */}
+      <View style={styles.root}>
       <View style={[styles.root, canvas]}>
       {/* Afspillerne tager selv hoejde for udskaeringen: i landskab skal
           billedet helt ud til kanten, i portraet laegger de selv toppen til. */}
@@ -263,6 +269,7 @@ export default function App() {
         </View>
       )}
       </SafeAreaView>
+      </View>
       </View>
     </SafeAreaProvider>
   );
