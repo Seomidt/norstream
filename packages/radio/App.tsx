@@ -21,6 +21,9 @@ import type { AutoSnapshot } from './modules/radio-auto/index.js';
  * kanaler og uden film. Lyden spiller videre naar skaermen slukkes, med
  * styring i notifikationen og fra bilens rat over Bluetooth.
  */
+/** Hoejden paa "spiller nu"-baren, som listen faar som luft i bunden. */
+const BAR_HEIGHT = 44;
+
 type Route = { name: 'loading' } | { name: 'home' } | { name: 'player'; channel: StoredChannel; zap: StoredChannel[] } | { name: 'error' };
 
 export default function App() {
@@ -67,9 +70,15 @@ export default function App() {
     return () => subscription.remove();
   }, [route]);
 
+  const barShown = playing.state !== 'idle' && playing.title !== null;
+
+  // Listen maa ikke skifte hoejde: paa Android hopper en liste til toppen
+  // naar dens hoejde aendres. Derfor er kanterne de samme uanset skaerm
+  // (afspilleren ligger uden for SafeAreaView og tager selv sine kanter),
+  // og "spiller nu"-baren ligger oven paa listen i stedet for under den.
   return (
     <SafeAreaProvider>
-      <SafeAreaView style={styles.root} edges={route.name === 'player' ? [] : ['top', 'left', 'right']}>
+      <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
         <StatusBar style="light" />
         {route.name === 'loading' && (
           <View style={styles.centered}>
@@ -92,8 +101,9 @@ export default function App() {
               onCountryChange={setCountry}
               onSelect={(channel, zap) => setRoute({ name: 'player', channel, zap })}
               backRef={listBack}
+              contentBottom={barShown ? BAR_HEIGHT : 0}
             />
-            {playing.state !== 'idle' && playing.title !== null && route.name === 'home' && (
+            {barShown && (
               <View style={styles.nowPlaying}>
                 <Text style={styles.nowPlayingText} numberOfLines={1}>
                   {playing.state === 'playing' ? '▶' : playing.state === 'paused' ? '❚❚' : '…'} {playing.title}
@@ -103,12 +113,12 @@ export default function App() {
             )}
           </View>
         )}
-        {route.name === 'player' && session !== null && (
-          <View style={styles.overlay}>
-            <RadioPlayerScreen channel={route.channel} zap={route.zap} onBack={() => setRoute({ name: 'home' })} />
-          </View>
-        )}
       </SafeAreaView>
+      {route.name === 'player' && session !== null && (
+        <View style={styles.overlay}>
+          <RadioPlayerScreen channel={route.channel} zap={route.zap} onBack={() => setRoute({ name: 'home' })} />
+        </View>
+      )}
     </SafeAreaProvider>
   );
 }
@@ -122,8 +132,13 @@ const styles = StyleSheet.create({
   errorText: { color: theme.colors.text, fontSize: 15, textAlign: 'center' },
   overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.background },
   nowPlaying: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: BAR_HEIGHT,
+    justifyContent: 'center',
     paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.sm,
     backgroundColor: theme.colors.surface,
     borderTopColor: theme.colors.border,
     borderTopWidth: StyleSheet.hairlineWidth,

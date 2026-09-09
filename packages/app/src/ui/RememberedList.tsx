@@ -29,14 +29,26 @@ interface Props<T> extends FlatListProps<T> {
  * til den gemte plads uden animation. Uden getItemLayout vokser indholdet
  * efterhaanden som raekkerne tegnes, saa der ventes til det naar derned.
  */
-export function RememberedList<T>({ memoryKey, onScroll, onContentSizeChange, ...rest }: Props<T>) {
+export function RememberedList<T>({ memoryKey, onScroll, onContentSizeChange, onLayout, ...rest }: Props<T>) {
   const ref = useRef<FlatList<T>>(null);
   const restored = useRef(false);
+  const height = useRef(0);
   const key = memoryKey;
   return (
     <FlatList
       ref={ref}
       {...rest}
+      onLayout={(event) => {
+        // Aendrer listen selv hoejde (en bjaelke, tastaturet, kanterne),
+        // kan Android saette den til toppen. Saa tilbage til den gemte plads.
+        const next = event.nativeEvent.layout.height;
+        if (restored.current && height.current > 0 && next !== height.current) {
+          const wanted = offsets.get(key) ?? 0;
+          if (wanted > 0) requestAnimationFrame(() => ref.current?.scrollToOffset({ offset: wanted, animated: false }));
+        }
+        height.current = next;
+        onLayout?.(event);
+      }}
       scrollEventThrottle={rest.scrollEventThrottle ?? 64}
       onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
         if (restored.current) offsets.set(key, event.nativeEvent.contentOffset.y);

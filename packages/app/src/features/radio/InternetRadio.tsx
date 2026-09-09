@@ -31,6 +31,8 @@ interface Props {
   country: RadioCountry | null;
   onCountryChange: (country: RadioCountry | null) => void;
   onSelect: (channel: StoredChannel, neighbours: StoredChannel[]) => void;
+  /** Luft i bunden af listerne, til en bjaelke der ligger oven paa dem. */
+  contentBottom?: number;
   /** Hold fingeren paa en station: vaelg dens logo selv. */
   onPickLogo?: (channel: StoredChannel) => void;
   /** Udfyldes med det tilbage-knappen skal goere her. Falsk = intet at gaa op i. */
@@ -50,7 +52,8 @@ const COUNTRIES_AT_KEY = 'radio_countries_ms';
  * med flag, Norden foerst. Favoritterne staar oeverst som deres egen
  * gruppe, og soegefeltet soeger paa tvaers af alle lande.
  */
-export function InternetRadio({ session, country, onCountryChange, onSelect, onPickLogo, backRef }: Props) {
+export function InternetRadio({ session, country, onCountryChange, onSelect, onPickLogo, backRef, contentBottom = 0 }: Props) {
+  const listPadding = { paddingBottom: contentBottom };
   const [countries, setCountries] = useState<RadioCountry[] | null>(null);
   const [stations, setStations] = useState<RadioStation[] | null>(null);
   const [favourites, setFavourites] = useState<RadioStation[]>([]);
@@ -242,6 +245,7 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
         ) : (
           <RememberedList
             memoryKey={`radio:search:${query}`}
+            contentContainerStyle={listPadding}
             data={results}
             keyExtractor={(station) => station.id}
             getItemLayout={stationLayout}
@@ -269,6 +273,7 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
         ) : (
           <RememberedList
             memoryKey={`radio:country:${country.code}`}
+            contentContainerStyle={listPadding}
             data={stations}
             keyExtractor={(station) => station.id}
             getItemLayout={stationLayout}
@@ -289,6 +294,7 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
       ) : (
         <RememberedList
           memoryKey="radio:countries"
+          contentContainerStyle={listPadding}
           data={countries}
           keyExtractor={(entry) => entry.code}
           initialNumToRender={30}
