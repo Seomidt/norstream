@@ -68,6 +68,8 @@ export function InternetRadio({
   const listPadding = { paddingBottom: contentBottom };
   /** Antal per hentet land efter sammenlaegning; registrets tal for de andre. */
   const [localCounts, setLocalCounts] = useState<Map<string, number>>(() => new Map());
+  /** Forsiden: landene, eller ens egne stationer. Aabner altid paa landene. */
+  const [tab, setTab] = useState<'countries' | 'mine'>('countries');
   const [countries, setCountries] = useState<RadioCountry[] | null>(null);
   const [stations, setStations] = useState<RadioStation[] | null>(null);
   const [favourites, setFavourites] = useState<RadioStation[]>([]);
@@ -86,6 +88,10 @@ export function InternetRadio({
     if (country !== null) {
       onCountryChange(null);
       setStations(null);
+      return true;
+    }
+    if (tab === 'mine') {
+      setTab('countries');
       return true;
     }
     return false;
@@ -307,9 +313,48 @@ export function InternetRadio({
     );
   }
 
+  // Forsiden: to faner. Landene foerst, saa favoritterne ikke skubber dem
+  // ned ad siden; Mine stationer ved siden af med antallet.
+  const tabs = (
+    <View style={styles.tabs}>
+      <TvPressable style={[styles.tab, tab === 'countries' && styles.tabActive]} onPress={() => setTab('countries')}>
+        <Text style={[styles.tabText, tab === 'countries' && styles.tabTextActive]}>Lande</Text>
+      </TvPressable>
+      <TvPressable style={[styles.tab, tab === 'mine' && styles.tabActive]} onPress={() => setTab('mine')}>
+        <Text style={[styles.tabText, tab === 'mine' && styles.tabTextActive]}>
+          Mine stationer{favourites.length > 0 ? ` · ${favourites.length}` : ''}
+        </Text>
+      </TvPressable>
+    </View>
+  );
+
+  if (tab === 'mine') {
+    return (
+      <View style={styles.container}>
+        {searchField}
+        {tabs}
+        <RememberedList
+          memoryKey="radio:mine"
+          restoreSignal={restoreSignal}
+          contentContainerStyle={listPadding}
+          data={favourites}
+          keyExtractor={(station) => station.id}
+          getItemLayout={stationLayout}
+          ListEmptyComponent={
+            <Text style={styles.empty}>
+              Ingen stationer endnu. Tryk på ☆ ud for en station under Lande eller i en søgning, så lander den her — og i bilen.
+            </Text>
+          }
+          renderItem={({ item }) => renderStation(item, favourites)}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {searchField}
+      {tabs}
       {countries === null ? (
         <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
       ) : (
@@ -320,20 +365,7 @@ export function InternetRadio({
           data={countries}
           keyExtractor={(entry) => entry.code}
           initialNumToRender={30}
-          ListHeaderComponent={
-            <>
-              {error !== null && <Text style={styles.empty}>{error}</Text>}
-              {favourites.length > 0 && (
-                <View>
-                  <Text style={styles.sectionTitle}>Mine stationer</Text>
-                  {favourites.map((station) => (
-                    <View key={station.id}>{renderStation(station, favourites)}</View>
-                  ))}
-                </View>
-              )}
-              <Text style={styles.sectionTitle}>Lande</Text>
-            </>
-          }
+          ListHeaderComponent={error !== null ? <Text style={styles.empty}>{error}</Text> : null}
           ListEmptyComponent={<Text style={styles.empty}>Ingen lande endnu. Er der forbindelse til nettet?</Text>}
           renderItem={({ item }) => (
             <TvPressable style={styles.row} onPress={() => onCountryChange(item)}>
@@ -408,7 +440,22 @@ const styles = StyleSheet.create({
   meta: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
   count: { color: theme.colors.textMuted, fontSize: 13 },
   chevron: { color: theme.colors.textMuted, fontSize: 22 },
-  starOn: { color: theme.colors.accent, fontSize: 22 },
-  starOff: { color: theme.colors.border, fontSize: 22 },
+  starOn: { color: theme.colors.accent, fontSize: 24, paddingHorizontal: theme.spacing.xs },
+  starOff: { color: theme.colors.textMuted, fontSize: 24, paddingHorizontal: theme.spacing.xs },
+  tabs: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    paddingBottom: theme.spacing.sm,
+  },
+  tab: {
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs + 2,
+    borderRadius: 16,
+    backgroundColor: theme.colors.surface,
+  },
+  tabActive: { backgroundColor: theme.colors.accent },
+  tabText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '700' },
+  tabTextActive: { color: theme.colors.text },
   empty: { color: theme.colors.textMuted, textAlign: 'center', padding: theme.spacing.lg },
 });
