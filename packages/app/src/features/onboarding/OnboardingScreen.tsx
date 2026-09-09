@@ -83,6 +83,12 @@ export function OnboardingScreen({ onDone, notice }: Props) {
     ? baseUrl.trim().length > 0 && username.trim().length > 0 && password.length > 0
     : baseUrl.trim().length > 0;
 
+  /** OK i et felt: forbind, naar alt er udfyldt. Paa tv slipper man for at finde knappen. */
+  const submitFromField = (): void => {
+    if (canSubmit && !busy) void connect();
+  };
+  const inputStyle = [styles.input, isTV && styles.inputTv];
+
   return (
     <View style={styles.container}>
       <Aurora height="52%" />
@@ -130,7 +136,10 @@ export function OnboardingScreen({ onDone, notice }: Props) {
             </View>
 
             <TvTextInput
-              style={styles.input}
+              style={inputStyle}
+              onSubmitEditing={submitFromField}
+              returnKeyType="go"
+              blurOnSubmit={false}
               placeholder={isPanel ? 'http://panel.example:8080' : 'http://.../liste.m3u'}
               placeholderTextColor={theme.colors.textMuted}
               autoCapitalize="none"
@@ -143,7 +152,10 @@ export function OnboardingScreen({ onDone, notice }: Props) {
             {isPanel && (
               <>
                 <TvTextInput
-                  style={styles.input}
+                  style={inputStyle}
+              onSubmitEditing={submitFromField}
+              returnKeyType="go"
+              blurOnSubmit={false}
                   placeholder="Brugernavn"
                   placeholderTextColor={theme.colors.textMuted}
                   autoCapitalize="none"
@@ -152,7 +164,10 @@ export function OnboardingScreen({ onDone, notice }: Props) {
                   onChangeText={setUsername}
                 />
                 <TvTextInput
-                  style={styles.input}
+                  style={inputStyle}
+              onSubmitEditing={submitFromField}
+              returnKeyType="go"
+              blurOnSubmit={false}
                   placeholder="Adgangskode"
                   placeholderTextColor={theme.colors.textMuted}
                   autoCapitalize="none"
@@ -165,7 +180,10 @@ export function OnboardingScreen({ onDone, notice }: Props) {
             )}
 
             <TvTextInput
-              style={styles.input}
+              style={inputStyle}
+              onSubmitEditing={submitFromField}
+              returnKeyType="go"
+              blurOnSubmit={false}
               placeholder="XMLTV-adresse (valgfri)"
               placeholderTextColor={theme.colors.textMuted}
               autoCapitalize="none"
@@ -174,11 +192,13 @@ export function OnboardingScreen({ onDone, notice }: Props) {
               value={xmltvUrl}
               onChangeText={setXmltvUrl}
             />
+            {!isTV && (
             <Text style={styles.hint}>
               {isPanel
                 ? 'Panelet leverer selv programoversigt. En XMLTV-adresse fylder hullerne for de kanaler panelet ikke har data til.'
                 : 'En M3U-liste rummer ingen programoversigt. Uden en XMLTV-adresse står guiden tom for kanalerne herfra.'}
             </Text>
+            )}
 
             {error !== null && <Text style={styles.error}>{error}</Text>}
 
@@ -277,6 +297,8 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.sm,
     fontSize: 16,
   },
+  /** Tv-skaermen er lav: mindre felter, saa kortet med knappen er paa skaermen paa én gang. */
+  inputTv: { paddingVertical: theme.spacing.sm, marginBottom: theme.spacing.xs, fontSize: 14 },
   hint: {
     color: theme.colors.textMuted,
     fontSize: 12,
