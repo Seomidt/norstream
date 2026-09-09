@@ -15,8 +15,18 @@ import java.io.File
  * laeses her, uden JavaScript: Android Auto starter tjenesten selv, ogsaa
  * naar appen ikke er aaben, og saa skal listen ligge klar paa disken.
  */
-/** logoUrls: adresser at proeve i raekkefoelge; registrets favicon foerst, saa hjemmesidens ikon. */
-data class Station(val id: String, val name: String, val url: String, val logoUrls: List<String>, val country: String)
+/** En anden udgave af samme station: samme navn, anden bitrate. */
+data class Variant(val bitrate: Int, val url: String)
+
+/** logoUrls: adresser at proeve i raekkefoelge; registrets favicon foerst, saa hjemmesidens ikon. variants: de andre udgaver, til mobilnet. */
+data class Station(
+  val id: String,
+  val name: String,
+  val url: String,
+  val logoUrls: List<String>,
+  val country: String,
+  val variants: List<Variant> = emptyList(),
+)
 
 data class Country(val code: String, val name: String, val flag: String, val stations: List<Station>)
 
@@ -159,7 +169,7 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
     fun item(station: Station, context: Context): MediaItem =
       MediaItem.Builder()
         .setMediaId(STATION_PREFIX + station.id)
-        .setUri(station.url)
+        .setUri(MobileStreams.pick(context, station))
         .setRequestMetadata(
           MediaItem.RequestMetadata.Builder()
             .setMediaUri(Uri.parse(station.url))

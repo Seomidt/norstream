@@ -131,7 +131,13 @@ object RadioBrowser {
       out.add(Station(id, name, url, logos, raw.optString("countrycode", code).uppercase()))
       bitrates[id] = raw.optInt("bitrate", 0)
     }
-    return preferBestQuality(out) { streamScore(it.url, bitrates[it.id] ?: 0) }
+    val chosen = preferBestQuality(out) { streamScore(it.url, bitrates[it.id] ?: 0) }
+    // De udgaver der ikke blev valgt, foelger med vinderen som varianter til mobilnet.
+    val byKey = out.groupBy { qualityKey(it.name) }
+    return chosen.map { winner ->
+      val others = byKey[qualityKey(winner.name)].orEmpty().filter { it.id != winner.id && !isHlsUrl(it.url) }
+      if (others.isEmpty()) winner else winner.copy(variants = others.map { Variant(bitrates[it.id] ?: 0, it.url) })
+    }
   }
 
   /** Som isKnownDeadUrl i appen: DR's HLS-lister, hvor underlisterne svarer 404. */
