@@ -329,7 +329,7 @@ jobs:
 
       - name: Læg APK'en op
         if: inputs.motor == 'runner'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs.app == 'radio' && 'norradio' || 'norstream' }}${{ inputs.tv && '-tv' || '' }}-apk
           path: packages/${{ inputs.app || 'app' }}/android/app/build/outputs/apk/release/app-release.apk
