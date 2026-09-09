@@ -165,7 +165,8 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
         .setMediaMetadata(
           MediaMetadata.Builder()
             .setTitle(station.name)
-            .setArtist(station.country)
+            // Undertitlen i bilens liste: landet, og ♪ naar stationen er kendt for at sende titel.
+            .setArtist(if (station.id in AutoLog.titledStations(context)) "${station.country} · ♪ sang og cover" else station.country)
             .setStation(station.name)
             .setExtras(Bundle().apply { putString(META_LOGOS, station.logoUrls.joinToString(LOGO_SEPARATOR)) })
             .setArtworkUri(if (station.logoUrls.isEmpty()) null else Artwork.uri(context, station.logoUrls))

@@ -36,6 +36,8 @@ interface Props {
   contentBottom?: number;
   /** Taelles op naar listen skal tilbage til sin gemte plads (afspilleren lukkede). */
   restoreSignal?: number;
+  /** Stationer der har vist sig at sende titel paa det der spilles; faar ♪ i listen. */
+  titledIds?: ReadonlySet<string>;
   /** Hold fingeren paa en station: vaelg dens logo selv. */
   onPickLogo?: (channel: StoredChannel) => void;
   /** Udfyldes med det tilbage-knappen skal goere her. Falsk = intet at gaa op i. */
@@ -64,6 +66,7 @@ export function InternetRadio({
   backRef,
   contentBottom = 0,
   restoreSignal = 0,
+  titledIds,
 }: Props) {
   const listPadding = { paddingBottom: contentBottom };
   /** Antal per hentet land efter sammenlaegning; registrets tal for de andre. */
@@ -231,7 +234,12 @@ export function InternetRadio({
 
   function renderStation(station: RadioStation, list: RadioStation[]) {
     const favourite = favouriteIds.has(station.id);
-    const meta = [station.codec, station.bitrate > 0 ? `${station.bitrate} kbps` : '', station.tags.slice(0, 3).join(' · ')]
+    const meta = [
+      titledIds?.has(station.id) === true ? '♪ sang og cover' : '',
+      station.codec,
+      station.bitrate > 0 ? `${station.bitrate} kbps` : '',
+      station.tags.slice(0, 3).join(' · '),
+    ]
       .filter((part) => part.length > 0)
       .join(' · ');
     return (

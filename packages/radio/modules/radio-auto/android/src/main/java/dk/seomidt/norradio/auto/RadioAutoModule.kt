@@ -77,6 +77,7 @@ class RadioAutoModule : Module() {
 
     Function("current") { last }
     Function("autoLog") { AutoLog.all() }
+    Function("titledStations") { appContext.reactContext?.let { AutoLog.titledStations(it).toList() } ?: emptyList<String>() }
     Function("clearAutoLog") { AutoLog.clear() }
     Function("nowPlayingEnabled") { appContext.reactContext?.let { AutoLog.nowPlayingEnabled(it) } ?: true }
     Function("setNowPlayingEnabled") { enabled: Boolean ->

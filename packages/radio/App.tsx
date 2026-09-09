@@ -10,7 +10,7 @@ import type { RadioCountry } from '@norstream/app/src/sync/radioBrowser.js';
 import { theme } from '@norstream/app/src/ui/theme.js';
 import { RadioPlayerScreen } from './src/RadioPlayerScreen.js';
 import { syncAutoLibrary } from './src/library.js';
-import { autoLog, clearAutoLog, current, nowPlayingEnabled, setNowPlayingEnabled, subscribe } from './modules/radio-auto/index.js';
+import { autoLog, clearAutoLog, current, nowPlayingEnabled, setNowPlayingEnabled, subscribe, titledStations } from './modules/radio-auto/index.js';
 import type { AutoSnapshot } from './modules/radio-auto/index.js';
 
 /**
@@ -34,6 +34,8 @@ export default function App() {
   const listBack = useRef<() => boolean>(() => false);
   /** Taelles op hver gang afspilleren lukker, saa listen ruller tilbage til sin plads. */
   const [returned, setReturned] = useState(0);
+  /** Stationer der sender titel; laeses igen hver gang man er tilbage paa listen. */
+  const [titled, setTitled] = useState<Set<string>>(() => titledStations());
   /** Den skjulte fejlsoegningsside: hold fingeren paa titlen. */
   const [showLog, setShowLog] = useState(false);
   const [log, setLog] = useState<string[]>([]);
@@ -46,6 +48,7 @@ export default function App() {
   const closePlayer = (): void => {
     setRoute({ name: 'home' });
     setReturned((count) => count + 1);
+    setTitled(titledStations());
   };
   /** Hvad tjenesten spiller lige nu, ogsaa naar det er bilen der valgte. */
   const [playing, setPlaying] = useState<AutoSnapshot>(() => current());
@@ -124,6 +127,7 @@ export default function App() {
               backRef={listBack}
               contentBottom={barShown ? BAR_HEIGHT : 0}
               restoreSignal={returned}
+              titledIds={titled}
             />
             {barShown && (
               <View style={styles.nowPlaying}>

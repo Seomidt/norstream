@@ -3,6 +3,7 @@ import {
   fetchRadioCountries,
   fetchRadioStations,
   homepageIconUrl,
+  isHlsUrl,
   isRadioKey,
   preferBestQuality,
   qualityKey,
@@ -180,11 +181,21 @@ describe('qualityKey og preferBestQuality', () => {
     expect(qualityKey('Skala FM 93.1')).not.toBe(qualityKey('Skala FM'));
     expect(qualityKey('Radio Soft (Danmark)')).toBe(qualityKey('Radio Soft'));
     expect(qualityKey('NOVA [HQ] (AAC 128)')).toBe(qualityKey('Nova'));
+    expect(qualityKey('TechnoBase.FM - AACplus 96k')).toBe(qualityKey('TechnoBase.FM - MP3 192k'));
+    expect(qualityKey('DR P4 København (MP3)')).toBe(qualityKey('DR p4 København (AAC)'));
   });
 
   it('beholder den med hoejest bitrate, paa den foerstes plads', () => {
     const list = [st('a', 'DR P3', 96, 900), st('b', 'Skala FM', 128, 500), st('c', 'DR P3 192', 192, 40)];
     expect(preferBestQuality(list).map((s) => s.id)).toEqual(['c', 'b']);
+  });
+
+  it('en direkte stream slaar en HLS-liste uanset bitrate', () => {
+    const hls = { ...st('h', 'DR P1 (AAC)', 324, 900), url: 'https://dr.dk/hls/live/p1/masterab.m3u8' };
+    const mp3 = st('m', 'DR P1', 128, 500);
+    expect(preferBestQuality([hls, mp3]).map((s) => s.id)).toEqual(['m']);
+    expect(isHlsUrl('https://x/master.m3u8?token=1')).toBe(true);
+    expect(isHlsUrl('http://live-icy.dr.dk/A/A03H.mp3')).toBe(false);
   });
 
   it('uden kendt bitrate beholdes den mest stemte (foerste)', () => {

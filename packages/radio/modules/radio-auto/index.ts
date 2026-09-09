@@ -48,6 +48,7 @@ interface NativeModule {
   stop(): Promise<void>;
   current(): AutoSnapshot;
   autoLog(): string[];
+  titledStations(): string[];
   clearAutoLog(): void;
   nowPlayingEnabled(): boolean;
   setNowPlayingEnabled(enabled: boolean): void;
@@ -95,6 +96,15 @@ export function autoLog(): string[] {
     return native?.autoLog() ?? [];
   } catch {
     return [];
+  }
+}
+
+/** Stationer der har vist sig at sende "Kunstner - Titel", laert ved afspilning. */
+export function titledStations(): Set<string> {
+  try {
+    return new Set(native?.titledStations() ?? []);
+  } catch {
+    return new Set();
   }
 }
 

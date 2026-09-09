@@ -38,6 +38,20 @@ object AutoLog {
   fun nowPlayingEnabled(context: Context): Boolean =
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_NOW_PLAYING, true)
 
+  private const val KEY_TITLED = "titled"
+
+  /** Stationer der har sendt en rigtig "Kunstner - Titel", laert ved afspilning. */
+  fun titledStations(context: Context): Set<String> =
+    context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getStringSet(KEY_TITLED, emptySet()) ?: emptySet()
+
+  fun rememberTitled(context: Context, stationId: String) {
+    val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val current = prefs.getStringSet(KEY_TITLED, emptySet()) ?: emptySet()
+    if (stationId in current) return
+    prefs.edit().putStringSet(KEY_TITLED, current + stationId).apply()
+    add("station $stationId sender titel")
+  }
+
   fun setNowPlayingEnabled(context: Context, enabled: Boolean) {
     context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_NOW_PLAYING, enabled).apply()
     add("nu-spiller ${if (enabled) "til" else "fra"}")

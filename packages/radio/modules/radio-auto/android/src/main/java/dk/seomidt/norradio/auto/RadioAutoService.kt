@@ -80,6 +80,7 @@ class RadioAutoService : MediaLibraryService() {
     val playing = NowPlaying.parse(raw, station)
     apply(playing, null)
     if (playing == null) return
+    player?.currentMediaItem?.mediaId?.removePrefix(Library.STATION_PREFIX)?.let { AutoLog.rememberTitled(this, it) }
     covers.execute {
       val cover = Covers.lookup(playing)
       main.post { if (lastTitle == raw) apply(playing, cover) }

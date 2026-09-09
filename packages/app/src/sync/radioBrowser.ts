@@ -183,8 +183,25 @@ export function qualityKey(name: string): string {
     // "(Danmark)", "[HQ]", "(AAC 96)" i slutningen siger ikke hvilken station det er.
     .replace(/(\s*[([][^)\]]*[)\]])+\s*$/g, '')
     .replace(/\b(32|40|48|56|64|80|96|112|128|160|192|224|256|320)\s?(k|kbps|kbit|kb\/s)?\b/g, ' ')
-    .replace(/\b(hq|lq|hd|high|low|aac|aacp|aac\+|mp3|ogg|opus|flac|stereo|mono|kbps)\b/g, ' ')
+    .replace(/\b(hq|lq|hd|high|low|aac|aacp|aacplus|aac\s?plus|he-?aac|aac\+|mp3|ogg|opus|flac|stereo|mono|kbps)\b/g, ' ')
     .replace(/[^a-z0-9æøåäöüß]+/g, '');
+}
+
+/** En HLS-afspilningsliste, ikke en direkte stream. */
+export function isHlsUrl(url: string): boolean {
+  return /\.m3u8?(\?|#|$)/i.test(url) || /\/hls\//i.test(url);
+}
+
+/**
+ * Hvor god en stream er, til valget mellem udgaver af samme station.
+ *
+ * En direkte stream slaar altid en HLS-liste: maalt paa Danmark var DR's
+ * HLS-udgaver dem der ikke kunne spilles, de sender aldrig titel, og
+ * registret giver dem en hoej bitrate (324) der ellers ville vinde.
+ * Derefter taeller bitraten.
+ */
+export function streamScore(station: Pick<RadioStation, 'url' | 'bitrate'>): number {
+  return (isHlsUrl(station.url) ? 0 : 1_000_000) + Math.max(0, station.bitrate);
 }
 
 /**
@@ -192,8 +209,8 @@ export function qualityKey(name: string): string {
  *
  * Registret har samme station flere gange med hver sin bitrate, og den
  * mest stemte er tit den daarligste. Af dem med samme navn beholdes den
- * med hoejest bitrate; kender registret ingen bitrate for nogen af dem,
- * beholdes den mest stemte. Stationen staar hvor den foerste af dem stod.
+ * med bedst streamScore; staar de lige, beholdes den mest stemte (den
+ * foerste). Stationen staar hvor den foerste af dem stod.
  */
 export function preferBestQuality(stations: readonly RadioStation[]): RadioStation[] {
   const groups = new Map<string, RadioStation[]>();
@@ -212,7 +229,7 @@ export function preferBestQuality(stations: readonly RadioStation[]): RadioStati
     const group = groups.get(key) ?? [];
     let best = group[0] as RadioStation;
     for (const candidate of group) {
-      if (candidate.bitrate > best.bitrate) best = candidate;
+      if (streamScore(candidate) > streamScore(best)) best = candidate;
     }
     return best;
   });

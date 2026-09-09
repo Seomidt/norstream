@@ -103,8 +103,13 @@ object RadioBrowser {
       out.add(Station(id, name, url, logos, raw.optString("countrycode", code).uppercase()))
       bitrates[id] = raw.optInt("bitrate", 0)
     }
-    return preferBestQuality(out) { bitrates[it.id] ?: 0 }
+    return preferBestQuality(out) { streamScore(it.url, bitrates[it.id] ?: 0) }
   }
+
+  fun isHlsUrl(url: String): Boolean = Regex("\\.m3u8?([?#]|$)", RegexOption.IGNORE_CASE).containsMatchIn(url) || url.contains("/hls/", ignoreCase = true)
+
+  /** Som streamScore i appen: direkte stream foer HLS, saa bitrate. */
+  fun streamScore(url: String, bitrate: Int): Int = (if (isHlsUrl(url)) 0 else 1_000_000) + maxOf(0, bitrate)
 
   /** Samme navn uden bitrate, codec og "HQ" — som qualityKey i appen. */
   fun qualityKey(name: String): String =
@@ -112,11 +117,11 @@ object RadioBrowser {
       .lowercase()
       .replace(Regex("(\\s*[(\\[][^)\\]]*[)\\]])+\\s*$"), "")
       .replace(Regex("\\b(32|40|48|56|64|80|96|112|128|160|192|224|256|320)\\s?(k|kbps|kbit|kb/s)?\\b"), " ")
-      .replace(Regex("\\b(hq|lq|hd|high|low|aac|aacp|aac\\+|mp3|ogg|opus|flac|stereo|mono|kbps)\\b"), " ")
+      .replace(Regex("\\b(hq|lq|hd|high|low|aac|aacp|aacplus|aac\\s?plus|he-?aac|aac\\+|mp3|ogg|opus|flac|stereo|mono|kbps)\\b"), " ")
       .replace(Regex("[^a-z0-9æøåäöüß]+"), "")
 
-  /** Én station per navn, den med hoejest bitrate; uden kendt bitrate den foerste (mest stemte). */
-  fun preferBestQuality(stations: List<Station>, bitrateOf: (Station) -> Int): List<Station> {
+  /** Én station per navn, den med bedst score; staar de lige, den foerste (mest stemte). */
+  fun preferBestQuality(stations: List<Station>, scoreOf: (Station) -> Int): List<Station> {
     val order = ArrayList<String>()
     val best = LinkedHashMap<String, Station>()
     for (station in stations) {
@@ -125,7 +130,7 @@ object RadioBrowser {
       if (current == null) {
         order.add(key)
         best[key] = station
-      } else if (bitrateOf(station) > bitrateOf(current)) {
+      } else if (scoreOf(station) > scoreOf(current)) {
         best[key] = station
       }
     }
