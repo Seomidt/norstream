@@ -1,0 +1,59 @@
+import { useRef } from 'react';
+import { FlatList } from 'react-native';
+import type { FlatListProps, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
+
+/**
+ * Hvor langt hver liste var rullet, paa tvaers af at listen tegnes forfra.
+ *
+ * Modulniveau med vilje: en liste kan blive afmonteret og monteret igen
+ * (en anden skaerm ovenpaa, data der hentes igen), og saa er en ref i
+ * komponenten vaek sammen med den. Noeglen siger hvilken liste: et lands
+ * stationer, landelisten, en soegning.
+ */
+const offsets = new Map<string, number>();
+
+/** Glem hvor en liste var; naar dens indhold er et andet nu. */
+export function forgetScroll(memoryKey: string): void {
+  offsets.delete(memoryKey);
+}
+
+interface Props<T> extends FlatListProps<T> {
+  memoryKey: string;
+}
+
+/**
+ * En FlatList der lander hvor den var sidst.
+ *
+ * Tilbage fra en station skal ramme den station man kom fra, ikke toppen.
+ * Rulningen gemmes loebende, og naar listen har indhold nok, rulles der
+ * til den gemte plads uden animation. Uden getItemLayout vokser indholdet
+ * efterhaanden som raekkerne tegnes, saa der ventes til det naar derned.
+ */
+export function RememberedList<T>({ memoryKey, onScroll, onContentSizeChange, ...rest }: Props<T>) {
+  const ref = useRef<FlatList<T>>(null);
+  const restored = useRef(false);
+  const key = memoryKey;
+  return (
+    <FlatList
+      ref={ref}
+      {...rest}
+      scrollEventThrottle={rest.scrollEventThrottle ?? 64}
+      onScroll={(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+        if (restored.current) offsets.set(key, event.nativeEvent.contentOffset.y);
+        onScroll?.(event);
+      }}
+      onContentSizeChange={(width, height) => {
+        if (!restored.current) {
+          const wanted = offsets.get(key) ?? 0;
+          if (wanted <= 0) {
+            restored.current = true;
+          } else if (height >= wanted) {
+            restored.current = true;
+            ref.current?.scrollToOffset({ offset: wanted, animated: false });
+          }
+        }
+        onContentSizeChange?.(width, height);
+      }}
+    />
+  );
+}

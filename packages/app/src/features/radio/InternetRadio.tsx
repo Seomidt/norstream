@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import {
@@ -16,6 +16,7 @@ import { getSetting, setSetting } from '../../storage/settings.js';
 import { fetchRadioCountries, fetchRadioStations, radioFetch, radioLogoUrls, searchRadioStations, sortCountries, toRadioChannel } from '../../sync/radioBrowser.js';
 import type { RadioCountry, RadioStation } from '../../sync/radioBrowser.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
+import { RememberedList } from '../../ui/RememberedList.js';
 import { theme } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
@@ -39,6 +40,9 @@ interface Props {
 const SEARCH_DEBOUNCE_MS = 350;
 /** Landelisten gemmes som JSON i indstillingerne og hentes igen efter en uge. */
 const COUNTRIES_KEY = 'radio_countries';
+/** Fast hoejde paa en stationsraekke: logo paa 44 med luft. Saa kan listen rulle praecist tilbage. */
+const STATION_ROW_HEIGHT = 64;
+const stationLayout = (_: unknown, index: number) => ({ length: STATION_ROW_HEIGHT, offset: STATION_ROW_HEIGHT * index, index });
 const COUNTRIES_AT_KEY = 'radio_countries_ms';
 
 /**
@@ -204,7 +208,7 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
       .join(' · ');
     return (
       <TvPressable
-        style={styles.row}
+        style={styles.stationRow}
         onPress={() => play(station, list)}
         onLongPress={onPickLogo === undefined ? undefined : () => onPickLogo(toRadioChannel(station))}
       >
@@ -236,9 +240,11 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
         {results === null ? (
           <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
         ) : (
-          <FlatList
+          <RememberedList
+            memoryKey={`radio:search:${query}`}
             data={results}
             keyExtractor={(station) => station.id}
+            getItemLayout={stationLayout}
             ListEmptyComponent={<Text style={styles.empty}>Ingen stationer med det navn.</Text>}
             renderItem={({ item }) => renderStation(item, results)}
           />
@@ -261,9 +267,12 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
         {stations === null ? (
           <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
         ) : (
-          <FlatList
+          <RememberedList
+            memoryKey={`radio:country:${country.code}`}
             data={stations}
             keyExtractor={(station) => station.id}
+            getItemLayout={stationLayout}
+            initialNumToRender={20}
             ListEmptyComponent={<Text style={styles.empty}>{error ?? 'Ingen stationer i registret for landet.'}</Text>}
             renderItem={({ item }) => renderStation(item, stations)}
           />
@@ -278,9 +287,11 @@ export function InternetRadio({ session, country, onCountryChange, onSelect, onP
       {countries === null ? (
         <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
       ) : (
-        <FlatList
+        <RememberedList
+          memoryKey="radio:countries"
           data={countries}
           keyExtractor={(entry) => entry.code}
+          initialNumToRender={30}
           ListHeaderComponent={
             <>
               {error !== null && <Text style={styles.empty}>{error}</Text>}
@@ -351,6 +362,15 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm + 2,
+    borderBottomColor: theme.colors.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  stationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    height: STATION_ROW_HEIGHT,
     borderBottomColor: theme.colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
