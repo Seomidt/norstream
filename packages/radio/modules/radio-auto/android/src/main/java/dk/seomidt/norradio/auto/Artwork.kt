@@ -38,7 +38,7 @@ import java.util.concurrent.TimeoutException
  * logoet senere, ligger det klar naeste gang bilen spoerger.
  */
 object Artwork {
-  private const val SIZE = 256
+  private const val SIZE = 512
   private const val MAX_BYTES = 6L * 1024 * 1024
   private const val MISS_TTL_MS = 24L * 60 * 60 * 1000
   /** Hvor laenge en forespoergsel fra bilen hoejst venter paa en hentning. */

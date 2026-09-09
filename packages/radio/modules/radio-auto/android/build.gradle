@@ -22,5 +22,7 @@ dependencies {
   implementation "androidx.media3:media3-session:${androidxMedia3Version}"
   implementation "androidx.media3:media3-exoplayer:${androidxMedia3Version}"
   implementation "androidx.media3:media3-exoplayer-hls:${androidxMedia3Version}"
+  // IcyInfo: "Kunstner - Titel" fra streamen, til nu-spiller.
+  implementation "androidx.media3:media3-extractor:${androidxMedia3Version}"
   implementation "com.google.guava:guava:33.4.0-android"
 }

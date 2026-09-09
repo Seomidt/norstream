@@ -97,6 +97,12 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
     private const val EXTRA_LOGO = "logoUrl"
     private const val EXTRA_COUNTRY = "country"
     const val LOGO_SEPARATOR = "\n"
+    /** I MediaMetadata.extras: det der spilles lige nu, sat af tjenesten. */
+    const val META_STATION = "station"
+    const val META_ARTIST = "artist"
+    const val META_TRACK = "track"
+    const val META_COVER = "coverUrl"
+    const val META_LOGOS = "logoUrls"
 
     /** Stationen bag et element der kom over broen uden uri, eller null hvis heller ikke requestMetadata har den. */
     fun fromRequest(item: MediaItem): Station? {
@@ -153,6 +159,7 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
             .setTitle(station.name)
             .setArtist(station.country)
             .setStation(station.name)
+            .setExtras(Bundle().apply { putString(META_LOGOS, station.logoUrls.joinToString(LOGO_SEPARATOR)) })
             .setArtworkUri(if (station.logoUrls.isEmpty()) null else Artwork.uri(context, station.logoUrls))
             .setIsBrowsable(false)
             .setIsPlayable(true)

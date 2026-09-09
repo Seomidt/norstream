@@ -15,7 +15,12 @@ export type AutoState = 'idle' | 'connecting' | 'playing' | 'paused' | 'error';
 export interface AutoSnapshot {
   state: AutoState;
   stationId: string | null;
+  /** Stationens navn. */
   title: string | null;
+  /** Det der spilles lige nu, naar streamen fortaeller det; ellers null. */
+  artist: string | null;
+  track: string | null;
+  coverUrl: string | null;
   message: string | null;
 }
 
@@ -69,7 +74,7 @@ export function stop(): Promise<void> {
   return native?.stop() ?? Promise.resolve();
 }
 
-const IDLE: AutoSnapshot = { state: 'idle', stationId: null, title: null, message: null };
+const IDLE: AutoSnapshot = { state: 'idle', stationId: null, title: null, artist: null, track: null, coverUrl: null, message: null };
 
 /** Kaldes midt i en render; kaster broen, maa det ikke vaelte skaermen. */
 export function current(): AutoSnapshot {

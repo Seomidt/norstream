@@ -1,9 +1,17 @@
 package dk.seomidt.norradio.auto
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Metadata
+import androidx.media3.common.Player
+import androidx.media3.extractor.metadata.icy.IcyInfo
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
@@ -29,6 +37,86 @@ class RadioAutoService : MediaLibraryService() {
   /** Hentninger fra Radio Browser, saa bilen ikke venter paa hovedtraaden. */
   val fetcher = Executors.newSingleThreadExecutor()
 
+  /** Opslag af covers; egen traad, saa et langsomt iTunes ikke holder landelister tilbage. */
+  private val covers = Executors.newSingleThreadExecutor()
+  private val main = Handler(Looper.getMainLooper())
+
+  /** Stationens egne metadata, som de var foer nogen sang blev skrevet ind. */
+  private var base: MediaMetadata? = null
+  /** Den sidste titel streamen sendte, saa samme linje ikke behandles to gange. */
+  private var lastTitle: String? = null
+
+  /**
+   * Nu-spiller: streamen sender "Kunstner - Titel" som ICY-metadata, og
+   * ExoPlayer giver den her. Elementets egne metadata gaar forud for
+   * streamens i det afspilleren viser, saa titlen skrives ind i elementet
+   * med replaceMediaItem — som for samme adresse ikke afbryder lyden.
+   */
+  private val nowPlayingListener =
+    object : Player.Listener {
+      override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+        // Et element vi selv har skrevet sang ind i, er ikke en ny station.
+        if (mediaItem?.mediaMetadata?.extras?.containsKey(Library.META_TRACK) == true) return
+        base = mediaItem?.mediaMetadata
+        lastTitle = null
+      }
+
+      override fun onMetadata(metadata: Metadata) {
+        for (i in 0 until metadata.length()) {
+          val entry = metadata.get(i)
+          if (entry is IcyInfo) entry.title?.let { onStreamTitle(it) }
+        }
+      }
+    }
+
+  private fun onStreamTitle(raw: String) {
+    if (raw == lastTitle) return
+    lastTitle = raw
+    val station = base?.title?.toString() ?: player?.currentMediaItem?.mediaMetadata?.title?.toString() ?: ""
+    val playing = NowPlaying.parse(raw, station)
+    apply(playing, null)
+    if (playing == null) return
+    covers.execute {
+      val cover = Covers.lookup(playing)
+      main.post { if (lastTitle == raw) apply(playing, cover) }
+    }
+  }
+
+  /** Skriver sangen (eller stationen alene) ind i det element der spiller. Hovedtraaden. */
+  private fun apply(playing: NowPlaying?, coverUrl: String?) {
+    val p = player ?: return
+    val item = p.currentMediaItem ?: return
+    val original = base ?: item.mediaMetadata
+    val station = original.title?.toString() ?: ""
+    val logos = original.extras?.getString(Library.META_LOGOS)?.split(Library.LOGO_SEPARATOR)?.filter { it.isNotEmpty() } ?: emptyList()
+    val builder = original.buildUpon()
+    val extras = Bundle(original.extras ?: Bundle())
+    if (playing == null) {
+      extras.remove(Library.META_TRACK)
+      extras.remove(Library.META_ARTIST)
+      extras.remove(Library.META_COVER)
+      extras.remove(Library.META_STATION)
+    } else {
+      builder.setTitle(playing.track).setArtist(playing.artist).setSubtitle(station).setDisplayTitle(playing.track)
+      extras.putString(Library.META_STATION, station)
+      extras.putString(Library.META_TRACK, playing.track)
+      extras.putString(Library.META_ARTIST, playing.artist)
+      if (coverUrl != null) {
+        extras.putString(Library.META_COVER, coverUrl)
+        builder.setArtworkUri(Artwork.uri(this, listOf(coverUrl) + logos))
+      } else {
+        extras.remove(Library.META_COVER)
+      }
+    }
+    builder.setExtras(extras)
+    val updated = item.buildUpon().setMediaMetadata(builder.build()).build()
+    try {
+      p.replaceMediaItem(p.currentMediaItemIndex, updated)
+    } catch (_: Exception) {
+      // Ikke vaerd at afbryde lyden for.
+    }
+  }
+
   private companion object {
     /** Hvor mange logoer der hentes paa forhaand naar en liste gives til bilen: det foerste skaermfulde eller to. Resten hentes naar bilen beder om dem. */
     const val PREFETCH = 40
@@ -45,6 +133,7 @@ class RadioAutoService : MediaLibraryService() {
         .setHandleAudioBecomingNoisy(true)
         .setWakeMode(C.WAKE_MODE_NETWORK)
         .build()
+    built.addListener(nowPlayingListener)
     player = built
     session = MediaLibrarySession.Builder(this, built, Callback(this)).build()
   }
@@ -60,6 +149,7 @@ class RadioAutoService : MediaLibraryService() {
 
   override fun onDestroy() {
     fetcher.shutdown()
+    covers.shutdown()
     session?.release()
     player?.release()
     session = null

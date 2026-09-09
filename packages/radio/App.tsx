@@ -97,6 +97,7 @@ export default function App() {
               <View style={styles.nowPlaying}>
                 <Text style={styles.nowPlayingText} numberOfLines={1}>
                   {playing.state === 'playing' ? '▶' : playing.state === 'paused' ? '❚❚' : '…'} {playing.title}
+                  {playing.track !== null ? ` · ${playing.artist !== null ? `${playing.artist} – ` : ''}${playing.track}` : ''}
                 </Text>
               </View>
             )}

@@ -133,10 +133,16 @@ class RadioAutoModule : Module() {
         c.playbackState == Player.STATE_IDLE && item != null -> "error"
         else -> "idle"
       }
+    val meta = item?.mediaMetadata
+    val extras = meta?.extras
     return mapOf(
       "state" to state,
       "stationId" to item?.mediaId?.removePrefix(Library.STATION_PREFIX),
-      "title" to item?.mediaMetadata?.title?.toString(),
+      // Stationens navn, ogsaa naar en sang er skrevet ind som titel.
+      "title" to (extras?.getString(Library.META_STATION) ?: meta?.title?.toString()),
+      "artist" to extras?.getString(Library.META_ARTIST),
+      "track" to extras?.getString(Library.META_TRACK),
+      "coverUrl" to extras?.getString(Library.META_COVER),
       "message" to if (c.playerError != null) ERROR_TEXT else null,
     )
   }
@@ -159,6 +165,7 @@ class RadioAutoModule : Module() {
     /** Adressen kan staa i afspillerens egen fejltekst; den viser vi ikke. */
     const val ERROR_TEXT = "Streamen kunne ikke afspilles"
 
-    fun idle(): Map<String, Any?> = mapOf("state" to "idle", "stationId" to null, "title" to null, "message" to null)
+    fun idle(): Map<String, Any?> =
+      mapOf("state" to "idle", "stationId" to null, "title" to null, "artist" to null, "track" to null, "coverUrl" to null, "message" to null)
   }
 }

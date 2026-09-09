@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Easing, Image, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ReactNode } from 'react';
 import type { StoredChannel } from '../../storage/channels.js';
@@ -10,6 +10,14 @@ import { TvPressable } from '../../ui/TvPressable.js';
 
 export type RadioState = 'connecting' | 'playing' | 'paused' | 'error';
 
+/** Det der spilles lige nu, naar streamen fortaeller det. */
+export interface RadioNowPlaying {
+  artist: string;
+  track: string;
+  /** Coveret, eller null naar intet blev fundet: saa staar logoet. */
+  coverUrl: string | null;
+}
+
 interface Props {
   channel: StoredChannel;
   state: RadioState;
@@ -19,6 +27,8 @@ interface Props {
   hiddenVideo: ReactNode;
   hasPrevious: boolean;
   hasNext: boolean;
+  /** Sang og cover fra streamen. Udelades af afspillere der ikke laeser dem. */
+  nowPlaying?: RadioNowPlaying | null;
   onBack: () => void;
   onPrevious: () => void;
   onNext: () => void;
@@ -42,6 +52,7 @@ export function RadioView({
   hiddenVideo,
   hasPrevious,
   hasNext,
+  nowPlaying = null,
   onBack,
   onPrevious,
   onNext,
@@ -64,14 +75,29 @@ export function RadioView({
 
       <View style={[styles.stage, landscape && styles.stageLandscape]}>
         <View style={styles.disc}>
-          <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={landscape ? 120 : 168} />
+          <Cover
+            coverUrl={nowPlaying?.coverUrl ?? null}
+            size={landscape ? 120 : 168}
+            fallback={<ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={landscape ? 120 : 168} />}
+          />
         </View>
         <View style={styles.text}>
-          <Text style={styles.kicker}>RADIO</Text>
-          <Text style={styles.title} numberOfLines={2}>
-            {title}
-          </Text>
-          {title !== channel.name && (
+          <Text style={styles.kicker}>{nowPlaying === null ? 'RADIO' : title.toUpperCase()}</Text>
+          {nowPlaying === null ? (
+            <Text style={styles.title} numberOfLines={2}>
+              {title}
+            </Text>
+          ) : (
+            <>
+              <Text style={styles.title} numberOfLines={2}>
+                {nowPlaying.track}
+              </Text>
+              <Text style={styles.artist} numberOfLines={1}>
+                {nowPlaying.artist}
+              </Text>
+            </>
+          )}
+          {nowPlaying === null && title !== channel.name && (
             <Text style={styles.subtitle} numberOfLines={1}>
               {channel.name}
             </Text>
@@ -107,6 +133,21 @@ export function RadioView({
         <View style={styles.side} />
       </View>
     </View>
+  );
+}
+
+/** Coveret naar der er et og det kan hentes; ellers det der blev givet som fallback (logoet). */
+function Cover({ coverUrl, size, fallback }: { coverUrl: string | null; size: number; fallback: ReactNode }) {
+  const [failed, setFailed] = useState<string | null>(null);
+  if (coverUrl === null || failed === coverUrl) return <>{fallback}</>;
+  return (
+    <Image
+      source={{ uri: coverUrl }}
+      style={{ width: size, height: size, borderRadius: theme.radius, backgroundColor: '#ffffff10' }}
+      resizeMode="cover"
+      onError={() => setFailed(coverUrl)}
+      accessibilityLabel="Cover"
+    />
   );
 }
 
@@ -192,6 +233,7 @@ const styles = StyleSheet.create({
   text: { alignItems: 'center', gap: theme.spacing.xs, maxWidth: 420 },
   kicker: { color: theme.colors.accent, fontSize: 12, fontWeight: '800', letterSpacing: 3 },
   title: { color: theme.colors.text, fontSize: 26, fontWeight: '800', textAlign: 'center' },
+  artist: { color: theme.colors.text, fontSize: 16, fontWeight: '600', textAlign: 'center', opacity: 0.85 },
   subtitle: { color: theme.colors.textMuted, fontSize: 12, textAlign: 'center' },
   state: { color: theme.colors.textMuted, fontSize: 13, marginTop: theme.spacing.xs },
   stateError: { color: theme.colors.danger },

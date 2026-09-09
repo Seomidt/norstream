@@ -82,12 +82,18 @@ export function RadioPlayerScreen({ channel: initial, zap, onBack }: Props) {
 
   const index = zap.findIndex((entry) => entry.id === channel.id);
   const shown = describe(snapshot);
+  // Sangen hoerer til den station der spiller; efter et skift er den gamle sang ikke den nyes.
+  const nowPlaying =
+    snapshot.stationId === channel.streamId && snapshot.track !== null
+      ? { artist: snapshot.artist ?? '', track: snapshot.track, coverUrl: snapshot.coverUrl }
+      : null;
 
   return (
     <RadioView
       channel={channel}
       state={shown.state}
       stateText={shown.text}
+      nowPlaying={nowPlaying}
       hiddenVideo={null}
       hasPrevious={zap.length > 1 && index !== -1}
       hasNext={zap.length > 1 && index !== -1}
