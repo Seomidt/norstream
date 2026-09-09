@@ -235,7 +235,12 @@ class RadioAutoService : MediaLibraryService() {
       mediaId: String,
     ): ListenableFuture<LibraryResult<MediaItem>> {
       AutoLog.add("getItem $mediaId")
-      val station = Library.read(service).find(mediaId) ?: RadioBrowser.find(mediaId.removePrefix(Library.STATION_PREFIX))
+      val library = Library.read(service)
+      // Bilen beder ogsaa om mapperne selv, isaer naar den vender tilbage
+      // til en mappe efter afspilning. Fik den en fejl paa det, byggede
+      // den mappen forfra og landede i toppen.
+      library.folderItem(mediaId)?.let { return Futures.immediateFuture(LibraryResult.ofItem(it, null)) }
+      val station = library.find(mediaId) ?: RadioBrowser.find(mediaId.removePrefix(Library.STATION_PREFIX))
       return Futures.immediateFuture(
         if (station == null) LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
         else LibraryResult.ofItem(Library.item(station, service), null),

@@ -180,6 +180,20 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
 
   fun allStations(): List<Station> = favourites + countries.flatMap { it.stations }
 
+  /** Mappen med det id, som bilen ser den i listerne; null naar id'et ikke er en mappe. */
+  fun folderItem(mediaId: String): MediaItem? =
+    when {
+      mediaId == ROOT -> folder(ROOT, "NorRadio")
+      mediaId == FAVOURITES -> folder(FAVOURITES, "Mine stationer", "${favourites.size}")
+      mediaId == COUNTRIES -> folder(COUNTRIES, "Lande", "${countries.size}")
+      mediaId.startsWith(COUNTRY_PREFIX) -> {
+        val code = mediaId.removePrefix(COUNTRY_PREFIX)
+        val country = countries.firstOrNull { it.code == code } ?: return folder(mediaId, code)
+        folder(mediaId, "${country.flag} ${country.name}", if (country.stations.isEmpty()) null else "${country.stations.size}")
+      }
+      else -> null
+    }
+
   /** Landets stationer i filen, eller tom naar landet ikke er hentet paa telefonen. */
   fun stationsOf(code: String): List<Station> = countries.firstOrNull { it.code == code }?.stations ?: emptyList()
 
