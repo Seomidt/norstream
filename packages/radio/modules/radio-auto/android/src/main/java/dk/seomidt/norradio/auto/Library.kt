@@ -94,11 +94,21 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
       return Station(id, obj.optString("name", id), url, logos, obj.optString("country"))
     }
 
+    /**
+     * Stationerne i filen, renset som appen ville have gjort det: kendte
+     * doede streams vaek og én udgave per navn. Filen kan vaere skrevet
+     * af en aeldre app, og bilen starter tjenesten uden at appen har
+     * vaeret aaben og skrevet den igen.
+     */
     private fun stations(array: JSONArray?): List<Station> {
       val out = ArrayList<Station>()
       if (array == null) return out
-      for (i in 0 until array.length()) station(array.getJSONObject(i))?.let { out.add(it) }
-      return out
+      for (i in 0 until array.length()) {
+        val station = station(array.getJSONObject(i)) ?: continue
+        if (RadioBrowser.isKnownDeadUrl(station.url)) continue
+        out.add(station)
+      }
+      return RadioBrowser.preferBestQuality(out) { RadioBrowser.streamScore(it.url, 0) }
     }
 
     private const val EXTRA_NAME = "name"
