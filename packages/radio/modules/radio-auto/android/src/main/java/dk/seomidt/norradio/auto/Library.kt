@@ -35,9 +35,6 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
       file(context).writeText(json)
     }
 
-    /** Hvor mange stationer et land faar med i bilen; listen er sorteret efter stemmer, saa toppen er den gode del. */
-    const val MAX_IN_CAR = 100
-
     private var cached: Library? = null
     private var cachedStamp = 0L
 
@@ -167,6 +164,9 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
 
   fun allStations(): List<Station> = favourites + countries.flatMap { it.stations }
 
+  /** Landets stationer i filen, eller tom naar landet ikke er hentet paa telefonen. */
+  fun stationsOf(code: String): List<Station> = countries.firstOrNull { it.code == code }?.stations ?: emptyList()
+
   fun find(mediaId: String): Station? {
     val id = mediaId.removePrefix(STATION_PREFIX)
     return allStations().firstOrNull { it.id == id }
@@ -181,10 +181,11 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
         )
       parentId == FAVOURITES -> favourites.map { item(it, context) }
       parentId == COUNTRIES ->
-        countries.map { folder(COUNTRY_PREFIX + it.code, "${it.flag} ${it.name}", "${minOf(it.stations.size, MAX_IN_CAR)}") }
+        // Lande uden stationer i filen henter tjenesten selv naar bilen aabner dem; de faar intet tal.
+        countries.map { folder(COUNTRY_PREFIX + it.code, "${it.flag} ${it.name}", if (it.stations.isEmpty()) null else "${it.stations.size}") }
       parentId.startsWith(COUNTRY_PREFIX) -> {
         val code = parentId.removePrefix(COUNTRY_PREFIX)
-        countries.firstOrNull { it.code == code }?.stations?.take(MAX_IN_CAR)?.map { item(it, context) } ?: emptyList()
+        countries.firstOrNull { it.code == code }?.stations?.map { item(it, context) } ?: emptyList()
       }
       else -> emptyList()
     }

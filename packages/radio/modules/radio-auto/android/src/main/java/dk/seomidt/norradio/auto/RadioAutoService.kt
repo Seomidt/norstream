@@ -11,6 +11,8 @@ import androidx.media3.session.MediaSession
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
 
 /**
  * Den ene afspiller: telefonens skaerm, notifikationen, rattet over
@@ -23,6 +25,9 @@ import com.google.common.util.concurrent.ListenableFuture
 class RadioAutoService : MediaLibraryService() {
   private var player: ExoPlayer? = null
   private var session: MediaLibrarySession? = null
+
+  /** Hentninger fra Radio Browser, saa bilen ikke venter paa hovedtraaden. */
+  val fetcher = Executors.newSingleThreadExecutor()
 
   override fun onCreate() {
     super.onCreate()
@@ -49,6 +54,7 @@ class RadioAutoService : MediaLibraryService() {
   }
 
   override fun onDestroy() {
+    fetcher.shutdown()
     session?.release()
     player?.release()
     session = null
@@ -72,7 +78,25 @@ class RadioAutoService : MediaLibraryService() {
       pageSize: Int,
       params: LibraryParams?,
     ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
-      val children = Library.read(service).children(parentId, service)
+      val library = Library.read(service)
+      if (parentId.startsWith(Library.COUNTRY_PREFIX)) {
+        val code = parentId.removePrefix(Library.COUNTRY_PREFIX)
+        val onPhone = library.stationsOf(code)
+        if (onPhone.isNotEmpty()) {
+          RadioBrowser.remember(onPhone)
+        } else {
+          // Landet er ikke hentet paa telefonen: tjenesten henter det selv,
+          // i baggrunden, og bilen faar listen naar den er der.
+          return Futures.submit(
+            Callable<LibraryResult<ImmutableList<MediaItem>>> {
+              val fetched = RadioBrowser.stations(service, code)
+              LibraryResult.ofItemList(ImmutableList.copyOf(fetched.map { Library.item(it, service) }), params)
+            },
+            service.fetcher,
+          )
+        }
+      }
+      val children = library.children(parentId, service)
       return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(children), params))
     }
 
@@ -81,7 +105,7 @@ class RadioAutoService : MediaLibraryService() {
       browser: MediaSession.ControllerInfo,
       mediaId: String,
     ): ListenableFuture<LibraryResult<MediaItem>> {
-      val station = Library.read(service).find(mediaId)
+      val station = Library.read(service).find(mediaId) ?: RadioBrowser.find(mediaId.removePrefix(Library.STATION_PREFIX))
       return Futures.immediateFuture(
         if (station == null) LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
         else LibraryResult.ofItem(Library.item(station, service), null),
@@ -101,7 +125,8 @@ class RadioAutoService : MediaLibraryService() {
       val resolved =
         mediaItems.mapNotNull { item ->
           if (item.localConfiguration != null) item
-          else (Library.fromRequest(item) ?: library.find(item.mediaId))?.let { Library.item(it, service) }
+          else (Library.fromRequest(item) ?: library.find(item.mediaId) ?: RadioBrowser.find(item.mediaId.removePrefix(Library.STATION_PREFIX)))
+            ?.let { Library.item(it, service) }
         }
       return Futures.immediateFuture(resolved.toMutableList())
     }
