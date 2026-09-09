@@ -87,6 +87,7 @@ object RadioBrowser {
   /** Samme regler som appens toRadioStation og radioLogoUrls. */
   fun parse(array: JSONArray, code: String): List<Station> {
     val out = ArrayList<Station>()
+    val bitrates = HashMap<String, Int>()
     val seen = HashSet<String>()
     for (i in 0 until array.length()) {
       val raw = array.optJSONObject(i) ?: continue
@@ -100,8 +101,34 @@ object RadioBrowser {
       if (isHttp(favicon)) logos.add(favicon)
       homepageIcon(raw.optString("homepage"))?.let { if (!logos.contains(it)) logos.add(it) }
       out.add(Station(id, name, url, logos, raw.optString("countrycode", code).uppercase()))
+      bitrates[id] = raw.optInt("bitrate", 0)
     }
-    return out
+    return preferBestQuality(out) { bitrates[it.id] ?: 0 }
+  }
+
+  /** Samme navn uden bitrate, codec og "HQ" — som qualityKey i appen. */
+  fun qualityKey(name: String): String =
+    name
+      .lowercase()
+      .replace(Regex("\\b\\d{2,4}\\s?(k|kbps|kbit|kb/s)?\\b"), " ")
+      .replace(Regex("\\b(hq|lq|hd|high|low|aac|aacp|aac\\+|mp3|ogg|opus|flac|stereo|mono|kbps)\\b"), " ")
+      .replace(Regex("[^a-z0-9æøåäöüß]+"), "")
+
+  /** Én station per navn, den med hoejest bitrate; uden kendt bitrate den foerste (mest stemte). */
+  fun preferBestQuality(stations: List<Station>, bitrateOf: (Station) -> Int): List<Station> {
+    val order = ArrayList<String>()
+    val best = LinkedHashMap<String, Station>()
+    for (station in stations) {
+      val key = qualityKey(station.name)
+      val current = best[key]
+      if (current == null) {
+        order.add(key)
+        best[key] = station
+      } else if (bitrateOf(station) > bitrateOf(current)) {
+        best[key] = station
+      }
+    }
+    return order.mapNotNull { best[it] }
   }
 
   private fun isHttp(value: String): Boolean = value.startsWith("http://", ignoreCase = true) || value.startsWith("https://", ignoreCase = true)

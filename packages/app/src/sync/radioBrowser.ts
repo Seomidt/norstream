@@ -167,7 +167,50 @@ function stationsOf(body: unknown): RadioStation[] {
     seen.add(station.id);
     stations.push(station);
   }
-  return stations;
+  return preferBestQuality(stations);
+}
+
+/**
+ * Det samme navn uden det der kun siger noget om streamen: bitrate, codec,
+ * "HQ". "DR P3", "DR P3 192" og "DR P3 (AAC 96)" giver samme noegle.
+ */
+export function qualityKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\b\d{2,4}\s?(k|kbps|kbit|kb\/s)?\b/g, ' ')
+    .replace(/\b(hq|lq|hd|high|low|aac|aacp|aac\+|mp3|ogg|opus|flac|stereo|mono|kbps)\b/g, ' ')
+    .replace(/[^a-z0-9æøåäöüß]+/g, '');
+}
+
+/**
+ * Én station per navn, og den bedste stream af dem.
+ *
+ * Registret har samme station flere gange med hver sin bitrate, og den
+ * mest stemte er tit den daarligste. Af dem med samme navn beholdes den
+ * med hoejest bitrate; kender registret ingen bitrate for nogen af dem,
+ * beholdes den mest stemte. Stationen staar hvor den foerste af dem stod.
+ */
+export function preferBestQuality(stations: readonly RadioStation[]): RadioStation[] {
+  const groups = new Map<string, RadioStation[]>();
+  const order: string[] = [];
+  for (const station of stations) {
+    const key = qualityKey(station.name);
+    const group = groups.get(key);
+    if (group === undefined) {
+      groups.set(key, [station]);
+      order.push(key);
+    } else {
+      group.push(station);
+    }
+  }
+  return order.map((key) => {
+    const group = groups.get(key) ?? [];
+    let best = group[0] as RadioStation;
+    for (const candidate of group) {
+      if (candidate.bitrate > best.bitrate) best = candidate;
+    }
+    return best;
+  });
 }
 
 /** Et lands stationer, flest stemmer foerst. Doede stationer er sorteret fra af registret. */

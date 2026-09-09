@@ -4,6 +4,8 @@ import {
   fetchRadioStations,
   homepageIconUrl,
   isRadioKey,
+  preferBestQuality,
+  qualityKey,
   radioLogoUrls,
   searchRadioStations,
   sortCountries,
@@ -150,5 +152,37 @@ describe('radioLogoUrls', () => {
   it('afviser hjemmesider uden brugbart vaertsnavn', () => {
     expect(homepageIconUrl('ikke en adresse')).toBeNull();
     expect(homepageIconUrl('http://localhost/')).toBeNull();
+  });
+});
+
+describe('qualityKey og preferBestQuality', () => {
+  const st = (id: string, name: string, bitrate: number, votes = 0) => ({
+    id,
+    name,
+    country: 'DK',
+    url: `http://x/${id}`,
+    logoUrl: null,
+    homepage: null,
+    votes,
+    codec: 'MP3',
+    bitrate,
+    tags: [],
+  });
+
+  it('ser bort fra bitrate, codec og HQ i navnet', () => {
+    expect(qualityKey('DR P3 192')).toBe(qualityKey('DR P3'));
+    expect(qualityKey('DR P3 (AAC 96)')).toBe(qualityKey('dr p3'));
+    expect(qualityKey('Radio Soft HQ')).toBe(qualityKey('Radio Soft'));
+    expect(qualityKey('Radio 24syv')).not.toBe(qualityKey('Radio'));
+  });
+
+  it('beholder den med hoejest bitrate, paa den foerstes plads', () => {
+    const list = [st('a', 'DR P3', 96, 900), st('b', 'Skala FM', 128, 500), st('c', 'DR P3 192', 192, 40)];
+    expect(preferBestQuality(list).map((s) => s.id)).toEqual(['c', 'b']);
+  });
+
+  it('uden kendt bitrate beholdes den mest stemte (foerste)', () => {
+    const list = [st('a', 'Radio X', 0, 900), st('b', 'Radio X HQ', 0, 40)];
+    expect(preferBestQuality(list).map((s) => s.id)).toEqual(['a']);
   });
 });

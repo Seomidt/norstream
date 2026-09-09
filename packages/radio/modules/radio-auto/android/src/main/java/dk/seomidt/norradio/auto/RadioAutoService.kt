@@ -84,18 +84,21 @@ class RadioAutoService : MediaLibraryService() {
         val onPhone = library.stationsOf(code)
         if (onPhone.isNotEmpty()) {
           RadioBrowser.remember(onPhone)
+          for (station in onPhone) Artwork.prefetch(service, station.logoUrls)
         } else {
           // Landet er ikke hentet paa telefonen: tjenesten henter det selv,
           // i baggrunden, og bilen faar listen naar den er der.
           return Futures.submit(
             Callable<LibraryResult<ImmutableList<MediaItem>>> {
               val fetched = RadioBrowser.stations(service, code)
+              for (station in fetched) Artwork.prefetch(service, station.logoUrls)
               LibraryResult.ofItemList(ImmutableList.copyOf(fetched.map { Library.item(it, service) }), params)
             },
             service.fetcher,
           )
         }
       }
+      if (parentId == Library.FAVOURITES) for (station in library.favourites) Artwork.prefetch(service, station.logoUrls)
       val children = library.children(parentId, service)
       return Futures.immediateFuture(LibraryResult.ofItemList(ImmutableList.copyOf(children), params))
     }

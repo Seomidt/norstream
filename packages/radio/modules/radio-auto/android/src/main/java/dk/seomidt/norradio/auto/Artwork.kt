@@ -15,6 +15,11 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * Smaa logoer til bilen.
@@ -24,12 +29,22 @@ import java.util.concurrent.ConcurrentHashMap
  * og listen hakker. Her hentes billedet én gang, skaleres ned til 256 px,
  * gemmes paa disken og gives til bilen gennem en ContentProvider, saa den
  * kun laeser en lille fil.
+ *
+ * Hentningen maa aldrig blokere den traad bilen spoerger paa. Bilen beder om
+ * mange logoer paa én gang, hver forespoergsel holder en binder-traad, og
+ * med doede adresser og lange timeouts var alle traade optaget — ogsaa dem
+ * afspil-kommandoen skulle komme ind ad. Derfor henter en lille pulje i
+ * baggrunden, og en forespoergsel venter hoejst kort paa den; kommer
+ * logoet senere, ligger det klar naeste gang bilen spoerger.
  */
 object Artwork {
   private const val SIZE = 256
   private const val MAX_BYTES = 6L * 1024 * 1024
   private const val MISS_TTL_MS = 24L * 60 * 60 * 1000
-  private val locks = ConcurrentHashMap<String, Any>()
+  /** Hvor laenge en forespoergsel fra bilen hoejst venter paa en hentning. */
+  private const val WAIT_MS = 1500L
+  private val pool = Executors.newFixedThreadPool(3)
+  private val inFlight = ConcurrentHashMap<String, Future<File?>>()
 
   fun authority(context: Context): String = "${context.packageName}.art"
 
@@ -37,37 +52,73 @@ object Artwork {
   fun uri(context: Context, urls: List<String>): Uri =
     Uri.parse("content://${authority(context)}/${Uri.encode(urls.joinToString(Library.LOGO_SEPARATOR))}")
 
-  /** Den lille fil, hentet nu hvis den mangler; null hvis ingen af adresserne kan hentes. */
+  /**
+   * Den lille fil: fra disken, eller efter hoejst WAIT_MS paa en hentning i
+   * baggrunden. Null naar den ikke er der endnu, eller ingen af adresserne
+   * kan hentes; hentningen fortsaetter uanset.
+   */
   fun cached(context: Context, urlList: String): File? {
-    val urls = urlList.split(Library.LOGO_SEPARATOR).filter { it.isNotEmpty() }
-    if (urls.isEmpty()) return null
-    val dir = File(context.cacheDir, "art").apply { mkdirs() }
-    val key = hash(urlList)
-    val file = File(dir, "$key.png")
-    val miss = File(dir, "$key.miss")
-    if (file.exists()) return file
-    if (miss.exists() && System.currentTimeMillis() - miss.lastModified() < MISS_TTL_MS) return null
-    val lock = locks.getOrPut(key) { Any() }
-    synchronized(lock) {
-      if (file.exists()) return file
-      val bitmap = urls.firstNotNullOfOrNull { fetch(it) }
-      if (bitmap == null) {
-        miss.writeBytes(ByteArray(0))
-        return null
-      }
-      val temp = File(dir, "$key.tmp")
-      FileOutputStream(temp).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-      bitmap.recycle()
-      miss.delete()
-      return if (temp.renameTo(file)) file else null
+    val ready = onDisk(context, urlList) ?: return null
+    if (ready.file.exists()) return ready.file
+    if (ready.missed) return null
+    val future = start(context, urlList, ready)
+    return try {
+      future.get(WAIT_MS, TimeUnit.MILLISECONDS)
+    } catch (_: TimeoutException) {
+      null
+    } catch (_: ExecutionException) {
+      null
+    } catch (_: InterruptedException) {
+      null
     }
   }
+
+  /** Saetter en hentning i gang uden at vente, til logoerne i en liste bilen lige har faaet. */
+  fun prefetch(context: Context, urls: List<String>) {
+    if (urls.isEmpty()) return
+    val urlList = urls.joinToString(Library.LOGO_SEPARATOR)
+    val ready = onDisk(context, urlList) ?: return
+    if (ready.file.exists() || ready.missed) return
+    start(context, urlList, ready)
+  }
+
+  private class Slot(val key: String, val file: File, val miss: File, val temp: File, val missed: Boolean)
+
+  private fun onDisk(context: Context, urlList: String): Slot? {
+    if (urlList.split(Library.LOGO_SEPARATOR).none { it.isNotEmpty() }) return null
+    val dir = File(context.cacheDir, "art").apply { mkdirs() }
+    val key = hash(urlList)
+    val miss = File(dir, "$key.miss")
+    val missed = miss.exists() && System.currentTimeMillis() - miss.lastModified() < MISS_TTL_MS
+    return Slot(key, File(dir, "$key.png"), miss, File(dir, "$key.tmp"), missed)
+  }
+
+  private fun start(context: Context, urlList: String, slot: Slot): Future<File?> =
+    inFlight.getOrPut(slot.key) {
+      pool.submit<File?> {
+        try {
+          if (slot.file.exists()) return@submit slot.file
+          val urls = urlList.split(Library.LOGO_SEPARATOR).filter { it.isNotEmpty() }
+          val bitmap = urls.firstNotNullOfOrNull { fetch(it) }
+          if (bitmap == null) {
+            slot.miss.writeBytes(ByteArray(0))
+            return@submit null
+          }
+          FileOutputStream(slot.temp).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+          bitmap.recycle()
+          slot.miss.delete()
+          if (slot.temp.renameTo(slot.file)) slot.file else null
+        } finally {
+          inFlight.remove(slot.key)
+        }
+      }
+    }
 
   private fun fetch(url: String): Bitmap? =
     try {
       val connection = URL(url).openConnection() as HttpURLConnection
-      connection.connectTimeout = 6000
-      connection.readTimeout = 8000
+      connection.connectTimeout = 4000
+      connection.readTimeout = 5000
       connection.instanceFollowRedirects = true
       connection.setRequestProperty("User-Agent", "NorRadio/1.0 (Android; +https://github.com/Seomidt/norstream)")
       val bytes =
