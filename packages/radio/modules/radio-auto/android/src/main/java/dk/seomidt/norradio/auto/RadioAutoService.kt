@@ -13,6 +13,7 @@ import androidx.media3.common.Metadata
 import androidx.media3.common.Player
 import androidx.media3.extractor.metadata.icy.IcyInfo
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
@@ -33,6 +34,7 @@ import java.util.concurrent.Executors
 class RadioAutoService : MediaLibraryService() {
   private var player: ExoPlayer? = null
   private var session: MediaLibrarySession? = null
+  private var reconnect: Reconnect? = null
 
   /** Hentninger fra Radio Browser, saa bilen ikke venter paa hovedtraaden. */
   val fetcher = Executors.newSingleThreadExecutor()
@@ -126,6 +128,7 @@ class RadioAutoService : MediaLibraryService() {
     super.onCreate()
     val built =
       ExoPlayer.Builder(this)
+        .setMediaSourceFactory(DefaultMediaSourceFactory(this).setLoadErrorHandlingPolicy(PatientLoadErrors()))
         .setAudioAttributes(
           AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(),
           true,
@@ -134,6 +137,7 @@ class RadioAutoService : MediaLibraryService() {
         .setWakeMode(C.WAKE_MODE_NETWORK)
         .build()
     built.addListener(nowPlayingListener)
+    reconnect = Reconnect(this, built, main).also { it.start() }
     player = built
     session = MediaLibrarySession.Builder(this, built, Callback(this)).build()
   }
@@ -150,6 +154,8 @@ class RadioAutoService : MediaLibraryService() {
   override fun onDestroy() {
     fetcher.shutdown()
     covers.shutdown()
+    reconnect?.stop()
+    reconnect = null
     session?.release()
     player?.release()
     session = null

@@ -24,5 +24,7 @@ dependencies {
   implementation "androidx.media3:media3-exoplayer-hls:${androidxMedia3Version}"
   // IcyInfo: "Kunstner - Titel" fra streamen, til nu-spiller.
   implementation "androidx.media3:media3-extractor:${androidxMedia3Version}"
+  // HttpDataSource: skelne en doed adresse (4xx) fra et hul i daekningen.
+  implementation "androidx.media3:media3-datasource:${androidxMedia3Version}"
   implementation "com.google.guava:guava:33.4.0-android"
 }
