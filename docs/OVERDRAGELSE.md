@@ -82,6 +82,7 @@ Læs `docs/superpowers/plans/2026-09-05-udfoerelse.md` først. Den rummer hver a
 | Dokument | Hvad |
 |---|---|
 | `docs/BUILD.md` | Hvordan appen bygges, verificeres og installeres. Læs den før du bygger |
+| `docs/ANDROID-TV.md` | Alt om tv-udgaven: byg, installation på Google TV, lærredet, fjernbetjeningen, tjekliste og fælder. Læs den før du ændrer noget der tegnes |
 | `docs/superpowers/specs/2026-09-05-navigation-og-epg-design.md` | Godkendt design for alt ovenstående |
 | `docs/superpowers/plans/2026-09-05-epg-og-guide.md` | Plan 1, med tre afvigelser fra spec'en og hvorfor |
 | `docs/superpowers/plans/2026-09-05-navigation.md` | Plan 2, med tre afvigelser fra spec'en og hvorfor |
