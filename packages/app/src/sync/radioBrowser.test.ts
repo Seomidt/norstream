@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   displayName,
+  sortStationsByName,
   fetchRadioCountries,
   fetchRadioStations,
   homepageIconUrl,
@@ -225,5 +226,14 @@ describe('displayName', () => {
     expect(displayName('The Voice 128')).toBe('The Voice 128');
     expect(displayName('Radio Soft (Odense)')).toBe('Radio Soft (Odense)');
     expect(displayName('(MP3)')).toBe('(MP3)');
+  });
+});
+
+describe('sortStationsByName', () => {
+  const station = (name: string) => ({ id: name, name, country: 'DK', url: 'http://x', logoUrl: null, homepage: null, votes: 0, codec: '', bitrate: 0, tags: [] });
+  it('sorterer alfabetisk med dansk raekkefoelge og tal som tal', () => {
+    const names = sortStationsByName([station('Radio 208'), station('Ålborg Radio'), station('radio 100'), station('DR P3'), station('Aarhus Radio')]).map((s) => s.name);
+    // Dansk sortering regner "Aa" som "Å", saa Aarhus staar sidst, som i telefonbogen.
+    expect(names).toEqual(['DR P3', 'radio 100', 'Radio 208', 'Ålborg Radio', 'Aarhus Radio']);
   });
 });

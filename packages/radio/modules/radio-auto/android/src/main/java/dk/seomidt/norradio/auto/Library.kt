@@ -119,7 +119,7 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
         if (RadioBrowser.isKnownDeadUrl(station.url)) continue
         out.add(station)
       }
-      return RadioBrowser.preferBestQuality(out) { RadioBrowser.streamScore(it.url, 0) }
+      return RadioBrowser.byName(RadioBrowser.preferBestQuality(out) { RadioBrowser.streamScore(it.url, 0) })
     }
 
     private const val EXTRA_NAME = "name"
@@ -170,7 +170,7 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
     fun item(station: Station, context: Context): MediaItem =
       MediaItem.Builder()
         .setMediaId(STATION_PREFIX + station.id)
-        .setUri(MobileStreams.pick(context, station))
+        .setUri(station.url)
         .setRequestMetadata(
           MediaItem.RequestMetadata.Builder()
             .setMediaUri(Uri.parse(station.url))

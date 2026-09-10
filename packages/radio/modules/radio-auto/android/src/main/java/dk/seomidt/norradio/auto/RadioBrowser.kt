@@ -7,6 +7,8 @@ import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.Collator
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -134,11 +136,21 @@ object RadioBrowser {
     val chosen = preferBestQuality(out) { streamScore(it.url, bitrates[it.id] ?: 0) }
     // De udgaver der ikke blev valgt, foelger med vinderen som varianter til mobilnet.
     val byKey = out.groupBy { qualityKey(it.name) }
-    return chosen.map { winner ->
-      val others = byKey[qualityKey(winner.name)].orEmpty().filter { it.id != winner.id && !isHlsUrl(it.url) }
-      if (others.isEmpty()) winner else winner.copy(variants = others.map { Variant(bitrates[it.id] ?: 0, it.url) })
-    }
+    return byName(
+      chosen.map { winner ->
+        val others = byKey[qualityKey(winner.name)].orEmpty().filter { it.id != winner.id && !isHlsUrl(it.url) }
+        if (others.isEmpty()) winner else winner.copy(variants = others.map { Variant(bitrates[it.id] ?: 0, it.url) })
+      },
+    )
   }
+
+  private val COLLATOR: Collator = Collator.getInstance(Locale("da", "DK")).apply { strength = Collator.PRIMARY }
+
+  /**
+   * Alfabetisk efter navn, med dansk sortering (æ, ø, å sidst). Registret
+   * sorterer efter stemmer, og det ser tilfaeldigt ud i en liste paa 160.
+   */
+  fun byName(stations: List<Station>): List<Station> = stations.sortedWith { a, b -> COLLATOR.compare(a.name, b.name) }
 
   /** Som isKnownDeadUrl i appen: DR's HLS-lister, hvor underlisterne svarer 404. */
   fun isKnownDeadUrl(url: String): Boolean {

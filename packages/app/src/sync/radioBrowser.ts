@@ -305,6 +305,15 @@ export async function searchRadioStations(fetchImpl: RadioFetch, query: string, 
 }
 
 /**
+ * Alfabetisk efter navn med dansk sortering (æ, ø, å sidst), tal som tal.
+ * Registret sorterer efter stemmer, og det ser tilfaeldigt ud i en liste
+ * paa 160. RadioBrowser.byName i bilen goer det samme.
+ */
+export function sortStationsByName(stations: readonly RadioStation[]): RadioStation[] {
+  return [...stations].sort((a, b) => a.name.localeCompare(b.name, 'da', { sensitivity: 'base', numeric: true }));
+}
+
+/**
  * Stationen som en kanal afspilleren kan spille: adressen er stationens
  * egen, saa der bygges ingen panel-URL, og noeglen begynder med `rb:`,
  * saa afspilleren ved at det er radio uanset hvad stationen hedder.

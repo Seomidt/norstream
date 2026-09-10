@@ -1,5 +1,5 @@
 import type { RadioStation } from '../sync/radioBrowser.js';
-import { displayName, preferBestQuality } from '../sync/radioBrowser.js';
+import { displayName, preferBestQuality, sortStationsByName } from '../sync/radioBrowser.js';
 import { withTransaction } from './transaction.js';
 import type { SqlDatabase } from './types.js';
 
@@ -81,7 +81,7 @@ export async function listRadioStations(db: SqlDatabase, country: string): Promi
     'SELECT id, country, name, url, logo_url, homepage, votes, codec, bitrate, tags FROM radio_stations WHERE country = ? ORDER BY rank',
     [country],
   );
-  return preferBestQuality(rows.map(toStation));
+  return sortStationsByName(preferBestQuality(rows.map(toStation)));
 }
 
 /** Antal stationer per hentet land, efter sammenlaegning — det tal listen faktisk viser. */
