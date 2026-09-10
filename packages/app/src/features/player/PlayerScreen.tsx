@@ -28,6 +28,7 @@ import { TrackPicker } from './TrackPicker.js';
 import { LandscapePlayer, useLandscape } from './Landscape.js';
 import { isRadioKey } from '../../sync/radioBrowser.js';
 import { RadioView } from './RadioView.js';
+import { useRadioNowPlaying } from './useRadioNowPlaying.js';
 import type { RadioState } from './RadioView.js';
 import { pickPreferredSubtitle, sameTrack, trackName } from './tracks.js';
 import type { RestartBlock } from './restart.js';
@@ -168,6 +169,9 @@ export function PlayerScreen({
    * billede uden skaerm er bare panelets ene forbindelse brugt paa ingenting.
    */
   const isRadio = /radio/i.test(channel.name) || isRadioKey(channel.id);
+  // Sang og cover, kun for internetradio (stationens egen Icecast-adresse):
+  // panelets radiokanaler gaar gennem panelet og sender ingen titel.
+  const nowPlaying = useRadioNowPlaying(isRadioKey(channel.id) ? channel.streamUrl : null, channel.name, isRadio && radioState === 'playing');
   const player = useVideoPlayer(source, (p) => {
     p.loop = false;
     p.staysActiveInBackground = isRadio;
@@ -591,6 +595,7 @@ export function PlayerScreen({
       <RadioView
         channel={channel}
         state={shown}
+        nowPlaying={nowPlaying}
         stateText={shown === 'paused' ? 'Pause' : streamError ?? audioState}
         hiddenVideo={<VideoView style={styles.hiddenVideo} player={player} nativeControls={false} />}
         hasPrevious={zapList.length > 1 && zapIndex !== -1}
