@@ -381,7 +381,9 @@ export function FrontScreen({
 
       {sheet !== null && (
         <View style={styles.sheetBackdrop}>
-          <TvPressable style={StyleSheet.absoluteFill} onPress={() => setSheet(null)} />
+          {/* Bagtaeppet maa ikke faa fokus paa tv: det var det foerste
+              trykpunkt, saa OK lukkede bladet i stedet for at vaelge. */}
+          <TvPressable style={StyleSheet.absoluteFill} focusable={!isTV} onPress={() => setSheet(null)} />
           <View style={styles.sheet}>
             <View style={styles.sheetHead}>
               {sheet.title.posterUrl !== null && (
@@ -410,6 +412,7 @@ export function FrontScreen({
             ) : (
               <TvPressable
                 style={styles.button}
+                hasTVPreferredFocus={isTV}
                 onPress={() => {
                   const item = sheet.inPanel;
                   setSheet(null);
@@ -421,6 +424,7 @@ export function FrontScreen({
             )}
             <TvPressable
               style={[styles.button, styles.buttonSecondary]}
+              hasTVPreferredFocus={isTV && sheet.inPanel === null}
               onPress={() => {
                 void openExternally(sheet);
               }}
