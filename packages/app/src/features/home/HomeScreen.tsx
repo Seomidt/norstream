@@ -111,6 +111,7 @@ export function HomeScreen({
   const setTab = (next: Tab): void => onPlaceChange({ ...place, tab: next });
   const [previewEnabled, setPreviewEnabled] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [homeVisits, setHomeVisits] = useState(0);
   const [favoritesToken, setFavoritesToken] = useState(0);
   const [showingSources, setShowingSources] = useState(false);
   /** Indstillingers underskaerme til logoer: listen, og valget for én kanal. */
@@ -286,6 +287,10 @@ export function HomeScreen({
   const selectTab = (id: Tab) => {
     if (id !== tab) {
       void previewHandle.current?.release().catch(() => undefined);
+      // Forsiden bliver staaende skjult; naar man kommer tilbage til den,
+      // skal den laese noegle, tjenester og favoritter igen, ellers stod
+      // et valg fra Indstillinger der foerst ved naeste start.
+      if (id === 'home') setHomeVisits((value) => value + 1);
     }
     if (id !== 'settings') {
       setShowingSources(false);
@@ -399,7 +404,7 @@ export function HomeScreen({
             onBrowse={() => setTab('browse')}
             refreshing={refreshing}
             onRefresh={refresh}
-            reloadToken={favoritesToken + logoToken}
+            reloadToken={favoritesToken + logoToken + homeVisits}
           />
           </View>
         )}

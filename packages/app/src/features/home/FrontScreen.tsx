@@ -228,8 +228,10 @@ export function FrontScreen({
   const rows: Row[] = [];
   if (hasContinue) rows.push({ kind: 'continue' });
   rows.push({ kind: 'favourites' });
-  if (tmdbKey === null) rows.push({ kind: 'card', card: 'key' });
-  else if (providers.length === 0) rows.push({ kind: 'card', card: 'providers' });
+  // Kortet om noeglen kun paa telefonen, og kortet "vaelg tjenester" slet
+  // ikke: paa tv stod de som fremmede kasser midt paa forsiden, og valget
+  // ligger under Indstillinger, hvor man alligevel skal hen.
+  if (tmdbKey === null && !isTV) rows.push({ kind: 'card', card: 'key' });
   for (const provider of providers) rows.push({ kind: 'provider', provider });
   if (tmdbKey !== null && (trending.length > 0 || loadingShelves)) rows.push({ kind: 'trending' });
   if (newest.length > 0) rows.push({ kind: 'newest' });
