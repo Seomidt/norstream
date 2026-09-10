@@ -65,8 +65,10 @@ interface Props {
 const SCROLL_SETTLE_MS = 300;
 
 /** Bredden paa kanalkolonnen. Fast, saa alle raekker staar praecist under hinanden. */
-const CHANNEL_COLUMN = 96;
-const ROW_HEIGHT = 56;
+// Stoerre paa tv: 11 punkter i cellerne var smaat fra sofaen.
+const CHANNEL_COLUMN = isTV ? 112 : 96;
+const ROW_HEIGHT = isTV ? 64 : 56;
+const GUIDE_TEXT = isTV ? 14 : 11;
 
 /**
  * Hvor fint tiden trappes under et traek, i minutter.
@@ -1045,7 +1047,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
   },
   dayChipActive: { backgroundColor: theme.colors.accent },
-  dayChipText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600' },
+  dayChipText: { color: theme.colors.textMuted, fontSize: isTV ? 14 : 12, fontWeight: '600' },
   dayChipTextActive: { color: theme.colors.text },
   windowLabel: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
   timeHeader: {
@@ -1055,7 +1057,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   timeSpacer: { width: CHANNEL_COLUMN },
-  timeMark: { flex: 1, color: theme.colors.textMuted, fontSize: 11 },
+  timeMark: { flex: 1, color: theme.colors.textMuted, fontSize: isTV ? 13 : 11 },
   grid: { flex: 1 },
   // Bredden er ét fysisk punkt bred paa alle skaerme. En streg paa 2 dp ville
   // daekke et par minutter i et to timers vindue og saaledes lyve en smule om
@@ -1087,7 +1089,7 @@ const styles = StyleSheet.create({
   },
   channelCellPreviewing: { backgroundColor: theme.colors.surfaceRaised },
   channelText: { flex: 1, marginLeft: theme.spacing.xs },
-  channelName: { color: theme.colors.text, fontSize: 11 },
+  channelName: { color: theme.colors.text, fontSize: GUIDE_TEXT },
   channelBadges: { color: theme.colors.accent, fontSize: 9, marginTop: 1 },
   cells: { flex: 1, flexDirection: 'row' },
   cell: {
@@ -1102,6 +1104,6 @@ const styles = StyleSheet.create({
   cellLive: { backgroundColor: theme.colors.surfaceRaised },
   cellRestartable: { borderLeftColor: theme.colors.accent, borderLeftWidth: 2 },
   cellInactive: { opacity: 0.45 },
-  cellText: { color: theme.colors.text, fontSize: 11 },
+  cellText: { color: theme.colors.text, fontSize: GUIDE_TEXT },
   cellTextMuted: { color: theme.colors.textMuted },
 });
