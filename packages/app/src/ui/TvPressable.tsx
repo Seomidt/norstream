@@ -36,13 +36,19 @@ export function TvPressable({ style, onFocus, onBlur, children, ...rest }: Props
 }
 
 const styles = StyleSheet.create({
-  // Tydelig fra sofaen: bred ramme i appens farve, lysere flade, og en
-  // anelse stoerre. Det er det eneste der viser hvor fjernbetjeningen er.
+  // Tydelig fra sofaen: hvid ramme uden om fladen, blaa toning af fladen,
+  // og en anelse stoerre. Det er det eneste der viser hvor
+  // fjernbetjeningen er. Rammen er en outline og ikke en border: en
+  // border aendrer stoerrelsen, saa raekken hoppede naar den fik fokus,
+  // og en blaa ramme paa en blaa flade (den valgte fane, en aktiv knap)
+  // forsvandt. Hvid staar paa alt.
   focused: {
-    borderColor: theme.colors.accent,
-    borderWidth: 3,
+    outlineColor: '#ffffff',
+    outlineWidth: 3,
+    outlineOffset: 2,
+    outlineStyle: 'solid',
     borderRadius: theme.radius,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    transform: [{ scale: 1.04 }],
+    backgroundColor: 'rgba(76, 141, 255, 0.3)',
+    transform: [{ scale: 1.03 }],
   },
 });

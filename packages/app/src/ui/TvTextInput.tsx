@@ -30,5 +30,5 @@ export function TvTextInput({ style, onFocus, onBlur, ...rest }: TextInputProps)
 }
 
 const styles = StyleSheet.create({
-  focused: { borderColor: theme.colors.accent, borderWidth: 2 },
+  focused: { outlineColor: '#ffffff', outlineWidth: 3, outlineOffset: 2, outlineStyle: 'solid', backgroundColor: 'rgba(76, 141, 255, 0.3)' },
 });
