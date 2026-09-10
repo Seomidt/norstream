@@ -16,6 +16,7 @@ import { getChannel, listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { getNowNext } from '../../storage/programmes.js';
 import { ensureEpg } from '../../sync/epgCache.js';
+import { describeError } from '../../sync/syncVod.js';
 import { getHomeProviders, getLastChannelId, getTmdbApiKey } from '../../storage/settings.js';
 import type { HomeProvider } from '../../storage/settings.js';
 import { listVodItems } from '../../storage/vod.js';
@@ -118,6 +119,8 @@ export function FrontScreen({
   const [shelves, setShelves] = useState<Map<number, TmdbTitle[]>>(new Map());
   const [trending, setTrending] = useState<TmdbTitle[]>([]);
   const [loadingShelves, setLoadingShelves] = useState(false);
+  /** Sidste fejl fra TMDB, uden adresser, til raekken. */
+  const [shelfError, setShelfError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<Sheet | null>(null);
 
   const loadLocal = useCallback(async (): Promise<void> => {
@@ -176,16 +179,30 @@ export function FrontScreen({
     let cancelled = false;
     setLoadingShelves(true);
     void (async () => {
+      // Fejler TMDB (forkert noegle, intet net), skal det staa i raekken
+      // og ikke som en evig spinner: paa tv stod Netflix og snurrede uden
+      // at sige hvorfor.
       for (const provider of providers) {
-        const titles = await cachedShelf(`provider:${provider.id}:${provider.region}`, () =>
-          providerShelf(tmdbFetch, tmdbKey, provider.id, undefined, provider.region),
-        );
-        if (cancelled) return;
-        setShelves((current) => new Map(current).set(provider.id, titles));
+        try {
+          const titles = await cachedShelf(`provider:${provider.id}:${provider.region}`, () =>
+            providerShelf(tmdbFetch, tmdbKey, provider.id, undefined, provider.region),
+          );
+          if (cancelled) return;
+          setShelves((current) => new Map(current).set(provider.id, titles));
+        } catch (cause) {
+          if (cancelled) return;
+          setShelfError(describeError(cause));
+          setShelves((current) => new Map(current).set(provider.id, []));
+        }
       }
-      const top = await cachedShelf('trending', () => trendingTitles(tmdbFetch, tmdbKey));
-      if (cancelled) return;
-      setTrending(top);
+      try {
+        const top = await cachedShelf('trending', () => trendingTitles(tmdbFetch, tmdbKey));
+        if (cancelled) return;
+        setTrending(top);
+      } catch (cause) {
+        if (cancelled) return;
+        setShelfError(describeError(cause));
+      }
       setLoadingShelves(false);
     })();
     return () => {
@@ -300,7 +317,9 @@ export function FrontScreen({
             {titles === undefined ? (
               <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
             ) : titles.length === 0 ? (
-              <Text style={styles.empty}>TMDB gav ingen titler for tjenesten lige nu.</Text>
+              <Text style={styles.empty}>
+                {shelfError === null ? 'TMDB gav ingen titler for tjenesten lige nu.' : `TMDB svarede ikke: ${shelfError}`}
+              </Text>
             ) : (
               <Shelf
                 data={titles.map((title) => ({ key: `${title.kind}:${title.id}`, title }))}
