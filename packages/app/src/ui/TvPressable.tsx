@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import type { ReactNode } from 'react';
 import type { PressableProps, StyleProp, ViewStyle } from 'react-native';
 import { theme } from './theme.js';
 import { isTV } from './tv.js';
 
-interface Props extends PressableProps {
+interface Props extends Omit<PressableProps, 'children'> {
   style?: StyleProp<ViewStyle>;
+  children?: ReactNode;
 }
 
 /**
@@ -31,6 +33,10 @@ export function TvPressable({ style, onFocus, onBlur, children, ...rest }: Props
       }}
     >
       {children}
+      {/* Rammen som et lag oven paa: outline er ny i React Native, og
+          skulle den ikke tegnes paa denne Android, staar rammen her
+          alligevel. Den tager ingen tryk og aendrer ikke stoerrelsen. */}
+      {isTV && focused && <View pointerEvents="none" style={styles.ring} />}
     </Pressable>
   );
 }
@@ -50,5 +56,15 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius,
     backgroundColor: 'rgba(76, 141, 255, 0.3)',
     transform: [{ scale: 1.03 }],
+  },
+  ring: {
+    position: 'absolute',
+    top: -2,
+    left: -2,
+    right: -2,
+    bottom: -2,
+    borderWidth: 3,
+    borderColor: '#ffffff',
+    borderRadius: theme.radius + 2,
   },
 });

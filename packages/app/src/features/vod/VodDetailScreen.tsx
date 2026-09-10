@@ -17,6 +17,7 @@ import type { StoredEpisode, StoredVodItem } from '../../storage/vod.js';
 import { ensureVodDetails } from '../../sync/vodDetails.js';
 import { theme } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { isTV } from '../../ui/tv.js';
 
 /** Det afspilleren skal bruge. Adressen baerer panelets kodeord; den vises aldrig. */
 export interface Playback {
@@ -213,6 +214,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
             <TvPressable
               style={[styles.button, styles.buttonAccent]}
               disabled={creds === null}
+              hasTVPreferredFocus={isTV}
               onPress={playMovie}
             >
               <Text style={styles.buttonText}>
@@ -222,6 +224,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
           ) : continueEpisode !== undefined ? (
             <TvPressable
               style={[styles.button, styles.buttonAccent]}
+              hasTVPreferredFocus={isTV}
               onPress={() => playEpisode(continueEpisode)}
             >
               <Text style={styles.buttonText}>
@@ -231,6 +234,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
           ) : shownEpisodes[0] !== undefined ? (
             <TvPressable
               style={[styles.button, styles.buttonAccent]}
+              hasTVPreferredFocus={isTV}
               onPress={() => {
                 const first = shownEpisodes[0];
                 if (first !== undefined) playEpisode(first);
