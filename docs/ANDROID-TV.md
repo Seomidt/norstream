@@ -153,6 +153,14 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
 - **Afspilleren bruger appens egne knapper på tv** (`nativeControls={!isTV}`):
   afspillerens indbyggede tog fjernbetjeningen, så Tilbage først lukkede
   dem. Ethvert tryk viser bjælken igen.
+- **Menusøjlen folder sig sammen** til ikoner to sekunder efter at
+  fjernbetjeningen har forladt den, og folder sig ud ved pil-venstre.
+- **Guiden på tv:** gitteret holder på fokus mod højre
+  (`TVFocusGuideView trapFocusRight`); pil-højre på den sidste udsendelse i
+  en række flytter vinduet en time frem og bliver på samme udsendelse
+  (`focusTarget` + `hasTVPreferredFocus`). Søjlen til højre nås fra
+  dagsknapperne og har selv knapperne Se kanalen, Start forfra og Hele dagen
+  (`NowNextBox rich`).
 - **Langt tryk på OK på en kanal er favorit til/fra.** Stjernen i rækken
   er ikke fokuserbar på tv (`focusable={!isTV}`): et trykpunkt inde i et
   trykpunkt var ikke til at ramme. Listerne siger det i en linje øverst.

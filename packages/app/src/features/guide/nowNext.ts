@@ -25,6 +25,21 @@ export function nowAndNext(programmes: readonly Programme[], now: Date): NowNext
 }
 
 /** Hvor langt udsendelsen er naaet, 0 til 1. Uden for udsendelsen: 0 foer, 1 efter. */
+/** De naeste udsendelser efter den der sendes nu (eller efter nu), i raekkefoelge. */
+export function upcoming(programmes: readonly Programme[], now: Date, count = 2): Programme[] {
+  const { now: current } = nowAndNext(programmes, now);
+  const after = current === null ? now.getTime() : current.stop.getTime() - 1;
+  return [...programmes]
+    .filter((p) => p !== current && p.start.getTime() > after)
+    .sort((a, b) => a.start.getTime() - b.start.getTime())
+    .slice(0, count);
+}
+
+/** Hele minutter til udsendelsen slutter; 0 naar den er slut. */
+export function minutesLeft(programme: Programme, now: Date): number {
+  return Math.max(0, Math.ceil((programme.stop.getTime() - now.getTime()) / 60_000));
+}
+
 export function progressRatio(programme: Programme, now: Date): number {
   const start = programme.start.getTime();
   const stop = programme.stop.getTime();

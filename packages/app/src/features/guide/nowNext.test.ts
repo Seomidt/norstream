@@ -4,6 +4,8 @@ import {
   SIDE_BY_SIDE_MIN_WIDTH,
   formatSpan,
   guideTopLayout,
+  minutesLeft,
+  upcoming,
   nowAndNext,
   progressRatio,
 } from './nowNext.js';
@@ -65,5 +67,19 @@ describe('guideTopLayout', () => {
 describe('formatSpan', () => {
   it('skriver start og slut med bindestreg', () => {
     expect(formatSpan(tva)).toBe('18:30–18:50');
+  });
+});
+
+describe('upcoming og minutesLeft', () => {
+  const at = (h: number, m = 0) => new Date(2026, 8, 10, h, m);
+  const p = (title: string, start: Date, stop: Date) => ({ id: title, channelId: 'c', title, description: null, start, stop });
+  const list = [p('A', at(18), at(19)), p('B', at(19), at(20)), p('C', at(20), at(21)), p('D', at(21), at(22))];
+  it('giver de naeste efter den der sendes nu', () => {
+    expect(upcoming(list, at(19, 20), 2).map((x) => x.title)).toEqual(['C', 'D']);
+    expect(upcoming(list, at(17), 2).map((x) => x.title)).toEqual(['A', 'B']);
+  });
+  it('taeller minutter tilbage', () => {
+    expect(minutesLeft(list[1]!, at(19, 20))).toBe(40);
+    expect(minutesLeft(list[0]!, at(19, 20))).toBe(0);
   });
 });

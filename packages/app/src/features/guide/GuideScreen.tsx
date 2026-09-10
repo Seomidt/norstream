@@ -6,7 +6,9 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TVFocusGuideView,
   View,
+  useTVEventHandler,
 } from 'react-native';
 import { XtreamAuthError } from '@norstream/core';
 import type { Programme } from '@norstream/core';
@@ -120,6 +122,28 @@ export function GuideScreen({
   );
   /** Hvor mange minutter vinduet er forskudt fra nu. Negativt er bagud. */
   const [offsetMinutes, setOffsetMinutes] = useState(0);
+
+  /**
+   * Tv: pil hoejre paa den sidste udsendelse i en raekke flytter vinduet
+   * en time frem og bliver paa samme udsendelse, saa man kan koere hen ad
+   * en kanal og se hvad der kommer senere, som paa udbydernes egne guider.
+   * Gitteret holder paa fokus mod hoejre (TVFocusGuideView), saa Android
+   * ikke hopper over i soejlen; den naas fra dagsknapperne.
+   */
+  const focusedCell = useRef<{ channelId: string; index: number; count: number; key: string } | null>(null);
+  const onCellFocus = useCallback((channelId: string, index: number, count: number, key: string) => {
+    focusedCell.current = { channelId, index, count, key };
+  }, []);
+  const [focusTarget, setFocusTarget] = useState<{ channelId: string; key: string } | null>(null);
+  useTVEventHandler((event) => {
+    if (!isTV || event.eventType !== 'right') return;
+    // Android sender tryk ned (0) og op (1); kun det ene skal taelle.
+    if (event.eventKeyAction !== undefined && Number(event.eventKeyAction) === 0) return;
+    const cell = focusedCell.current;
+    if (cell === null || cell.index !== cell.count - 1) return;
+    setFocusTarget({ channelId: cell.channelId, key: cell.key });
+    setOffsetMinutes((value) => Math.min(DRAG_MAX_MINUTES, value + 60));
+  });
   /** Kanalen hvis hele dag vises, i stedet for gitteret. */
   const [dayFor, setDayFor] = useState<StoredChannel | null>(null);
   if (backRef !== undefined) {
@@ -505,9 +529,11 @@ export function GuideScreen({
         onPreview={onPreviewRow}
         onMeasureCells={onMeasureCells}
         onOpen={onOpenCell}
+        onCellFocus={onCellFocus}
+        focusKey={focusTarget !== null && focusTarget.channelId === item.id ? focusTarget.key : null}
       />
     ),
-    [rows, windowStartMs, windowEndMs, nowMs, hasDialectFor, previewingId, onPreviewRow, onMeasureCells, onOpenCell],
+    [rows, windowStartMs, windowEndMs, nowMs, hasDialectFor, previewingId, onPreviewRow, onMeasureCells, onOpenCell, onCellFocus, focusTarget],
   );
 
   if (loading) {
@@ -601,6 +627,17 @@ export function GuideScreen({
           programmes={previewProgrammes}
           now={now}
           compact={!sideBySide && !isTV}
+          rich={isTV}
+          actions={
+            isTV && previewChannel !== null
+              ? {
+                  onPlay: () => onPlay(previewChannel, channels),
+                  onRestart: (programme) => onRestart(previewChannel, programme),
+                  canRestart: previewChannel.hasArchive && hasDialectFor(previewChannel),
+                  onDay: () => setDayFor(previewChannel),
+                }
+              : undefined
+          }
           onOpen={(channel, programme) =>
             setSheet({
               channel,
@@ -686,6 +723,7 @@ export function GuideScreen({
             ]}
           />
         )}
+        <TVFocusGuideView style={styles.grid} trapFocusRight={isTV}>
         <FlatList
           data={channels}
           keyExtractor={(item) => item.id}
@@ -705,6 +743,7 @@ export function GuideScreen({
           initialNumToRender={16}
           renderItem={renderRow}
         />
+        </TVFocusGuideView>
       </View>
     </>
   );
@@ -789,6 +828,8 @@ const GuideRow = memo(function GuideRow({
   onPreview,
   onOpen,
   onMeasureCells,
+  onCellFocus,
+  focusKey,
 }: {
   channel: StoredChannel;
   programmes: readonly Programme[];
@@ -803,11 +844,18 @@ const GuideRow = memo(function GuideRow({
   onOpen: (channel: StoredChannel, cell: GuideCell) => void;
   /** Bredden paa tidsaksen. Traekket regner minutter ud af den. */
   onMeasureCells: (width: number) => void;
+  /** Tv: hvilken celle fjernbetjeningen staar paa, til pil-hoejre-bladring. */
+  onCellFocus: (channelId: string, index: number, count: number, key: string) => void;
+  /** Tv: cellen der skal have fokus efter et vinduesskift; null for alle andre raekker. */
+  focusKey: string | null;
 }) {
   const cells = useMemo(
     () => layoutRow(programmes, new Date(windowStartMs), new Date(windowEndMs), new Date(nowMs)),
     [programmes, windowStartMs, windowEndMs, nowMs],
   );
+  // Efter et vinduesskift: samme udsendelse hvis den stadig er i vinduet,
+  // ellers den foerste celle i raekken.
+  const targetIndex = focusKey === null ? -1 : Math.max(0, cells.findIndex((cell) => cell.key === focusKey));
   return (
     <View style={styles.row}>
       {/* Et tryk paa kanalen viser den i previewet; hold fingeren for
@@ -837,11 +885,12 @@ const GuideRow = memo(function GuideRow({
         style={styles.cells}
         onLayout={(event) => onMeasureCells(event.nativeEvent.layout.width)}
       >
-        {cells.map((cell) => {
+        {cells.map((cell, index) => {
           const action = guideAction(cell, channel, hasDialect);
           return (
             <TvPressable
               key={cell.key}
+              hasTVPreferredFocus={index === targetIndex}
               style={[
                 styles.cell,
                 { flexGrow: cell.weight, flexShrink: cell.weight, flexBasis: 0 },
@@ -852,7 +901,14 @@ const GuideRow = memo(function GuideRow({
               onPress={() => onOpen(channel, cell)}
               // Paa tv foelger previewet den raekke fjernbetjeningen staar
               // i, ogsaa naar den staar paa en udsendelse og ikke paa navnet.
-              onFocus={isTV ? () => onPreview(channel) : undefined}
+              onFocus={
+                isTV
+                  ? () => {
+                      onPreview(channel);
+                      onCellFocus(channel.id, index, cells.length, cell.key);
+                    }
+                  : undefined
+              }
             >
               {/* Uden maerket kan man ikke se hvilke afsluttede udsendelser
                   der kan startes igen. Cellerne ser ens ud, og forskellen —

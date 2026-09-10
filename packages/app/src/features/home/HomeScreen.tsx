@@ -349,12 +349,29 @@ export function HomeScreen({
     [],
   );
 
+  /**
+   * Tv: soejlen folder sig sammen til ikoner et par sekunder efter at
+   * fjernbetjeningen har forladt den, og folder sig ud igen naar den
+   * kommer tilbage (pil-venstre). Saa faar indholdet pladsen.
+   */
+  const [railOpen, setRailOpen] = useState(true);
+  const railTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onRailFocus = () => {
+    if (railTimer.current !== null) clearTimeout(railTimer.current);
+    railTimer.current = null;
+    setRailOpen(true);
+  };
+  const onRailBlur = () => {
+    if (railTimer.current !== null) clearTimeout(railTimer.current);
+    railTimer.current = setTimeout(() => setRailOpen(false), 2000);
+  };
+
   /* Fanerne: nederst paa telefonen, som en soejle til venstre paa tv. Fra
      en liste paa hundrede raekker var menulinjen nederst hundrede tryk
      vaek; til venstre er den ét tryk paa pil-venstre, som i de andre
      tv-apps. Se selectTab for hvad et fanevalg goer. */
   const tabs = (
-    <View style={isTV ? styles.rail : [styles.tabBar, { paddingBottom: theme.spacing.sm + (isTV ? 0 : insets.bottom) }]}>
+    <View style={isTV ? [styles.rail, !railOpen && styles.railFolded] : [styles.tabBar, { paddingBottom: theme.spacing.sm + (isTV ? 0 : insets.bottom) }]}>
       {TABS.map((item) => (
         <TvPressable
           key={item.id}
@@ -367,14 +384,24 @@ export function HomeScreen({
           // uden et tryk paa OK: saadan goer de andre tv-apps, og at
           // skulle trykke OK for at se hvad der er under Film foeltes
           // som om intet skete. Se focusTab for de to forbehold.
-          onFocus={isTV ? () => focusTab(item.id) : undefined}
+          onFocus={
+            isTV
+              ? () => {
+                  onRailFocus();
+                  focusTab(item.id);
+                }
+              : undefined
+          }
+          onBlur={isTV ? onRailBlur : undefined}
         >
           <Text style={[styles.tabIcon, tab === item.id && styles.tabActive]}>
             {item.icon}
           </Text>
-          <Text style={[styles.tabLabel, tab === item.id && styles.tabActive]}>
-            {item.label}
-          </Text>
+          {(!isTV || railOpen) && (
+            <Text style={[styles.tabLabel, tab === item.id && styles.tabActive]}>
+              {item.label}
+            </Text>
+          )}
         </TvPressable>
       ))}
     </View>
@@ -566,6 +593,7 @@ const styles = StyleSheet.create({
     borderRightWidth: StyleSheet.hairlineWidth,
     backgroundColor: theme.colors.surface,
   },
+  railFolded: { width: 44 },
   railTab: { alignItems: 'center', paddingVertical: theme.spacing.sm, marginHorizontal: theme.spacing.xs, marginBottom: theme.spacing.xs },
   tabBar: {
     flexDirection: 'row',
