@@ -86,13 +86,14 @@ at hver eneste stil skal ændres:
 
 | Konstant | Værdi | Hvad |
 |---|---|---|
-| `TV_SCALE` | 1,2 | Lærredet er 1/1,2 af fladen og skaleres 1,2 gange op |
+| `TV_SCALE` | 1,0 | Lærredet er fladen minus den frie kant; ingen forstørrelse. 1,5 og 1,2 var "alt for stort" fra sofaen |
 | `TV_SAFE_MARGIN` | 0,05 | 5 % fri kant hele vejen rundt (Googles anbefaling til overscan) |
 
 På en 1080p-skærm melder Android 960 × 540 punkter. Lærredet bliver
-`960 × 0,9 / 1,2 = 720` punkter bredt og `540 × 0,9 / 1,2 = 405` punkter
-højt. **405 punkter i højden er hele budgettet**, og menulinjen nederst
-tager de 50. Enhver skærm skal kunne stå i det.
+`960 × 0,9 = 864` punkter bredt og `540 × 0,9 = 486` punkter højt. Menuen
+er en søjle til venstre på 84 punkter, så indholdet har 780 × 486.
+**486 punkter i højden er hele budgettet.** Enhver skærm skal kunne stå
+i det.
 
 Regler der er blevet til af fejl:
 
@@ -113,9 +114,11 @@ Regler der er blevet til af fejl:
    kanaler"). `width > height` til landskab/portræt er i orden med begge.
 4. **Bred skærm er ≥ 700 punkter** (`guideTopLayout` i
    `features/guide/nowNext.ts`). Tv, tablet og foldet telefon slået ud er
-   brede: guiden og kanallisten lægger previewet til højre (42 % af bredden)
-   og giver listen hele højden. Smal skærm stabler. Brug samme grænse til
-   nye skærme, så tv'et ikke får sin egen, tredje opstilling.
+   brede: guiden og kanallisten lægger previewet til højre og giver listen
+   hele højden. Previewets andel er `sidePreviewFraction(isTV)`: 42 % på
+   tablet, 30 % på tv, for med 42 % fik guiden én række tilbage. Smal
+   skærm stabler. Brug samme grænse til nye skærme, så tv'et ikke får sin
+   egen, tredje opstilling.
 5. **Ingen faste højder fra vinduet.** Højder i procent af lærredet eller
    `flex` er fine; `Dimensions.get('window').height * 0.4` er ikke.
 
@@ -130,9 +133,19 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
   fra sofaen. På telefonen er den en almindelig `Pressable` uden ekstra
   stil.
 - **Alle tekstfelter er `TvTextInput`** af samme grund.
-- **Fanerne nederst skifter på fokus** (`onFocus` når `isTV`), ikke på OK.
-  Sådan gør de andre tv-apps, og "tryk OK for at se Film" føltes som om
-  intet skete.
+- **Fanerne er en søjle til venstre på tv** (`rail` i `HomeScreen`), ikke
+  en linje nederst: fra en liste på hundrede rækker var menulinjen nederst
+  hundrede tryk væk, til venstre er den ét tryk på pil-venstre. De skifter
+  på fokus (`onFocus` når `isTV`), ikke på OK. Sådan gør de andre tv-apps,
+  og "tryk OK for at se Film" føltes som om intet skete.
+- **Langt tryk på OK på en kanal er favorit til/fra.** Stjernen i rækken
+  er ikke fokuserbar på tv (`focusable={!isTV}`): et trykpunkt inde i et
+  trykpunkt var ikke til at ramme. Listerne siger det i en linje øverst.
+- **En Switch kan ikke få fokus.** Læg den i en `TvPressable`-række der
+  skifter den ved tryk, og sæt `focusable={false}` på selve kontakten.
+- **Intet træk-ned på tv.** "Hent kanaler, film og serier nu" står under
+  Indstillinger → Kilder, og fejler hentningen af film, står fejlen der
+  (`last_vod_error:<kilde>`), uden adresser.
 - **Enter i sidste felt sender formularen** (onboarding: "Forbind"), fordi
   knappen ellers ligger for langt væk at navigere til.
 - **Lange lister:** `FlatList` ruller selv til den fokuserede række. Rækker
@@ -151,7 +164,7 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
 2. Grep: `grep -rn "useWindowDimensions\|Dimensions.get" packages/app/src`
    må kun give `width > height`-brug. `grep -rn "<Pressable\|Touchable"`
    må ikke give noget uden for `TvPressable.tsx`.
-3. Regn højden ud for den skærm du har ændret: passer den i 405 − 50
+3. Regn højden ud for den skærm du har ændret: passer den i 486
    punkter, inklusive alle rækker knapper? Hvis ikke, læg ting ved siden
    af hinanden, når `useCanvasSize().width ≥ 700`.
 4. Byg med `tv` slået til, og bed om et foto (eller adb-skærmbillede) af
@@ -171,6 +184,11 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
 | Tv-plugin går ned i prebuild | `EXPO_TV: ''` | `'1'`/`'0'` |
 | APK'en er en telefon-APK | Pluginet kørte ikke | Workflowets manifest-tjek fejler bygget |
 | Trailere "kan ikke vises" | `webViewMissing` gjaldt alle tv | Kun tvOS mangler WebView; Android TV har den |
+| Guiden viser én række | Preview 42 % af bredden åd højden | 30 % på tv, bladre- og dagsknapper på én linje |
+| Menuen nederst kan ikke nås | Hundrede rækker mellem listen og menuen | Menuen som søjle til venstre |
+| Favorit kan ikke fjernes | Stjernen var et trykpunkt inde i rækken | Langt tryk på OK |
+| Film-fanen tom, forsiden mangler rækker | VOD-hentningen fejlede stille | Fejlen gemmes og vises under Kilder; "Hent"-knap |
+| Indstillinger kan ikke rulles helt ned | Switch-rækken kunne ikke få fokus | Rækken er en `TvPressable` |
 
 ## 7. Hvad der ikke er gjort
 
@@ -181,9 +199,9 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
 - **Emulator i byggekæden.** Et Android TV-emulatorjob på GitHub, der
   installerer APK'en og tager skærmbilleder, ville have fanget alle fejlene
   i afsnit 6 før de nåede fjernsynet. Ikke sat op endnu.
-- **Skriftstørrelsen** er valgt på øjemål fra fotos. Hvis 1,2 er for småt
-  fra sofaen, er `TV_SCALE` det eneste sted der skal ændres, men hver
-  tiendedel koster højde på lærredet.
+- **Skriftstørrelsen** er valgt på øjemål fra fotos. 1,0 er Googles
+  anbefaling; skal den op, er `TV_SCALE` det eneste sted der skal ændres,
+  men hver tiendedel koster højde på lærredet.
 - **Google Play.** Kræver AAB, egen signeringsnøgle og tv-gennemgang hos
   Google (bl.a. banner, fokus på alt, ingen krav om berøring). Se
   `docs/BUILD.md`.

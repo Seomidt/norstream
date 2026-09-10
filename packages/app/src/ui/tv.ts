@@ -15,12 +15,13 @@ export const isTV: boolean = Platform.isTV === true;
  * Saa er skrift, logoer og afstande stoerre end paa en telefon uden at
  * hver eneste stil skal aendres, og laesbar fra sofaen.
  *
- * 1,2 og ikke 1,5: med 1,5 blev laerredet kun 324 punkter hoejt paa en
- * 1080p-skaerm, og guiden med preview, dagsknapper og tidslinje fik ingen
- * plads til selve gitteret. Med 1,2 er laerredet 720 x 405 punkter, og
- * skriften er stadig halvanden gang Googles mindstemaal for tv.
+ * 1,0: med 1,5 blev laerredet kun 324 punkter hoejt paa en 1080p-skaerm,
+ * og guiden fik ingen plads til gitteret; med 1,2 var "alt stadig for
+ * stort" fra sofaen. Med 1,0 er laerredet 864 x 486 punkter (efter den
+ * frie kant), og skriften paa 14 punkter er praecis Googles anbefaling
+ * til brodtekst paa tv. Under 1,0 bliver den mindre end mindstemaalet.
  */
-export const TV_SCALE = 1.2;
+export const TV_SCALE = 1.0;
 
 /**
  * Fri kant hele vejen rundt paa tv, som andel af skaermen.

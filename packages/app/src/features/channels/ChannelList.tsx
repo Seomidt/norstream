@@ -18,8 +18,8 @@ import { restartFilterEnabled, setRestartFilterEnabled, subscribeRestartFilter }
 import { ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
-import { useCanvasSize } from '../../ui/tv.js';
-import { SIDE_PREVIEW_FRACTION, guideTopLayout } from '../guide/nowNext.js';
+import { isTV, useCanvasSize } from '../../ui/tv.js';
+import { guideTopLayout, sidePreviewFraction } from '../guide/nowNext.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { MiniPreview } from '../preview/MiniPreview.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
@@ -219,6 +219,7 @@ export function ChannelList({
       {/* Er filteret slaaet til, staar raekken altid — ogsaa i en liste hvor
           ingen kanal kan startes forfra. Foer forsvandt raekken netop dér, og
           listen stod tom uden at sige hvorfor: "der mangler en masse kanaler". */}
+      {isTV && <Text style={styles.tvHint}>Hold OK nede på en kanal for at tilføje eller fjerne den som favorit.</Text>}
       {allowRestartFilter && (restartable > 0 || restartOnly) && (
         <TvPressable style={[styles.filter, restartOnly && styles.filterOn]} onPress={toggleRestartOnly} hitSlop={6}>
           <Text style={[styles.filterText, restartOnly && styles.filterTextOn]}>
@@ -250,7 +251,13 @@ export function ChannelList({
             onPress={() => {
               void open(item);
             }}
-            onLongPress={onLongPress === undefined ? undefined : () => onLongPress(item)}
+            // Paa tv er et langt tryk paa OK favorit til/fra: stjernen som
+            // eget trykpunkt inde i raekken var ikke til at ramme med
+            // fjernbetjeningen. Logovalget (langt tryk paa telefonen) er
+            // ikke noget man goer fra sofaen.
+            onLongPress={
+              isTV ? () => onToggleFavorite(item) : onLongPress === undefined ? undefined : () => onLongPress(item)
+            }
             delayLongPress={400}
           >
             <ChannelLogo uris={item.logoUrls} name={item.name} memoryKey={item.id} />
@@ -263,7 +270,7 @@ export function ChannelList({
                 {nowTitles[item.id] ?? 'Ingen programdata'}
               </Text>
             </View>
-            <TvPressable hitSlop={12} onPress={() => onToggleFavorite(item)}>
+            <TvPressable hitSlop={12} focusable={!isTV} onPress={() => onToggleFavorite(item)}>
               <Text style={item.isFavorite ? styles.starOn : styles.starOff}>★</Text>
             </TvPressable>
           </TvPressable>
@@ -271,7 +278,7 @@ export function ChannelList({
       />
       </View>
       {sideBySide && previewEnabled && (
-        <View style={{ width: `${Math.round(SIDE_PREVIEW_FRACTION * 100)}%` }}>{preview}</View>
+        <View style={{ width: `${Math.round(sidePreviewFraction(isTV) * 100)}%` }}>{preview}</View>
       )}
     </View>
   );
@@ -309,6 +316,7 @@ const styles = StyleSheet.create({
   filterText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '600' },
   filterTextOn: { color: theme.colors.accent },
   nowTitle: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
+  tvHint: { color: theme.colors.textMuted, fontSize: 12, paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.xs },
   starOn: { color: theme.colors.accent, fontSize: 22 },
   starOff: { color: theme.colors.border, fontSize: 22 },
   empty: {

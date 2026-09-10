@@ -45,6 +45,17 @@ export const SIDE_BY_SIDE_MIN_WIDTH = 700;
 /** Previewets andel af bredden naar det staar til venstre. Resten er boksen. */
 export const SIDE_PREVIEW_FRACTION = 0.42;
 
+/**
+ * Previewets andel paa tv: mindre end paa en tablet, for hoejden er det
+ * knappe. Med 42 % af 780 punkter var previewet 184 punkter hoejt, og
+ * guiden fik én raekke tilbage. Med 30 % faar den fem.
+ */
+export const TV_SIDE_PREVIEW_FRACTION = 0.3;
+
+export function sidePreviewFraction(tv: boolean): number {
+  return tv ? TV_SIDE_PREVIEW_FRACTION : SIDE_PREVIEW_FRACTION;
+}
+
 export type GuideTopLayout = 'stacked' | 'side';
 
 export function guideTopLayout(width: number): GuideTopLayout {

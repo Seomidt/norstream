@@ -23,6 +23,8 @@ export async function syncVod(
 ): Promise<{ movies: number; series: number }> {
   const client = new XtreamClient(creds, fetchImpl);
   const result = { movies: 0, series: 0 };
+  /** Hvad der gik galt, til indstillingerne. Uden det saa et tomt filkatalog ud som "ikke hentet endnu" i det uendelige. */
+  const errors: string[] = [];
 
   try {
     // Efter hinanden, ikke samtidig: panelet tillader én forbindelse, og
@@ -32,8 +34,9 @@ export async function syncVod(
     await replaceVodCategories(db, sourceId, 'movie', categories);
     await replaceVodItems(db, sourceId, 'movie', movies);
     result.movies = movies.length;
-  } catch {
+  } catch (cause) {
     // Med vilje: se ovenfor.
+    errors.push(`film: ${describeError(cause)}`);
   }
 
   try {
@@ -42,12 +45,20 @@ export async function syncVod(
     await replaceVodCategories(db, sourceId, 'series', categories);
     await replaceVodItems(db, sourceId, 'series', series);
     result.series = series.length;
-  } catch {
+  } catch (cause) {
     // Med vilje.
+    errors.push(`serier: ${describeError(cause)}`);
   }
 
   await setSetting(db, `last_vod_sync_ms:${sourceId}`, String(now.getTime()));
+  await setSetting(db, `last_vod_error:${sourceId}`, errors.join(', '));
   return result;
+}
+
+/** Fejlen i ord, uden adresser: en panel-URL rummer brugernavn og kodeord. */
+export function describeError(cause: unknown): string {
+  const text = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
+  return text.replace(/https?:\/\/\S+/gi, '[adresse]').slice(0, 160);
 }
 
 export async function getLastVodSyncMs(db: SqlDatabase, sourceId: string): Promise<number | null> {

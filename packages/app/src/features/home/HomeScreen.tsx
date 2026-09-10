@@ -292,8 +292,38 @@ export function HomeScreen({
     setTab(id);
   };
 
+  /* Fanerne: nederst paa telefonen, som en soejle til venstre paa tv. Fra
+     en liste paa hundrede raekker var menulinjen nederst hundrede tryk
+     vaek; til venstre er den ét tryk paa pil-venstre, som i de andre
+     tv-apps. Se selectTab for hvad et fanevalg goer. */
+  const tabs = (
+    <View style={isTV ? styles.rail : [styles.tabBar, { paddingBottom: theme.spacing.sm + insets.bottom }]}>
+      {TABS.map((item) => (
+        <TvPressable
+          key={item.id}
+          style={isTV ? styles.railTab : styles.tab}
+          onPress={() => selectTab(item.id)}
+          // Paa tv skifter fanen naar fjernbetjeningen lander paa den,
+          // uden et tryk paa OK: saadan goer de andre tv-apps, og at
+          // skulle trykke OK for at se hvad der er under Film foeltes
+          // som om intet skete.
+          onFocus={isTV ? () => selectTab(item.id) : undefined}
+        >
+          <Text style={[styles.tabIcon, tab === item.id && styles.tabActive]}>
+            {item.icon}
+          </Text>
+          <Text style={[styles.tabLabel, tab === item.id && styles.tabActive]}>
+            {item.label}
+          </Text>
+        </TvPressable>
+      ))}
+    </View>
+  );
+
   return (
-    <View style={styles.container}>
+    <View style={isTV ? styles.containerTv : styles.container}>
+      {isTV && tabs}
+      <View style={styles.column}>
       {rejected && (
         <Notice
           notice={{
@@ -422,6 +452,7 @@ export function HomeScreen({
         {tab === 'settings' && pickingLogoFor === null && !showingLogos && !showingCheck && !showingSources && (
           <SettingsScreen
             session={session}
+            onRefresh={refresh}
             previewEnabled={previewEnabled}
             onPreviewEnabledChange={setPreviewEnabled}
             onOpenSources={() => setShowingSources(true)}
@@ -438,27 +469,7 @@ export function HomeScreen({
         )}
       </View>
 
-      <View style={[styles.tabBar, { paddingBottom: theme.spacing.sm + insets.bottom }]}>
-        {/* Se selectTab ovenfor for hvad et fanevalg goer. */}
-        {TABS.map((item) => (
-          <TvPressable
-            key={item.id}
-            style={styles.tab}
-            onPress={() => selectTab(item.id)}
-            // Paa tv skifter fanen naar fjernbetjeningen lander paa den,
-            // uden et tryk paa OK: saadan goer de andre tv-apps, og at
-            // skulle trykke OK for at se hvad der er under Film foeltes
-            // som om intet skete.
-            onFocus={isTV ? () => selectTab(item.id) : undefined}
-          >
-            <Text style={[styles.tabIcon, tab === item.id && styles.tabActive]}>
-              {item.icon}
-            </Text>
-            <Text style={[styles.tabLabel, tab === item.id && styles.tabActive]}>
-              {item.label}
-            </Text>
-          </TvPressable>
-        ))}
+      {!isTV && tabs}
       </View>
     </View>
   );
@@ -466,7 +477,17 @@ export function HomeScreen({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
+  containerTv: { flex: 1, flexDirection: 'row', backgroundColor: theme.colors.background },
+  column: { flex: 1 },
   body: { flex: 1 },
+  rail: {
+    width: 84,
+    paddingTop: theme.spacing.md,
+    borderRightColor: theme.colors.border,
+    borderRightWidth: StyleSheet.hairlineWidth,
+    backgroundColor: theme.colors.surface,
+  },
+  railTab: { alignItems: 'center', paddingVertical: theme.spacing.sm, marginHorizontal: theme.spacing.xs, marginBottom: theme.spacing.xs },
   tabBar: {
     flexDirection: 'row',
     borderTopColor: theme.colors.border,

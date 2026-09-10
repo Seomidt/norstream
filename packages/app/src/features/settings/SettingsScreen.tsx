@@ -15,6 +15,7 @@ import { deleteSource, listSources } from '../../storage/sources.js';
 import {
   clearLastSyncMs,
   getGoogleSearchFields,
+  getSetting,
   getHomeProviders,
   getStreamFormatSetting,
   getSubtitlePreference,
@@ -34,10 +35,13 @@ import { tmdbFetch } from '../../sync/tmdb.js';
 import { listTmdbProvidersWithUk } from '../../sync/tmdbHome.js';
 import { applyStreamFormatSetting } from '../player/format.js';
 import { theme } from '../../ui/theme.js';
+import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
   session: AppSession;
+  /** Henter kanaler, film og serier forfra. Paa tv er det den eneste vej: der er intet traek-ned. */
+  onRefresh: () => void;
   onOpenSources: () => void;
   /** Aabner listen over kanaler uden logo, hvor man kan vaelge selv. */
   onOpenLogos: () => void;
@@ -70,6 +74,7 @@ const STREAM_FORMATS: readonly { value: StreamFormatSetting; label: string }[] =
 
 export function SettingsScreen({
   session,
+  onRefresh,
   onOpenSources,
   onOpenLogos,
   onOpenCheck,
@@ -84,6 +89,8 @@ export function SettingsScreen({
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [streamFormat, setStreamFormat] = useState<StreamFormatSetting>('auto');
   const [vod, setVod] = useState<{ movies: number; series: number } | null>(null);
+  /** Hvad der gik galt sidst film og serier blev hentet, per kilde. Tom naar det gik godt. */
+  const [vodErrors, setVodErrors] = useState<string[]>([]);
   const [radio, setRadio] = useState<number | null>(null);
   /** Brugerens egen noegle til YouTubes Data API, til at soege efter trailere. */
   const [youtubeKey, setYoutubeKey] = useState('');
@@ -122,7 +129,13 @@ export function SettingsScreen({
     setSubtitles(preferredSubtitles);
     setVod(counts);
     setRadio(await countRadioChannels(session.db));
-  }, [session.db]);
+    const errors: string[] = [];
+    for (const access of session.sources) {
+      const error = await getSetting(session.db, `last_vod_error:${access.source.id}`);
+      if (error !== null && error.length > 0) errors.push(`${access.source.name}: ${error}`);
+    }
+    setVodErrors(errors);
+  }, [session.db, session.sources]);
 
   useEffect(() => {
     void load();
@@ -234,7 +247,9 @@ export function SettingsScreen({
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.sectionTitle}>Forhåndsvisning</Text>
-      <View style={styles.row}>
+      {/* Hele raekken kan trykkes: paa tv kan fjernbetjeningen ikke lande
+          paa en Switch, og saa kunne den hverken naas eller rulles til. */}
+      <TvPressable style={styles.row} onPress={() => void togglePreview(!previewEnabled)}>
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>Vis kanalen mens du bladrer</Text>
           <Text style={styles.rowHint}>
@@ -244,14 +259,26 @@ export function SettingsScreen({
         </View>
         <Switch
           value={previewEnabled}
+          focusable={false}
           onValueChange={(value) => {
             void togglePreview(value);
           }}
           trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
         />
-      </View>
+      </TvPressable>
 
       <Text style={styles.sectionTitle}>Kilder</Text>
+      <TvPressable style={styles.row} onPress={onRefresh}>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Hent kanaler, film og serier nu</Text>
+          <Text style={styles.rowHint}>
+            {isTV
+              ? 'Samme som træk-ned under Kanaler på telefonen. Tager et par minutter på et stort panel.'
+              : 'Samme som at trække ned under Kanaler.'}
+          </Text>
+        </View>
+        <Text style={styles.actionText}>Hent</Text>
+      </TvPressable>
       <TvPressable style={styles.row} onPress={onOpenSources}>
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>Paneler og M3U-lister</Text>
@@ -278,10 +305,13 @@ export function SettingsScreen({
         {vod === null
           ? ''
           : vod.movies + vod.series === 0
-            ? 'Ingen film eller serier hentet endnu. De følger med næste gang kanalerne opdateres.'
+            ? 'Ingen film eller serier hentet endnu. Tryk på "Hent" ovenfor, eller vent til næste gang kanalerne opdateres.'
             : `${vod.movies} film og ${vod.series} serier hentet fra dine kilder.`}
         {radio === null ? '' : ` ${radio} kanaler ser ud til at være radio (kategori eller navn med "radio").`}
       </Text>
+      {vodErrors.length > 0 && (
+        <Text style={styles.hint}>Sidste hentning af film og serier fejlede. {vodErrors.join(' · ')}</Text>
+      )}
 
       <Text style={styles.sectionTitle}>Kanallogoer</Text>
       <TvPressable style={styles.row} onPress={onOpenLogos}>

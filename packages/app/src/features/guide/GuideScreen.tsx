@@ -20,13 +20,13 @@ import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
-import { useCanvasSize } from '../../ui/tv.js';
+import { isTV, useCanvasSize } from '../../ui/tv.js';
 import { MiniPreview } from '../preview/MiniPreview.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
 import { ChannelDayScreen } from './ChannelDayScreen.js';
 import { NowNextBox } from './NowNextBox.js';
-import { SIDE_PREVIEW_FRACTION, guideTopLayout } from './nowNext.js';
+import { guideTopLayout, sidePreviewFraction } from './nowNext.js';
 import {
   DRAG_MAX_MINUTES,
   DRAG_MIN_MINUTES,
@@ -587,7 +587,7 @@ export function GuideScreen({
           venstre i 42 % af bredden, boksen ved siden af, og guiden faar
           resten af hoejden i stedet for to raekker. */}
       <View style={sideBySide ? styles.topSide : undefined}>
-        <View style={sideBySide ? { width: `${Math.round(SIDE_PREVIEW_FRACTION * 100)}%` } : undefined}>
+        <View style={sideBySide ? { width: `${Math.round(sidePreviewFraction(isTV) * 100)}%` } : undefined}>
           <MiniPreview
             session={session}
             channel={dayFor === null ? previewChannel : null}
