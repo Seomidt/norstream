@@ -166,6 +166,10 @@ export default function App() {
           width: canvasWidth,
           height: canvasHeight,
           backgroundColor: theme.colors.background,
+          // Intet maa tegnes uden for laerredet: en liste der loeb ud over
+          // kanten stod i den frie kant, ogsaa mens afspilleren daekkede
+          // laerredet ("jeg kan skimte menuen bag ved kanalen").
+          overflow: 'hidden' as const,
           transform: [
             { translateX: (frame.width - canvasWidth) / 2 },
             { translateY: (frame.height - canvasHeight) / 2 },

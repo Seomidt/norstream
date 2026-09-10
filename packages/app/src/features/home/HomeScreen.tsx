@@ -297,7 +297,7 @@ export function HomeScreen({
      vaek; til venstre er den ét tryk paa pil-venstre, som i de andre
      tv-apps. Se selectTab for hvad et fanevalg goer. */
   const tabs = (
-    <View style={isTV ? styles.rail : [styles.tabBar, { paddingBottom: theme.spacing.sm + insets.bottom }]}>
+    <View style={isTV ? styles.rail : [styles.tabBar, { paddingBottom: theme.spacing.sm + (isTV ? 0 : insets.bottom) }]}>
       {TABS.map((item) => (
         <TvPressable
           key={item.id}
@@ -478,8 +478,10 @@ export function HomeScreen({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   containerTv: { flex: 1, flexDirection: 'row', backgroundColor: theme.colors.background },
-  column: { flex: 1 },
-  body: { flex: 1 },
+  column: { flex: 1, overflow: 'hidden' },
+  // Klippes: paa tv stod listens sidste raekker oven i menulinjen og under
+  // laerredets kant. Paa telefonen laa det samme skjult under skaermens kant.
+  body: { flex: 1, overflow: 'hidden' },
   rail: {
     width: 84,
     paddingTop: theme.spacing.md,
