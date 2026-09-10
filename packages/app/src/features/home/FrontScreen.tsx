@@ -15,6 +15,7 @@ import type { AppSession } from '../../session.js';
 import { getChannel, listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { getNowNext } from '../../storage/programmes.js';
+import { ensureEpg } from '../../sync/epgCache.js';
 import { getHomeProviders, getLastChannelId, getTmdbApiKey } from '../../storage/settings.js';
 import type { HomeProvider } from '../../storage/settings.js';
 import { listVodItems } from '../../storage/vod.js';
@@ -108,6 +109,7 @@ export function FrontScreen({
   reloadToken,
 }: Props) {
   const [lastChannel, setLastChannel] = useState<StoredChannel | null>(null);
+  const [lastNow, setLastNow] = useState<Programme | null>(null);
   const [favourites, setFavourites] = useState<FavouriteNow[] | null>(null);
   const [inProgress, setInProgress] = useState<StoredVodItem[]>([]);
   const [newest, setNewest] = useState<StoredVodItem[]>([]);
@@ -128,18 +130,31 @@ export function FrontScreen({
       getTmdbApiKey(session.db),
       getHomeProviders(session.db),
     ]);
-    setLastChannel(lastId === null ? null : await getChannel(session.db, lastId));
-    setFavourites(
-      await Promise.all(
-        favouriteChannels.map(async (channel) => ({
-          channel,
-          now:
-            channel.epgChannelId === null
-              ? null
-              : (await getNowNext(session.db, channel.epgChannelId, now).catch(() => ({ now: null }))).now,
-        })),
-      ),
-    );
+    const last = lastId === null ? null : await getChannel(session.db, lastId);
+    // Opslaget sker paa kanalens eget id, som i kanallisten og guiden: det
+    // er det programtabellen er skrevet under. Foer blev der slaaet op paa
+    // epg_channel_id, som 87 % af kanalerne ikke har, saa kortene stod tomme.
+    const nowFor = async (channel: StoredChannel): Promise<Programme | null> =>
+      (await getNowNext(session.db, channel.id, now).catch(() => ({ now: null }))).now;
+    const withNow = async (channels: StoredChannel[]) =>
+      Promise.all(channels.map(async (channel) => ({ channel, now: await nowFor(channel) })));
+    setLastChannel(last);
+    setLastNow(last === null ? null : await nowFor(last));
+    setFavourites(await withNow(favouriteChannels));
+
+    // Bagefter: det panelet har, for de kanaler cachen ikke daekker. Cachen
+    // foerst, saa kortene ikke staar tomme mens panelet svarer.
+    const wanted = (last === null ? [] : [last]).concat(favouriteChannels);
+    void (async () => {
+      try {
+        const result = await ensureEpg(session.db, session.credsBySource, session.fetchImpl, wanted.map((c) => c.id));
+        if (result.fetched === 0) return;
+      } catch {
+        return;
+      }
+      setFavourites(await withNow(favouriteChannels));
+      if (last !== null) setLastNow(await nowFor(last));
+    })();
     setInProgress(progress);
     setNewest(added);
     setTmdbKey(key);
@@ -229,7 +244,7 @@ export function FrontScreen({
               width={POSTER_WIDTH}
               renderItem={(entry) =>
                 'channel' in entry ? (
-                  <ChannelCard channel={entry.channel} now={null} wide onPress={() => onSelect(entry.channel, favouriteChannels)} />
+                  <ChannelCard channel={entry.channel} now={lastNow} wide onPress={() => onSelect(entry.channel, favouriteChannels)} />
                 ) : (
                   <Poster item={entry.vod} width={POSTER_WIDTH} onOpen={onOpenVod} />
                 )
