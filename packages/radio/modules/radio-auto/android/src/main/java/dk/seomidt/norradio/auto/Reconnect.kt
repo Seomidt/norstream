@@ -26,9 +26,29 @@ import kotlin.math.min
 class PatientLoadErrors : DefaultLoadErrorHandlingPolicy() {
   override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
     val cause = loadErrorInfo.exception
+    // Til logsiden: hvad der gik galt, aldrig adressen (den rummer adgangskoder).
+    AutoLog.add("hentefejl ${loadErrorInfo.errorCount}: ${describe(cause)}")
     if (cause is HttpDataSource.InvalidResponseCodeException && cause.responseCode in 400..499) return C.TIME_UNSET
     if (cause !is IOException) return C.TIME_UNSET
     return min(1000L shl loadErrorInfo.errorCount.coerceIn(0, 4), MAX_DELAY_MS)
+  }
+
+  companion object {
+    /** Fejlen i ord uden adresse: klasse, HTTP-svar og den inderste aarsag. */
+    fun describe(error: Throwable?): String {
+      if (error == null) return "ukendt"
+      val parts = ArrayList<String>()
+      parts.add(error.javaClass.simpleName)
+      if (error is HttpDataSource.InvalidResponseCodeException) parts.add("http ${error.responseCode}")
+      var cause = error.cause
+      var depth = 0
+      while (cause != null && cause !== error && depth < 4) {
+        parts.add(cause.javaClass.simpleName + (cause.message?.takeIf { !it.contains("http", ignoreCase = true) }?.let { ": ${it.take(60)}" } ?: ""))
+        cause = cause.cause
+        depth++
+      }
+      return parts.joinToString(" <- ")
+    }
   }
 
   override fun getMinimumLoadableRetryCount(dataType: Int): Int = MAX_ATTEMPTS
@@ -114,12 +134,17 @@ class Reconnect(context: Context, private val player: ExoPlayer, private val mai
   }
 
   override fun onPlayerError(error: PlaybackException) {
-    if (wanted && retryable(error)) schedule()
+    val again = wanted && retryable(error)
+    AutoLog.add("afspilningsfejl ${error.errorCodeName}: ${PatientLoadErrors.describe(error.cause)}${if (again) " (proever igen)" else " (opgivet)"}")
+    if (again) schedule()
   }
 
   override fun onPlaybackStateChanged(playbackState: Int) {
     // En live-stream slutter ikke; "slut" betyder at serveren lukkede.
-    if (playbackState == Player.STATE_ENDED && wanted && player.mediaItemCount > 0) schedule()
+    if (playbackState == Player.STATE_ENDED && wanted && player.mediaItemCount > 0) {
+      AutoLog.add("streamen sluttede (serveren lukkede); proever igen")
+      schedule()
+    }
   }
 
   /** Netvaerk og timeouts proeves igen; en doed adresse, et ukendt format eller en manglende dekoder goer ikke. */
@@ -148,6 +173,7 @@ class Reconnect(context: Context, private val player: ExoPlayer, private val mai
     }
     attempt++
     val delay = min(FIRST_DELAY_MS shl (attempt - 1).coerceIn(0, 4), MAX_DELAY_MS)
+    AutoLog.add("genstart ${attempt} om ${delay / 1000} s")
     val task = Runnable {
       pending = null
       retryNow()
