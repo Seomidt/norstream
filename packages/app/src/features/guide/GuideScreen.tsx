@@ -579,15 +579,15 @@ export function GuideScreen({
     </ScrollView>
   );
 
-  return (
-    <View style={styles.container}>
-      {notice !== null && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
+  /* Preview og nu/naeste. Paa tv en soejle til hoejre; ellers over gitteret. */
+  const topBlock = (
+    <>
       {/* Smal skaerm: previewet som en stribe, boksen som to linjer under.
           Bred skaerm (foldet telefon slaaet ud, tablet, tv): previewet til
           venstre i 42 % af bredden, boksen ved siden af, og guiden faar
           resten af hoejden i stedet for to raekker. */}
-      <View style={sideBySide ? styles.topSide : undefined}>
-        <View style={sideBySide ? { width: `${Math.round(sidePreviewFraction(isTV) * 100)}%` } : undefined}>
+      <View style={isTV ? styles.topColumn : sideBySide ? styles.topSide : undefined}>
+        <View style={!isTV && sideBySide ? { width: `${Math.round(sidePreviewFraction(false) * 100)}%` } : undefined}>
           <MiniPreview
             session={session}
             channel={dayFor === null ? previewChannel : null}
@@ -600,7 +600,7 @@ export function GuideScreen({
           channel={previewChannel}
           programmes={previewProgrammes}
           now={now}
-          compact={!sideBySide}
+          compact={!sideBySide && !isTV}
           onOpen={(channel, programme) =>
             setSheet({
               channel,
@@ -613,6 +613,12 @@ export function GuideScreen({
         />
       </View>
 
+    </>
+  );
+
+  /* Bladreknapper, dagsknapper, tidslinje og selve gitteret. */
+  const guideBlock = (
+    <>
       {/* Bred skaerm: bladreknapperne og dagsknapperne deler én linje, saa
           gitteret faar hoejden. Paa tv er laerredet 405 punkter hoejt, og
           med preview, to linjer knapper og tidslinje var der ingen raekker
@@ -659,30 +665,6 @@ export function GuideScreen({
         )}
       </View>
 
-      {sheet !== null && (
-        <ProgrammeSheet
-          channel={sheet.channel}
-          programme={sheet.cell.programme}
-          state={sheet.cell.state}
-          hasDialect={hasDialectFor(sheet.channel)}
-          onClose={() => setSheet(null)}
-          onPlay={() => {
-            setSheet(null);
-            onPlay(sheet.channel, channels);
-          }}
-          onRestart={() => {
-            const programme = sheet.cell.programme;
-            setSheet(null);
-            if (programme !== null) onRestart(sheet.channel, programme);
-          }}
-          onDay={() => {
-            const channel = sheet.channel;
-            setSheet(null);
-            setDayFor(channel);
-          }}
-        />
-      )}
-
       {/* Traekfladen ligger om hele gitteret, ogsaa om kanalkolonnen: en
           finger der begynder paa et kanalnavn og trækker til siden mener
           stadig tiden. Bredden maales paa cellerne alene — se panResponder. */}
@@ -724,6 +706,51 @@ export function GuideScreen({
           renderItem={renderRow}
         />
       </View>
+    </>
+  );
+
+  return (
+    <View style={styles.container}>
+      {notice !== null && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
+      {/* Tv: gitteret til venstre med hele hoejden (otte-ni raekker i stedet
+          for fem), preview og programoplysninger i en soejle til hoejre.
+          Det var brugerens forslag, og det er saadan de fleste tv-guider
+          er bygget. Ellers preview og boks over gitteret. */}
+      {isTV ? (
+        <View style={styles.tvSplit}>
+          <View style={styles.tvLeft}>{guideBlock}</View>
+          <View style={styles.tvRight}>{topBlock}</View>
+        </View>
+      ) : (
+        <>
+          {topBlock}
+          {guideBlock}
+        </>
+      )}
+      {sheet !== null && (
+        <ProgrammeSheet
+          channel={sheet.channel}
+          programme={sheet.cell.programme}
+          state={sheet.cell.state}
+          hasDialect={hasDialectFor(sheet.channel)}
+          onClose={() => setSheet(null)}
+          onPlay={() => {
+            setSheet(null);
+            onPlay(sheet.channel, channels);
+          }}
+          onRestart={() => {
+            const programme = sheet.cell.programme;
+            setSheet(null);
+            if (programme !== null) onRestart(sheet.channel, programme);
+          }}
+          onDay={() => {
+            const channel = sheet.channel;
+            setSheet(null);
+            setDayFor(channel);
+          }}
+        />
+      )}
+
       {dayView}
     </View>
   );
@@ -901,6 +928,10 @@ function dayDeltaOf(start: Date, now: Date): number {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   topSide: { flexDirection: 'row', alignItems: 'stretch', backgroundColor: theme.colors.surface },
+  topColumn: { backgroundColor: theme.colors.surface },
+  tvSplit: { flex: 1, flexDirection: 'row' },
+  tvLeft: { flex: 1 },
+  tvRight: { width: '28%', marginLeft: theme.spacing.sm, backgroundColor: theme.colors.surface },
   dayOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.background },
   centered: {
     flex: 1,
