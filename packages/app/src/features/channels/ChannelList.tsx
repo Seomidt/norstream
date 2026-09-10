@@ -245,9 +245,10 @@ export function ChannelList({
           )
         }
         ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <TvPressable
             style={styles.row}
+            hasTVPreferredFocus={isTV && index === 0}
             onPress={() => {
               void open(item);
             }}

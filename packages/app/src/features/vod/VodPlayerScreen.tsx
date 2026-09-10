@@ -16,6 +16,7 @@ import { TrackPicker } from '../player/TrackPicker.js';
 import { LandscapePlayer, useLandscape } from '../player/Landscape.js';
 import { pickPreferredSubtitle, sameTrack, trackName } from '../player/tracks.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { isTV } from '../../ui/tv.js';
 
 interface Props {
   session: AppSession;
@@ -368,7 +369,7 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
   if (landscape) {
     return (
       <LandscapePlayer
-        video={<VideoView style={StyleSheet.absoluteFill} player={player} nativeControls />}
+        video={<VideoView style={StyleSheet.absoluteFill} player={player} nativeControls={!isTV} />}
         bar={actions}
         overlays={pickers}
       />

@@ -25,6 +25,7 @@ import { theme } from '../../ui/theme.js';
 import { ChannelList } from '../channels/ChannelList.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { isTV } from '../../ui/tv.js';
 
 interface Props {
   session: AppSession;
@@ -233,7 +234,7 @@ export function BrowseScreen({
           ListEmptyComponent={
             <Text style={styles.empty}>Ingen kategorier i dette land.</Text>
           }
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => (
             <View style={styles.row}>
               {/* Ogsaa inde i Øvrige: kategorierne der er havnet der er ikke
                   ens, og enkelte af dem *kan* stedfaestes ud fra kanalerne.
@@ -241,8 +242,12 @@ export function BrowseScreen({
               <Text style={styles.categoryFlag}>
                 {item.country?.flag ?? OTHER_COUNTRY_FLAG}
               </Text>
+              {/* Paa tv faar den foerste raekke fokus naar listen kommer
+                  frem: ellers mistede fjernbetjeningen sit fokus ved
+                  skiftet og landede i menuen. */}
               <TvPressable
                 style={styles.rowMain}
+                hasTVPreferredFocus={isTV && index === 0}
                 onPress={() =>
                   setLevel({ name: 'channels', country: level.country, category: item })
                 }
@@ -280,9 +285,10 @@ export function BrowseScreen({
             Ingen kanaler hentet endnu. Træk ned på favoritskærmen for at hente fra panelet.
           </Text>
         }
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <TvPressable
             style={styles.row}
+            hasTVPreferredFocus={isTV && index === 0}
             onPress={() => setLevel({ name: 'categories', country: item })}
             onLongPress={() => hide(item)}
           >

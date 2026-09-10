@@ -23,6 +23,7 @@ import {
 import type { StoredVodItem, VodCategorySummary } from '../../storage/vod.js';
 import { theme } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { isTV } from '../../ui/tv.js';
 import { ensurePoster, foundPoster, subscribePoster } from '../../ui/posterFill.js';
 
 /**
@@ -292,8 +293,8 @@ function Countries({
       data={groups}
       keyExtractor={(item) => item.key}
       ListEmptyComponent={<Text style={styles.empty}>Ingen {kindLabel(kind).toLowerCase()} fundet.</Text>}
-      renderItem={({ item }) => (
-        <TvPressable style={styles.row} onPress={() => onPick(item)}>
+      renderItem={({ item, index }) => (
+        <TvPressable style={styles.row} hasTVPreferredFocus={isTV && index === 0} onPress={() => onPick(item)}>
           <Text style={styles.flag}>{item.flag}</Text>
           <View style={styles.rowMain}>
             <Text style={styles.rowTitle}>{item.name}</Text>
@@ -337,8 +338,8 @@ function Categories({
     <FlatList
       data={categories}
       keyExtractor={(item) => item.id}
-      renderItem={({ item }) => (
-        <TvPressable style={styles.row} onPress={() => onPick(item)}>
+      renderItem={({ item, index }) => (
+        <TvPressable style={styles.row} hasTVPreferredFocus={isTV && index === 0} onPress={() => onPick(item)}>
           <Text style={styles.flag}>{item.country?.flag ?? OTHER_COUNTRY_FLAG}</Text>
           <View style={styles.rowMain}>
             <Text style={styles.rowTitle} numberOfLines={1}>
@@ -394,7 +395,7 @@ function PosterGrid({
       contentContainerStyle={styles.grid}
       columnWrapperStyle={styles.gridRow}
       ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
-      renderItem={({ item }) => <Poster item={item} onOpen={onOpen} />}
+      renderItem={({ item, index }) => <Poster item={item} onOpen={onOpen} preferFocus={isTV && index === 0} />}
     />
   );
 }
@@ -409,10 +410,13 @@ export function Poster({
   item,
   width,
   onOpen,
+  preferFocus = false,
 }: {
   item: StoredVodItem;
   width?: number;
   onOpen: (item: StoredVodItem) => void;
+  /** Paa tv: faar fokus naar gitteret kommer frem, saa fjernbetjeningen ikke lander i menuen. */
+  preferFocus?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
   const sizing = width === undefined ? styles.posterFlex : { width };
@@ -430,7 +434,7 @@ export function Poster({
       ? Math.min(1, item.positionSeconds / item.durationSeconds)
       : null;
   return (
-    <TvPressable style={[styles.poster, sizing]} onPress={() => onOpen(item)}>
+    <TvPressable style={[styles.poster, sizing]} hasTVPreferredFocus={preferFocus} onPress={() => onOpen(item)}>
       <View style={styles.posterFrame}>
         {posterUrl !== null ? (
           <Image

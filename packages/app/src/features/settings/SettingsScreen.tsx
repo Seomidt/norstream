@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { deriveCountry } from '@norstream/core';
 import type { AppSession } from '../../session.js';
@@ -42,6 +42,8 @@ interface Props {
   session: AppSession;
   /** Henter kanaler, film og serier forfra. Paa tv er det den eneste vej: der er intet traek-ned. */
   onRefresh: () => void;
+  /** Sand mens hentningen koerer; naar den slutter, laeses tallene igen. */
+  refreshing: boolean;
   onOpenSources: () => void;
   /** Aabner listen over kanaler uden logo, hvor man kan vaelge selv. */
   onOpenLogos: () => void;
@@ -75,6 +77,7 @@ const STREAM_FORMATS: readonly { value: StreamFormatSetting; label: string }[] =
 export function SettingsScreen({
   session,
   onRefresh,
+  refreshing,
   onOpenSources,
   onOpenLogos,
   onOpenCheck,
@@ -140,6 +143,14 @@ export function SettingsScreen({
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Hentningen er slut: tallene og en eventuel fejl skal staa her med det
+  // samme, ikke foerst naeste gang siden aabnes.
+  const wasRefreshing = useRef(false);
+  useEffect(() => {
+    if (wasRefreshing.current && !refreshing) void load();
+    wasRefreshing.current = refreshing;
+  }, [refreshing, load]);
 
   // Tjenesterne i landet hentes naar der er en noegle, og igen naar den skiftes.
   useEffect(() => {
@@ -268,16 +279,18 @@ export function SettingsScreen({
       </TvPressable>
 
       <Text style={styles.sectionTitle}>Kilder</Text>
-      <TvPressable style={styles.row} onPress={onRefresh}>
+      <TvPressable style={styles.row} disabled={refreshing} onPress={onRefresh}>
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>Hent kanaler, film og serier nu</Text>
           <Text style={styles.rowHint}>
-            {isTV
-              ? 'Samme som træk-ned under Kanaler på telefonen. Tager et par minutter på et stort panel.'
-              : 'Samme som at trække ned under Kanaler.'}
+            {refreshing
+              ? 'Henter fra panelet. Tallene nedenfor opdateres, når det er færdigt.'
+              : isTV
+                ? 'Samme som træk-ned under Kanaler på telefonen. Tager et par minutter på et stort panel.'
+                : 'Samme som at trække ned under Kanaler.'}
           </Text>
         </View>
-        <Text style={styles.actionText}>Hent</Text>
+        <Text style={styles.actionText}>{refreshing ? 'Henter…' : 'Hent'}</Text>
       </TvPressable>
       <TvPressable style={styles.row} onPress={onOpenSources}>
         <View style={styles.rowText}>

@@ -67,6 +67,9 @@ interface Props {
 
 export type Tab = 'home' | 'favorites' | 'browse' | 'guide' | 'vod' | 'radio' | 'settings';
 
+/** Tryk paa fjernbetjeningen der kan have flyttet fokus ind i eller langs menusoejlen. */
+const RAIL_KEYS = new Set(['left', 'longLeft', 'up', 'longUp', 'down', 'longDown']);
+
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'home', label: 'Hjem', icon: '⌂' },
   { id: 'favorites', label: 'Favoritter', icon: '★' },
@@ -299,14 +302,18 @@ export function HomeScreen({
    * foerste trykpunkt, som er Hjem i soejlen, og saa roeg man til
    * forsiden hver gang man fjernede en favorit.
    */
-  const lastKeyAt = useRef(0);
+  const lastKey = useRef<{ type: string; at: number }>({ type: '', at: 0 });
   useTVEventHandler((event) => {
-    if (event.eventType !== 'focus' && event.eventType !== 'blur') lastKeyAt.current = Date.now();
+    if (event.eventType !== 'focus' && event.eventType !== 'blur') lastKey.current = { type: event.eventType, at: Date.now() };
   });
   /** Fanen skifter foerst naar fjernbetjeningen har staaet stille et oejeblik: at koere hen over fire faner skal ikke montere fire skaerme. */
   const pendingTab = useRef<ReturnType<typeof setTimeout> | null>(null);
   const focusTab = (id: Tab) => {
-    if (Date.now() - lastKeyAt.current > 600) return;
+    // Kun pil-venstre (ind i soejlen) og op/ned (langs den) taeller. Et
+    // tryk paa OK i indholdet der skifter liste (land under Film) mistede
+    // ogsaa fokus, og saa roeg man til Hjem selv om man lige havde trykket.
+    const { type, at } = lastKey.current;
+    if (Date.now() - at > 600 || !RAIL_KEYS.has(type)) return;
     if (pendingTab.current !== null) clearTimeout(pendingTab.current);
     pendingTab.current = setTimeout(() => {
       pendingTab.current = null;
@@ -353,7 +360,10 @@ export function HomeScreen({
 
   return (
     <View style={isTV ? styles.containerTv : styles.container}>
-      {isTV && tabs}
+      {/* Soejlen staar til venstre, men sidst i traeet (row-reverse):
+          mister fjernbetjeningen sit fokus, giver Android det til det
+          foerste trykpunkt i traeet, og det skal vaere i indholdet, ikke
+          Hjem i menuen. */}
       <View style={styles.column}>
       {rejected && (
         <Notice
@@ -484,6 +494,7 @@ export function HomeScreen({
           <SettingsScreen
             session={session}
             onRefresh={refresh}
+            refreshing={refreshing}
             previewEnabled={previewEnabled}
             onPreviewEnabledChange={setPreviewEnabled}
             onOpenSources={() => setShowingSources(true)}
@@ -502,13 +513,14 @@ export function HomeScreen({
 
       {!isTV && tabs}
       </View>
+      {isTV && tabs}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
-  containerTv: { flex: 1, flexDirection: 'row', backgroundColor: theme.colors.background },
+  containerTv: { flex: 1, flexDirection: 'row-reverse', backgroundColor: theme.colors.background },
   column: { flex: 1, overflow: 'hidden' },
   // Klippes: paa tv stod listens sidste raekker oven i menulinjen og under
   // laerredets kant. Paa telefonen laa det samme skjult under skaermens kant.
