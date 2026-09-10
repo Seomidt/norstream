@@ -24,6 +24,7 @@ import type { StoredVodItem, VodCategorySummary } from '../../storage/vod.js';
 import { theme } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
+import { cameBySelect } from '../../ui/tvKeys.js';
 import { ensurePoster, foundPoster, subscribePoster } from '../../ui/posterFill.js';
 
 /**
@@ -299,7 +300,7 @@ function Countries({
       keyExtractor={(item) => item.key}
       ListEmptyComponent={<Text style={styles.empty}>Ingen {kindLabel(kind).toLowerCase()} fundet.</Text>}
       renderItem={({ item, index }) => (
-        <TvPressable style={styles.row} hasTVPreferredFocus={isTV && index === 0} onPress={() => onPick(item)}>
+        <TvPressable style={styles.row} hasTVPreferredFocus={isTV && index === 0 && cameBySelect()} onPress={() => onPick(item)}>
           <Text style={styles.flag}>{item.flag}</Text>
           <View style={styles.rowMain}>
             <Text style={styles.rowTitle}>{item.name}</Text>
@@ -344,7 +345,7 @@ function Categories({
       data={categories}
       keyExtractor={(item) => item.id}
       renderItem={({ item, index }) => (
-        <TvPressable style={styles.row} hasTVPreferredFocus={isTV && index === 0} onPress={() => onPick(item)}>
+        <TvPressable style={styles.row} hasTVPreferredFocus={isTV && index === 0 && cameBySelect()} onPress={() => onPick(item)}>
           <Text style={styles.flag}>{item.country?.flag ?? OTHER_COUNTRY_FLAG}</Text>
           <View style={styles.rowMain}>
             <Text style={styles.rowTitle} numberOfLines={1}>
@@ -404,7 +405,7 @@ function PosterGrid({
       contentContainerStyle={styles.grid}
       columnWrapperStyle={styles.gridRow}
       ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
-      renderItem={({ item, index }) => <Poster item={item} onOpen={onOpen} preferFocus={isTV && index === 0} />}
+      renderItem={({ item, index }) => <Poster item={item} onOpen={onOpen} preferFocus={isTV && index === 0 && cameBySelect()} />}
     />
   );
 }

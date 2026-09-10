@@ -19,6 +19,7 @@ import { ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
 import { isTV, useCanvasSize } from '../../ui/tv.js';
+import { cameBySelect } from '../../ui/tvKeys.js';
 import { guideTopLayout, sidePreviewFraction } from '../guide/nowNext.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { MiniPreview } from '../preview/MiniPreview.js';
@@ -40,6 +41,13 @@ interface Props {
   header?: ReactNode;
   /** Hold fingeren paa en kanal: vaelg dens logo selv. */
   onLongPress?: (channel: StoredChannel) => void;
+  /**
+   * Paa tv: den foerste raekke faar fokus naar listen kommer frem. Kun for
+   * lister man kommer til inde i indholdet (kategori -> kanaler); paa en
+   * fane der lige er valgt fra menuen ville det rykke fokus ud af menuen
+   * midt i at man koerer ned ad den.
+   */
+  focusFirst?: boolean;
   /**
    * Om filteret "kun kanaler med start forfra" gaelder her. Radio har intet
    * arkiv, saa filteret ville tage hele listen — det er slaaet fra dér.
@@ -69,6 +77,7 @@ export function ChannelList({
   onRefresh,
   header,
   onLongPress,
+  focusFirst = false,
   allowRestartFilter = true,
 }: Props) {
   const [nowTitles, setNowTitles] = useState<Record<string, string>>({});
@@ -252,7 +261,7 @@ export function ChannelList({
         renderItem={({ item, index }) => (
           <TvPressable
             style={styles.row}
-            hasTVPreferredFocus={isTV && index === 0}
+            hasTVPreferredFocus={isTV && focusFirst && index === 0 && cameBySelect()}
             onPress={() => {
               void open(item);
             }}

@@ -20,6 +20,7 @@ import type { AppSession } from './src/session.js';
 import type { StoredChannel } from './src/storage/channels.js';
 import { theme } from './src/ui/theme.js';
 import { CanvasContext, TV_SAFE_MARGIN, TV_SCALE, isTV } from './src/ui/tv.js';
+import { startTvKeyTracking } from './src/ui/tvKeys.js';
 import { TvPressable } from './src/ui/TvPressable.js';
 
 type Route =
@@ -153,6 +154,10 @@ export default function App() {
   // saa hoejt som hele fladen og efter skaleringen halvanden gang hoejere.
   // Derfor laa menulinjen nederst langt under skaermens kant, mens bredden
   // (tvaeraksen) passede. Laerredet laegges absolut, saa flex ikke blander sig.
+  useEffect(() => {
+    startTvKeyTracking();
+  }, []);
+
   const [frame, setFrame] = useState({ width: 0, height: 0 });
   // Afspilleren fylder hele fladen, uden fri kant: fjernsynet beskaerer
   // alligevel video i kanten, og en stribe af appens baggrund rundt om

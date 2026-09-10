@@ -26,6 +26,7 @@ import { ChannelList } from '../channels/ChannelList.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
+import { cameBySelect } from '../../ui/tvKeys.js';
 
 interface Props {
   session: AppSession;
@@ -203,6 +204,7 @@ export function BrowseScreen({
           previewEnabled={previewEnabled}
           previewHandle={previewHandle}
           onLongPress={onPickLogo}
+          focusFirst
         />
       </View>
     );
@@ -247,7 +249,7 @@ export function BrowseScreen({
                   skiftet og landede i menuen. */}
               <TvPressable
                 style={styles.rowMain}
-                hasTVPreferredFocus={isTV && index === 0}
+                hasTVPreferredFocus={isTV && index === 0 && cameBySelect()}
                 onPress={() =>
                   setLevel({ name: 'channels', country: level.country, category: item })
                 }
@@ -285,10 +287,9 @@ export function BrowseScreen({
             Ingen kanaler hentet endnu. Træk ned på favoritskærmen for at hente fra panelet.
           </Text>
         }
-        renderItem={({ item, index }) => (
+        renderItem={({ item }) => (
           <TvPressable
             style={styles.row}
-            hasTVPreferredFocus={isTV && index === 0}
             onPress={() => setLevel({ name: 'categories', country: item })}
             onLongPress={() => hide(item)}
           >

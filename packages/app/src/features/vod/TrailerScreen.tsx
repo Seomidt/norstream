@@ -6,7 +6,6 @@ import type { AppSession } from '../../session.js';
 import { getTmdbApiKey, getYoutubeApiKey } from '../../storage/settings.js';
 import { findTmdbTrailer, tmdbFetch } from '../../sync/tmdb.js';
 import { theme } from '../../ui/theme.js';
-import { isTV } from '../../ui/tv.js';
 import { MIN_TRAILER_SECONDS, findLongerTrailer, youtubeSearchUrl } from './trailerSearch.js';
 import { webView } from './webview.js';
 import { TvPressable } from '../../ui/TvPressable.js';
@@ -187,39 +186,15 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
       ? `https://www.youtube.com/watch?v=${source.id}`
       : youtubeSearchUrl(title, year);
 
-  // Paa tv aabnes traileren i YouTube-appen i stedet for i webvisningen:
-  // YouTubes indlejrede afspiller spiller ikke uden et tryk, og der er
-  // ingen finger. Google TV har YouTube-appen; Tilbage gaar hertil igen.
-  const openedOnTv = useRef(false);
-  useEffect(() => {
-    if (!isTV || openedOnTv.current || source.kind === 'looking') return;
-    openedOnTv.current = true;
-    Linking.openURL(openUrl).catch(() => setFailed(true));
-  }, [source, openUrl]);
-
   return (
     <View style={styles.container}>
       <View style={[styles.frame, source.kind === 'search' && styles.frameTall]}>
-        {isTV && !failed && (
-          <View style={styles.overlay}>
-            <Text style={styles.overlayText}>
-              {source.kind === 'looking'
-                ? 'Leder efter en trailer …'
-                : 'Traileren åbnes i YouTube-appen. Tryk Tilbage på fjernbetjeningen for at komme tilbage hertil.'}
-            </Text>
-          </View>
-        )}
-        {isTV && failed && (
-          <View style={styles.overlay}>
-            <Text style={styles.errorText}>YouTube-appen kunne ikke åbnes. Åbn YouTube på fjernsynet og søg efter «{title}».</Text>
-          </View>
-        )}
-        {!isTV && WebView === null && (
+        {WebView === null && (
           <View style={styles.overlay}>
             <Text style={styles.errorText}>Trailere fra YouTube kan ikke vises på Apple TV. Se den på telefonen.</Text>
           </View>
         )}
-        {!isTV && WebView !== null && !failed && webSource !== null && (
+        {WebView !== null && !failed && webSource !== null && (
           <WebView
             key={
               source.kind === 'search'
@@ -244,13 +219,13 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             }}
           />
         )}
-        {!isTV && (loading || source.kind === 'looking') && !failed && (
+        {(loading || source.kind === 'looking') && !failed && (
           <View style={styles.overlay}>
             <ActivityIndicator color={theme.colors.accent} />
             {source.kind === 'looking' && <Text style={styles.overlayText}>Leder efter en trailer …</Text>}
           </View>
         )}
-        {!isTV && failed && (
+        {failed && (
           <View style={styles.overlay}>
             <Text style={styles.errorText}>Traileren kunne ikke hentes fra YouTube.</Text>
           </View>
