@@ -20,6 +20,7 @@ import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { RememberedList } from '../../ui/RememberedList.js';
 import { theme } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { isTV } from '../../ui/tv.js';
 
 interface Props {
   session: AppSession;
@@ -253,7 +254,18 @@ export function InternetRadio({
       <TvPressable
         style={styles.stationRow}
         onPress={() => play(station, list)}
-        onLongPress={onPickLogo === undefined ? undefined : () => onPickLogo(toRadioChannel(station))}
+        // Paa tv er et langt tryk paa OK favorit til/fra: stjernen som eget
+        // trykpunkt inde i raekken kan ikke naas med fjernbetjeningen.
+        onLongPress={
+          isTV
+            ? () => {
+                void toggleFavourite(station);
+              }
+            : onPickLogo === undefined
+              ? undefined
+              : () => onPickLogo(toRadioChannel(station))
+        }
+        delayLongPress={400}
       >
         <ChannelLogo uris={radioLogoUrls(station)} name={station.name} memoryKey={`rb:${station.id}`} size={44} />
         <View style={styles.rowText}>
@@ -266,6 +278,7 @@ export function InternetRadio({
         </View>
         <TvPressable
           hitSlop={10}
+          focusable={!isTV}
           onPress={() => {
             void toggleFavourite(station);
           }}
@@ -332,6 +345,7 @@ export function InternetRadio({
   // ned ad siden; Mine stationer ved siden af med antallet.
   const tabs = (
     <View style={styles.tabs}>
+      {isTV && <Text style={styles.tvHint}>Hold OK nede på en station for at gemme eller fjerne den under Mine stationer.</Text>}
       <TvPressable style={[styles.tab, tab === 'countries' && styles.tabActive]} onPress={() => setTab('countries')}>
         <Text style={[styles.tabText, tab === 'countries' && styles.tabTextActive]}>Lande</Text>
       </TvPressable>
@@ -400,6 +414,7 @@ export function InternetRadio({
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  tvHint: { color: theme.colors.textMuted, fontSize: 12, marginLeft: theme.spacing.sm, alignSelf: 'center' },
   input: {
     backgroundColor: theme.colors.surface,
     borderColor: theme.colors.border,
