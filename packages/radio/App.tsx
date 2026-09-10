@@ -174,7 +174,7 @@ export default function App() {
               </Pressable>
             </View>
             <View style={styles.logSwitch}>
-              <Text style={styles.logSwitchText}>Sang og cover i bilen</Text>
+              <Text style={styles.logSwitchText}>Sang og cover (telefon og bil)</Text>
               <Switch
                 value={nowPlayingOn}
                 onValueChange={(value) => {
