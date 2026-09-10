@@ -18,6 +18,8 @@ import { restartFilterEnabled, setRestartFilterEnabled, subscribeRestartFilter }
 import { ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
+import { useCanvasSize } from '../../ui/tv.js';
+import { SIDE_PREVIEW_FRACTION, guideTopLayout } from '../guide/nowNext.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { MiniPreview } from '../preview/MiniPreview.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
@@ -71,6 +73,7 @@ export function ChannelList({
 }: Props) {
   const [nowTitles, setNowTitles] = useState<Record<string, string>>({});
   const [previewChannel, setPreviewChannel] = useState<StoredChannel | null>(null);
+  const sideBySide = guideTopLayout(useCanvasSize().width) === 'side';
 
   /**
    * Uret: kanalen kan startes forfra. Kraever baade at udbyderen siger den
@@ -191,18 +194,26 @@ export function ChannelList({
     );
   }
 
-  return (
-    <View style={styles.container}>
-      <MiniPreview
-        session={session}
-        channel={previewChannel}
-        enabled={previewEnabled}
-        handle={previewHandle}
-        onOpen={(channel) => {
-          void open(channel);
-        }}
-      />
+  const preview = (
+    <MiniPreview
+      session={session}
+      channel={previewChannel}
+      enabled={previewEnabled}
+      handle={previewHandle}
+      onOpen={(channel) => {
+        void open(channel);
+      }}
+    />
+  );
 
+  return (
+    <View style={sideBySide ? styles.containerSide : styles.container}>
+      {/* Smal skaerm: previewet som en stribe over listen. Bred skaerm
+          (tablet, tv): previewet til hoejre, listen til venstre med hele
+          hoejden. Foer fyldte 16:9 af laerredets bredde hele laerredets
+          hoejde paa tv, og listen laa under menulinjen: "ingen kanaler". */}
+      {!sideBySide && preview}
+      <View style={styles.container}>
       {/* Filteret staar over listen, ikke i hver foraelders header: det er
           det samme valg alle steder, og det huskes. */}
       {/* Er filteret slaaet til, staar raekken altid — ogsaa i en liste hvor
@@ -258,12 +269,17 @@ export function ChannelList({
           </TvPressable>
         )}
       />
+      </View>
+      {sideBySide && previewEnabled && (
+        <View style={{ width: `${Math.round(SIDE_PREVIEW_FRACTION * 100)}%` }}>{preview}</View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
+  containerSide: { flex: 1, flexDirection: 'row', alignItems: 'stretch', backgroundColor: theme.colors.background },
   centered: {
     flex: 1,
     alignItems: 'center',

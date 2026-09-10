@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, StyleSheet, Text, View } from 'react-native';
 // Ikke react-natives egen SafeAreaView: den gør **ingenting paa Android**.
 // Telefonens navigationslinje laa derfor oven i appens fanelinje, og det saa
@@ -19,7 +19,7 @@ import type { AppSession } from './src/session.js';
 
 import type { StoredChannel } from './src/storage/channels.js';
 import { theme } from './src/ui/theme.js';
-import { TV_SAFE_MARGIN, TV_SCALE, isTV } from './src/ui/tv.js';
+import { CanvasContext, TV_SAFE_MARGIN, TV_SCALE, isTV } from './src/ui/tv.js';
 import { TvPressable } from './src/ui/TvPressable.js';
 
 type Route =
@@ -173,9 +173,14 @@ export default function App() {
           ],
         }
       : styles.root;
+  const canvasSize = useMemo(
+    () => (isTV && frame.width > 0 ? { width: canvasWidth, height: canvasHeight } : null),
+    [canvasWidth, canvasHeight, frame.width],
+  );
 
   return (
     <SafeAreaProvider>
+    <CanvasContext.Provider value={canvasSize}>
       {/* Det yderste lag males, saa der ikke staar hvidt uden om laerredet, og maales. */}
       <View
         style={styles.root}
@@ -293,6 +298,7 @@ export default function App() {
       </SafeAreaView>
       </View>
       </View>
+    </CanvasContext.Provider>
     </SafeAreaProvider>
   );
 }

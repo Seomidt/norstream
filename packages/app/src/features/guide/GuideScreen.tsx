@@ -7,7 +7,6 @@ import {
   StyleSheet,
   Text,
   View,
-  useWindowDimensions,
 } from 'react-native';
 import { XtreamAuthError } from '@norstream/core';
 import type { Programme } from '@norstream/core';
@@ -21,6 +20,7 @@ import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
+import { useCanvasSize } from '../../ui/tv.js';
 import { MiniPreview } from '../preview/MiniPreview.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
@@ -144,8 +144,8 @@ export function GuideScreen({
    * boksen stadig sige hvad der sendes *nu*.
    */
   const [previewProgrammes, setPreviewProgrammes] = useState<Programme[]>([]);
-  const { width: screenWidth } = useWindowDimensions();
-  const sideBySide = guideTopLayout(screenWidth) === 'side';
+  // Laerredets bredde, ikke vinduets: paa tv er de ikke ens (se ui/tv.ts).
+  const sideBySide = guideTopLayout(useCanvasSize().width) === 'side';
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   /** Den celle bladet er aabnet for, eller null naar det er lukket. */
@@ -548,6 +548,37 @@ export function GuideScreen({
       </View>
     ) : null;
 
+  /* Dagsknapperne: ét tryk til "i morgen aften" i stedet for tolv traek.
+     Det er ogsaa den eneste maade guiden kan styres med en
+     fjernbetjening. I dag = nu; de andre dage lander paa kl. 20. */
+  const dayChips = (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.dayRow}
+      contentContainerStyle={styles.dayRowContent}
+    >
+        {DAY_CHIPS.map((chip) => {
+          const active =
+            chip.dayDelta === dayDeltaOf(window.start, now) &&
+            (chip.hour === null ? offsetMinutes === 0 || chip.dayDelta !== 0 : window.start.getHours() >= chip.hour);
+          return (
+            <TvPressable
+              key={`${chip.dayDelta}:${chip.hour ?? 'day'}`}
+              style={[styles.dayChip, active && styles.dayChipActive]}
+              onPress={() =>
+                setOffsetMinutes(chip.hour === null && chip.dayDelta === 0 ? 0 : offsetForTarget(now, chip.dayDelta, chip.hour ?? 20))
+              }
+            >
+              <Text style={[styles.dayChipText, active && styles.dayChipTextActive]}>
+                {chip.hour !== null ? chip.label : dayLabel(now, chip.dayDelta)}
+              </Text>
+            </TvPressable>
+          );
+        })}
+    </ScrollView>
+  );
+
   return (
     <View style={styles.container}>
       {notice !== null && <Notice notice={notice} onDismiss={() => setNotice(null)} />}
@@ -582,7 +613,11 @@ export function GuideScreen({
         />
       </View>
 
-      <View style={styles.toolbar}>
+      {/* Bred skaerm: bladreknapperne og dagsknapperne deler én linje, saa
+          gitteret faar hoejden. Paa tv er laerredet 405 punkter hoejt, og
+          med preview, to linjer knapper og tidslinje var der ingen raekker
+          tilbage. */}
+      <View style={sideBySide ? styles.toolbarSide : styles.toolbar}>
         <TvPressable
           hitSlop={12}
           onPress={() => setOffsetMinutes((value) => Math.max(DRAG_MIN_MINUTES, value - WINDOW_MINUTES))}
@@ -604,36 +639,10 @@ export function GuideScreen({
         >
           <Text style={styles.pager}>›</Text>
         </TvPressable>
+        {sideBySide && dayChips}
       </View>
+      {!sideBySide && dayChips}
 
-      {/* Dagsknapperne: ét tryk til "i morgen aften" i stedet for tolv traek.
-          Det er ogsaa den eneste maade guiden kan styres med en
-          fjernbetjening. I dag = nu; de andre dage lander paa kl. 20. */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.dayRow}
-        contentContainerStyle={styles.dayRowContent}
-      >
-        {DAY_CHIPS.map((chip) => {
-          const active =
-            chip.dayDelta === dayDeltaOf(window.start, now) &&
-            (chip.hour === null ? offsetMinutes === 0 || chip.dayDelta !== 0 : window.start.getHours() >= chip.hour);
-          return (
-            <TvPressable
-              key={`${chip.dayDelta}:${chip.hour ?? 'day'}`}
-              style={[styles.dayChip, active && styles.dayChipActive]}
-              onPress={() =>
-                setOffsetMinutes(chip.hour === null && chip.dayDelta === 0 ? 0 : offsetForTarget(now, chip.dayDelta, chip.hour ?? 20))
-              }
-            >
-              <Text style={[styles.dayChipText, active && styles.dayChipTextActive]}>
-                {chip.hour !== null ? chip.label : dayLabel(now, chip.dayDelta)}
-              </Text>
-            </TvPressable>
-          );
-        })}
-      </ScrollView>
 
       <View style={styles.timeHeader}>
         <View style={styles.timeSpacer} />
@@ -920,8 +929,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
   },
+  toolbarSide: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+  },
   pager: { color: theme.colors.accent, fontSize: 26, paddingHorizontal: theme.spacing.sm },
-  dayRow: { flexGrow: 0 },
+  dayRow: { flexGrow: 0, flexShrink: 1 },
   dayRowContent: { paddingHorizontal: theme.spacing.sm, paddingBottom: theme.spacing.xs, gap: theme.spacing.xs },
   dayChip: {
     paddingHorizontal: theme.spacing.sm + 2,

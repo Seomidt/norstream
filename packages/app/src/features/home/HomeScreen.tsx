@@ -12,6 +12,7 @@ import {
 import { syncAllSources } from '../../sync/syncAll.js';
 import { prefetchFavouritesEpg } from '../../sync/prefetchEpg.js';
 import { theme } from '../../ui/theme.js';
+import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { BrowseScreen } from '../browse/BrowseScreen.js';
 import type { Level } from '../browse/BrowseScreen.js';
@@ -277,6 +278,20 @@ export function HomeScreen({
     [onSelect],
   );
 
+  /** Skifter faneblad. Previewet lever i kanallisten; forlader man den, skal
+      forbindelsen slippes med det samme. */
+  const selectTab = (id: Tab) => {
+    if (id !== tab) {
+      void previewHandle.current?.release().catch(() => undefined);
+    }
+    if (id !== 'settings') {
+      setShowingSources(false);
+      setShowingLogos(false);
+      setPickingLogoFor(null);
+    }
+    setTab(id);
+  };
+
   return (
     <View style={styles.container}>
       {rejected && (
@@ -424,23 +439,17 @@ export function HomeScreen({
       </View>
 
       <View style={[styles.tabBar, { paddingBottom: theme.spacing.sm + insets.bottom }]}>
+        {/* Se selectTab ovenfor for hvad et fanevalg goer. */}
         {TABS.map((item) => (
           <TvPressable
             key={item.id}
             style={styles.tab}
-            onPress={() => {
-              // Previewet lever i kanallisten; forlader man den, skal
-              // forbindelsen slippes med det samme.
-              if (item.id !== tab) {
-                void previewHandle.current?.release().catch(() => undefined);
-              }
-              if (item.id !== 'settings') {
-                setShowingSources(false);
-                setShowingLogos(false);
-                setPickingLogoFor(null);
-              }
-              setTab(item.id);
-            }}
+            onPress={() => selectTab(item.id)}
+            // Paa tv skifter fanen naar fjernbetjeningen lander paa den,
+            // uden et tryk paa OK: saadan goer de andre tv-apps, og at
+            // skulle trykke OK for at se hvad der er under Film foeltes
+            // som om intet skete.
+            onFocus={isTV ? () => selectTab(item.id) : undefined}
           >
             <Text style={[styles.tabIcon, tab === item.id && styles.tabActive]}>
               {item.icon}
