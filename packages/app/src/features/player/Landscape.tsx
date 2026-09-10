@@ -6,6 +6,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { theme } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { isTV } from '../../ui/tv.js';
 
 /**
  * Landskab er fuld skaerm.
@@ -61,14 +62,19 @@ export function LandscapePlayer({
     <View style={styles.root}>
       <StatusBar hidden />
       <View style={StyleSheet.absoluteFill}>{video}</View>
-      <TvPressable
-        style={[styles.corner, { top: theme.spacing.sm + insets.top, right: theme.spacing.md + insets.right }]}
-        hitSlop={12}
-        onPress={() => setBarShown((value) => !value)}
-        accessibilityLabel="Vis knapper"
-      >
-        <Text style={styles.cornerText}>{barShown ? '×' : '⋯'}</Text>
-      </TvPressable>
+      {/* Hjoerneknappen er til fingre: paa tv viser ethvert tryk paa
+          fjernbetjeningen bjaelken, og en prik-knap oppe i hjoernet var
+          bare noget man undrede sig over. */}
+      {!isTV && (
+        <TvPressable
+          style={[styles.corner, { top: theme.spacing.sm + insets.top, right: theme.spacing.md + insets.right }]}
+          hitSlop={12}
+          onPress={() => setBarShown((value) => !value)}
+          accessibilityLabel="Vis knapper"
+        >
+          <Text style={styles.cornerText}>{barShown ? '×' : '⋯'}</Text>
+        </TvPressable>
+      )}
       {barShown && (
         <View
           style={[
