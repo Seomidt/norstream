@@ -101,7 +101,8 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
       if (list != null) for (i in 0 until list.length()) list.optString(i).takeIf { it.isNotEmpty() }?.let { logos.add(it) }
       val single = obj.optString("logoUrl")
       if (logos.isEmpty() && single.isNotEmpty()) logos.add(single)
-      return Station(id, obj.optString("name", id), url, logos, obj.optString("country"))
+      // Biblioteksfilen kan vaere skrevet foer navnene blev renset.
+      return Station(id, RadioBrowser.displayName(obj.optString("name", id)), url, logos, obj.optString("country"))
     }
 
     /**

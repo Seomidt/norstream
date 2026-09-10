@@ -130,7 +130,7 @@ export function sortCountries(countries: RadioCountry[]): RadioCountry[] {
 
 export function toRadioStation(raw: Record<string, unknown>): RadioStation | null {
   const id = typeof raw.stationuuid === 'string' ? raw.stationuuid : '';
-  const name = typeof raw.name === 'string' ? raw.name.replace(/\s+/g, ' ').trim() : '';
+  const name = typeof raw.name === 'string' ? displayName(raw.name.replace(/\s+/g, ' ').trim()) : '';
   const url = typeof raw.url_resolved === 'string' && raw.url_resolved.length > 0 ? raw.url_resolved : raw.url;
   if (id.length === 0 || name.length === 0 || typeof url !== 'string' || !/^https?:\/\//i.test(url)) return null;
   const favicon = typeof raw.favicon === 'string' && /^https?:\/\//i.test(raw.favicon) ? raw.favicon : null;
@@ -168,6 +168,34 @@ function stationsOf(body: unknown): RadioStation[] {
     stations.push(station);
   }
   return preferBestQuality(stations);
+}
+
+/**
+ * Ord der kun siger noget om streamen, ikke om stationen.
+ * Deles af displayName og qualityKey; RadioBrowser.kt i bilen har den samme.
+ */
+const STREAM_WORDS = '(?:hq|lq|hd|high|low|aac|aacp|aacplus|aac\\s?plus|he-?aac|aac\\+|mp3|ogg|opus|flac|stereo|mono|kbps|kbit|kb/s|k|stream)';
+const BITRATES = '(?:32|40|48|56|64|80|96|112|128|160|192|224|256|320)';
+
+/**
+ * Navnet som det vises: uden "(MP3)", "(AAC 96)", "[128 kbps]" og
+ * " - 320 kbps" i slutningen. Det er registrets maade at skelne udgaver
+ * paa, og appen vaelger selv udgaven; saa siger parentesen ikke andet end
+ * "vi har flere". "(Danmark)" og andet der ikke handler om streamen bliver
+ * staaende: det kan vaere en del af navnet.
+ */
+export function displayName(name: string): string {
+  const inside = `\\s*(?:${STREAM_WORDS}|${BITRATES})(?:[\\s/,+-]*(?:${STREAM_WORDS}|${BITRATES}))*\\s*`;
+  const trailingBracket = new RegExp(`\\s*[([]${inside}[)\\]]\\s*$`, 'i');
+  const trailingWords = new RegExp(`(?:\\s+[-–|·]\\s*|\\s+)${BITRATES}\\s?(?:kbps|kbit|kb/s|k)\\b\\s*$`, 'i');
+  const trailingCodec = new RegExp(`(?:\\s+[-–|·]\\s*|\\s+)(?:mp3|aac\\+?|aacplus|he-?aac|ogg|opus|flac)\\s*$`, 'i');
+  let out = name.trim();
+  for (;;) {
+    const next = out.replace(trailingBracket, '').replace(trailingWords, '').replace(trailingCodec, '').trim();
+    if (next === out || next.length === 0) break;
+    out = next;
+  }
+  return out.length === 0 ? name.trim() : out;
 }
 
 /**

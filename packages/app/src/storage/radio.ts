@@ -1,5 +1,5 @@
 import type { RadioStation } from '../sync/radioBrowser.js';
-import { preferBestQuality } from '../sync/radioBrowser.js';
+import { displayName, preferBestQuality } from '../sync/radioBrowser.js';
 import { withTransaction } from './transaction.js';
 import type { SqlDatabase } from './types.js';
 
@@ -23,7 +23,9 @@ function toStation(row: StationRow): RadioStation {
   return {
     id: row.id,
     country: row.country,
-    name: row.name,
+    // Ogsaa her, ikke kun ved hentning: raekker fra foer rensningen ligger i
+    // cachen i op til en uge.
+    name: displayName(row.name),
     url: row.url,
     logoUrl: row.logo_url,
     homepage: row.homepage,

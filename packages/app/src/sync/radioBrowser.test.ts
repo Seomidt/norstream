@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  displayName,
   fetchRadioCountries,
   fetchRadioStations,
   homepageIconUrl,
@@ -206,5 +207,23 @@ describe('qualityKey og preferBestQuality', () => {
   it('uden kendt bitrate beholdes den mest stemte (foerste)', () => {
     const list = [st('a', 'Radio X', 0, 900), st('b', 'Radio X HQ', 0, 40)];
     expect(preferBestQuality(list).map((s) => s.id)).toEqual(['a']);
+  });
+});
+
+describe('displayName', () => {
+  it('fjerner det der kun siger noget om streamen, i slutningen', () => {
+    expect(displayName('DR P3 (MP3)')).toBe('DR P3');
+    expect(displayName('DR P3 (AAC 96)')).toBe('DR P3');
+    expect(displayName('Radio ABC [128 kbps]')).toBe('Radio ABC');
+    expect(displayName('PartyFM - 320 kbps')).toBe('PartyFM');
+    expect(displayName('Nova (MP3) (128k)')).toBe('Nova');
+    expect(displayName('Classic FM MP3')).toBe('Classic FM');
+    expect(displayName('Skala FM (mp3 128)')).toBe('Skala FM');
+  });
+  it('lader navnet staa naar parentesen ikke handler om streamen', () => {
+    expect(displayName('Radio 100')).toBe('Radio 100');
+    expect(displayName('The Voice 128')).toBe('The Voice 128');
+    expect(displayName('Radio Soft (Odense)')).toBe('Radio Soft (Odense)');
+    expect(displayName('(MP3)')).toBe('(MP3)');
   });
 });

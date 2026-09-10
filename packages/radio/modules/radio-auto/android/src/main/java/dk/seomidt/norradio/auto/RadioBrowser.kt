@@ -120,7 +120,7 @@ object RadioBrowser {
     for (i in 0 until array.length()) {
       val raw = array.optJSONObject(i) ?: continue
       val id = raw.optString("stationuuid")
-      val name = raw.optString("name").replace(Regex("\\s+"), " ").trim()
+      val name = displayName(raw.optString("name").replace(Regex("\\s+"), " ").trim())
       val resolved = raw.optString("url_resolved")
       val url = if (resolved.isNotEmpty()) resolved else raw.optString("url")
       if (id.isEmpty() || name.isEmpty() || !isHttp(url) || isKnownDeadUrl(url) || !seen.add(id)) continue
@@ -150,6 +150,27 @@ object RadioBrowser {
 
   /** Som streamScore i appen: direkte stream foer HLS, saa bitrate. */
   fun streamScore(url: String, bitrate: Int): Int = (if (isHlsUrl(url)) 0 else 1_000_000) + maxOf(0, bitrate)
+
+  private const val STREAM_WORDS = "(?:hq|lq|hd|high|low|aac|aacp|aacplus|aac\\s?plus|he-?aac|aac\\+|mp3|ogg|opus|flac|stereo|mono|kbps|kbit|kb/s|k|stream)"
+  private const val BITRATES = "(?:32|40|48|56|64|80|96|112|128|160|192|224|256|320)"
+  private val TRAILING_BRACKET =
+    Regex("\\s*[(\\[]\\s*(?:$STREAM_WORDS|$BITRATES)(?:[\\s/,+-]*(?:$STREAM_WORDS|$BITRATES))*\\s*[)\\]]\\s*$", RegexOption.IGNORE_CASE)
+  private val TRAILING_BITRATE = Regex("(?:\\s+[-–|·]\\s*|\\s+)$BITRATES\\s?(?:kbps|kbit|kb/s|k)\\b\\s*$", RegexOption.IGNORE_CASE)
+  private val TRAILING_CODEC = Regex("(?:\\s+[-–|·]\\s*|\\s+)(?:mp3|aac\\+?|aacplus|he-?aac|ogg|opus|flac)\\s*$", RegexOption.IGNORE_CASE)
+
+  /**
+   * Navnet som det vises: uden "(MP3)", "(AAC 96)", "[128 kbps]" i
+   * slutningen. Samme regler som displayName i appen; se den for hvorfor.
+   */
+  fun displayName(name: String): String {
+    var out = name.trim()
+    while (true) {
+      val next = out.replace(TRAILING_BRACKET, "").replace(TRAILING_BITRATE, "").replace(TRAILING_CODEC, "").trim()
+      if (next == out || next.isEmpty()) break
+      out = next
+    }
+    return if (out.isEmpty()) name.trim() else out
+  }
 
   /** Samme navn uden bitrate, codec og "HQ" — som qualityKey i appen. */
   fun qualityKey(name: String): String =
