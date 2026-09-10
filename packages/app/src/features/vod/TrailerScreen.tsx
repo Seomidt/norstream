@@ -6,6 +6,7 @@ import type { AppSession } from '../../session.js';
 import { getTmdbApiKey, getYoutubeApiKey } from '../../storage/settings.js';
 import { findTmdbTrailer, tmdbFetch } from '../../sync/tmdb.js';
 import { theme } from '../../ui/theme.js';
+import { isTV } from '../../ui/tv.js';
 import { MIN_TRAILER_SECONDS, findLongerTrailer, youtubeSearchUrl } from './trailerSearch.js';
 import { webView } from './webview.js';
 import { TvPressable } from '../../ui/TvPressable.js';
@@ -40,7 +41,9 @@ type Source =
   | { kind: 'measured'; id: string }
   | { kind: 'plain'; id: string }
   | { kind: 'search'; url: string }
-  | { kind: 'looking' };
+  | { kind: 'looking' }
+  /** Tv: intet fundet, og ingen soegeside at vise. */
+  | { kind: 'none' };
 
 /**
  * Traileren, inde i appen.
@@ -142,6 +145,15 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         `${reason} ${tmdbTried.current ? 'TMDB kender ingen trailer til titlen, så' : 'Uden en TMDB-nøgle under Indstillinger'} vælger du selv her.`,
       );
     }
+    // Paa tv er YouTubes soegeside inde i appen ikke til at bruge med en
+    // fjernbetjening: den saa ud som "en masse forslag, som om man ikke
+    // har noget". Der siges i stedet hvad der er proevet, og knappen
+    // Aabn i YouTube aabner soegningen i YouTube-appen.
+    if (isTV) {
+      setLoading(false);
+      setSource({ kind: 'none' });
+      return;
+    }
     setLoading(true);
     setSource({ kind: 'search', url: youtubeSearchUrl(title, year) });
   }
@@ -199,8 +211,8 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             key={
               source.kind === 'search'
                 ? source.url
-                : source.kind === 'looking'
-                  ? 'looking'
+                : source.kind === 'looking' || source.kind === 'none'
+                  ? source.kind
                   : `${source.kind}:${source.id}`
             }
             source={webSource}
@@ -218,6 +230,11 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
               setLoading(false);
             }}
           />
+        )}
+        {source.kind === 'none' && (
+          <View style={styles.overlay}>
+            <Text style={styles.errorText}>Ingen trailer fundet til «{title}». Prøv "Åbn i YouTube" nedenfor.</Text>
+          </View>
         )}
         {(loading || source.kind === 'looking') && !failed && (
           <View style={styles.overlay}>

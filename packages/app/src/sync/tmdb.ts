@@ -218,18 +218,27 @@ export async function findTmdbTrailer(
   }
 }
 
-/** Den bedste af TMDBs videoer: YouTube, af typen Trailer, officiel foer uofficiel, nyest foerst. */
+/** Videotyper der duer som trailer, bedste foerst. Mange titler har kun en teaser eller et klip hos TMDB. */
+const VIDEO_TYPES = ['Trailer', 'Teaser', 'Featurette', 'Clip'];
+
+/** Den bedste af TMDBs videoer: YouTube, helst en Trailer (ellers Teaser, Featurette, Clip), officiel foer uofficiel, nyest foerst. */
 export function pickTmdbTrailer(videos: readonly Video[]): TmdbTrailer | null {
-  const trailers = videos.filter(
+  const usable = videos.filter(
     (video) =>
-      video.site === 'YouTube' && video.type === 'Trailer' && typeof video.key === 'string' && video.key.length > 0,
+      video.site === 'YouTube' &&
+      typeof video.type === 'string' &&
+      VIDEO_TYPES.includes(video.type) &&
+      typeof video.key === 'string' &&
+      video.key.length > 0,
   );
-  trailers.sort((a, b) => {
+  usable.sort((a, b) => {
+    const rank = VIDEO_TYPES.indexOf(a.type ?? '') - VIDEO_TYPES.indexOf(b.type ?? '');
+    if (rank !== 0) return rank;
     const official = Number(b.official === true) - Number(a.official === true);
     if (official !== 0) return official;
     return (b.published_at ?? '').localeCompare(a.published_at ?? '');
   });
-  const best = trailers[0];
+  const best = usable[0];
   if (best === undefined || best.key === undefined) return null;
-  return { youtubeId: best.key, name: best.name ?? 'Trailer' };
+  return { youtubeId: best.key, name: best.name ?? best.type ?? 'Trailer' };
 }

@@ -84,8 +84,10 @@ describe('pickTmdbTrailer', () => {
     expect(picked).toEqual({ youtubeId: 'new', name: 'Trailer 2' });
   });
 
-  it('giver null naar der kun er teasere og klip', () => {
-    expect(pickTmdbTrailer([{ key: 'x', site: 'YouTube', type: 'Teaser' }, { key: 'y', site: 'YouTube', type: 'Clip' }])).toBeNull();
+  it('tager teaseren foer klippet naar der ingen trailer er, og null uden videoer', () => {
+    // Foer gav den null her, og saa endte man paa YouTubes soegeside. En
+    // teaser er bedre end ingenting.
+    expect(pickTmdbTrailer([{ key: 'x', site: 'YouTube', type: 'Teaser' }, { key: 'y', site: 'YouTube', type: 'Clip' }])?.youtubeId).toBe('x');
     expect(pickTmdbTrailer([])).toBeNull();
   });
 });
@@ -141,5 +143,13 @@ describe('tmdbAuth', () => {
     await searchTmdb(fetchImpl, 'eyJtoken', 'movie', 'Dune');
     expect(fetchImpl.calls[0]).not.toContain('api_key');
     expect(fetchImpl.headers[0]).toEqual({ Authorization: 'Bearer eyJtoken' });
+  });
+});
+
+describe('pickTmdbTrailer uden en rigtig trailer', () => {
+  it('tager en teaser naar der ingen trailer er, og et klip som sidste udvej', () => {
+    expect(pickTmdbTrailer([{ site: 'YouTube', type: 'Clip', key: 'c' }, { site: 'YouTube', type: 'Teaser', key: 't', name: 'Teaser' }])).toEqual({ youtubeId: 't', name: 'Teaser' });
+    expect(pickTmdbTrailer([{ site: 'YouTube', type: 'Clip', key: 'c' }])?.youtubeId).toBe('c');
+    expect(pickTmdbTrailer([{ site: 'Vimeo', type: 'Trailer', key: 'v' }])).toBeNull();
   });
 });
