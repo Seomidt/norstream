@@ -144,25 +144,35 @@ export default function App() {
   // Paa tv tegnes alt i et mindre laerred og skaleres op: se ui/tv.ts.
   // Skaleringen sker om laerredets midte, saa det skubbes foerst ind i
   // fladens midte (positivt: laerredet er mindre end fladen) og vokser
-  // derfra ud til kanterne. Fladen maales paa det yderste lag frem for at
-  // tages fra vinduesstoerrelsen: boksen meldte et vindue der var hoejere
-  // end det synlige, og saa laa menulinjen nederst under skaermens kant.
+  // derfra ud til kanterne. Fladen maales paa det yderste lag.
   // Laerredet holder TV_SAFE_MARGIN fri langs alle kanter: fjernsynet kan
   // beskaere billedet, og saa skal det yderste ikke vaere noget der bruges.
+  //
+  // Laerredet maa IKKE have flex: 1 sammen med hoejden: i Yoga slaar
+  // flex: 1 (flexBasis 0 + vokse) den faste hoejde, saa laerredet blev lige
+  // saa hoejt som hele fladen og efter skaleringen halvanden gang hoejere.
+  // Derfor laa menulinjen nederst langt under skaermens kant, mens bredden
+  // (tvaeraksen) passede. Laerredet laegges absolut, saa flex ikke blander sig.
   const [frame, setFrame] = useState({ width: 0, height: 0 });
   const visible = 1 - 2 * TV_SAFE_MARGIN;
+  const canvasWidth = (frame.width * visible) / TV_SCALE;
+  const canvasHeight = (frame.height * visible) / TV_SCALE;
   const canvas =
     isTV && frame.width > 0
       ? {
-          width: (frame.width * visible) / TV_SCALE,
-          height: (frame.height * visible) / TV_SCALE,
+          position: 'absolute' as const,
+          left: 0,
+          top: 0,
+          width: canvasWidth,
+          height: canvasHeight,
+          backgroundColor: theme.colors.background,
           transform: [
-            { translateX: (frame.width - (frame.width * visible) / TV_SCALE) / 2 },
-            { translateY: (frame.height - (frame.height * visible) / TV_SCALE) / 2 },
+            { translateX: (frame.width - canvasWidth) / 2 },
+            { translateY: (frame.height - canvasHeight) / 2 },
             { scale: TV_SCALE },
           ],
         }
-      : null;
+      : styles.root;
 
   return (
     <SafeAreaProvider>
@@ -174,7 +184,7 @@ export default function App() {
           setFrame((current) => (current.width === width && current.height === height ? current : { width, height }));
         }}
       >
-      <View style={[styles.root, canvas]}>
+      <View style={canvas}>
       {/* Afspillerne tager selv hoejde for udskaeringen: i landskab skal
           billedet helt ud til kanten, i portraet laegger de selv toppen til. */}
       <SafeAreaView
