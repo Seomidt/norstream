@@ -302,6 +302,10 @@ export function HomeScreen({
    * foerste trykpunkt, som er Hjem i soejlen, og saa roeg man til
    * forsiden hver gang man fjernede en favorit.
    */
+  /** Faner der har vaeret aabne: de bliver staaende skjult, se kroppen nedenfor. */
+  const visited = useRef(new Set<Tab>());
+  visited.current.add(tab);
+
   const lastKey = useRef<{ type: string; at: number }>({ type: '', at: 0 });
   useTVEventHandler((event) => {
     if (event.eventType !== 'focus' && event.eventType !== 'blur') lastKey.current = { type: event.eventType, at: Date.now() };
@@ -380,7 +384,13 @@ export function HomeScreen({
         />
       )}
       <View style={styles.body}>
-        {tab === 'home' && (
+        {/* Hjem, Film og Radio bliver staaende naar man forlader dem, bare
+            skjult: at bygge dem op igen ved hvert besoeg laeste alt ind
+            forfra og var langsomt paa tv. Kanaler, Favoritter og Guide
+            afmonteres stadig: de har previewet, som skal slippe panelets
+            ene forbindelse naar man gaar. */}
+        {visited.current.has('home') && (
+          <View style={[styles.body, tab !== 'home' && styles.hiddenTab]}>
           <FrontScreen
             session={session}
             onSelect={(channel, neighbours) => open(channel, undefined, neighbours)}
@@ -391,6 +401,7 @@ export function HomeScreen({
             onRefresh={refresh}
             reloadToken={favoritesToken + logoToken}
           />
+          </View>
         )}
         {tab === 'favorites' && (
           <FavoritesScreen
@@ -431,15 +442,18 @@ export function HomeScreen({
             previewHandle={previewHandle}
           />
         )}
-        {tab === 'vod' && (
+        {visited.current.has('vod') && (
+          <View style={[styles.body, tab !== 'vod' && styles.hiddenTab]}>
           <VodScreen
             session={session}
             level={place.vod ?? { name: 'home' }}
             onLevelChange={(level) => onPlaceChange({ ...place, vod: level })}
             onOpen={onOpenVod}
           />
+          </View>
         )}
-        {tab === 'radio' && (
+        {visited.current.has('radio') && (
+          <View style={[styles.body, tab !== 'radio' && styles.hiddenTab]}>
           <RadioScreen
             session={session}
             onSelect={(channel, neighbours) => open(channel, undefined, neighbours)}
@@ -450,6 +464,7 @@ export function HomeScreen({
             place={place.radio ?? RADIO_START}
             onPlaceChange={(radio) => onPlaceChange({ ...place, radio })}
           />
+          </View>
         )}
 
         {tab === 'settings' && pickingLogoFor !== null && (
@@ -525,6 +540,7 @@ const styles = StyleSheet.create({
   // Klippes: paa tv stod listens sidste raekker oven i menulinjen og under
   // laerredets kant. Paa telefonen laa det samme skjult under skaermens kant.
   body: { flex: 1, overflow: 'hidden' },
+  hiddenTab: { display: 'none' },
   rail: {
     width: 84,
     paddingTop: theme.spacing.md,
