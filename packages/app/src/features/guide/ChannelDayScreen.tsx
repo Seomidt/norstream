@@ -10,6 +10,7 @@ import { theme } from '../../ui/theme.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
 import type { CellState } from './layout.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { isTV } from '../../ui/tv.js';
 
 interface Props {
   session: AppSession;
@@ -108,6 +109,8 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
           <TvPressable
             key={delta}
             style={[styles.dayChip, delta === dayDelta && styles.dayChipActive]}
+            // Paa tv lander fjernbetjeningen paa den valgte dag naar siden aabner.
+            hasTVPreferredFocus={isTV && delta === dayDelta}
             onPress={() => setDayDelta(delta)}
           >
             <Text style={[styles.dayChipText, delta === dayDelta && styles.dayChipTextActive]}>

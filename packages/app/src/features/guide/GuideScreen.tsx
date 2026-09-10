@@ -717,7 +717,10 @@ export function GuideScreen({
           Det var brugerens forslag, og det er saadan de fleste tv-guider
           er bygget. Ellers preview og boks over gitteret. */}
       {isTV ? (
-        <View style={styles.tvSplit}>
+        // Skjult mens hele dagen staar ovenpaa: gitterets celler og knapper
+        // ligger ellers stadig under laget og faar fjernbetjeningens fokus,
+        // saa dagsknapperne i laget ikke kunne vaelges.
+        <View style={[styles.tvSplit, dayFor !== null && styles.hidden]}>
           <View style={styles.tvLeft}>{guideBlock}</View>
           <View style={styles.tvRight}>{topBlock}</View>
         </View>
@@ -930,6 +933,7 @@ const styles = StyleSheet.create({
   topSide: { flexDirection: 'row', alignItems: 'stretch', backgroundColor: theme.colors.surface },
   topColumn: { backgroundColor: theme.colors.surface },
   tvSplit: { flex: 1, flexDirection: 'row' },
+  hidden: { display: 'none' },
   tvLeft: { flex: 1 },
   tvRight: { width: '28%', marginLeft: theme.spacing.sm, backgroundColor: theme.colors.surface },
   dayOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.background },
