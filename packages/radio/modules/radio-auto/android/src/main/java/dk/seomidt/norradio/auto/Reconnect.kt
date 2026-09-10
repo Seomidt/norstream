@@ -34,6 +34,10 @@ class PatientLoadErrors : DefaultLoadErrorHandlingPolicy() {
   }
 
   companion object {
+    private const val MAX_DELAY_MS = 15_000L
+    /** Med pauser paa op til 15 sekunder er det omkring ti minutter. */
+    private const val MAX_ATTEMPTS = 40
+
     /** Fejlen i ord uden adresse: klasse, HTTP-svar og den inderste aarsag. */
     fun describe(error: Throwable?): String {
       if (error == null) return "ukendt"
@@ -52,12 +56,6 @@ class PatientLoadErrors : DefaultLoadErrorHandlingPolicy() {
   }
 
   override fun getMinimumLoadableRetryCount(dataType: Int): Int = MAX_ATTEMPTS
-
-  private companion object {
-    const val MAX_DELAY_MS = 15_000L
-    /** Med pauser paa op til 15 sekunder er det omkring ti minutter. */
-    const val MAX_ATTEMPTS = 40
-  }
 }
 
 /**
