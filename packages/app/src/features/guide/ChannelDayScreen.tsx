@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
@@ -42,6 +42,20 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
   const [fetching, setFetching] = useState(true);
   const [sheet, setSheet] = useState<{ programme: Programme; state: CellState } | null>(null);
   const now = new Date();
+
+  /**
+   * Listen aabner ved det der sendes nu (i dag) og ikke ved midnat: det er
+   * det man kom fra i guiden. De andre dage begynder ved dagens start.
+   */
+  const listRef = useRef<FlatList<Programme>>(null);
+  const liveIndex =
+    programmes === null || dayDelta !== 0 ? -1 : programmes.findIndex((programme) => programme.stop.getTime() > now.getTime());
+  useEffect(() => {
+    if (liveIndex <= 0) return;
+    const frame = requestAnimationFrame(() => listRef.current?.scrollToIndex({ index: liveIndex, animated: false, viewPosition: 0 }));
+    return () => cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [programmes === null, dayDelta]);
 
   const dayBounds = useCallback((delta: number): { from: Date; to: Date } => {
     const from = new Date();
@@ -130,19 +144,25 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
         </View>
       ) : (
         <FlatList
+          ref={listRef}
           data={programmes}
           keyExtractor={(item) => String(item.start.getTime())}
+          initialNumToRender={Math.max(20, liveIndex + 10)}
+          onScrollToIndexFailed={(info) => {
+            setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, animated: false, viewPosition: 0 }), 300);
+          }}
           ListEmptyComponent={
             <Text style={styles.empty}>
               {fetching ? 'Henter programtabellen …' : 'Udbyderen har ingen tabel for denne dag.'}
             </Text>
           }
-          renderItem={({ item }) => {
+          renderItem={({ item, index }) => {
             const state = stateOf(item);
             const restartable = state === 'past' && channel.hasArchive && hasDialect;
             return (
               <TvPressable
                 style={[styles.row, state === 'live' && styles.rowLive]}
+                hasTVPreferredFocus={isTV && index === liveIndex}
                 onPress={() => openSheet(item)}
               >
                 <Text style={styles.time}>{clock(item.start)}</Text>

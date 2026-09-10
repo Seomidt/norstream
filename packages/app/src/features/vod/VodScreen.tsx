@@ -397,6 +397,10 @@ function PosterGrid({
       data={items}
       keyExtractor={(item) => item.key}
       numColumns={COLUMNS}
+      windowSize={5}
+      initialNumToRender={COLUMNS * 3}
+      maxToRenderPerBatch={COLUMNS * 2}
+      removeClippedSubviews
       contentContainerStyle={styles.grid}
       columnWrapperStyle={styles.gridRow}
       ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}

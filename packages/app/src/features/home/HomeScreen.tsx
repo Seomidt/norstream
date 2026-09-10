@@ -310,6 +310,19 @@ export function HomeScreen({
   /** Faner der har vaeret aabne: de bliver staaende skjult, se kroppen nedenfor. */
   const visited = useRef(new Set<Tab>());
   visited.current.add(tab);
+  const [, redraw] = useState(0);
+  // Paa tv: Film og Radio bygges op i baggrunden lidt efter start, saa de
+  // staar klar naar man kommer til dem, i stedet for at laese ind mens man
+  // venter. Skjult, saa det ikke tager fokus.
+  useEffect(() => {
+    if (!isTV) return;
+    const timer = setTimeout(() => {
+      visited.current.add('vod');
+      visited.current.add('radio');
+      redraw((value) => value + 1);
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, []);
 
   const lastKey = useRef<{ type: string; at: number }>({ type: '', at: 0 });
   useTVEventHandler((event) => {

@@ -47,16 +47,21 @@ export function LandscapePlayer({
   useKeepAwake();
   const insets = useSafeAreaInsets();
   const [barShown, setBarShown] = useState(true);
-  // Paa tv: ethvert tryk paa fjernbetjeningen viser bjaelken igen, saa man
-  // ikke skal finde hjoerneknappen for at faa knapperne frem.
+  /** Taeller op ved hvert tryk, saa uret til at gemme bjaelken starter forfra. */
+  const [activity, setActivity] = useState(0);
+  // Paa tv: ethvert tryk paa fjernbetjeningen viser bjaelken igen og
+  // giver den ny tid. Foer gemte den sig fem sekunder efter at den kom
+  // frem, ogsaa midt i at man koerte hen til en knap: "knapperne virker ikke".
   useTVEventHandler((event) => {
-    if (event.eventType !== 'focus' && event.eventType !== 'blur') setBarShown(true);
+    if (event.eventType === 'focus' || event.eventType === 'blur') return;
+    setBarShown(true);
+    setActivity((value) => value + 1);
   });
   useEffect(() => {
     if (!barShown) return;
     const timer = setTimeout(() => setBarShown(false), AUTO_HIDE_MS);
     return () => clearTimeout(timer);
-  }, [barShown]);
+  }, [barShown, activity]);
 
   return (
     <View style={styles.root}>

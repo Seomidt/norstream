@@ -232,6 +232,10 @@ export function ChannelList({
       <FlatList
         data={shown}
         keyExtractor={(item) => item.id}
+        windowSize={5}
+        initialNumToRender={12}
+        maxToRenderPerBatch={8}
+        removeClippedSubviews
         ListHeaderComponent={header === undefined ? undefined : <>{header}</>}
         viewabilityConfig={viewabilityConfig}
         onViewableItemsChanged={onViewableItemsChanged}

@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -48,7 +48,7 @@ const FAVOURITES_LIMIT = 12;
 const IN_PROGRESS_LIMIT = 10;
 const NEWEST_LIMIT = 15;
 /** Plakatbredden i forsidens raekker. Mindre paa tv: 104 punkter er 208 pixel paa en 1080p-skaerm, og raekken tog en tredjedel af hoejden. */
-const POSTER_WIDTH = isTV ? 84 : 104;
+const POSTER_WIDTH = isTV ? 96 : 104;
 
 /**
  * TMDB-hylderne huskes i appens levetid, saa et skift af fane ikke koster
@@ -110,6 +110,11 @@ export function FrontScreen({
   reloadToken,
 }: Props) {
   const [lastChannel, setLastChannel] = useState<StoredChannel | null>(null);
+  /** Forsiden staar oeverst hver gang man kommer til den; den bliver ellers staaende hvor man forlod den. */
+  const listRef = useRef<FlatList<Row>>(null);
+  useEffect(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [reloadToken]);
   const [lastNow, setLastNow] = useState<Programme | null>(null);
   const [favourites, setFavourites] = useState<FavouriteNow[] | null>(null);
   const [inProgress, setInProgress] = useState<StoredVodItem[]>([]);
@@ -362,6 +367,7 @@ export function FrontScreen({
   return (
     <View style={styles.container}>
       <FlatList
+        ref={listRef}
         data={rows}
         keyExtractor={(row) => (row.kind === 'provider' ? `provider:${row.provider.id}` : row.kind)}
         renderItem={renderRow}

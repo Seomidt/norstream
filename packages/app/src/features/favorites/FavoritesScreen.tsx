@@ -180,7 +180,7 @@ export function FavoritesScreen({
       )}
       <View style={styles.toolbarRow}>
         <Text style={styles.toolbarCount}>{channels.length} kanaler</Text>
-        {categories.length > 0 && (
+        {categories.length > 0 && !isTV && (
           <TvPressable
             style={styles.action}
             hitSlop={8}
@@ -338,7 +338,9 @@ function SortView({
   return (
     <View style={styles.container}>
       <View style={styles.toolbar}>
-        <Text style={styles.sortHint}>Træk i ☰ og slip kanalen hvor den skal ligge.</Text>
+        <Text style={styles.sortHint}>
+          {isTV ? 'Flyt kanalen op eller ned med ▲ og ▼ ud for den.' : 'Træk i ☰ og slip kanalen hvor den skal ligge.'}
+        </Text>
         <View style={styles.toolbarRow}>
           <View style={styles.spacer} />
           <TvPressable style={[styles.action, styles.actionAccent]} hitSlop={8} onPress={onDone}>
@@ -384,9 +386,33 @@ function SortView({
                 <Text style={styles.channelName} numberOfLines={1}>
                   {item.name}
                 </Text>
-                <View style={styles.handle} hitSlop={12} {...responderFor(index).panHandlers}>
-                  <Text style={styles.handleText}>☰</Text>
-                </View>
+                {isTV ? (
+                  // Ingen finger at traekke med: to knapper flytter én plads ad gangen.
+                  <>
+                    <TvPressable
+                      style={styles.handle}
+                      disabled={index === 0}
+                      onPress={() => {
+                        void onMove(item, index - 1);
+                      }}
+                    >
+                      <Text style={styles.handleText}>▲</Text>
+                    </TvPressable>
+                    <TvPressable
+                      style={styles.handle}
+                      disabled={index === order.length - 1}
+                      onPress={() => {
+                        void onMove(item, index + 1);
+                      }}
+                    >
+                      <Text style={styles.handleText}>▼</Text>
+                    </TvPressable>
+                  </>
+                ) : (
+                  <View style={styles.handle} hitSlop={12} {...responderFor(index).panHandlers}>
+                    <Text style={styles.handleText}>☰</Text>
+                  </View>
+                )}
               </Animated.View>
             );
           })}

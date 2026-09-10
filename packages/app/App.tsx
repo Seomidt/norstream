@@ -154,7 +154,11 @@ export default function App() {
   // Derfor laa menulinjen nederst langt under skaermens kant, mens bredden
   // (tvaeraksen) passede. Laerredet laegges absolut, saa flex ikke blander sig.
   const [frame, setFrame] = useState({ width: 0, height: 0 });
-  const visible = 1 - 2 * TV_SAFE_MARGIN;
+  // Afspilleren fylder hele fladen, uden fri kant: fjernsynet beskaerer
+  // alligevel video i kanten, og en stribe af appens baggrund rundt om
+  // billedet saa ud som om appen ikke fyldte skaermen.
+  const fullscreen = route.name === 'player' || route.name === 'vodPlayer';
+  const visible = fullscreen ? 1 : 1 - 2 * TV_SAFE_MARGIN;
   const canvasWidth = (frame.width * visible) / TV_SCALE;
   const canvasHeight = (frame.height * visible) / TV_SCALE;
   const canvas =
@@ -187,7 +191,7 @@ export default function App() {
     <CanvasContext.Provider value={canvasSize}>
       {/* Det yderste lag males, saa der ikke staar hvidt uden om laerredet, og maales. */}
       <View
-        style={styles.root}
+        style={[styles.root, fullscreen && styles.rootBlack]}
         onLayout={(event) => {
           const { width, height } = event.nativeEvent.layout;
           setFrame((current) => (current.width === width && current.height === height ? current : { width, height }));
@@ -309,6 +313,7 @@ export default function App() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.colors.background },
+  rootBlack: { backgroundColor: '#000000' },
   homeHost: { flex: 1 },
   overlay: {
     position: 'absolute',

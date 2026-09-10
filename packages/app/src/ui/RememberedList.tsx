@@ -50,6 +50,12 @@ export function RememberedList<T>({ memoryKey, restoreSignal = 0, onScroll, onCo
   return (
     <FlatList
       ref={ref}
+      // Faa skaermfulde ad gangen: standarden tegner 21, og paa tv gav 232
+      // stationer med logoer et hak paa flere sekunder ved aabning.
+      windowSize={5}
+      initialNumToRender={12}
+      maxToRenderPerBatch={8}
+      removeClippedSubviews
       {...rest}
       onLayout={(event) => {
         // Aendrer listen selv hoejde (en bjaelke, tastaturet, kanterne),
