@@ -19,6 +19,7 @@ import { ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { liveUrlFor } from '../../sources/access.js';
 import { theme } from '../../ui/theme.js';
+import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { setLastChannelId } from '../../storage/settings.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback } from './format.js';
@@ -618,7 +619,10 @@ export function PlayerScreen({
   if (landscape) {
     return (
       <LandscapePlayer
-        video={<VideoView style={StyleSheet.absoluteFill} player={player} nativeControls />}
+        // Paa tv uden afspillerens egne knapper: de tog fjernbetjeningen,
+        // saa Tilbage foerst lukkede dem og saa maaske kanalen. Appens egen
+        // bjaelke har det samme, og Tilbage gaar altid til listen.
+        video={<VideoView style={StyleSheet.absoluteFill} player={player} nativeControls={!isTV} />}
         bar={actions}
         overlays={
           <>

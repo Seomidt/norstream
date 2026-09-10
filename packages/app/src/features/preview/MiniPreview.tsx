@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { isTV } from '../../ui/tv.js';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { buildLiveUrl } from '@norstream/core';
 import type { AppSession } from '../../session.js';
@@ -61,14 +62,16 @@ const BUSY_MESSAGE =
 export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props) {
   // Kanalen previewet faktisk viser. Foelger `channel` efter IDLE_MS.
   const [target, setTarget] = useState<StoredChannel | null>(null);
-  const [muted, setMuted] = useState(true);
+  // Lyd fra som standard paa telefonen (spec sec. 7), til paa tv: der er
+  // previewet det man sidder og kigger paa, og lydknappen er svaer at naa.
+  const [muted, setMuted] = useState(!isTV);
   const [error, setError] = useState<string | null>(null);
 
   const player = useVideoPlayer(null, (p) => {
     p.loop = false;
     // Spec sec.7: lyd fra som standard. Et preview der buldrer los mens man
     // ruller gennem 22.142 kanaler er ikke en funktion.
-    p.muted = true;
+    p.muted = !isTV;
   });
 
   // Skifter previewet foerst naar listen har staaet stille. Slaas det fra,

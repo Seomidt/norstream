@@ -7,6 +7,7 @@ import { theme } from '../../ui/theme.js';
 import { programmeOptions } from './layout.js';
 import type { CellState } from './layout.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { isTV } from '../../ui/tv.js';
 
 interface Props {
   channel: StoredChannel;
@@ -46,7 +47,9 @@ export function ProgrammeSheet({
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <TvPressable style={styles.backdrop} onPress={onClose} />
+      {/* Paa tv maa bagtaeppet ikke kunne faa fokus: det var det foerste
+          trykpunkt i bladet, saa OK lukkede bladet i stedet for at vaelge. */}
+      <TvPressable style={styles.backdrop} onPress={onClose} focusable={!isTV} />
       <View style={[styles.sheet, { paddingBottom: theme.spacing.lg + insets.bottom }]}>
         <View style={styles.grabber} />
 
@@ -76,7 +79,7 @@ export function ProgrammeSheet({
 
         <View style={styles.actions}>
           {options.play && (
-            <TvPressable style={[styles.button, styles.buttonAccent]} onPress={onPlay}>
+            <TvPressable style={[styles.button, styles.buttonAccent]} onPress={onPlay} hasTVPreferredFocus={isTV}>
               <Text style={styles.buttonText}>Se {channel.name}</Text>
             </TvPressable>
           )}

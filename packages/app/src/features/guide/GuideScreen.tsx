@@ -785,7 +785,10 @@ const GuideRow = memo(function GuideRow({
           raekke, og de nederste kan aldrig rulles derop. */}
       <TvPressable
         style={[styles.channelCell, previewing && styles.channelCellPreviewing]}
-        onPress={() => onPreview(channel)}
+        // Paa tv: fokus viser kanalen i previewet, OK aabner bladet med se
+        // live, start forfra og hele dagen, som et tryk paa telefonen.
+        onPress={() => (isTV ? onOpen(channel, CHANNEL_CELL) : onPreview(channel))}
+        onFocus={isTV ? () => onPreview(channel) : undefined}
         onLongPress={() => onOpen(channel, CHANNEL_CELL)}
         delayLongPress={400}
       >

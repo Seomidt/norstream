@@ -259,6 +259,9 @@ export function ChannelList({
               isTV ? () => onToggleFavorite(item) : onLongPress === undefined ? undefined : () => onLongPress(item)
             }
             delayLongPress={400}
+            // Paa tv foelger previewet den raekke fjernbetjeningen staar paa,
+            // ikke den oeverste synlige: det er dén man kigger paa.
+            onFocus={isTV ? () => setPreviewChannel(item) : undefined}
           >
             <ChannelLogo uris={item.logoUrls} name={item.name} memoryKey={item.id} />
             <View style={styles.rowText}>

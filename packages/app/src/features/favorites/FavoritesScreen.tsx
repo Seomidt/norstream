@@ -21,6 +21,7 @@ import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { isTV } from '../../ui/tv.js';
 import { ChannelList } from '../channels/ChannelList.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 
@@ -92,6 +93,13 @@ export function FavoritesScreen({
 
   async function toggleFavorite(channel: StoredChannel): Promise<void> {
     await setFavorite(session.db, channel.id, !channel.isFavorite);
+    if (isTV) {
+      // Raekken bliver staaende med hul stjerne til man forlader fanen:
+      // forsvandt den, mistede fjernbetjeningen sit fokus, og Android
+      // flyttede det til Hjem i menuen. Man kan ogsaa fortryde med det samme.
+      setChannels((current) => current.map((c) => (c.id === channel.id ? { ...c, isFavorite: !channel.isFavorite } : c)));
+      return;
+    }
     await load();
   }
 

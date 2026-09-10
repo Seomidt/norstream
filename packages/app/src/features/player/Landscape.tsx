@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { StyleSheet, Text, View, useTVEventHandler, useWindowDimensions } from 'react-native';
 import type { ReactNode } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { useKeepAwake } from 'expo-keep-awake';
@@ -46,6 +46,11 @@ export function LandscapePlayer({
   useKeepAwake();
   const insets = useSafeAreaInsets();
   const [barShown, setBarShown] = useState(true);
+  // Paa tv: ethvert tryk paa fjernbetjeningen viser bjaelken igen, saa man
+  // ikke skal finde hjoerneknappen for at faa knapperne frem.
+  useTVEventHandler((event) => {
+    if (event.eventType !== 'focus' && event.eventType !== 'blur') setBarShown(true);
+  });
   useEffect(() => {
     if (!barShown) return;
     const timer = setTimeout(() => setBarShown(false), AUTO_HIDE_MS);

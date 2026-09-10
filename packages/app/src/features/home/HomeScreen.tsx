@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, useTVEventHandler } from 'react-native';
 import { XtreamAuthError } from '@norstream/core';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
@@ -292,6 +292,34 @@ export function HomeScreen({
     setTab(id);
   };
 
+  /**
+   * Hvornaar fjernbetjeningen sidst blev trykket. Fanerne skifter paa fokus,
+   * men kun naar fokus kom af et tryk: forsvinder den raekke der havde
+   * fokus (en favorit fjernet), flytter Android selv fokus til det
+   * foerste trykpunkt, som er Hjem i soejlen, og saa roeg man til
+   * forsiden hver gang man fjernede en favorit.
+   */
+  const lastKeyAt = useRef(0);
+  useTVEventHandler((event) => {
+    if (event.eventType !== 'focus' && event.eventType !== 'blur') lastKeyAt.current = Date.now();
+  });
+  /** Fanen skifter foerst naar fjernbetjeningen har staaet stille et oejeblik: at koere hen over fire faner skal ikke montere fire skaerme. */
+  const pendingTab = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusTab = (id: Tab) => {
+    if (Date.now() - lastKeyAt.current > 600) return;
+    if (pendingTab.current !== null) clearTimeout(pendingTab.current);
+    pendingTab.current = setTimeout(() => {
+      pendingTab.current = null;
+      selectTab(id);
+    }, 250);
+  };
+  useEffect(
+    () => () => {
+      if (pendingTab.current !== null) clearTimeout(pendingTab.current);
+    },
+    [],
+  );
+
   /* Fanerne: nederst paa telefonen, som en soejle til venstre paa tv. Fra
      en liste paa hundrede raekker var menulinjen nederst hundrede tryk
      vaek; til venstre er den ét tryk paa pil-venstre, som i de andre
@@ -302,12 +330,15 @@ export function HomeScreen({
         <TvPressable
           key={item.id}
           style={isTV ? styles.railTab : styles.tab}
-          onPress={() => selectTab(item.id)}
+          onPress={() => {
+            if (pendingTab.current !== null) clearTimeout(pendingTab.current);
+            selectTab(item.id);
+          }}
           // Paa tv skifter fanen naar fjernbetjeningen lander paa den,
           // uden et tryk paa OK: saadan goer de andre tv-apps, og at
           // skulle trykke OK for at se hvad der er under Film foeltes
-          // som om intet skete.
-          onFocus={isTV ? () => selectTab(item.id) : undefined}
+          // som om intet skete. Se focusTab for de to forbehold.
+          onFocus={isTV ? () => focusTab(item.id) : undefined}
         >
           <Text style={[styles.tabIcon, tab === item.id && styles.tabActive]}>
             {item.icon}
