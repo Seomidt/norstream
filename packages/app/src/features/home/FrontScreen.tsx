@@ -17,8 +17,9 @@ import type { StoredChannel } from '../../storage/channels.js';
 import { getNowNext } from '../../storage/programmes.js';
 import { ensureEpg } from '../../sync/epgCache.js';
 import { describeError } from '../../sync/syncVod.js';
-import { getHomeProviders, getLastChannelId, getTmdbApiKey } from '../../storage/settings.js';
+import { getHomeProviders, getLastChannelId, getSetting, getTmdbApiKey, setSetting } from '../../storage/settings.js';
 import type { HomeProvider } from '../../storage/settings.js';
+import type { SqlDatabase } from '../../storage/types.js';
 import { listVodItems } from '../../storage/vod.js';
 import type { StoredVodItem } from '../../storage/vod.js';
 import { tmdbFetch } from '../../sync/tmdb.js';
@@ -58,12 +59,43 @@ const POSTER_WIDTH = isTV ? 96 : 104;
 const SHELF_TTL_MS = 6 * 60 * 60_000;
 const shelfCache = new Map<string, { at: number; titles: TmdbTitle[] }>();
 
-async function cachedShelf(key: string, load: () => Promise<TmdbTitle[]>): Promise<TmdbTitle[]> {
-  const known = shelfCache.get(key);
-  if (known !== undefined && Date.now() - known.at < SHELF_TTL_MS) return known.titles;
-  const titles = await load();
-  if (titles.length > 0) shelfCache.set(key, { at: Date.now(), titles });
-  return titles;
+/**
+ * Hylderne fra TMDB, i hukommelsen og i databasen: saa staar de der med
+ * det samme naeste gang appen aabnes, i stedet for at forsiden venter paa
+ * TMDB ved hver start. Efter seks timer hentes de igen, men det gamle
+ * vises imens, saa forsiden aldrig staar tom.
+ */
+async function cachedShelf(db: SqlDatabase, key: string, load: () => Promise<TmdbTitle[]>): Promise<TmdbTitle[]> {
+  const known = shelfCache.get(key) ?? (await storedShelf(db, key));
+  if (known !== undefined) {
+    shelfCache.set(key, known);
+    if (Date.now() - known.at < SHELF_TTL_MS) return known.titles;
+  }
+  let titles: TmdbTitle[];
+  try {
+    titles = await load();
+  } catch (cause) {
+    if (known !== undefined) return known.titles;
+    throw cause;
+  }
+  if (titles.length > 0) {
+    const entry = { at: Date.now(), titles };
+    shelfCache.set(key, entry);
+    void setSetting(db, `shelf:${key}`, JSON.stringify(entry)).catch(() => undefined);
+  }
+  return titles.length > 0 ? titles : (known?.titles ?? titles);
+}
+
+async function storedShelf(db: SqlDatabase, key: string): Promise<{ at: number; titles: TmdbTitle[] } | undefined> {
+  const raw = await getSetting(db, `shelf:${key}`).catch(() => null);
+  if (raw === null) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as { at?: unknown; titles?: unknown };
+    if (typeof parsed.at === 'number' && Array.isArray(parsed.titles)) return { at: parsed.at, titles: parsed.titles as TmdbTitle[] };
+  } catch {
+    // Ugyldigt; hentes igen.
+  }
+  return undefined;
 }
 
 type Row =
@@ -189,7 +221,7 @@ export function FrontScreen({
       // at sige hvorfor.
       for (const provider of providers) {
         try {
-          const titles = await cachedShelf(`provider:${provider.id}:${provider.region}`, () =>
+          const titles = await cachedShelf(session.db, `provider:${provider.id}:${provider.region}`, () =>
             providerShelf(tmdbFetch, tmdbKey, provider.id, undefined, provider.region),
           );
           if (cancelled) return;
@@ -201,7 +233,7 @@ export function FrontScreen({
         }
       }
       try {
-        const top = await cachedShelf('trending', () => trendingTitles(tmdbFetch, tmdbKey));
+        const top = await cachedShelf(session.db, 'trending', () => trendingTitles(tmdbFetch, tmdbKey));
         if (cancelled) return;
         setTrending(top);
       } catch (cause) {
@@ -213,7 +245,7 @@ export function FrontScreen({
     return () => {
       cancelled = true;
     };
-  }, [tmdbKey, providers]);
+  }, [tmdbKey, providers, session.db]);
 
   function openTitle(title: TmdbTitle, provider: HomeProvider | null): void {
     setSheet({ title, provider, inPanel: undefined, message: null });
