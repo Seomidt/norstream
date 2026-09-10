@@ -934,7 +934,10 @@ function dayDeltaOf(start: Date, now: Date): number {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   topSide: { flexDirection: 'row', alignItems: 'stretch', backgroundColor: theme.colors.surface },
-  topColumn: { backgroundColor: theme.colors.surface },
+  // flex: 1, saa boksen med nu/naeste (som selv har flex: 1) faar hoejde:
+  // uden det havde soejlen kun previewets hoejde, og boksen blev nul
+  // punkter hoej med alt indhold klippet vaek. "Ser meget tomt ud."
+  topColumn: { flex: 1, backgroundColor: theme.colors.surface },
   tvSplit: { flex: 1, flexDirection: 'row' },
   hidden: { display: 'none' },
   tvLeft: { flex: 1 },
