@@ -850,6 +850,9 @@ const GuideRow = memo(function GuideRow({
                 action === 'none' && styles.cellInactive,
               ]}
               onPress={() => onOpen(channel, cell)}
+              // Paa tv foelger previewet den raekke fjernbetjeningen staar
+              // i, ogsaa naar den staar paa en udsendelse og ikke paa navnet.
+              onFocus={isTV ? () => onPreview(channel) : undefined}
             >
               {/* Uden maerket kan man ikke se hvilke afsluttede udsendelser
                   der kan startes igen. Cellerne ser ens ud, og forskellen —
