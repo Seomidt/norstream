@@ -26,12 +26,13 @@ export const TV_SCALE = 1.0;
 /**
  * Fri kant hele vejen rundt paa tv, som andel af skaermen.
  *
- * Mange fjernsyn beskaerer HDMI-billedet et par procent (overscan), saa
- * det yderste forsvinder: menulinjen nederst laa under skaermens kant paa
- * et Bang & Olufsen. Google anbefaler 5 % fri kant til tv-apps af netop
- * den grund.
+ * Mange fjernsyn beskaerer HDMI-billedet et par procent (overscan), og
+ * Google anbefaler 5 % fri kant til tv-apps af den grund. Men det
+ * fjernsyn appen bruges paa viser hele billedet, og med 5 % stod der en
+ * bred sort ramme om alt: "meget kant, hele skaermen bliver ikke
+ * udnyttet". 1,5 % er luft nok til at intet klaeber til kanten.
  */
-export const TV_SAFE_MARGIN = 0.05;
+export const TV_SAFE_MARGIN = 0.015;
 
 export interface CanvasSize {
   width: number;

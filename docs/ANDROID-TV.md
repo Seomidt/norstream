@@ -87,12 +87,12 @@ at hver eneste stil skal ændres:
 | Konstant | Værdi | Hvad |
 |---|---|---|
 | `TV_SCALE` | 1,0 | Lærredet er fladen minus den frie kant; ingen forstørrelse. 1,5 og 1,2 var "alt for stort" fra sofaen |
-| `TV_SAFE_MARGIN` | 0,05 | 5 % fri kant hele vejen rundt (Googles anbefaling til overscan) |
+| `TV_SAFE_MARGIN` | 0,015 | 1,5 % fri kant hele vejen rundt. Google anbefaler 5 % mod overscan, men fjernsynet viser hele billedet, og 5 % var en bred sort ramme |
 
 På en 1080p-skærm melder Android 960 × 540 punkter. Lærredet bliver
-`960 × 0,9 = 864` punkter bredt og `540 × 0,9 = 486` punkter højt. Menuen
-er en søjle til venstre på 84 punkter, så indholdet har 780 × 486.
-**486 punkter i højden er hele budgettet.** Enhver skærm skal kunne stå
+`960 × 0,97 = 931` punkter bredt og `540 × 0,97 = 524` punkter højt. Menuen
+er en søjle til venstre på 84 punkter (44 når den er foldet), så indholdet
+har omkring 850 × 524. **524 punkter i højden er hele budgettet.** Enhver skærm skal kunne stå
 i det.
 
 Regler der er blevet til af fejl:
