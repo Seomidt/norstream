@@ -49,7 +49,12 @@ const SEARCH_DEBOUNCE_MS = 250;
 const SEARCH_LIMIT = 120;
 /** Hvor mange titler en hylde paa forsiden viser. */
 const SHELF_LIMIT = 20;
-const COLUMNS = 3;
+/**
+ * Plakater per raekke i gitteret. Tre paa en telefon; paa tv er laerredet
+ * 780 punkter bredt, og tre plakater var 250 punkter hver, "alt for
+ * store". Seks giver 120 punkter, som de andre tv-apps.
+ */
+const COLUMNS = isTV ? 6 : 3;
 
 /**
  * Film og serier.

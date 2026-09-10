@@ -24,6 +24,7 @@ import { justWatchLink, providerShelf, serviceSearchUrl, trendingTitles } from '
 import type { TmdbTitle } from '../../sync/tmdbHome.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
+import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { Poster } from '../vod/VodScreen.js';
 import { findInPanel } from './panelMatch.js';
@@ -44,7 +45,8 @@ interface Props {
 const FAVOURITES_LIMIT = 12;
 const IN_PROGRESS_LIMIT = 10;
 const NEWEST_LIMIT = 15;
-const POSTER_WIDTH = 104;
+/** Plakatbredden i forsidens raekker. Mindre paa tv: 104 punkter er 208 pixel paa en 1080p-skaerm, og raekken tog en tredjedel af hoejden. */
+const POSTER_WIDTH = isTV ? 84 : 104;
 
 /**
  * TMDB-hylderne huskes i appens levetid, saa et skift af fane ikke koster
