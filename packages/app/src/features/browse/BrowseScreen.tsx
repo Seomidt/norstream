@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -18,6 +18,7 @@ import {
   unhideCountry,
 } from '../../storage/countries.js';
 import type { CategorySummary, CountryGroup } from '../../storage/countries.js';
+import { keepInMiddle, useTvListTail } from '../../ui/tvScroll.js';
 import { addCategoryToFavorites } from '../../storage/favorites.js';
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
@@ -87,6 +88,9 @@ export function BrowseScreen({
   const [channels, setChannels] = useState<StoredChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const countryList = useRef<FlatList<CountryGroup>>(null);
+  const categoryList = useRef<FlatList<CategorySummary>>(null);
+  const tail = useTvListTail();
 
   useEffect(() => {
     const timer = setTimeout(() => setQuery(search.trim()), SEARCH_DEBOUNCE_MS);
@@ -231,8 +235,11 @@ export function BrowseScreen({
           onBack={() => setLevel({ name: 'countries' })}
         />
         <FlatList
+          ref={categoryList}
           data={categories}
           keyExtractor={(item) => item.id}
+          contentContainerStyle={tail}
+          onScrollToIndexFailed={() => undefined}
           ListEmptyComponent={
             <Text style={styles.empty}>Ingen kategorier i dette land.</Text>
           }
@@ -250,6 +257,7 @@ export function BrowseScreen({
               <TvPressable
                 style={styles.rowMain}
                 hasTVPreferredFocus={isTV && index === 0 && cameBySelect()}
+                onFocus={isTV ? () => keepInMiddle(categoryList.current, index) : undefined}
                 onPress={() =>
                   setLevel({ name: 'channels', country: level.country, category: item })
                 }
@@ -262,6 +270,7 @@ export function BrowseScreen({
               <TvPressable
                 style={styles.action}
                 hitSlop={8}
+                onFocus={isTV ? () => keepInMiddle(categoryList.current, index) : undefined}
                 onPress={() => {
                   void addAll(item);
                 }}
@@ -280,16 +289,20 @@ export function BrowseScreen({
       {searchField}
       {noticeBar}
       <FlatList
+        ref={countryList}
         data={countries}
         keyExtractor={(item) => item.key}
+        contentContainerStyle={tail}
+        onScrollToIndexFailed={() => undefined}
         ListEmptyComponent={
           <Text style={styles.empty}>
             Ingen kanaler hentet endnu. Træk ned på favoritskærmen for at hente fra panelet.
           </Text>
         }
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <TvPressable
             style={styles.row}
+            onFocus={isTV ? () => keepInMiddle(countryList.current, index) : undefined}
             onPress={() => setLevel({ name: 'categories', country: item })}
             onLongPress={() => hide(item)}
           >

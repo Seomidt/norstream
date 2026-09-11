@@ -1,6 +1,6 @@
 import { getTmdbApiKey } from '../storage/settings.js';
 import type { SqlDatabase } from '../storage/types.js';
-import { searchTmdb, tmdbFetch } from '../sync/tmdb.js';
+import { TmdbRequestError, searchTmdb, tmdbFetch } from '../sync/tmdb.js';
 import type { TmdbFetch } from '../sync/tmdb.js';
 
 /**
@@ -17,6 +17,8 @@ import type { TmdbFetch } from '../sync/tmdb.js';
  */
 export const MAX_PARALLEL = 2;
 export const MISS_TTL_MS = 30 * 24 * 60 * 60_000;
+/** Efter en fejl fra TMDB (forkert noegle, nede) ventes der saa laenge foer der spoerges igen. */
+export const ERROR_PAUSE_MS = 30_000;
 
 const found = new Map<string, string>();
 const inFlight = new Set<string>();
@@ -27,6 +29,8 @@ let database: SqlDatabase | null = null;
 let fetcher: TmdbFetch | null = null;
 let apiKey: string | null = null;
 let idleWaiters: Array<() => void> = [];
+/** Ingen opslag foer dette tidspunkt: TMDB har lige svaret med en fejl. */
+let pausedUntil = 0;
 
 export async function initPosterFill(db: SqlDatabase, fetchImpl: TmdbFetch = tmdbFetch): Promise<void> {
   database = db;
@@ -37,7 +41,23 @@ export async function initPosterFill(db: SqlDatabase, fetchImpl: TmdbFetch = tmd
 
 /** Naar noeglen aendres under Indstillinger. Tomt = slaaet fra. */
 export function setPosterApiKey(key: string | null): void {
-  apiKey = key === null || key.trim().length === 0 ? null : key.trim();
+  const next = key === null || key.trim().length === 0 ? null : key.trim();
+  const changed = next !== apiKey;
+  apiKey = next;
+  pausedUntil = 0;
+  // En ny noegle: alt der blev husket som "findes ikke" med den gamle
+  // (maaske forkerte) noegle skal proeves igen.
+  if (changed && next !== null) void forgetPosterMisses();
+}
+
+/**
+ * Glemmer de titler TMDB ikke havde en plakat til, saa de slaas op igen
+ * naar de vises. Bruges naar noeglen skiftes og naar brugeren henter alt
+ * forfra under Indstillinger.
+ */
+export async function forgetPosterMisses(): Promise<void> {
+  if (database === null) return;
+  await database.runAsync('DELETE FROM vod_posters WHERE url IS NULL').catch(() => undefined);
 }
 
 export function posterApiKeyPresent(): boolean {
@@ -53,6 +73,7 @@ export function foundPoster(key: string): string | null {
 export function ensurePoster(item: { key: string; kind: 'movie' | 'series'; name: string }): void {
   if (apiKey === null || database === null || fetcher === null) return;
   if (found.has(item.key) || inFlight.has(item.key)) return;
+  if (Date.now() < pausedUntil) return;
   inFlight.add(item.key);
   queue.push({ key: item.key, kind: item.kind, name: item.name });
   pump();
@@ -89,6 +110,7 @@ export function resetPosterFillForTests(): void {
   database = null;
   fetcher = null;
   apiKey = null;
+  pausedUntil = 0;
 }
 
 function pump(): void {
@@ -124,7 +146,15 @@ async function lookUp(job: { key: string; kind: 'movie' | 'series'; name: string
     }
     if (Date.now() - earlier.tried_ms < MISS_TTL_MS) return;
   }
-  const hit = await searchTmdb(fetcher, apiKey, job.kind, job.name);
+  let hit: Awaited<ReturnType<typeof searchTmdb>>;
+  try {
+    hit = await searchTmdb(fetcher, apiKey, job.kind, job.name);
+  } catch (error) {
+    // Intet svar er ikke et nej: gemmes ikke, og der holdes en pause saa
+    // en forkert noegle ikke giver et opslag per plakat paa skaermen.
+    if (error instanceof TmdbRequestError || error instanceof Error) pausedUntil = Date.now() + ERROR_PAUSE_MS;
+    return;
+  }
   const url = hit?.posterUrl ?? null;
   await database
     .runAsync(

@@ -44,6 +44,8 @@ interface Props {
   onRefresh: () => void;
   /** Sand mens hentningen koerer; naar den slutter, laeses tallene igen. */
   refreshing: boolean;
+  /** Paa tv: skaermens, laerredets og indholdets maal, nederst — til fejlsoegning fra et foto. */
+  layoutInfo?: string | null;
   onOpenSources: () => void;
   /** Aabner listen over kanaler uden logo, hvor man kan vaelge selv. */
   onOpenLogos: () => void;
@@ -78,6 +80,7 @@ export function SettingsScreen({
   session,
   onRefresh,
   refreshing,
+  layoutInfo = null,
   onOpenSources,
   onOpenLogos,
   onOpenCheck,
@@ -597,6 +600,7 @@ export function SettingsScreen({
           <Text style={styles.dangerText}>Log ud</Text>
         </TvPressable>
       )}
+      {layoutInfo !== null && layoutInfo !== undefined && <Text style={styles.layoutInfo}>{layoutInfo}</Text>}
     </ScrollView>
   );
 }
@@ -656,6 +660,7 @@ const styles = StyleSheet.create({
   rowTitle: { flex: 1, color: theme.colors.text, fontSize: 15 },
   rowHint: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2, lineHeight: 18 },
   hint: { color: theme.colors.textMuted, fontSize: 14, lineHeight: 20 },
+  layoutInfo: { color: theme.colors.textMuted, fontSize: 11, marginTop: theme.spacing.lg, textAlign: 'center' },
   action: {
     backgroundColor: theme.colors.surfaceRaised,
     borderRadius: theme.radius,

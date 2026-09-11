@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FetchLike } from '@norstream/core';
-import { cleanVodTitle, findTmdbPoster, findTmdbTrailer, pickTmdbTrailer, searchTmdb, tmdbAuth } from './tmdb.js';
+import { TmdbRequestError, cleanVodTitle, findTmdbPoster, findTmdbTrailer, pickTmdbTrailer, searchTmdb, tmdbAuth } from './tmdb.js';
 
 describe('cleanVodTitle', () => {
   it('tager praefiks, aarstal, klammer og kvalitetsord ud', () => {
@@ -128,6 +128,25 @@ describe('searchTmdb', () => {
     });
     const unrated = fakeFetch([[/search\/movie/, { results: [{ id: 9, poster_path: '/d.jpg', vote_average: 0, vote_count: 0 }] }]]);
     expect((await searchTmdb(unrated, 'KEY', 'movie', 'Dune'))?.rating).toBeNull();
+  });
+});
+
+describe('searchTmdb naar TMDB svarer med en fejl', () => {
+  const failing = (status: number) =>
+    (async () => ({ ok: false, status, json: async () => ({}), text: async () => '' })) as FetchLike;
+
+  it('kaster en fejl i stedet for at sige at titlen ikke findes', async () => {
+    await expect(searchTmdb(failing(401), 'FORKERT', 'movie', 'Dune')).rejects.toBeInstanceOf(TmdbRequestError);
+    await expect(searchTmdb(failing(429), 'KEY', 'movie', 'Dune')).rejects.toMatchObject({ status: 429 });
+    const down = (async () => {
+      throw new Error('netvaerk');
+    }) as FetchLike;
+    await expect(searchTmdb(down, 'KEY', 'movie', 'Dune')).rejects.toMatchObject({ status: null });
+  });
+
+  it('plakat- og traileropslag giver bare null, saa skaermene tegner uden', async () => {
+    expect(await findTmdbPoster(failing(401), 'FORKERT', 'movie', 'Dune')).toBeNull();
+    expect(await findTmdbTrailer(failing(500), 'KEY', 'movie', 'Dune')).toBeNull();
   });
 });
 

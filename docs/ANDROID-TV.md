@@ -173,7 +173,21 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
   knappen ellers ligger for langt væk at navigere til.
 - **Lange lister:** `FlatList` ruller selv til den fokuserede række. Rækker
   skal være `TvPressable`, ellers springer fokus over dem, og listen kan
-  ikke rulles med pilene.
+  ikke rulles med pilene. Men Android ruller kun så rækken er inden for
+  listens *egne* kanter, og er listen højere end det synlige (lærredet
+  klipper), ligger de nederste rækker "inde i listen" men uden for
+  skærmen. Derfor holder listerne på tv den fokuserede række i midten
+  (`keepInMiddle` i `src/ui/tvScroll.ts`, kaldt fra rækkens `onFocus`) og
+  har luft nederst (`useTvListTail`), så også den sidste række kan nå
+  midten. Brug det i enhver ny liste. Nederst under Indstillinger står
+  skærmens, lærredets og indholdets mål; er indholdet højere end
+  lærredet, er det dét der er galt.
+- **Fokus overlever ikke at en række flytter sig.** Bygger listen rækken
+  om (sortering, en fjernet favorit), går fokus til Færdig eller til Hjem i
+  søjlen. Giv den knap der skal beholde fokus en ny `key` per flyt og
+  `hasTVPreferredFocus`, som i favoritternes `SortView`. Og brug aldrig
+  `disabled` på en knap der kan have fokus: en deaktiveret knap kan ikke
+  have fokus, så fokus røg samme sekund kanalen nåede toppen.
 - **Ingen trækfinger.** Trækfladen i guiden (`PanResponder`) virker ikke på
   tv; derfor findes dagsknapperne og bladreknapperne ‹ ›. En ny skærm der
   kun kan betjenes med træk eller lang-tryk, er brudt på tv.
@@ -212,6 +226,9 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
 | Favorit kan ikke fjernes | Stjernen var et trykpunkt inde i rækken | Langt tryk på OK |
 | Film-fanen tom, forsiden mangler rækker | VOD-hentningen fejlede stille | Fejlen gemmes og vises under Kilder; "Hent"-knap |
 | Indstillinger kan ikke rulles helt ned | Switch-rækken kunne ikke få fokus | Rækken er en `TvPressable` |
+| Kanaler/lande: bunden af listen kan ikke nås | Rækken var inde i listen, men under lærredets kant | Fokus holdes i midten (`keepInMiddle`) + luft nederst |
+| Sortér favoritter: fokus ryger ved hvert flyt | Rækken bygges om; `disabled` knap kan ikke have fokus | Ny `key` + `hasTVPreferredFocus` på knappen; ingen `disabled` |
+| Plakater der er på telefonen mangler på tv | En forkert TMDB-nøgle en tid: "svar 401" blev gemt som "findes ikke" i 30 dage | Fejl gemmes ikke som nej; nøgleskift og "Hent … nu" glemmer de gamle nej |
 
 ## 7. Hvad der ikke er gjort
 

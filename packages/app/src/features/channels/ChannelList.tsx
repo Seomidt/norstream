@@ -19,6 +19,7 @@ import { ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
 import { isTV, useCanvasSize } from '../../ui/tv.js';
+import { keepInMiddle, useTvListTail } from '../../ui/tvScroll.js';
 import { cameBySelect } from '../../ui/tvKeys.js';
 import { guideTopLayout, sidePreviewFraction } from '../guide/nowNext.js';
 import { TvPressable } from '../../ui/TvPressable.js';
@@ -83,6 +84,8 @@ export function ChannelList({
   const [nowTitles, setNowTitles] = useState<Record<string, string>>({});
   const [previewChannel, setPreviewChannel] = useState<StoredChannel | null>(null);
   const sideBySide = guideTopLayout(useCanvasSize().width) === 'side';
+  const listRef = useRef<FlatList<StoredChannel>>(null);
+  const tail = useTvListTail();
 
   /**
    * Uret: kanalen kan startes forfra. Kraever baade at udbyderen siger den
@@ -239,8 +242,11 @@ export function ChannelList({
         </TvPressable>
       )}
       <FlatList
+        ref={listRef}
         data={shown}
         keyExtractor={(item) => item.id}
+        contentContainerStyle={tail}
+        onScrollToIndexFailed={() => undefined}
         windowSize={5}
         initialNumToRender={12}
         maxToRenderPerBatch={8}
@@ -275,7 +281,14 @@ export function ChannelList({
             delayLongPress={400}
             // Paa tv foelger previewet den raekke fjernbetjeningen staar paa,
             // ikke den oeverste synlige: det er dén man kigger paa.
-            onFocus={isTV ? () => setPreviewChannel(item) : undefined}
+            onFocus={
+              isTV
+                ? () => {
+                    setPreviewChannel(item);
+                    keepInMiddle(listRef.current, index);
+                  }
+                : undefined
+            }
           >
             <ChannelLogo uris={item.logoUrls} name={item.name} memoryKey={item.id} />
             <View style={styles.rowText}>

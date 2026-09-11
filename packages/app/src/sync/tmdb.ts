@@ -13,6 +13,21 @@ export type TmdbFetch = (
 
 const TIMEOUT_MS = 12_000;
 
+/**
+ * TMDB svarede ikke, eller svarede med en fejl (forkert noegle, for mange
+ * kald, nede). Det er ikke det samme som "titlen findes ikke": den der
+ * spoerger maa ikke gemme det som et nej. Paa tv laa den forkerte noegle
+ * (YouTube-noeglen i TMDB-feltet) en tid, og alle plakater slaaet op
+ * imens blev husket som "findes ikke" i en maaned — "nogen som er paa
+ * telefonen men ikke paa tv".
+ */
+export class TmdbRequestError extends Error {
+  constructor(readonly status: number | null) {
+    super(status === null ? 'TMDB svarede ikke' : `TMDB svarede ${status}`);
+    this.name = 'TmdbRequestError';
+  }
+}
+
 /** Den rigtige hentning, med tidsgraense. */
 export const tmdbFetch: TmdbFetch = async (url, headers) => {
   const controller = new AbortController();
@@ -144,8 +159,10 @@ export async function searchTmdb(
       posterUrl: typeof hit.poster_path === 'string' ? `${IMAGE_BASE}${hit.poster_path}` : null,
       rating,
     };
-  } catch {
-    return null;
+  } catch (error) {
+    // Et svar uden titler er null; et manglende svar er en fejl videre op.
+    if (error instanceof TmdbRequestError) throw error;
+    throw new TmdbRequestError(null);
   }
 }
 
@@ -155,7 +172,7 @@ async function firstHit(
   headers: Record<string, string> | undefined,
 ): Promise<SearchHit | null> {
   const response = await fetchImpl(url, headers);
-  if (!response.ok) return null;
+  if (!response.ok) throw new TmdbRequestError(response.status);
   const parsed = (await response.json()) as SearchResult;
   // Den foerste med plakat; ellers den foerste overhovedet.
   const results = parsed.results ?? [];
@@ -169,7 +186,11 @@ export async function findTmdbPoster(
   kind: 'movie' | 'series',
   name: string,
 ): Promise<string | null> {
-  return (await searchTmdb(fetchImpl, apiKey, kind, name))?.posterUrl ?? null;
+  try {
+    return (await searchTmdb(fetchImpl, apiKey, kind, name))?.posterUrl ?? null;
+  } catch {
+    return null;
+  }
 }
 
 interface Video {
@@ -201,7 +222,7 @@ export async function findTmdbTrailer(
   kind: 'movie' | 'series',
   name: string,
 ): Promise<TmdbTrailer | null> {
-  const found = await searchTmdb(fetchImpl, apiKey, kind, name);
+  const found = await searchTmdb(fetchImpl, apiKey, kind, name).catch(() => null);
   if (found === null) return null;
   const endpoint = kind === 'series' ? 'tv' : 'movie';
   const auth = tmdbAuth(apiKey);

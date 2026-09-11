@@ -249,6 +249,43 @@ function SortView({
     setOrder(channels);
   }, [channels]);
 
+  /**
+   * Paa tv: den knap fjernbetjeningen skal staa paa efter et flyt.
+   *
+   * Naar raekken flytter sig, bygger Android dens visning om, og fokus
+   * roeg — til Faerdig eller til Hjem i menuen, saa hvert flyt kostede
+   * en tur tilbage til kanalen ("kan ikke faa sortere kanaler til at
+   * virke"). Knappen faar en ny noegle per flyt, saa den tegnes forfra
+   * med foretrukket fokus, og listen ruller kanalen ind i midten.
+   */
+  const [tvFocus, setTvFocus] = useState<{ id: string; dir: 'up' | 'down'; nonce: number } | null>(null);
+  const moveOnTv = (index: number, dir: 'up' | 'down'): void => {
+    const to = dir === 'up' ? index - 1 : index + 1;
+    const moved = order[index];
+    if (moved === undefined) return;
+    if (to < 0 || to >= order.length) {
+      // I enden: knappen bliver staaende med fokus, men intet flyttes.
+      setTvFocus({ id: moved.id, dir, nonce: (tvFocus?.nonce ?? 0) + 1 });
+      return;
+    }
+    // Vises med det samme; databasen foelger efter.
+    const next = [...order];
+    next.splice(index, 1);
+    next.splice(to, 0, moved);
+    setOrder(next);
+    setTvFocus({ id: moved.id, dir, nonce: (tvFocus?.nonce ?? 0) + 1 });
+    void onMove(moved, to);
+    const visible = frame.current.height;
+    scrollRef.current?.scrollTo({
+      y: Math.max(0, to * ROW_HEIGHT - Math.max(0, visible - ROW_HEIGHT) / 2),
+      animated: true,
+    });
+  };
+  const tvKey = (item: StoredChannel, dir: 'up' | 'down'): string =>
+    tvFocus !== null && tvFocus.id === item.id && tvFocus.dir === dir ? `${dir}-${tvFocus.nonce}` : dir;
+  const tvPreferred = (item: StoredChannel, dir: 'up' | 'down'): boolean =>
+    isTV && tvFocus !== null && tvFocus.id === item.id && tvFocus.dir === dir;
+
   const [drag, setDrag] = useState<{ index: number; hover: number } | null>(null);
   const dragRef = useRef<{ index: number; hover: number; startScroll: number } | null>(null);
   const translate = useRef(new Animated.Value(0)).current;
@@ -390,22 +427,20 @@ function SortView({
                   // Ingen finger at traekke med: to knapper flytter én plads ad gangen.
                   <>
                     <TvPressable
+                      key={tvKey(item, 'up')}
                       style={styles.handle}
-                      disabled={index === 0}
-                      onPress={() => {
-                        void onMove(item, index - 1);
-                      }}
+                      hasTVPreferredFocus={tvPreferred(item, 'up')}
+                      onPress={() => moveOnTv(index, 'up')}
                     >
-                      <Text style={styles.handleText}>▲</Text>
+                      <Text style={[styles.handleText, index === 0 && styles.handleTextDim]}>▲</Text>
                     </TvPressable>
                     <TvPressable
+                      key={tvKey(item, 'down')}
                       style={styles.handle}
-                      disabled={index === order.length - 1}
-                      onPress={() => {
-                        void onMove(item, index + 1);
-                      }}
+                      hasTVPreferredFocus={tvPreferred(item, 'down')}
+                      onPress={() => moveOnTv(index, 'down')}
                     >
-                      <Text style={styles.handleText}>▼</Text>
+                      <Text style={[styles.handleText, index === order.length - 1 && styles.handleTextDim]}>▼</Text>
                     </TvPressable>
                   </>
                 ) : (
@@ -510,4 +545,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   handleText: { color: theme.colors.textMuted, fontSize: 20 },
+  handleTextDim: { opacity: 0.3 },
 });
