@@ -43,6 +43,8 @@ interface Props {
   /** Hvor langt ned i land -> kategori -> kanaler brugeren staar. */
   level: Level;
   onLevelChange: (level: Level) => void;
+  /** Tv: pil hoejre fra menuen; foerste raekke faar fokus. */
+  focusFirstSignal?: number;
 }
 
 /** Soegefeltet maa ikke koere en ny forespoergsel per taste-anslag. */
@@ -81,6 +83,7 @@ export function BrowseScreen({
   onFavoritesChanged,
   level,
   onLevelChange,
+  focusFirstSignal = 0,
 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
@@ -218,6 +221,7 @@ export function BrowseScreen({
           previewHandle={previewHandle}
           onLongPress={onPickLogo}
           focusFirst
+          focusFirstSignal={focusFirstSignal}
         />
       </View>
     );

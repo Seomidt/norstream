@@ -56,6 +56,8 @@ interface Props {
   onBrowse: () => void;
   previewEnabled: boolean;
   previewHandle: { current: PreviewHandle | null };
+  /** Tv: pil hoejre fra menuen; den foerste raekkes foerste udsendelse faar fokus. */
+  focusFirstSignal?: number;
 }
 
 /**
@@ -111,6 +113,7 @@ export function GuideScreen({
   onBrowse,
   previewEnabled,
   previewHandle,
+  focusFirstSignal = 0,
 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
@@ -140,7 +143,24 @@ export function GuideScreen({
   const onCellFocus = useCallback((channelId: string, index: number, count: number, key: string) => {
     focusedCell.current = { channelId, index, count, key };
   }, []);
-  const [focusTarget, setFocusTarget] = useState<{ channelId: string; key: string } | null>(null);
+  // Uden dette huskede gitteret den sidste celle efter en tur i menuen, og
+  // pil hoejre fra menuen ind i guiden bladrede en time frem med det samme.
+  const onCellBlur = useCallback(() => {
+    focusedCell.current = null;
+  }, []);
+  const [focusTarget, setFocusTarget] = useState<{ channelId: string; key: string; nonce: number } | null>(null);
+  // Fra menuen ind i guiden: den foerste raekkes foerste udsendelse (den
+  // der er i gang) faar fokus. Noeglen '' findes ikke, saa raekken tager
+  // sin foerste celle.
+  const signalAtMount = useRef(focusFirstSignal);
+  useEffect(() => {
+    if (!isTV || focusFirstSignal === signalAtMount.current) return;
+    const first = channels[0];
+    if (first === undefined) return;
+    setFocusTarget((current) => ({ channelId: first.id, key: '', nonce: (current?.nonce ?? 0) + 1 }));
+    // Kun signalet skal udloese det; kanalerne laeses naar det kommer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusFirstSignal]);
   useTVEventHandler((event) => {
     if (!isTV || (event.eventType !== 'right' && event.eventType !== 'left')) return;
     // Android sender tryk ned (0) og op (1); kun det ene skal taelle.
@@ -152,10 +172,10 @@ export function GuideScreen({
     // vaeret uden at vide hvilken kanal. Gitteret holder paa fokus til begge
     // sider (TVFocusGuideView), saa man ikke ryger ud paa logoet eller i menuen.
     if (event.eventType === 'right' && cell.index === cell.count - 1) {
-      setFocusTarget({ channelId: cell.channelId, key: cell.key });
+      setFocusTarget((current) => ({ channelId: cell.channelId, key: cell.key, nonce: (current?.nonce ?? 0) + 1 }));
       setOffsetMinutes((value) => Math.min(DRAG_MAX_MINUTES, value + 60));
     } else if (event.eventType === 'left' && cell.index === 0) {
-      setFocusTarget({ channelId: cell.channelId, key: cell.key });
+      setFocusTarget((current) => ({ channelId: cell.channelId, key: cell.key, nonce: (current?.nonce ?? 0) + 1 }));
       setOffsetMinutes((value) => Math.max(DRAG_MIN_MINUTES, value - 60));
     }
   });
@@ -545,10 +565,12 @@ export function GuideScreen({
         onMeasureCells={onMeasureCells}
         onOpen={onOpenCell}
         onCellFocus={onCellFocus}
+        onCellBlur={onCellBlur}
         focusKey={focusTarget !== null && focusTarget.channelId === item.id ? focusTarget.key : null}
+        focusNonce={focusTarget?.nonce ?? 0}
       />
     ),
-    [rows, windowStartMs, windowEndMs, nowMs, hasDialectFor, previewingId, onPreviewRow, onMeasureCells, onOpenCell, onCellFocus, focusTarget],
+    [rows, windowStartMs, windowEndMs, nowMs, hasDialectFor, previewingId, onPreviewRow, onMeasureCells, onOpenCell, onCellFocus, onCellBlur, focusTarget],
   );
 
   if (loading) {
@@ -834,7 +856,9 @@ const GuideRow = memo(function GuideRow({
   onOpen,
   onMeasureCells,
   onCellFocus,
+  onCellBlur,
   focusKey,
+  focusNonce,
 }: {
   channel: StoredChannel;
   programmes: readonly Programme[];
@@ -851,8 +875,11 @@ const GuideRow = memo(function GuideRow({
   onMeasureCells: (width: number) => void;
   /** Tv: hvilken celle fjernbetjeningen staar paa, til pil-hoejre-bladring. */
   onCellFocus: (channelId: string, index: number, count: number, key: string) => void;
+  onCellBlur: () => void;
   /** Tv: cellen der skal have fokus efter et vinduesskift; null for alle andre raekker. */
   focusKey: string | null;
+  /** Taelles op per fokusflytning, saa samme celle kan bede om fokus igen (ny key = tegnes forfra). */
+  focusNonce: number;
 }) {
   const styles = useStyles(makeStyles);
   const cells = useMemo(
@@ -896,7 +923,7 @@ const GuideRow = memo(function GuideRow({
           const action = guideAction(cell, channel, hasDialect);
           return (
             <TvPressable
-              key={cell.key}
+              key={index === targetIndex ? `${cell.key}-${focusNonce}` : cell.key}
               hasTVPreferredFocus={index === targetIndex}
               style={[
                 styles.cell,
@@ -916,6 +943,7 @@ const GuideRow = memo(function GuideRow({
                     }
                   : undefined
               }
+              onBlur={isTV ? onCellBlur : undefined}
             >
               {/* Uden maerket kan man ikke se hvilke afsluttede udsendelser
                   der kan startes igen. Cellerne ser ens ud, og forskellen —

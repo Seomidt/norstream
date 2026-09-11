@@ -43,6 +43,12 @@ interface Props {
   onRefresh?: () => void;
   /** Paa bred skaerm: under previewet i hoejre soejle. Favoritternes Sortér staar der paa tv, ét tryk til hoejre fra enhver raekke. */
   sidePanel?: ReactNode;
+  /**
+   * Tv: taelles op naar fjernbetjeningen gaar fra menuen ind i indholdet
+   * (pil hoejre). Saa faar den foerste raekke fokus, i stedet for det
+   * Android tilfaeldigt fandt naermest ("ikke til at finde ud af hvor den er").
+   */
+  focusFirstSignal?: number;
   header?: ReactNode;
   /** Hold fingeren paa en kanal: vaelg dens logo selv. */
   onLongPress?: (channel: StoredChannel) => void;
@@ -85,6 +91,7 @@ export function ChannelList({
   focusFirst = false,
   allowRestartFilter = true,
   sidePanel,
+  focusFirstSignal = 0,
 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
@@ -93,6 +100,10 @@ export function ChannelList({
   const sideBySide = guideTopLayout(useCanvasSize().width) === 'side';
   const listRef = useRef<FlatList<StoredChannel>>(null);
   const tail = useTvListTail();
+  // Signalet taeller kun naar det kommer efter monteringen: en fane der
+  // monteres mens man ruller i menuen, maa ikke traekke fokus til sig.
+  const signalAtMount = useRef(focusFirstSignal);
+  const enterFocus = isTV && focusFirstSignal !== signalAtMount.current;
 
   /**
    * Uret: kanalen kan startes forfra. Kraever baade at udbyderen siger den
@@ -175,7 +186,9 @@ export function ChannelList({
   const onViewableItemsChanged = useRef(
     (info: { viewableItems: { item: StoredChannel }[] }): void => {
       const items = info.viewableItems.map((entry) => entry.item).filter(Boolean);
-      setPreviewChannel(items[0] ?? null);
+      // Paa tv foelger previewet den raekke der har fokus (onFocus), ikke
+      // den oeverste synlige: ellers viste det TLC mens man stod paa DK4.
+      if (!isTV) setPreviewChannel(items[0] ?? null);
       void loadVisibleRef.current(items.map((item) => item.id));
     },
   ).current;
@@ -273,8 +286,9 @@ export function ChannelList({
         ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
         renderItem={({ item, index }) => (
           <TvPressable
+            key={index === 0 ? `first-${focusFirstSignal}` : undefined}
             style={styles.row}
-            hasTVPreferredFocus={isTV && focusFirst && index === 0 && cameBySelect()}
+            hasTVPreferredFocus={index === 0 && ((isTV && focusFirst && cameBySelect()) || enterFocus)}
             onPress={() => {
               void open(item);
             }}

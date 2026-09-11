@@ -199,6 +199,13 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
   fanger fokus i alle retninger, ellers gik pil op til Hjem i søjlen.
   Pilene læses med `useTVEventHandler` (kun `eventKeyAction` 1, ellers
   tæller hvert tryk dobbelt). En knap per plads (▲/▼) var for langsomt.
+- **Pil højre fra menuen giver den første række fokus.** HomeScreen
+  tæller `enterSignal` op når pil højre trykkes mens søjlen har fokus, og
+  Favoritter, Kanaler og Guide giver deres første række/celle
+  `hasTVPreferredFocus` med ny `key` (kun når signalet er nyere end
+  monteringen, ellers stjal en fane fokus mens man rullede i menuen).
+  Previewet kan ikke få fokus på tv (`focusable={!isTV}`) og følger den
+  række der har fokus, aldrig den øverste synlige.
 - **Knapper der skal kunne nås fra en lang liste, står i højre søjle**
   under previewet (`sidePanel` på `ChannelList`), ikke over listen: fra
   bunden af halvtreds favoritter var Sortér halvtreds tryk væk; til højre

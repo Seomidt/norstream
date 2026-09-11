@@ -182,8 +182,11 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
 
   return (
     <View style={styles.container}>
+      {/* Paa tv kan previewet ikke faa fokus: det foelger den raekke man
+          staar paa, og fjernbetjeningen skal blive i listen. */}
       <TvPressable
         style={styles.frame}
+        focusable={!isTV}
         onPress={() => {
           if (target !== null) onOpen(target);
         }}
@@ -205,7 +208,7 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
         <Text style={styles.title} numberOfLines={1}>
           {target?.name ?? ''}
         </Text>
-        <TvPressable hitSlop={12} onPress={() => setMuted((value) => !value)}>
+        <TvPressable hitSlop={12} focusable={!isTV} onPress={() => setMuted((value) => !value)}>
           <Text style={styles.sound}>{muted ? '🔇' : '🔊'}</Text>
         </TvPressable>
       </View>

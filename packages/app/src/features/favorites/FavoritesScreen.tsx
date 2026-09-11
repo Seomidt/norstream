@@ -43,6 +43,8 @@ interface Props {
   onRefresh: () => void;
   /** Aendres af foraelderen naar favoritterne kan have aendret sig andetsteds. */
   reloadToken: number;
+  /** Tv: pil hoejre fra menuen; den foerste kanal faar fokus. */
+  focusFirstSignal?: number;
 }
 
 /**
@@ -69,6 +71,7 @@ export function FavoritesScreen({
   refreshing,
   onRefresh,
   reloadToken,
+  focusFirstSignal = 0,
 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
@@ -227,6 +230,7 @@ export function FavoritesScreen({
       // ikke over listen: derfra er Sortér ét tryk til hoejre fra enhver
       // raekke, mod halvtreds tryk op fra bunden af listen.
       sidePanel={isTV ? header : undefined}
+      focusFirstSignal={focusFirstSignal}
     />
   );
   return list;

@@ -331,8 +331,20 @@ export function HomeScreen({
   }, []);
 
   const lastKey = useRef<{ type: string; at: number }>({ type: '', at: 0 });
+  /**
+   * Pil hoejre fra menuen ind i indholdet: skaermen faar besked og saetter
+   * fokus paa sin foerste raekke. Android selv valgte det trykpunkt der laa
+   * naermest ikonet, og det var lige saa tit previewet eller en knap midt
+   * i listen som den foerste kanal.
+   */
+  const railFocused = useRef(false);
+  const [enterSignal, setEnterSignal] = useState(0);
   useTVEventHandler((event) => {
     if (event.eventType !== 'focus' && event.eventType !== 'blur') lastKey.current = { type: event.eventType, at: Date.now() };
+    if (event.eventType === 'right' && railFocused.current) {
+      if (event.eventKeyAction !== undefined && Number(event.eventKeyAction) === 0) return;
+      setEnterSignal((value) => value + 1);
+    }
   });
   /** Fanen skifter foerst naar fjernbetjeningen har staaet stille et oejeblik: at koere hen over fire faner skal ikke montere fire skaerme. */
   const pendingTab = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -363,11 +375,13 @@ export function HomeScreen({
   const [railOpen, setRailOpen] = useState(true);
   const railTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onRailFocus = () => {
+    railFocused.current = true;
     if (railTimer.current !== null) clearTimeout(railTimer.current);
     railTimer.current = null;
     setRailOpen(true);
   };
   const onRailBlur = () => {
+    railFocused.current = false;
     if (railTimer.current !== null) clearTimeout(railTimer.current);
     railTimer.current = setTimeout(() => setRailOpen(false), 2000);
   };
@@ -466,6 +480,7 @@ export function HomeScreen({
             refreshing={refreshing}
             onRefresh={refresh}
             reloadToken={favoritesToken}
+            focusFirstSignal={enterSignal}
           />
         )}
         {tab === 'browse' && (
@@ -479,6 +494,7 @@ export function HomeScreen({
             onFavoritesChanged={() => setFavoritesToken((value) => value + 1)}
             level={place.browse ?? { name: 'countries' }}
             onLevelChange={(level) => onPlaceChange({ ...place, browse: level })}
+            focusFirstSignal={enterSignal}
           />
         )}
         {tab === 'guide' && (
@@ -491,6 +507,7 @@ export function HomeScreen({
             onBrowse={() => setTab('browse')}
             previewEnabled={previewEnabled}
             previewHandle={previewHandle}
+            focusFirstSignal={enterSignal}
           />
         )}
         {visited.current.has('vod') && (
