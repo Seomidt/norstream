@@ -160,7 +160,10 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
   logoet kan ikke få fokus; pil-højre på den sidste udsendelse i en række
   flytter vinduet en time frem, pil-venstre på den første en time tilbage,
   og fokus bliver på samme udsendelse (`focusTarget` +
-  `hasTVPreferredFocus`). Menuen nås fra dagsknapperne over gitteret. Søjlen til højre (`NowNextBox
+  `hasTVPreferredFocus`). Bladre- og dagsknapperne findes ikke på tv, og
+  gitteret holder også på fokus opad; **Tilbage** sætter vinduet til nu, og
+  næste Tilbage sender fokus op i menusøjlen (`railFocusSignal` i
+  HomeScreen: Tilbage i indhold på tv går altid først til søjlen). Søjlen til højre (`NowNextBox
   rich`) har ingen knapper: den kan ikke nås når gitteret holder på fokus,
   og OK på udsendelsen giver de samme valg (se kanalen, start forfra, hele
   dagen).

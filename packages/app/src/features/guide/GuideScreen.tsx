@@ -195,9 +195,16 @@ export function GuideScreen({
   const [dayFor, setDayFor] = useState<StoredChannel | null>(null);
   if (backRef !== undefined) {
     backRef.current = (): boolean => {
-      if (dayFor === null) return false;
-      setDayFor(null);
-      return true;
+      if (dayFor !== null) {
+        setDayFor(null);
+        return true;
+      }
+      // Paa tv er der ingen "Nu"-knap: Tilbage saetter vinduet til nu foerst.
+      if (isTV && offsetMinutes !== 0) {
+        setOffsetMinutes(0);
+        return true;
+      }
+      return false;
     };
   }
   /** Kanalen previewet viser, eller null. Foelger den oeverste synlige raekke. */
@@ -699,6 +706,10 @@ export function GuideScreen({
           gitteret faar hoejden. Paa tv er laerredet 405 punkter hoejt, og
           med preview, to linjer knapper og tidslinje var der ingen raekker
           tilbage. */}
+      {/* Ikke paa tv: bladre- og dagsknapperne var det fjernbetjeningen
+          landede paa naar den koerte op, og pil venstre/hoejre i gitteret
+          bladrer alligevel. Tilbage saetter vinduet til nu. */}
+      {!isTV && (
       <View style={sideBySide ? styles.toolbarSide : styles.toolbar}>
         <TvPressable
           hitSlop={12}
@@ -723,11 +734,19 @@ export function GuideScreen({
         </TvPressable>
         {sideBySide && dayChips}
       </View>
-      {!sideBySide && dayChips}
+      )}
+      {!isTV && !sideBySide && dayChips}
 
 
       <View style={styles.timeHeader}>
-        <View style={styles.timeSpacer} />
+        <View style={styles.timeSpacer}>
+          {/* Paa tv staar dagen her, naar vinduet ikke er i dag. */}
+          {isTV && (
+            <Text style={styles.timeMark} numberOfLines={1}>
+              {isSameDay(window.start, now) ? 'I dag' : formatDay(window.start)}
+            </Text>
+          )}
+        </View>
         {halfHourMarks(window.start).map((mark) => (
           <Text key={mark.getTime()} style={styles.timeMark}>
             {formatTime(mark)}
@@ -762,7 +781,7 @@ export function GuideScreen({
             ]}
           />
         )}
-        <TVFocusGuideView style={styles.grid} trapFocusRight={isTV} trapFocusLeft={isTV}>
+        <TVFocusGuideView style={styles.grid} trapFocusRight={isTV} trapFocusLeft={isTV} trapFocusUp={isTV}>
         <FlatList
           data={channels}
           keyExtractor={(item) => item.id}

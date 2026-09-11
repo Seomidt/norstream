@@ -187,6 +187,12 @@ export function HomeScreen({
         return true;
       }
     }
+    // Paa tv: foerst op i menuen (soejlen), saa videre som paa telefonen.
+    // Ellers var menuen ikke til at naa fra guiden, som holder paa fokus.
+    if (isTV && !railFocused.current) {
+      setRailFocusSignal((value) => value + 1);
+      return true;
+    }
     if (tab !== 'home') {
       onPlaceChange({ ...place, tab: 'home' });
       return true;
@@ -350,6 +356,15 @@ export function HomeScreen({
    * i listen som den foerste kanal.
    */
   const railFocused = useRef(false);
+  /** Taelles op naar Tilbage skal sende fokus op i soejlen; fanen der er valgt beder om fokus i én tegning. */
+  const [railFocusSignal, setRailFocusSignal] = useState(0);
+  const [railWantsFocus, setRailWantsFocus] = useState(false);
+  useEffect(() => {
+    if (railFocusSignal === 0) return;
+    setRailWantsFocus(true);
+    const frame = requestAnimationFrame(() => setRailWantsFocus(false));
+    return () => cancelAnimationFrame(frame);
+  }, [railFocusSignal]);
   /** Hvornaar soejlen sidst mistede fokus: Android flytter fokus ved tryk ned, foer tryk op naar herind. */
   const railBlurredAt = useRef(0);
   const [enterSignal, setEnterSignal] = useState(0);
@@ -411,6 +426,7 @@ export function HomeScreen({
         <TvPressable
           key={item.id}
           style={isTV ? styles.railTab : styles.tab}
+          hasTVPreferredFocus={isTV && railWantsFocus && tab === item.id}
           onPress={() => {
             if (pendingTab.current !== null) clearTimeout(pendingTab.current);
             selectTab(item.id);
