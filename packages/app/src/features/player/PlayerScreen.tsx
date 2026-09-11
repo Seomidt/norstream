@@ -34,6 +34,7 @@ import { useRadioNowPlaying } from './useRadioNowPlaying.js';
 import type { RadioState } from './RadioView.js';
 import { pickPreferredSubtitle, sameTrack, trackName } from './tracks.js';
 import type { RestartBlock } from './restart.js';
+import { SeekButtons } from './SeekButtons.js';
 
 interface Props {
   session: AppSession;
@@ -559,6 +560,9 @@ export function PlayerScreen({
           <Text style={styles.buttonText}>Start forfra</Text>
         </TvPressable>
       )}
+      {/* Startet forfra paa tv: pause og spoling, saa reklamerne kan
+          springes over. Paa telefonen har afspillerens egne knapper det. */}
+      {restarted && isTV && <SeekButtons player={player} playing={playing} />}
     </>
   );
 

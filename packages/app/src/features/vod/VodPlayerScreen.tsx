@@ -17,6 +17,7 @@ import type { Playback } from './VodDetailScreen.js';
 import { TrackPicker } from '../player/TrackPicker.js';
 import { LandscapePlayer, useLandscape } from '../player/Landscape.js';
 import { pickPreferredSubtitle, sameTrack, trackName } from '../player/tracks.js';
+import { SeekButtons } from '../player/SeekButtons.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
 
@@ -168,6 +169,14 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
     };
   }, [player, autoSelect]);
 
+  const [playing, setPlaying] = useState(true);
+  useEffect(() => {
+    const subscription = player.addListener('playingChange', ({ isPlaying }: { isPlaying: boolean }) => {
+      setPlaying(isPlaying);
+    });
+    return () => subscription.remove();
+  }, [player]);
+
   useEffect(() => {
     const subscription = player.addListener('statusChange', ({ status }: { status: string }) => {
       if (status === 'readyToPlay') {
@@ -313,6 +322,8 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
       >
         <Text style={styles.buttonText}>Lyd{audio !== null ? `: ${trackName(audio)}` : ''}</Text>
       </TvPressable>
+      {/* Paa tv er afspillerens egne knapper slaaet fra: pause og spoling her. */}
+      {isTV && <SeekButtons player={player} playing={playing} />}
     </>
   );
 
