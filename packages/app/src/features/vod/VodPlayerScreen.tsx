@@ -323,7 +323,7 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
         <Text style={styles.buttonText}>Lyd{audio !== null ? `: ${trackName(audio)}` : ''}</Text>
       </TvPressable>
       {/* Paa tv er afspillerens egne knapper slaaet fra: pause og spoling her. */}
-      {isTV && <SeekButtons player={player} playing={playing} />}
+      {isTV && <SeekButtons player={player} playing={playing} preferFocus />}
     </>
   );
 

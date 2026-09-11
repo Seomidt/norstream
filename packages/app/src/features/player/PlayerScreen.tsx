@@ -504,9 +504,14 @@ export function PlayerScreen({
     void playFromStart(startFrom);
   }, [startFrom, playFromStart]);
 
+  // Bjaelken bygges op forfra hver gang den kommer frem, og paa tv skal
+  // en knap have fokus med det samme: ellers skulle man trykke sig ned til
+  // den ("skal trykke en masse gange"). Spoler man, er det 30 s frem;
+  // ellers Start forfra; og er den der ikke, Tilbage.
+  const canRestart = !restarted && restartBlock === null && now !== null;
   const actions = (
     <>
-      <TvPressable style={styles.button} onPress={onBack}>
+      <TvPressable style={styles.button} hasTVPreferredFocus={isTV && !restarted && !canRestart} onPress={onBack}>
         <Text style={styles.buttonText}>Tilbage</Text>
       </TvPressable>
       {zapList.length > 1 && zapIndex !== -1 && (
@@ -550,9 +555,10 @@ export function PlayerScreen({
           Tekst{subtitle !== null ? `: ${trackName(subtitle)}` : ''}
         </Text>
       </TvPressable>
-      {!restarted && restartBlock === null && now !== null && (
+      {canRestart && (
         <TvPressable
           style={[styles.button, styles.buttonAccent]}
+          hasTVPreferredFocus={isTV}
           onPress={() => {
             void playFromStart(now);
           }}
@@ -562,7 +568,7 @@ export function PlayerScreen({
       )}
       {/* Startet forfra paa tv: pause og spoling, saa reklamerne kan
           springes over. Paa telefonen har afspillerens egne knapper det. */}
-      {restarted && isTV && <SeekButtons player={player} playing={playing} />}
+      {restarted && isTV && <SeekButtons player={player} playing={playing} preferFocus />}
     </>
   );
 

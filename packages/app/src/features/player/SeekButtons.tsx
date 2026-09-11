@@ -14,7 +14,16 @@ import { TvPressable } from '../../ui/TvPressable.js';
  * tilbage, 30 s frem og 3 minutter frem — et reklameblok i ét tryk.
  * Live-kanaler faar dem ikke; der er intet at spole i.
  */
-export function SeekButtons({ player, playing }: { player: VideoPlayer; playing: boolean }) {
+export function SeekButtons({
+  player,
+  playing,
+  preferFocus = false,
+}: {
+  player: VideoPlayer;
+  playing: boolean;
+  /** Paa tv: "30 s frem" faar fokus naar bjaelken kommer frem, saa et reklameblok er to tryk vaek. */
+  preferFocus?: boolean;
+}) {
   const styles = useStyles(makeStyles);
   const seek = (seconds: number): void => {
     try {
@@ -41,7 +50,7 @@ export function SeekButtons({ player, playing }: { player: VideoPlayer; playing:
       <TvPressable style={styles.button} onPress={() => seek(-10)}>
         <Text style={styles.buttonText}>« 10 s</Text>
       </TvPressable>
-      <TvPressable style={styles.button} onPress={() => seek(30)}>
+      <TvPressable style={styles.button} hasTVPreferredFocus={preferFocus} onPress={() => seek(30)}>
         <Text style={styles.buttonText}>30 s »</Text>
       </TvPressable>
       <TvPressable style={styles.button} onPress={() => seek(180)}>
