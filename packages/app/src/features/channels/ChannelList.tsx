@@ -41,6 +41,8 @@ interface Props {
   previewHandle: { current: PreviewHandle | null };
   refreshing?: boolean;
   onRefresh?: () => void;
+  /** Paa bred skaerm: under previewet i hoejre soejle. Favoritternes Sortér staar der paa tv, ét tryk til hoejre fra enhver raekke. */
+  sidePanel?: ReactNode;
   header?: ReactNode;
   /** Hold fingeren paa en kanal: vaelg dens logo selv. */
   onLongPress?: (channel: StoredChannel) => void;
@@ -82,6 +84,7 @@ export function ChannelList({
   onLongPress,
   focusFirst = false,
   allowRestartFilter = true,
+  sidePanel,
 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
@@ -311,8 +314,11 @@ export function ChannelList({
         )}
       />
       </View>
-      {sideBySide && previewEnabled && (
-        <View style={{ width: `${Math.round(sidePreviewFraction(isTV) * 100)}%` }}>{preview}</View>
+      {sideBySide && (previewEnabled || sidePanel !== undefined) && (
+        <View style={{ width: `${Math.round(sidePreviewFraction(isTV) * 100)}%` }}>
+          {previewEnabled && preview}
+          {sidePanel}
+        </View>
       )}
     </View>
   );

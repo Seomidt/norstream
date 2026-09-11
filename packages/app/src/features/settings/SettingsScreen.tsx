@@ -496,7 +496,7 @@ export function SettingsScreen({
         ))}
       </View>
       <Text style={styles.hint}>
-        Skiftet gælder næste gang du åbner en kanal.
+        Skiftet gælder næste gang du åbner en kanal, også når du starter forfra.
       </Text>
 
       <Text style={styles.sectionTitle}>Plakater</Text>

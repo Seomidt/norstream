@@ -57,7 +57,6 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     outlineOffset: 2,
     outlineStyle: 'solid',
     borderRadius: theme.radius,
-    backgroundColor: colors.focusTint,
     transform: [{ scale: 1.03 }],
   },
   ring: {
@@ -69,5 +68,9 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     borderWidth: 3,
     borderColor: colors.focusRing,
     borderRadius: theme.radius + 2,
+    // Toningen ligger som et lag oven paa knappens egen farve, ikke i
+    // stedet for den: som baggrund gjorde 18 % blaat en knap paa
+    // afspillerens sorte bjaelke naesten sort ("bliver helt sort").
+    backgroundColor: colors.focusTint,
   },
 });

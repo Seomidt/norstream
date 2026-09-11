@@ -197,6 +197,17 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
   fanger fokus i alle retninger, ellers gik pil op til Hjem i søjlen.
   Pilene læses med `useTVEventHandler` (kun `eventKeyAction` 1, ellers
   tæller hvert tryk dobbelt). En knap per plads (▲/▼) var for langsomt.
+- **Knapper der skal kunne nås fra en lang liste, står i højre søjle**
+  under previewet (`sidePanel` på `ChannelList`), ikke over listen: fra
+  bunden af halvtreds favoritter var Sortér halvtreds tryk væk; til højre
+  er den ét. Tilbage afslutter sorteringen (`BackHandler` i `SortView`).
+- **Afspillerne er altid mørke** (`ThemeProvider scheme="dark"` om
+  ruterne i App.tsx): bjælken er sort, og med det lyse temas næsten sorte
+  fokusring og lyse toning forsvandt den knap man stod på. Fokustoningen
+  ligger desuden som et lag oven på knappens egen farve, ikke i stedet for.
+- **Start forfra bruger samme beholder som live** (`formatForPlatform()`
+  til `buildTimeshiftUrl`): arkivet som HLS gav grøn skærm med lyd på
+  DR-kanalerne, mens live i `.ts` var fint.
 - **Åbner en skærm med OK, skal dens første række have
   `hasTVPreferredFocus`** — regnet ud én gang ved montering
   (`useRef(isTV && cameBySelect()).current`), ikke ved hver tegning:

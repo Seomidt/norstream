@@ -282,6 +282,7 @@ function AppInner() {
         </View>
       )}
       {route.name === 'player' && session !== null && (
+        <ThemeProvider scheme="dark">
         <View style={styles.overlay}>
           <PlayerScreen
             session={session}
@@ -291,6 +292,7 @@ function AppInner() {
             onBack={() => setRoute({ name: 'home' })}
           />
         </View>
+        </ThemeProvider>
       )}
       {route.name === 'vodDetail' && session !== null && (
         <View style={styles.overlay}>
@@ -306,6 +308,7 @@ function AppInner() {
         </View>
       )}
       {route.name === 'trailer' && session !== null && (
+        <ThemeProvider scheme="dark">
         <View style={styles.overlay}>
           <TrailerScreen
             session={session}
@@ -316,8 +319,10 @@ function AppInner() {
             onBack={() => setRoute({ name: 'vodDetail', itemKey: route.itemKey })}
           />
         </View>
+        </ThemeProvider>
       )}
       {route.name === 'vodPlayer' && session !== null && (
+        <ThemeProvider scheme="dark">
         <View style={styles.overlay}>
           <VodPlayerScreen
             session={session}
@@ -325,6 +330,7 @@ function AppInner() {
             onBack={() => setRoute({ name: 'vodDetail', itemKey: route.itemKey })}
           />
         </View>
+        </ThemeProvider>
       )}
       </SafeAreaView>
       </View>

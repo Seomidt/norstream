@@ -433,6 +433,9 @@ export function PlayerScreen({
       const durationMinutes = Math.ceil(
         (programme.stop.getTime() - programme.start.getTime()) / 60_000,
       );
+      // Samme beholder som live (.ts paa Android): arkivet som HLS gav groen
+      // skaerm med lyd paa DR-kanalerne paa tv, mens live i .ts var fint.
+      // Streamformat under Indstillinger gaelder ogsaa her.
       setSource(
         buildTimeshiftUrl(
           access.creds,
@@ -441,6 +444,7 @@ export function PlayerScreen({
           durationMinutes,
           dialect,
           offset,
+          formatForPlatform(),
         ),
       );
       setRestarted(true);

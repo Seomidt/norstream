@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  BackHandler,
   PanResponder,
   Pressable,
   RefreshControl,
@@ -222,20 +223,12 @@ export function FavoritesScreen({
       refreshing={refreshing}
       onRefresh={onRefresh}
       header={isTV ? undefined : header}
+      // Paa tv staar Se videre og Sortér i hoejre soejle under previewet,
+      // ikke over listen: derfra er Sortér ét tryk til hoejre fra enhver
+      // raekke, mod halvtreds tryk op fra bunden af listen.
+      sidePanel={isTV ? header : undefined}
     />
   );
-
-  // Paa tv staar Se videre og Sortér fast over listen, ikke inde i den:
-  // som listehoved rullede de vaek og blev klippet fra, og saa kunne
-  // fjernbetjeningen ikke naa Sortér ("kan ikke komme til at vaelge sortér").
-  if (isTV) {
-    return (
-      <View style={styles.container}>
-        {header}
-        {list}
-      </View>
-    );
-  }
   return list;
 }
 
@@ -408,6 +401,23 @@ function SortView({
   });
   const picking = drag !== null;
 
+  // Tilbage-knappen: er en kanal taget op, saettes den hvor den er naaet
+  // til; ellers er sorteringen faerdig. Saa skal man ikke finde Faerdig.
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      const current = dragRef.current;
+      if (current !== null) {
+        const moved = order[current.index];
+        finish();
+        if (moved !== undefined) setTvFocus({ id: moved.id, nonce: (tvFocus?.nonce ?? 0) + 1 });
+        return true;
+      }
+      onDone();
+      return true;
+    });
+    return () => subscription.remove();
+  });
+
   return (
     <View style={styles.container}>
       <View style={styles.toolbar}>
@@ -415,7 +425,7 @@ function SortView({
           {isTV
             ? picking
               ? 'Flyt kanalen med ▲ og ▼, og tryk OK for at sætte den.'
-              : 'Tryk OK på en kanal, flyt den med ▲ og ▼, og tryk OK igen.'
+              : 'Tryk OK på en kanal, flyt den med ▲ og ▼, og tryk OK igen. Tilbage når du er færdig.'
             : 'Træk i ☰ og slip kanalen hvor den skal ligge.'}
         </Text>
         <View style={styles.toolbarRow}>
