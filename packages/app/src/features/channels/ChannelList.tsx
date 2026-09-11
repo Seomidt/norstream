@@ -102,8 +102,16 @@ export function ChannelList({
   const tail = useTvListTail();
   // Signalet taeller kun naar det kommer efter monteringen: en fane der
   // monteres mens man ruller i menuen, maa ikke traekke fokus til sig.
-  const signalAtMount = useRef(focusFirstSignal);
-  const enterFocus = isTV && focusFirstSignal !== signalAtMount.current;
+  const consumedSignal = useRef(focusFirstSignal);
+  const enterFocus = isTV && focusFirstSignal !== consumedSignal.current;
+  useEffect(() => {
+    consumedSignal.current = focusFirstSignal;
+  }, [focusFirstSignal]);
+  // Regnet ud én gang, naar listen kommer frem. Blev det regnet ud ved
+  // hver tegning, bad den foerste raekke om fokus igen efter ethvert
+  // OK-tryk — ogsaa det lange tryk der goer en kanal til favorit, og saa
+  // sprang listen til toppen.
+  const focusFirstAtMount = useRef(isTV && focusFirst && cameBySelect()).current;
 
   /**
    * Uret: kanalen kan startes forfra. Kraever baade at udbyderen siger den
@@ -288,7 +296,7 @@ export function ChannelList({
           <TvPressable
             key={index === 0 ? `first-${focusFirstSignal}` : undefined}
             style={styles.row}
-            hasTVPreferredFocus={index === 0 && ((isTV && focusFirst && cameBySelect()) || enterFocus)}
+            hasTVPreferredFocus={index === 0 && (focusFirstAtMount || enterFocus)}
             onPress={() => {
               void open(item);
             }}

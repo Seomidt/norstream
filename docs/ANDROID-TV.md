@@ -220,7 +220,9 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
 - **Åbner en skærm med OK, skal dens første række have
   `hasTVPreferredFocus`** — regnet ud én gang ved montering
   (`useRef(isTV && cameBySelect()).current`), ikke ved hver tegning:
-  ellers sprang fokus tilbage til første række ved næste OK-tryk.
+  ellers sprang fokus tilbage til første række ved næste OK-tryk, og et
+  langt tryk på OK (favorit til/fra under Kanaler) er også et OK-tryk:
+  "springer til toppen hver gang". Aldrig `cameBySelect()` direkte i JSX.
 - **Ingen trækfinger.** Trækfladen i guiden (`PanResponder`) virker ikke på
   tv; derfor findes dagsknapperne og bladreknapperne ‹ ›. En ny skærm der
   kun kan betjenes med træk eller lang-tryk, er brudt på tv.

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -289,6 +289,8 @@ function Countries({
   kind: VodKind;
   onPick: (country: CountryGroup) => void;
 }) {
+  // Én gang naar listen kommer frem, ikke ved hver tegning: ellers sprang fokus til toppen efter ethvert OK-tryk.
+  const focusFirstAtMount = useRef(isTV && cameBySelect()).current;
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const [groups, setGroups] = useState<CountryGroup[] | null>(null);
@@ -309,7 +311,7 @@ function Countries({
       keyExtractor={(item) => item.key}
       ListEmptyComponent={<Text style={styles.empty}>Ingen {kindLabel(kind).toLowerCase()} fundet.</Text>}
       renderItem={({ item, index }) => (
-        <TvPressable style={styles.row} hasTVPreferredFocus={isTV && index === 0 && cameBySelect()} onPress={() => onPick(item)}>
+        <TvPressable style={styles.row} hasTVPreferredFocus={index === 0 && focusFirstAtMount} onPress={() => onPick(item)}>
           <Text style={styles.flag}>{item.flag}</Text>
           <View style={styles.rowMain}>
             <Text style={styles.rowTitle}>{item.name}</Text>
@@ -335,6 +337,8 @@ function Categories({
   countryKey: string;
   onPick: (category: VodCategorySummary) => void;
 }) {
+  // Én gang naar listen kommer frem, ikke ved hver tegning: ellers sprang fokus til toppen efter ethvert OK-tryk.
+  const focusFirstAtMount = useRef(isTV && cameBySelect()).current;
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const [categories, setCategories] = useState<VodCategorySummary[] | null>(null);
@@ -356,7 +360,7 @@ function Categories({
       data={categories}
       keyExtractor={(item) => item.id}
       renderItem={({ item, index }) => (
-        <TvPressable style={styles.row} hasTVPreferredFocus={isTV && index === 0 && cameBySelect()} onPress={() => onPick(item)}>
+        <TvPressable style={styles.row} hasTVPreferredFocus={index === 0 && focusFirstAtMount} onPress={() => onPick(item)}>
           <Text style={styles.flag}>{item.country?.flag ?? OTHER_COUNTRY_FLAG}</Text>
           <View style={styles.rowMain}>
             <Text style={styles.rowTitle} numberOfLines={1}>
@@ -406,6 +410,8 @@ function PosterGrid({
   onOpen: (item: StoredVodItem) => void;
   emptyText: string;
 }) {
+  // Én gang naar listen kommer frem, ikke ved hver tegning: ellers sprang fokus til toppen efter ethvert OK-tryk.
+  const focusFirstAtMount = useRef(isTV && cameBySelect()).current;
   const styles = useStyles(makeStyles);
   return (
     <FlatList
@@ -419,7 +425,7 @@ function PosterGrid({
       contentContainerStyle={styles.grid}
       columnWrapperStyle={styles.gridRow}
       ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
-      renderItem={({ item, index }) => <Poster item={item} onOpen={onOpen} preferFocus={isTV && index === 0 && cameBySelect()} />}
+      renderItem={({ item, index }) => <Poster item={item} onOpen={onOpen} preferFocus={index === 0 && focusFirstAtMount} />}
     />
   );
 }

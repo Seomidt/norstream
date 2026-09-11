@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -98,6 +98,9 @@ export function BrowseScreen({
   const countryList = useRef<FlatList<CountryGroup>>(null);
   const categoryList = useRef<FlatList<CategorySummary>>(null);
   const tail = useTvListTail();
+  // Én gang per niveau, ikke ved hver tegning (se ChannelList).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const focusFirstHere = useMemo(() => isTV && cameBySelect(), [level]);
 
   useEffect(() => {
     const timer = setTimeout(() => setQuery(search.trim()), SEARCH_DEBOUNCE_MS);
@@ -269,7 +272,7 @@ export function BrowseScreen({
                   skiftet og landede i menuen. */}
               <TvPressable
                 style={styles.rowMain}
-                hasTVPreferredFocus={isTV && index === 0 && cameBySelect()}
+                hasTVPreferredFocus={index === 0 && focusFirstHere}
                 onFocus={isTV ? () => keepInMiddle(categoryList.current, index) : undefined}
                 onPress={() =>
                   setLevel({ name: 'channels', country: level.country, category: item })
