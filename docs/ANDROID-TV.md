@@ -212,6 +212,14 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
   fokus går tabt, og Android sætter det øverst i hjørnet.
   Previewet kan ikke få fokus på tv (`focusable={!isTV}`) og følger den
   række der har fokus, aldrig den øverste synlige.
+- **Favoritgrupper:** én favoritliste, og grupper oven på den
+  (`storage/favoriteGroups.ts`, tabellerne `favorite_groups` og
+  `favorite_group_members`). Den valgte gruppe ligger i indstillingen
+  `favorite_group` og gælder Favoritter, Guide og zapning (listen der
+  åbnes med). Brugeren laver dem selv under Favoritter → Grupper
+  (`GroupsScreen`); intet lægges i dem af sig selv. På tv skifter pil op i
+  guidens øverste række til næste gruppe, og gruppens navn står i
+  tidslinjens hjørne.
 - **Knapper der skal kunne nås fra en lang liste, står i højre søjle**
   under previewet (`sidePanel` på `ChannelList`), ikke over listen: fra
   bunden af halvtreds favoritter var Sortér halvtreds tryk væk; til højre

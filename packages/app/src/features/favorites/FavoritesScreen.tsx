@@ -15,7 +15,10 @@ import {
 } from 'react-native';
 import type { AppSession } from '../../session.js';
 import { getChannel, listChannels, setFavorite } from '../../storage/channels.js';
-import { getLastChannelId } from '../../storage/settings.js';
+import { getFavoriteGroup, getLastChannelId, setFavoriteGroup } from '../../storage/settings.js';
+import { listFavoriteGroups } from '../../storage/favoriteGroups.js';
+import type { FavoriteGroup } from '../../storage/favoriteGroups.js';
+import { GroupsScreen } from './GroupsScreen.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { addCategoryToFavorites, favoriteCategories, moveFavorite } from '../../storage/favorites.js';
 import type { FavoriteCategory } from '../../storage/favorites.js';
@@ -80,16 +83,30 @@ export function FavoritesScreen({
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [sorting, setSorting] = useState(false);
+  /** Grupperne oven paa favoritterne, og den der vises (null = alle). */
+  const [groups, setGroups] = useState<FavoriteGroup[]>([]);
+  const [groupId, setGroupId] = useState<string | null>(null);
+  const [managingGroups, setManagingGroups] = useState(false);
+  /** Antal favoritter i alt, uanset gruppe: "ingen favoritter" gaelder kun naar det er nul. */
+  const [total, setTotal] = useState(0);
   /** Den kanal der sidst blev set: "Se videre" oeverst. */
   const [lastChannel, setLastChannel] = useState<StoredChannel | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     try {
-      const [list, fromCategories] = await Promise.all([
+      const chosen = await getFavoriteGroup(session.db);
+      const [list, all, fromCategories, groupList] = await Promise.all([
+        listChannels(session.db, { favouritesOnly: true, groupId: chosen }),
         listChannels(session.db, { favouritesOnly: true }),
         favoriteCategories(session.db),
+        listFavoriteGroups(session.db),
       ]);
-      setChannels(list);
+      // En slettet gruppe: tilbage til alle.
+      const valid = chosen !== null && groupList.some((group) => group.id === chosen);
+      setGroupId(valid ? chosen : null);
+      setGroups(groupList);
+      setChannels(valid ? list : all);
+      setTotal(all.length);
       setCategories(fromCategories);
       const lastId = await getLastChannelId(session.db);
       setLastChannel(lastId === null ? null : await getChannel(session.db, lastId));
@@ -137,7 +154,25 @@ export function FavoritesScreen({
     );
   }
 
-  if (channels.length === 0) {
+  if (managingGroups) {
+    return (
+      <GroupsScreen
+        session={session}
+        onBack={() => {
+          setManagingGroups(false);
+          void load();
+        }}
+        onChanged={() => void load()}
+      />
+    );
+  }
+
+  async function chooseGroup(id: string | null): Promise<void> {
+    await setFavoriteGroup(session.db, id);
+    await load();
+  }
+
+  if (total === 0) {
     // Spec sec.5: en kort besked der peger paa browse, ikke en tom liste.
     return (
       <ScrollView
@@ -189,6 +224,27 @@ export function FavoritesScreen({
           <Text style={styles.resumePlay}>▶</Text>
         </TvPressable>
       )}
+      {/* Grupperne: Alle, saa brugerens egne, og Grupper til at lave dem.
+          Guiden viser den samme gruppe. */}
+      <View style={styles.chips}>
+        <TvPressable style={[styles.chip, groupId === null && styles.chipActive]} onPress={() => void chooseGroup(null)}>
+          <Text style={[styles.chipText, groupId === null && styles.chipTextActive]}>Alle · {total}</Text>
+        </TvPressable>
+        {groups.map((group) => (
+          <TvPressable
+            key={group.id}
+            style={[styles.chip, groupId === group.id && styles.chipActive]}
+            onPress={() => void chooseGroup(group.id)}
+          >
+            <Text style={[styles.chipText, groupId === group.id && styles.chipTextActive]}>
+              {group.name} · {group.count}
+            </Text>
+          </TvPressable>
+        ))}
+        <TvPressable style={styles.chip} onPress={() => setManagingGroups(true)}>
+          <Text style={styles.chipText}>{groups.length === 0 ? '+ Grupper' : 'Grupper …'}</Text>
+        </TvPressable>
+      </View>
       <View style={styles.toolbarRow}>
         <Text style={styles.toolbarCount}>{channels.length} kanaler</Text>
         {categories.length > 0 && !isTV && (
@@ -214,7 +270,7 @@ export function FavoritesScreen({
       session={session}
       channels={channels}
       loading={false}
-      emptyText="Ingen favoritter."
+      emptyText="Ingen kanaler i denne gruppe endnu. Læg dem i under Grupper."
       onSelect={onSelect}
       onToggleFavorite={(channel) => {
         void toggleFavorite(channel);
@@ -557,6 +613,16 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     paddingVertical: theme.spacing.sm,
   },
   toolbarRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.xs, marginBottom: theme.spacing.sm },
+  chip: {
+    paddingHorizontal: theme.spacing.sm + 2,
+    paddingVertical: theme.spacing.xs + 2,
+    borderRadius: 16,
+    backgroundColor: colors.surfaceRaised,
+  },
+  chipActive: { backgroundColor: colors.accent },
+  chipText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+  chipTextActive: { color: colors.text },
   resume: {
     flexDirection: 'row',
     alignItems: 'center',

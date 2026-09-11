@@ -225,6 +225,8 @@ export async function listChannels(
     categoryId?: string;
     search?: string;
     favouritesOnly?: boolean;
+    /** Kun favoritter i denne gruppe (se favoriteGroups.ts). Kraever favouritesOnly. */
+    groupId?: string | null;
     /** Kun radio: kanaler hvis navn eller kategori siger radio, typisk "(RADIO)". */
     radioOnly?: boolean;
     /** Oevre graense paa antal raekker. Soegning paa tvaers af 22.142 kanaler skal have en. */
@@ -248,6 +250,10 @@ export async function listChannels(
 
   if (opts.favouritesOnly === true) {
     where.push('f.channel_id IS NOT NULL');
+    if (opts.groupId !== undefined && opts.groupId !== null) {
+      where.push('c.id IN (SELECT channel_id FROM favorite_group_members WHERE group_id = ?)');
+      params.push(opts.groupId);
+    }
   }
   if (opts.radioOnly === true) {
     where.push("(c.name LIKE '%radio%' OR cat.name LIKE '%radio%')");

@@ -69,6 +69,21 @@ CREATE TABLE IF NOT EXISTS favorites (
   position           INTEGER
 );
 
+-- Grupper oven paa den ene favoritliste: Sport, Film, Boern ... Brugeren
+-- laver dem selv og laegger favoritter i dem; en kanal kan vaere i flere.
+-- Guiden og Favoritter viser én gruppe ad gangen, eller alle.
+CREATE TABLE IF NOT EXISTS favorite_groups (
+  id       TEXT PRIMARY KEY,
+  name     TEXT NOT NULL,
+  position INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS favorite_group_members (
+  group_id   TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  PRIMARY KEY (group_id, channel_id)
+);
+
 -- Kanaler brugeren har fjernet fra en favoriseret kategori. Uden den ville
 -- "opdatér" paa kategorien haente dem tilbage hver gang, og en oprydning i
 -- 979 danske kanaler skulle laves forfra efter hvert tryk.
@@ -323,6 +338,8 @@ const TABLES = [
   'categories',
   'channels',
   'favorites',
+  'favorite_groups',
+  'favorite_group_members',
   'favorite_exclusions',
   'programmes',
   'epg_fetch',
@@ -355,8 +372,8 @@ const TABLES = [
 // v11: logo_overrides. v12: logo_files og logo_misses. v13: favorites.position.
 // v14: vod_posters. v15: vod_posters.rating. v16: vod_watched.
 // v17: logo_search_tried. v18: samme tabel toemt én gang (se migrate).
-// v19: radio_stations og radio_favorites.
-const SCHEMA_VERSION = 19;
+// v19: radio_stations og radio_favorites. v20: favorite_groups og medlemmer.
+const SCHEMA_VERSION = 20;
 
 /**
  * Foerste version der kan opgraderes additivt.

@@ -33,6 +33,8 @@ export interface Backup {
     xmltvUrl: string | null;
   }>;
   favorites: Array<{ channelId: string; sourceCategoryId: string | null; position: number | null }>;
+  /** Grupperne oven paa favoritterne, med deres kanaler. Mangler i aeldre kopier. */
+  favoriteGroups?: Array<{ id: string; name: string; position: number; channelIds: string[] }>;
   favoriteExclusions: Array<{ channelId: string; categoryId: string }>;
   logoOverrides: Array<{ channelKey: string; url: string }>;
   hiddenCountries: string[];
@@ -52,6 +54,9 @@ const SETTING_KEYS = [
   'google_search_cx',
   'home_providers',
   'logo_registry_enabled',
+  'favorite_group',
+  'theme_mode',
+  'theme_place',
 ];
 /** Indstillinger per kilde: noeglen ender paa kildens id. */
 const SCOPED_SETTING_PREFIXES = ['timeshift_dialect:', 'panel_offset_minutes:'];
@@ -97,6 +102,12 @@ export async function createBackup(db: SqlDatabase, now = Date.now()): Promise<B
     }
   }
 
+  const groups = await db.getAllAsync<{ id: string; name: string; position: number }>(
+    'SELECT id, name, position FROM favorite_groups ORDER BY position',
+  );
+  const members = await db.getAllAsync<{ group_id: string; channel_id: string }>(
+    'SELECT group_id, channel_id FROM favorite_group_members',
+  );
   return {
     app: 'norstream',
     version: BACKUP_VERSION,
@@ -113,6 +124,12 @@ export async function createBackup(db: SqlDatabase, now = Date.now()): Promise<B
       channelId: row.channel_id,
       sourceCategoryId: row.source_category_id,
       position: row.position,
+    })),
+    favoriteGroups: groups.map((group) => ({
+      id: group.id,
+      name: group.name,
+      position: group.position,
+      channelIds: members.filter((row) => row.group_id === group.id).map((row) => row.channel_id),
     })),
     favoriteExclusions: exclusions.map((row) => ({
       channelId: row.channel_id,
@@ -159,6 +176,7 @@ export function parseBackup(text: string): Backup {
     exportedMs: typeof candidate.exportedMs === 'number' ? candidate.exportedMs : 0,
     sources: Array.isArray(candidate.sources) ? candidate.sources : [],
     favorites: Array.isArray(candidate.favorites) ? candidate.favorites : [],
+    favoriteGroups: Array.isArray(candidate.favoriteGroups) ? candidate.favoriteGroups : [],
     favoriteExclusions: Array.isArray(candidate.favoriteExclusions) ? candidate.favoriteExclusions : [],
     logoOverrides: Array.isArray(candidate.logoOverrides) ? candidate.logoOverrides : [],
     hiddenCountries: Array.isArray(candidate.hiddenCountries) ? candidate.hiddenCountries : [],
@@ -236,6 +254,21 @@ export async function restoreBackup(db: SqlDatabase, backup: Backup): Promise<Re
     );
     position += 1;
     result.favorites += 1;
+  }
+  await db.runAsync('DELETE FROM favorite_group_members');
+  await db.runAsync('DELETE FROM favorite_groups');
+  for (const group of backup.favoriteGroups ?? []) {
+    if (typeof group.id !== 'string' || typeof group.name !== 'string') continue;
+    await db.runAsync('INSERT OR REPLACE INTO favorite_groups (id, name, position) VALUES (?, ?, ?)', [
+      group.id,
+      group.name,
+      typeof group.position === 'number' ? group.position : 0,
+    ]);
+    for (const raw of Array.isArray(group.channelIds) ? group.channelIds : []) {
+      const channelId = typeof raw === 'string' ? remap(raw) : null;
+      if (channelId === null) continue;
+      await db.runAsync('INSERT OR IGNORE INTO favorite_group_members (group_id, channel_id) VALUES (?, ?)', [group.id, channelId]);
+    }
   }
   for (const exclusion of backup.favoriteExclusions) {
     const channelId = remap(exclusion.channelId);

@@ -424,3 +424,15 @@ export async function getVideoSurface(db: SqlDatabase): Promise<VideoSurface> {
 export async function setVideoSurface(db: SqlDatabase, value: VideoSurface): Promise<void> {
   await setSetting(db, KEY_VIDEO_SURFACE, value);
 }
+
+const KEY_FAVORITE_GROUP = 'favorite_group';
+
+/** Den valgte favoritgruppe (id), eller null for alle. Gaelder Favoritter og Guide. */
+export async function getFavoriteGroup(db: SqlDatabase): Promise<string | null> {
+  const value = await getSetting(db, KEY_FAVORITE_GROUP);
+  return value === null || value.length === 0 ? null : value;
+}
+
+export async function setFavoriteGroup(db: SqlDatabase, id: string | null): Promise<void> {
+  await setSetting(db, KEY_FAVORITE_GROUP, id ?? '');
+}

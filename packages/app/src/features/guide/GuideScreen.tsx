@@ -16,7 +16,9 @@ import type { AppSession } from '../../session.js';
 import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { listProgrammes } from '../../storage/programmes.js';
-import { sourcesWithDialect } from '../../storage/settings.js';
+import { getFavoriteGroup, setFavoriteGroup, sourcesWithDialect } from '../../storage/settings.js';
+import { listFavoriteGroups } from '../../storage/favoriteGroups.js';
+import type { FavoriteGroup } from '../../storage/favoriteGroups.js';
 import { ensureFullEpg, ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { Notice } from '../../ui/Notice.js';
@@ -174,7 +176,7 @@ export function GuideScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusFirstSignal]);
   useTVEventHandler((event) => {
-    if (!isTV || (event.eventType !== 'right' && event.eventType !== 'left')) return;
+    if (!isTV || (event.eventType !== 'right' && event.eventType !== 'left' && event.eventType !== 'up')) return;
     // Android sender tryk ned (0) og op (1); kun det ene skal taelle.
     if (event.eventKeyAction !== undefined && Number(event.eventKeyAction) === 0) return;
     const cell = focusedCell.current;
@@ -183,6 +185,18 @@ export function GuideScreen({
     // den foerste: en time tilbage, saa man kan lede efter noget der har
     // vaeret uden at vide hvilken kanal. Gitteret holder paa fokus til begge
     // sider (TVFocusGuideView), saa man ikke ryger ud paa logoet eller i menuen.
+    if (event.eventType === 'up' && groups.length > 0 && channels[0]?.id === cell.channelId) {
+      // Oeverste raekke, pil op: naeste gruppe (Alle -> foerste -> ... -> Alle).
+      const order: Array<FavoriteGroup | null> = [null, ...groups];
+      const at = order.findIndex((entry) => (entry?.id ?? null) === (group?.id ?? null));
+      const next = order[(at + 1) % order.length] ?? null;
+      void setFavoriteGroup(session.db, next?.id ?? null).then(() => {
+        setLoading(true);
+        setGroupTick((value) => value + 1);
+        setFocusTarget({ channelId: '', key: '' });
+      });
+      return;
+    }
     if (event.eventType === 'right' && cell.index === cell.count - 1) {
       setFocusTarget({ channelId: cell.channelId, key: cell.key });
       setOffsetMinutes((value) => Math.min(DRAG_MAX_MINUTES, value + 60));
@@ -265,15 +279,24 @@ export function GuideScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.db, previewId, now, previewRows]);
 
+  /** Favoritgruppen guiden viser (null = alle), og alle grupperne til at skifte imellem. */
+  const [group, setGroup] = useState<FavoriteGroup | null>(null);
+  const [groups, setGroups] = useState<FavoriteGroup[]>([]);
+  const [groupTick, setGroupTick] = useState(0);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const [favourites, withDialect] = await Promise.all([
-          listChannels(session.db, { favouritesOnly: true }),
+        const [chosen, groupList, withDialect] = await Promise.all([
+          getFavoriteGroup(session.db),
+          listFavoriteGroups(session.db),
           sourcesWithDialect(session.db),
         ]);
+        const current = groupList.find((entry) => entry.id === chosen) ?? null;
+        const favourites = await listChannels(session.db, { favouritesOnly: true, groupId: current?.id ?? null });
         if (cancelled) return;
+        setGroups(groupList);
+        setGroup(current);
         setChannels(favourites);
         setDialectSources(withDialect);
         setPreviewChannel((current) => current ?? favourites[0] ?? null);
@@ -284,7 +307,17 @@ export function GuideScreen({
     return () => {
       cancelled = true;
     };
-  }, [session.db]);
+  }, [session.db, groupTick]);
+  // Efter et gruppeskift: fokus paa den nye foerste raekke naar den er der.
+  useEffect(() => {
+    if (loading || groupTick === 0) return;
+    const first = channels[0];
+    if (first === undefined) return;
+    const frame = requestAnimationFrame(() => setFocusTarget({ channelId: first.id, key: '' }));
+    return () => cancelAnimationFrame(frame);
+    // Kun naar en ny liste er laest ind efter et skift.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, groupTick]);
 
   /** Om kanalens kilde kan bygge arkiv-URLer. Uden det: intet ur, ingen optagelse. */
   const hasDialectFor = useCallback(
@@ -744,6 +777,7 @@ export function GuideScreen({
           {isTV && (
             <Text style={styles.timeMark} numberOfLines={1}>
               {isSameDay(window.start, now) ? 'I dag' : formatDay(window.start)}
+              {group !== null ? ` · ${group.name}` : groups.length > 0 ? ' · Alle' : ''}
             </Text>
           )}
         </View>

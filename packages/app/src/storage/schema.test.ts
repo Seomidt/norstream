@@ -69,7 +69,7 @@ describe('migrate paa en frisk database', () => {
   it('stempler skemaversion 11', async () => {
     const db = createTestDatabase();
     await migrate(db);
-    expect(await userVersion(db)).toBe(19);
+    expect(await userVersion(db)).toBe(20);
   });
 
   it('er idempotent og sletter ikke data ved anden koersel', async () => {
@@ -148,7 +148,7 @@ describe('migrate til v13', () => {
       'SELECT channel_id FROM favorites ORDER BY position',
     );
     expect(rows.map((row) => row.channel_id)).toEqual(['s:2', 's:1', 's:3']);
-    expect(await userVersion(db)).toBe(19);
+    expect(await userVersion(db)).toBe(20);
   });
 });
 
@@ -223,7 +223,7 @@ describe('migrate fra v1', () => {
   it('stempler den nuvaerende version og opretter de nye tabeller', async () => {
     const db = await createV1Database();
     await migrate(db);
-    expect(await userVersion(db)).toBe(19);
+    expect(await userVersion(db)).toBe(20);
     const names = await tableNames(db);
     expect(names).toContain('epg_fetch');
     expect(names).toContain('hidden_countries');
@@ -237,7 +237,7 @@ describe('migrate fra v1', () => {
     await db.execAsync('PRAGMA user_version = 1');
 
     await expect(migrate(db)).resolves.toBeUndefined();
-    expect(await userVersion(db)).toBe(19);
+    expect(await userVersion(db)).toBe(20);
     expect(await tableNames(db)).toContain('favorites');
   });
 });
@@ -282,7 +282,7 @@ describe('migrate fra v2', () => {
 
     await migrate(db);
 
-    expect(await userVersion(db)).toBe(19);
+    expect(await userVersion(db)).toBe(20);
     expect(await tableNames(db)).toContain('epg_archive_fetch');
 
     // v2 -> v3 tilfoejer kun en tabel. Bygger den om alligevel, mister
@@ -360,7 +360,7 @@ PRAGMA user_version = 4;
     const db = await createV4();
     await migrate(db);
 
-    expect(await userVersion(db)).toBe(19);
+    expect(await userVersion(db)).toBe(20);
     expect(await tableNames(db)).toContain('sources');
 
     const channelColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(channels)');
@@ -415,7 +415,7 @@ PRAGMA user_version = 4;
     const db = await createV4();
     await db.execAsync("ALTER TABLE channels ADD COLUMN source_id TEXT NOT NULL DEFAULT ''");
     await expect(migrate(db)).resolves.toBeUndefined();
-    expect(await userVersion(db)).toBe(19);
+    expect(await userVersion(db)).toBe(20);
   });
 });
 
