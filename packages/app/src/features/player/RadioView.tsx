@@ -7,6 +7,8 @@ import { searchNameFor } from '../../sync/logoSearch.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { isTV } from '../../ui/tv.js';
+import { useSongInfo } from './songInfo.js';
 
 export type RadioState = 'connecting' | 'playing' | 'paused' | 'error';
 
@@ -66,6 +68,14 @@ export function RadioView({
     return cleaned.length > 0 ? cleaned : channel.name;
   }, [channel.name]);
   const playing = state === 'playing';
+  // Album, aar, genre og et par linjer fra Wikipedia om sangen (ellers om
+  // kunstneren). Paa tv er der plads til det ved siden af et stort cover.
+  const info = useSongInfo(nowPlaying?.artist ?? null, nowPlaying?.track ?? null);
+  const meta = [info.album, info.year === null ? null : String(info.year), info.genre].filter((part): part is string => part !== null).join(' · ');
+  const coverSize = isTV ? 280 : landscape ? 120 : 168;
+  // "Spiller, men streamen melder intet lydspor" er en advarsel om en stum
+  // stream; kommer der sang og cover, spiller den tydeligvis.
+  const shownState = playing && nowPlaying !== null && /lydspor/.test(stateText) ? 'Spiller' : stateText;
 
   return (
     <View style={[styles.root, { paddingTop: insets.top + theme.spacing.md, paddingBottom: insets.bottom + theme.spacing.md }]}>
@@ -77,11 +87,11 @@ export function RadioView({
         <View style={styles.disc}>
           <Cover
             coverUrl={nowPlaying?.coverUrl ?? null}
-            size={landscape ? 120 : 168}
-            fallback={<ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={landscape ? 120 : 168} />}
+            size={coverSize}
+            fallback={<ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={coverSize} />}
           />
         </View>
-        <View style={styles.text}>
+        <View style={[styles.text, isTV && styles.textTv]}>
           <Text style={styles.kicker}>{nowPlaying === null ? 'RADIO' : title.toUpperCase()}</Text>
           {nowPlaying === null ? (
             <Text style={styles.title} numberOfLines={2}>
@@ -89,12 +99,25 @@ export function RadioView({
             </Text>
           ) : (
             <>
-              <Text style={styles.title} numberOfLines={2}>
+              <Text style={[styles.title, isTV && styles.leftText]} numberOfLines={2}>
                 {nowPlaying.track}
               </Text>
-              <Text style={styles.artist} numberOfLines={1}>
+              <Text style={[styles.artist, isTV && styles.leftText]} numberOfLines={1}>
                 {nowPlaying.artist}
               </Text>
+              {meta.length > 0 && (
+                <Text style={[styles.meta, isTV && styles.leftText]} numberOfLines={1}>
+                  {meta}
+                </Text>
+              )}
+              {isTV && info.about !== null && (
+                <View style={styles.about}>
+                  <Text style={styles.kicker}>{info.aboutOf === 'artist' ? 'OM KUNSTNEREN' : 'OM SANGEN'}</Text>
+                  <Text style={styles.aboutText} numberOfLines={6}>
+                    {info.about}
+                  </Text>
+                </View>
+              )}
             </>
           )}
           {nowPlaying === null && title !== channel.name && (
@@ -103,7 +126,7 @@ export function RadioView({
             </Text>
           )}
           <Equalizer playing={playing} />
-          <Text style={[styles.state, state === 'error' && styles.stateError]}>{stateText}</Text>
+          <Text style={[styles.state, state === 'error' && styles.stateError]}>{shownState}</Text>
         </View>
       </View>
 
@@ -231,6 +254,12 @@ const styles = StyleSheet.create({
   stageLandscape: { flexDirection: 'row', gap: theme.spacing.xl },
   disc: { borderRadius: theme.radius, overflow: 'hidden' },
   text: { alignItems: 'center', gap: theme.spacing.xs, maxWidth: 420 },
+  // Tv: teksten til venstre ved siden af det store cover, med plads til beskrivelsen.
+  textTv: { alignItems: 'flex-start', maxWidth: 620, flexShrink: 1 },
+  leftText: { textAlign: 'left' },
+  meta: { color: theme.colors.textMuted, fontSize: 14, textAlign: 'center' },
+  about: { marginTop: theme.spacing.md, gap: theme.spacing.xs },
+  aboutText: { color: theme.colors.text, fontSize: 14, lineHeight: 20, opacity: 0.9 },
   kicker: { color: theme.colors.accent, fontSize: 12, fontWeight: '800', letterSpacing: 3 },
   title: { color: theme.colors.text, fontSize: 26, fontWeight: '800', textAlign: 'center' },
   artist: { color: theme.colors.text, fontSize: 16, fontWeight: '600', textAlign: 'center', opacity: 0.85 },
