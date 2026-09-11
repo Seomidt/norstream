@@ -126,7 +126,12 @@ export function BrowseScreen({
   async function toggleFavorite(channel: StoredChannel): Promise<void> {
     await setFavorite(session.db, channel.id, !channel.isFavorite);
     onFavoritesChanged();
-    await load();
+    // Kun stjernen paa raekken skifter. At hente listen forfra viste
+    // hjulet, byggede listen op igen og satte den til toppen — og paa tv
+    // roeg fokus med op i den foerste raekke ved hvert valg.
+    setChannels((current) =>
+      current.map((entry) => (entry.id === channel.id ? { ...entry, isFavorite: !channel.isFavorite } : entry)),
+    );
   }
 
   async function addAll(category: CategorySummary): Promise<void> {
