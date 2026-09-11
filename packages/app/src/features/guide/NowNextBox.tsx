@@ -3,6 +3,8 @@ import type { Programme } from '@norstream/core';
 import type { StoredChannel } from '../../storage/channels.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { formatClock, formatSpan, minutesLeft, nowAndNext, progressRatio, upcoming } from './nowNext.js';
 
@@ -38,6 +40,7 @@ interface Props {
  * ses ved at aabne bladet.
  */
 export function NowNextBox({ channel, programmes, now, compact, onOpen, rich = false }: Props) {
+  const styles = useStyles(makeStyles);
   const { now: current, next } = nowAndNext(programmes, now);
   const later = rich ? upcoming(programmes, now, 2) : next === null ? [] : [next];
 
@@ -131,39 +134,39 @@ export function NowNextBox({ channel, programmes, now, compact, onOpen, rich = f
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   strip: {
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.xs,
-    backgroundColor: theme.colors.surface,
-    borderBottomColor: theme.colors.border,
+    backgroundColor: colors.surface,
+    borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: 2,
   },
   stripLine: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
-  stripLabel: { color: theme.colors.accent, fontSize: 11, fontWeight: '800', width: 40 },
-  stripText: { flex: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' },
-  stripTextMuted: { flex: 1, color: theme.colors.textMuted, fontSize: 13 },
+  stripLabel: { color: colors.accent, fontSize: 11, fontWeight: '800', width: 40 },
+  stripText: { flex: 1, color: colors.text, fontSize: 13, fontWeight: '600' },
+  stripTextMuted: { flex: 1, color: colors.textMuted, fontSize: 13 },
   box: {
     flex: 1,
     padding: theme.spacing.md,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
     gap: theme.spacing.xs,
     overflow: 'hidden',
   },
   head: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm, marginBottom: theme.spacing.xs },
-  channel: { flex: 1, color: theme.colors.textMuted, fontSize: 13, fontWeight: '600' },
-  kicker: { color: theme.colors.accent, fontSize: 11, fontWeight: '800', letterSpacing: 2 },
-  title: { color: theme.colors.text, fontSize: 18, fontWeight: '700' },
+  channel: { flex: 1, color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+  kicker: { color: colors.accent, fontSize: 11, fontWeight: '800', letterSpacing: 2 },
+  title: { color: colors.text, fontSize: 18, fontWeight: '700' },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  time: { color: theme.colors.textMuted, fontSize: 13, fontVariant: ['tabular-nums'] },
-  track: { height: 3, borderRadius: 2, backgroundColor: theme.colors.border, overflow: 'hidden', marginVertical: 2 },
-  fill: { height: 3, backgroundColor: theme.colors.accent },
-  description: { color: theme.colors.text, fontSize: 13, lineHeight: 18, opacity: 0.85 },
-  muted: { color: theme.colors.textMuted, fontSize: 13 },
+  time: { color: colors.textMuted, fontSize: 13, fontVariant: ['tabular-nums'] },
+  track: { height: 3, borderRadius: 2, backgroundColor: colors.border, overflow: 'hidden', marginVertical: 2 },
+  fill: { height: 3, backgroundColor: colors.accent },
+  description: { color: colors.text, fontSize: 13, lineHeight: 18, opacity: 0.85 },
+  muted: { color: colors.textMuted, fontSize: 13 },
   next: { marginTop: 'auto', paddingTop: theme.spacing.sm, gap: 2 },
   nextLine: { flexDirection: 'row', gap: theme.spacing.sm, alignItems: 'baseline' },
-  nextClock: { color: theme.colors.textMuted, fontSize: 14, width: 44, fontVariant: ['tabular-nums'] },
-  nextTitle: { flex: 1, color: theme.colors.text, fontSize: 14, fontWeight: '600' },
-  hint: { color: theme.colors.textMuted, fontSize: 11, paddingTop: theme.spacing.xs },
+  nextClock: { color: colors.textMuted, fontSize: 14, width: 44, fontVariant: ['tabular-nums'] },
+  nextTitle: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '600' },
+  hint: { color: colors.textMuted, fontSize: 11, paddingTop: theme.spacing.xs },
 });

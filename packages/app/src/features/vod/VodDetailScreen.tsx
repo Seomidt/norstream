@@ -16,6 +16,8 @@ import { continueEpisodeFor } from './episodes.js';
 import type { StoredEpisode, StoredVodItem } from '../../storage/vod.js';
 import { ensureVodDetails } from '../../sync/vodDetails.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
 
@@ -60,6 +62,8 @@ interface Props {
  * YouTubes egen indlejrede afspiller; se `TrailerScreen`.
  */
 export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
   const [item, setItem] = useState<StoredVodItem | null | undefined>(undefined);
   const [details, setDetails] = useState<VodDetails | null>(null);
@@ -93,7 +97,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
   if (item === undefined) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={theme.colors.accent} />
+        <ActivityIndicator color={colors.accent} />
       </View>
     );
   }
@@ -272,7 +276,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
         {error !== null && <Text style={styles.warn}>{error}</Text>}
 
         {details === null && error === null && (
-          <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
+          <ActivityIndicator color={colors.accent} style={styles.spinner} />
         )}
         {details?.plot !== null && details?.plot !== undefined && (
           <Text style={styles.plot}>{details.plot}</Text>
@@ -363,17 +367,17 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: theme.spacing.lg,
-    backgroundColor: theme.colors.background,
+    backgroundColor: colors.background,
   },
   spinner: { marginTop: theme.spacing.lg },
-  hero: { height: 300, backgroundColor: theme.colors.surface },
+  hero: { height: 300, backgroundColor: colors.surface },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: 0.55 },
   heroScrim: {
     position: 'absolute',
@@ -384,7 +388,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(16,16,20,0.75)',
   },
   back: { position: 'absolute', top: theme.spacing.sm, left: theme.spacing.md, padding: theme.spacing.xs },
-  backText: { color: theme.colors.text, fontSize: 16, fontWeight: '600' },
+  backText: { color: colors.text, fontSize: 16, fontWeight: '600' },
   heroBottom: {
     position: 'absolute',
     left: theme.spacing.md,
@@ -398,13 +402,13 @@ const styles = StyleSheet.create({
     height: 144,
     borderRadius: theme.radius,
     marginRight: theme.spacing.md,
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: colors.surfaceRaised,
   },
   heroText: { flex: 1 },
-  title: { color: theme.colors.text, fontSize: 22, fontWeight: '800', lineHeight: 27 },
-  meta: { color: theme.colors.textMuted, fontSize: 13, marginTop: 4 },
+  title: { color: colors.text, fontSize: 22, fontWeight: '800', lineHeight: 27 },
+  meta: { color: colors.textMuted, fontSize: 13, marginTop: 4 },
   rating: { color: '#ffd166', fontSize: 15, fontWeight: '700', marginTop: 6 },
-  ratingOf: { color: theme.colors.textMuted, fontWeight: '400', fontSize: 12 },
+  ratingOf: { color: colors.textMuted, fontWeight: '400', fontSize: 12 },
   actions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -412,66 +416,66 @@ const styles = StyleSheet.create({
     padding: theme.spacing.md,
   },
   button: {
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: colors.surfaceRaised,
     borderRadius: theme.radius,
     paddingVertical: theme.spacing.sm + 2,
     paddingHorizontal: theme.spacing.md,
   },
-  buttonAccent: { backgroundColor: theme.colors.accent },
-  buttonDone: { borderColor: theme.colors.accent, borderWidth: 1 },
-  buttonText: { color: theme.colors.text, fontSize: 15, fontWeight: '700' },
-  warn: { color: theme.colors.danger, paddingHorizontal: theme.spacing.md, marginBottom: theme.spacing.sm },
+  buttonAccent: { backgroundColor: colors.accent },
+  buttonDone: { borderColor: colors.accent, borderWidth: 1 },
+  buttonText: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  warn: { color: colors.danger, paddingHorizontal: theme.spacing.md, marginBottom: theme.spacing.sm },
   plot: {
-    color: theme.colors.text,
+    color: colors.text,
     fontSize: 15,
     lineHeight: 22,
     paddingHorizontal: theme.spacing.md,
     marginBottom: theme.spacing.md,
   },
   credit: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     lineHeight: 19,
     paddingHorizontal: theme.spacing.md,
     marginBottom: theme.spacing.xs,
   },
-  creditLabel: { color: theme.colors.text, fontWeight: '600' },
+  creditLabel: { color: colors.text, fontWeight: '600' },
   episodes: { marginTop: theme.spacing.lg },
   seasons: { paddingHorizontal: theme.spacing.md, gap: theme.spacing.sm, marginBottom: theme.spacing.sm },
   seasonChip: {
     paddingVertical: 6,
     paddingHorizontal: theme.spacing.md,
     borderRadius: 999,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: colors.border,
   },
-  seasonChipActive: { backgroundColor: theme.colors.accent, borderColor: theme.colors.accent },
-  seasonText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '600' },
-  seasonTextActive: { color: theme.colors.text },
+  seasonChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  seasonText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+  seasonTextActive: { color: colors.text },
   episode: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm + 2,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   episodeNumber: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: colors.surfaceRaised,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: theme.spacing.md,
   },
-  episodeNumberText: { color: theme.colors.text, fontWeight: '700' },
+  episodeNumberText: { color: colors.text, fontWeight: '700' },
   episodeWatched: { opacity: 0.55 },
   episodeText: { flex: 1 },
-  episodeTitle: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
-  episodePlot: { color: theme.colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 2 },
-  episodeMeta: { color: theme.colors.textMuted, fontSize: 11, marginTop: 3 },
-  play: { color: theme.colors.accent, fontSize: 18, marginLeft: theme.spacing.sm },
-  empty: { color: theme.colors.textMuted, textAlign: 'center', padding: theme.spacing.lg },
+  episodeTitle: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  episodePlot: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 2 },
+  episodeMeta: { color: colors.textMuted, fontSize: 11, marginTop: 3 },
+  play: { color: colors.accent, fontSize: 18, marginLeft: theme.spacing.sm },
+  empty: { color: colors.textMuted, textAlign: 'center', padding: theme.spacing.lg },
 });

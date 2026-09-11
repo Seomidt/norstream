@@ -27,6 +27,8 @@ import { justWatchLink, providerShelf, serviceSearchUrl, trendingTitles } from '
 import type { TmdbTitle } from '../../sync/tmdbHome.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { Poster } from '../vod/VodScreen.js';
@@ -141,6 +143,8 @@ export function FrontScreen({
   onRefresh,
   reloadToken,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const [lastChannel, setLastChannel] = useState<StoredChannel | null>(null);
   /** Forsiden staar oeverst hver gang man kommer til den; den bliver ellers staaende hvor man forlod den. */
   const listRef = useRef<FlatList<Row>>(null);
@@ -312,7 +316,7 @@ export function FrontScreen({
         return (
           <Section title="Dine kanaler nu">
             {favourites === null ? (
-              <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
+              <ActivityIndicator color={colors.accent} style={styles.spinner} />
             ) : favourites.length === 0 ? (
               <TvPressable style={styles.card} onPress={onBrowse}>
                 <Text style={styles.cardText}>Ingen favoritter endnu. Find dine kanaler, og tryk på stjernen.</Text>
@@ -352,7 +356,7 @@ export function FrontScreen({
         return (
           <Section title={provider.name} logoUrl={provider.logoUrl}>
             {titles === undefined ? (
-              <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
+              <ActivityIndicator color={colors.accent} style={styles.spinner} />
             ) : titles.length === 0 ? (
               <Text style={styles.empty}>
                 {shelfError === null ? 'TMDB gav ingen titler for tjenesten lige nu.' : `TMDB svarede ikke: ${shelfError}`}
@@ -371,7 +375,7 @@ export function FrontScreen({
         return (
           <Section title="Populært lige nu">
             {trending.length === 0 ? (
-              <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
+              <ActivityIndicator color={colors.accent} style={styles.spinner} />
             ) : (
               <Shelf
                 data={trending.map((title) => ({ key: `${title.kind}:${title.id}`, title }))}
@@ -408,7 +412,7 @@ export function FrontScreen({
         initialNumToRender={3}
         maxToRenderPerBatch={2}
         removeClippedSubviews
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.accent} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
       />
 
       {sheet !== null && (
@@ -489,6 +493,7 @@ function Shelf<T extends { key: string }>({
   width: number;
   renderItem: (item: T) => React.ReactElement;
 }) {
+  const styles = useStyles(makeStyles);
   const stride = width + theme.spacing.sm;
   return (
     <FlatList
@@ -508,6 +513,7 @@ function Shelf<T extends { key: string }>({
 }
 
 function Section({ title, logoUrl, children }: { title: string; logoUrl?: string | null; children: React.ReactNode }) {
+  const styles = useStyles(makeStyles);
   return (
     <View style={styles.section}>
       <View style={styles.sectionHead}>
@@ -532,6 +538,7 @@ const ChannelCard = memo(function ChannelCard({
   wide?: boolean;
   onPress: () => void;
 }) {
+  const styles = useStyles(makeStyles);
   return (
     <TvPressable style={[styles.channel, wide === true && styles.channelWide]} onPress={onPress}>
       <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={40} />
@@ -546,6 +553,7 @@ const ChannelCard = memo(function ChannelCard({
 });
 
 const TitleCard = memo(function TitleCard({ title, onPress }: { title: TmdbTitle; onPress: () => void }) {
+  const styles = useStyles(makeStyles);
   return (
     <TvPressable style={styles.title} onPress={onPress}>
       <View style={styles.titleFrame}>
@@ -570,8 +578,8 @@ const TitleCard = memo(function TitleCard({ title, onPress }: { title: TmdbTitle
   );
 });
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   content: { paddingBottom: theme.spacing.lg },
   section: { marginTop: theme.spacing.md },
   sectionHead: {
@@ -582,44 +590,44 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.sm,
   },
   sectionLogo: { width: 24, height: 24, borderRadius: 6 },
-  sectionTitle: { color: theme.colors.text, fontSize: 17, fontWeight: '700' },
+  sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '700' },
   row: { paddingHorizontal: theme.spacing.md, gap: theme.spacing.sm },
   spinner: { marginVertical: theme.spacing.md },
-  empty: { color: theme.colors.textMuted, fontSize: 13, paddingHorizontal: theme.spacing.md },
+  empty: { color: colors.textMuted, fontSize: 13, paddingHorizontal: theme.spacing.md },
   card: {
     marginHorizontal: theme.spacing.md,
     marginTop: theme.spacing.md,
     padding: theme.spacing.md,
     borderRadius: theme.radius,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
     gap: theme.spacing.xs,
   },
-  cardTitle: { color: theme.colors.text, fontSize: 15, fontWeight: '700' },
-  cardText: { color: theme.colors.textMuted, fontSize: 13, lineHeight: 18 },
-  cardAction: { color: theme.colors.accent, fontSize: 14, fontWeight: '600', marginTop: theme.spacing.xs },
+  cardTitle: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  cardText: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
+  cardAction: { color: colors.accent, fontSize: 14, fontWeight: '600', marginTop: theme.spacing.xs },
   channel: {
     width: 132,
     padding: theme.spacing.sm,
     borderRadius: theme.radius,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
     gap: 4,
   },
   channelWide: { width: 160 },
-  channelName: { color: theme.colors.text, fontSize: 13, fontWeight: '600' },
-  channelNow: { color: theme.colors.textMuted, fontSize: 12, minHeight: 32 },
+  channelName: { color: colors.text, fontSize: 13, fontWeight: '600' },
+  channelNow: { color: colors.textMuted, fontSize: 12, minHeight: 32 },
   title: { width: POSTER_WIDTH },
   titleFrame: {
     width: POSTER_WIDTH,
     height: POSTER_WIDTH * 1.5,
     borderRadius: theme.radius,
     overflow: 'hidden',
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
   },
   titleImage: { width: '100%', height: '100%' },
   titleFallback: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.sm },
-  titleFallbackText: { color: theme.colors.textMuted, fontSize: 12, textAlign: 'center', fontWeight: '600' },
-  titleName: { color: theme.colors.text, fontSize: 12, marginTop: 4 },
-  titleMeta: { color: theme.colors.textMuted, fontSize: 11 },
+  titleFallbackText: { color: colors.textMuted, fontSize: 12, textAlign: 'center', fontWeight: '600' },
+  titleName: { color: colors.text, fontSize: 12, marginTop: 4 },
+  titleMeta: { color: colors.textMuted, fontSize: 11 },
   sheetBackdrop: {
     position: 'absolute',
     top: 0,
@@ -630,7 +638,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#00000099',
   },
   sheet: {
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
     borderTopLeftRadius: theme.radius * 2,
     borderTopRightRadius: theme.radius * 2,
     padding: theme.spacing.md,
@@ -639,18 +647,18 @@ const styles = StyleSheet.create({
   sheetHead: { flexDirection: 'row', gap: theme.spacing.md },
   sheetPoster: { width: 72, height: 108, borderRadius: theme.radius },
   sheetText: { flex: 1 },
-  sheetTitle: { color: theme.colors.text, fontSize: 17, fontWeight: '700' },
-  sheetMeta: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
-  sheetOverview: { color: theme.colors.textMuted, fontSize: 13, lineHeight: 18, marginTop: theme.spacing.xs },
-  sheetHint: { color: theme.colors.textMuted, fontSize: 13 },
+  sheetTitle: { color: colors.text, fontSize: 17, fontWeight: '700' },
+  sheetMeta: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
+  sheetOverview: { color: colors.textMuted, fontSize: 13, lineHeight: 18, marginTop: theme.spacing.xs },
+  sheetHint: { color: colors.textMuted, fontSize: 13 },
   button: {
-    backgroundColor: theme.colors.accent,
+    backgroundColor: colors.accent,
     borderRadius: theme.radius,
     padding: theme.spacing.sm + 2,
     alignItems: 'center',
   },
-  buttonSecondary: { backgroundColor: theme.colors.background },
-  buttonText: { color: theme.colors.text, fontSize: 15, fontWeight: '700' },
+  buttonSecondary: { backgroundColor: colors.background },
+  buttonText: { color: colors.text, fontSize: 15, fontWeight: '700' },
   close: { alignItems: 'center', padding: theme.spacing.sm },
-  closeText: { color: theme.colors.textMuted, fontSize: 15 },
+  closeText: { color: colors.textMuted, fontSize: 15 },
 });

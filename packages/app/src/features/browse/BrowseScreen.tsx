@@ -23,6 +23,8 @@ import { addCategoryToFavorites } from '../../storage/favorites.js';
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { ChannelList } from '../channels/ChannelList.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { TvPressable } from '../../ui/TvPressable.js';
@@ -80,6 +82,8 @@ export function BrowseScreen({
   level,
   onLevelChange,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const setLevel = onLevelChange;
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
@@ -177,7 +181,7 @@ export function BrowseScreen({
     <TextInput
       style={styles.search}
       placeholder="Søg blandt alle kanaler"
-      placeholderTextColor={theme.colors.textMuted}
+      placeholderTextColor={colors.textMuted}
       value={search}
       onChangeText={setSearch}
       autoCorrect={false}
@@ -224,7 +228,7 @@ export function BrowseScreen({
       <View style={styles.container}>
         {searchField}
         <View style={styles.centered}>
-          <ActivityIndicator color={theme.colors.accent} />
+          <ActivityIndicator color={colors.accent} />
         </View>
       </View>
     );
@@ -326,6 +330,7 @@ export function BrowseScreen({
 }
 
 function Crumb({ label, onBack }: { label: string; onBack: () => void }) {
+  const styles = useStyles(makeStyles);
   return (
     <TvPressable style={styles.crumb} onPress={onBack}>
       <Text style={styles.crumbText} numberOfLines={1}>
@@ -335,12 +340,12 @@ function Crumb({ label, onBack }: { label: string; onBack: () => void }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   search: {
-    backgroundColor: theme.colors.surface,
-    color: theme.colors.text,
+    backgroundColor: colors.surface,
+    color: colors.text,
     borderRadius: theme.radius,
     margin: theme.spacing.md,
     padding: theme.spacing.sm,
@@ -350,29 +355,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     paddingBottom: theme.spacing.sm,
   },
-  crumbText: { color: theme.colors.accent, fontSize: 15 },
+  crumbText: { color: colors.accent, fontSize: 15 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   rowMain: { flex: 1 },
   flag: { fontSize: 26, marginRight: theme.spacing.md },
   categoryFlag: { fontSize: 20, marginRight: theme.spacing.sm },
-  rowTitle: { color: theme.colors.text, fontSize: 16 },
-  rowCount: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
+  rowTitle: { color: colors.text, fontSize: 16 },
+  rowCount: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
   action: {
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: colors.surfaceRaised,
     borderRadius: theme.radius,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
   },
-  actionText: { color: theme.colors.text, fontSize: 13 },
+  actionText: { color: colors.text, fontSize: 13 },
   empty: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     textAlign: 'center',
     marginTop: theme.spacing.xl,
     paddingHorizontal: theme.spacing.lg,

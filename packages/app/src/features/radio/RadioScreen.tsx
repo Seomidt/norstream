@@ -4,6 +4,8 @@ import type { AppSession } from '../../session.js';
 import { listChannels, setFavorite } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { ChannelList } from '../channels/ChannelList.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import type { RadioCountry } from '../../sync/radioBrowser.js';
@@ -47,6 +49,8 @@ const SEARCH_DEBOUNCE_MS = 250;
  * previewet er lydloest, og for radio er der intet at se.
  */
 export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onPickLogo, backRef, place, onPlaceChange }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   /** Panelets radiokanaler, eller internetradio fra Radio Browser. */
   const part = place.part;
   const setPart = (next: RadioPart): void => onPlaceChange({ ...place, part: next });
@@ -152,7 +156,7 @@ export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onP
         value={search}
         onChangeText={setSearch}
         placeholder="Søg radiokanal"
-        placeholderTextColor={theme.colors.textMuted}
+        placeholderTextColor={colors.textMuted}
         autoCorrect={false}
         autoCapitalize="none"
       />
@@ -175,31 +179,31 @@ export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onP
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   header: {
     paddingHorizontal: theme.spacing.md,
     paddingTop: theme.spacing.sm,
     paddingBottom: theme.spacing.sm,
     gap: theme.spacing.sm,
   },
-  title: { color: theme.colors.text, fontSize: 20, fontWeight: '700' },
+  title: { color: colors.text, fontSize: 20, fontWeight: '700' },
   parts: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.xs },
   part: {
     paddingHorizontal: theme.spacing.sm + 4,
     paddingVertical: theme.spacing.xs + 2,
     borderRadius: 16,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
   },
-  partActive: { backgroundColor: theme.colors.accent },
-  partText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '600' },
-  partTextActive: { color: theme.colors.text },
+  partActive: { backgroundColor: colors.accent },
+  partText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+  partTextActive: { color: colors.text },
   input: {
-    backgroundColor: theme.colors.surface,
-    borderColor: theme.colors.border,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderWidth: 1,
     borderRadius: theme.radius,
-    color: theme.colors.text,
+    color: colors.text,
     padding: theme.spacing.sm + 2,
     margin: theme.spacing.md,
     marginBottom: theme.spacing.sm,

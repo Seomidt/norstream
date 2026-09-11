@@ -1,5 +1,6 @@
 import { Image, StyleSheet, View } from 'react-native';
-import { theme } from './theme.js';
+import { useStyles } from './ThemeContext.js';
+import type { ThemeColors } from './theme.js';
 
 /**
  * Appens maerke som et afrundet felt.
@@ -9,6 +10,7 @@ import { theme } from './theme.js';
  * loefter det fra baggrunden, som er det samme billede.
  */
 export function Logo({ size = 88 }: { size?: number }) {
+  const styles = useStyles(makeStyles);
   return (
     <View
       style={[
@@ -25,12 +27,12 @@ export function Logo({ size = 88 }: { size?: number }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   frame: {
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(245, 245, 247, 0.18)',
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
   },
   image: { width: '100%', height: '100%' },
 });

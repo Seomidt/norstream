@@ -19,6 +19,10 @@ import type { AppSession } from './src/session.js';
 
 import type { StoredChannel } from './src/storage/channels.js';
 import { theme } from './src/ui/theme.js';
+import type { ThemeColors } from './src/ui/theme.js';
+import { ThemeProvider, useStyles, useTheme } from './src/ui/ThemeContext.js';
+import { setThemePreference, useResolvedScheme } from './src/ui/themeMode.js';
+import { getThemeMode, getThemePlace } from './src/storage/settings.js';
 import { CanvasContext, TV_SAFE_MARGIN, TV_SCALE, isTV } from './src/ui/tv.js';
 import { startTvKeyTracking } from './src/ui/tvKeys.js';
 import { TvPressable } from './src/ui/TvPressable.js';
@@ -53,6 +57,17 @@ const BOOT_ERROR_TEXT =
   'Appen kunne ikke starte. Prøv igen — hjælper det ikke, kan du geninstallere appen.';
 
 export default function App() {
+  const scheme = useResolvedScheme();
+  return (
+    <ThemeProvider scheme={scheme}>
+      <AppInner />
+    </ThemeProvider>
+  );
+}
+
+function AppInner() {
+  const { colors, scheme } = useTheme();
+  const styles = useStyles(makeStyles);
   const [route, setRoute] = useState<Route>({ name: 'loading' });
   const [session, setSession] = useState<AppSession | null>(null);
   const [bootAttempt, setBootAttempt] = useState(0);
@@ -75,6 +90,9 @@ export default function App() {
       // om der er noget at vise.
       const created = await createSession();
       if (cancelled) return;
+      // Temaet (foelg solen, moerkt, lyst) og stedet solen regnes for.
+      const [mode, placeKey] = await Promise.all([getThemeMode(created.db), getThemePlace(created.db)]);
+      setThemePreference({ mode, ...(placeKey === null ? {} : { placeKey }) });
       setSession(created);
       setRoute(created.sources.length === 0 ? { name: 'onboarding' } : { name: 'home' });
     }
@@ -174,7 +192,7 @@ export default function App() {
           top: 0,
           width: canvasWidth,
           height: canvasHeight,
-          backgroundColor: theme.colors.background,
+          backgroundColor: colors.background,
           // Intet maa tegnes uden for laerredet: en liste der loeb ud over
           // kanten stod i den frie kant, ogsaa mens afspilleren daekkede
           // laerredet ("jeg kan skimte menuen bag ved kanalen").
@@ -209,10 +227,10 @@ export default function App() {
         style={styles.root}
         edges={route.name === 'player' || route.name === 'vodPlayer' ? [] : ['top', 'left', 'right']}
       >
-        <StatusBar style="light" />
+        <StatusBar style={scheme === 'light' ? 'dark' : 'light'} />
       {route.name === 'loading' && (
         <View style={styles.centered}>
-          <ActivityIndicator color={theme.colors.accent} />
+          <ActivityIndicator color={colors.accent} />
         </View>
       )}
       {route.name === 'error' && (
@@ -316,8 +334,8 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: theme.colors.background },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
   rootBlack: { backgroundColor: '#000000' },
   homeHost: { flex: 1 },
   overlay: {
@@ -326,7 +344,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: theme.colors.background,
+    backgroundColor: colors.background,
   },
   centered: {
     flex: 1,
@@ -335,16 +353,16 @@ const styles = StyleSheet.create({
     padding: theme.spacing.lg,
   },
   errorText: {
-    color: theme.colors.text,
+    color: colors.text,
     fontSize: 15,
     textAlign: 'center',
     marginBottom: theme.spacing.lg,
   },
   button: {
-    backgroundColor: theme.colors.accent,
+    backgroundColor: colors.accent,
     borderRadius: theme.radius,
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.lg,
   },
-  buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '600' },
+  buttonText: { color: colors.text, fontSize: 16, fontWeight: '600' },
 });

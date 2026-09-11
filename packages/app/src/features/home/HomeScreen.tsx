@@ -12,6 +12,8 @@ import {
 import { syncAllSources } from '../../sync/syncAll.js';
 import { prefetchFavouritesEpg } from '../../sync/prefetchEpg.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { isTV, useCanvasSize } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { forgetPosterMisses } from '../../ui/posterFill.js';
@@ -104,6 +106,7 @@ export function HomeScreen({
   onSourcesChanged,
   backRef,
 }: Props) {
+  const styles = useStyles(makeStyles);
   // Telefonens navigationslinje ligger oven i fanelinjen uden det her.
   // Maalt frem for gaettet: en fast polstring rammer forkert paa baade
   // gestus-navigation og de gammeldags tre knapper.
@@ -600,9 +603,9 @@ export function HomeScreen({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
-  containerTv: { flex: 1, flexDirection: 'row-reverse', backgroundColor: theme.colors.background },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  containerTv: { flex: 1, flexDirection: 'row-reverse', backgroundColor: colors.background },
   column: { flex: 1, overflow: 'hidden' },
   // Klippes: paa tv stod listens sidste raekker oven i menulinjen og under
   // laerredets kant. Paa telefonen laa det samme skjult under skaermens kant.
@@ -611,20 +614,20 @@ const styles = StyleSheet.create({
   rail: {
     width: 84,
     paddingTop: theme.spacing.md,
-    borderRightColor: theme.colors.border,
+    borderRightColor: colors.border,
     borderRightWidth: StyleSheet.hairlineWidth,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
   },
   railFolded: { width: 44 },
   railTab: { alignItems: 'center', paddingVertical: theme.spacing.sm, marginHorizontal: theme.spacing.xs, marginBottom: theme.spacing.xs },
   tabBar: {
     flexDirection: 'row',
-    borderTopColor: theme.colors.border,
+    borderTopColor: colors.border,
     borderTopWidth: StyleSheet.hairlineWidth,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
   },
   tab: { flex: 1, alignItems: 'center', paddingVertical: theme.spacing.sm },
-  tabIcon: { color: theme.colors.textMuted, fontSize: 18 },
-  tabLabel: { color: theme.colors.textMuted, fontSize: 11, marginTop: 2 },
-  tabActive: { color: theme.colors.accent },
+  tabIcon: { color: colors.textMuted, fontSize: 18 },
+  tabLabel: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+  tabActive: { color: colors.accent },
 });

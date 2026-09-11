@@ -6,6 +6,8 @@ import type { AppSession } from '../../session.js';
 import { getTmdbApiKey, getYoutubeApiKey } from '../../storage/settings.js';
 import { findTmdbTrailer, tmdbFetch } from '../../sync/tmdb.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { MIN_TRAILER_SECONDS, findLongerTrailer, youtubeSearchUrl } from './trailerSearch.js';
 import { webView } from './webview.js';
@@ -77,6 +79,8 @@ type Source =
 const EMBED_ORIGIN = 'https://norstream.app';
 
 export function TrailerScreen({ session, trailerId, title, year, kind, onBack }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
   // Der begyndes altid med at lede: TMDB er foerste valg naar noeglen er der.
   const [source, setSource] = useState<Source>({ kind: 'looking' });
@@ -238,7 +242,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         )}
         {(loading || source.kind === 'looking') && !failed && (
           <View style={styles.overlay}>
-            <ActivityIndicator color={theme.colors.accent} />
+            <ActivityIndicator color={colors.accent} />
             {source.kind === 'looking' && <Text style={styles.overlayText}>Leder efter en trailer …</Text>}
           </View>
         )}
@@ -324,7 +328,7 @@ function safeId(trailerId: string): string {
   return trailerId.replace(/[^A-Za-z0-9_-]/g, '');
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   frame: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000000' },
   /** Soegesiden er en hel side, ikke en video; den faar det meste af skaermen. */
@@ -340,23 +344,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: theme.spacing.md,
   },
-  overlayText: { color: theme.colors.textMuted, marginTop: theme.spacing.sm },
-  errorText: { color: theme.colors.text, textAlign: 'center' },
-  info: { flex: 1, padding: theme.spacing.md, backgroundColor: theme.colors.background },
-  title: { color: theme.colors.text, fontSize: 18, fontWeight: '700' },
-  hint: { color: theme.colors.textMuted, fontSize: 13, marginTop: 4, lineHeight: 18 },
+  overlayText: { color: colors.textMuted, marginTop: theme.spacing.sm },
+  errorText: { color: colors.text, textAlign: 'center' },
+  info: { flex: 1, padding: theme.spacing.md, backgroundColor: colors.background },
+  title: { color: colors.text, fontSize: 18, fontWeight: '700' },
+  hint: { color: colors.textMuted, fontSize: 13, marginTop: 4, lineHeight: 18 },
   actions: {
     flexDirection: 'row',
     gap: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
     paddingTop: theme.spacing.sm,
-    backgroundColor: theme.colors.background,
+    backgroundColor: colors.background,
   },
   button: {
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: colors.surfaceRaised,
     borderRadius: theme.radius,
     paddingVertical: theme.spacing.sm + 2,
     paddingHorizontal: theme.spacing.md,
   },
-  buttonText: { color: theme.colors.text, fontSize: 14, fontWeight: '600' },
+  buttonText: { color: colors.text, fontSize: 14, fontWeight: '600' },
 });

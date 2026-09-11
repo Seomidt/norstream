@@ -6,6 +6,8 @@ import type { ChannelWithoutLogo } from '../../storage/logoOverrides.js';
 import { getGoogleSearchKeys } from '../../storage/settings.js';
 import { replaceLogo, resetLogo } from '../../ui/logoCache.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { autoSearchLogos } from './logoAutoSearch.js';
 import type { AutoSearchHandle, AutoSearchProgress } from './logoAutoSearch.js';
 import { TvPressable } from '../../ui/TvPressable.js';
@@ -31,6 +33,8 @@ const SEARCH_DEBOUNCE_MS = 200;
  * giver et logo.
  */
 export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<ChannelWithoutLogo[] | null>(null);
@@ -112,7 +116,7 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
         </TvPressable>
       ) : (
         <View style={styles.progress}>
-          <ActivityIndicator color={theme.colors.accent} />
+          <ActivityIndicator color={colors.accent} />
           <View style={styles.progressText}>
             <Text style={styles.progressLine}>
               {progress.done} af {progress.total} · {progress.found} fundet
@@ -142,7 +146,7 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
         value={search}
         onChangeText={setSearch}
         placeholder="Søg"
-        placeholderTextColor={theme.colors.textMuted}
+        placeholderTextColor={colors.textMuted}
         autoCorrect={false}
         autoCapitalize="none"
       />
@@ -168,18 +172,18 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   crumb: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm },
-  crumbBack: { color: theme.colors.accent, fontSize: 26, marginRight: theme.spacing.sm },
-  crumbLabel: { color: theme.colors.text, fontSize: 17, fontWeight: '700' },
-  hint: { color: theme.colors.textMuted, fontSize: 13, lineHeight: 18, paddingHorizontal: theme.spacing.md, marginBottom: theme.spacing.sm },
+  crumbBack: { color: colors.accent, fontSize: 26, marginRight: theme.spacing.sm },
+  crumbLabel: { color: colors.text, fontSize: 17, fontWeight: '700' },
+  hint: { color: colors.textMuted, fontSize: 13, lineHeight: 18, paddingHorizontal: theme.spacing.md, marginBottom: theme.spacing.sm },
   input: {
-    backgroundColor: theme.colors.surface,
-    borderColor: theme.colors.border,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderWidth: 1,
     borderRadius: theme.radius,
-    color: theme.colors.text,
+    color: colors.text,
     padding: theme.spacing.sm + 2,
     marginHorizontal: theme.spacing.md,
     marginBottom: theme.spacing.sm,
@@ -190,18 +194,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm + 4,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   button: {
-    backgroundColor: theme.colors.accent,
+    backgroundColor: colors.accent,
     borderRadius: theme.radius,
     padding: theme.spacing.sm + 2,
     alignItems: 'center',
     marginHorizontal: theme.spacing.md,
     marginBottom: theme.spacing.sm,
   },
-  buttonText: { color: theme.colors.text, fontSize: 15, fontWeight: '700' },
+  buttonText: { color: colors.text, fontSize: 15, fontWeight: '700' },
   progress: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -210,16 +214,16 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.sm,
     padding: theme.spacing.sm,
     borderRadius: theme.radius,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
   },
   progressText: { flex: 1 },
-  progressLine: { color: theme.colors.text, fontSize: 14, fontWeight: '600' },
-  progressCurrent: { color: theme.colors.textMuted, fontSize: 12 },
-  stop: { color: theme.colors.danger, fontSize: 15, fontWeight: '600' },
-  summary: { color: theme.colors.accent, fontSize: 13, paddingHorizontal: theme.spacing.md, marginBottom: theme.spacing.sm },
+  progressLine: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  progressCurrent: { color: colors.textMuted, fontSize: 12 },
+  stop: { color: colors.danger, fontSize: 15, fontWeight: '600' },
+  summary: { color: colors.accent, fontSize: 13, paddingHorizontal: theme.spacing.md, marginBottom: theme.spacing.sm },
   retry: { paddingHorizontal: theme.spacing.md, marginBottom: theme.spacing.sm },
-  retryText: { color: theme.colors.text, fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' },
-  star: { color: theme.colors.accent, width: 20, fontSize: 14 },
-  name: { flex: 1, color: theme.colors.text, fontSize: 15 },
-  chevron: { color: theme.colors.textMuted, fontSize: 22 },
+  retryText: { color: colors.text, fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' },
+  star: { color: colors.accent, width: 20, fontSize: 14 },
+  name: { flex: 1, color: colors.text, fontSize: 15 },
+  chevron: { color: colors.textMuted, fontSize: 22 },
 });

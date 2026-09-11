@@ -27,6 +27,8 @@ import type { LogoCandidate } from '../../sync/logoSearch.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { replaceLogo, resetLogo } from '../../ui/logoCache.js';
 import { theme } from '../../ui/theme.js';
+import type { ThemeColors } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
@@ -50,6 +52,8 @@ const SEARCH_DEBOUNCE_MS = 200;
  * saa det mest sandsynlige svar allerede staar der naar skaermen aabner.
  */
 export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
   const [channel, setChannel] = useState<StoredChannel | null | undefined>(undefined);
   const [current, setCurrent] = useState<string | null>(null);
@@ -134,7 +138,7 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
   if (channel === undefined) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={theme.colors.accent} />
+        <ActivityIndicator color={colors.accent} />
       </View>
     );
   }
@@ -188,7 +192,7 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
         value={search}
         onChangeText={setSearch}
         placeholder="Kanalnavn"
-        placeholderTextColor={theme.colors.textMuted}
+        placeholderTextColor={colors.textMuted}
         autoCorrect={false}
         autoCapitalize="none"
       />
@@ -235,7 +239,7 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
               }}
             >
               {webBusy ? (
-                <ActivityIndicator color={theme.colors.text} />
+                <ActivityIndicator color={colors.text} />
               ) : (
                 <Text style={styles.buttonText}>Søg på nettet efter “{search.trim() || channel.name}”</Text>
               )}
@@ -269,7 +273,7 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
               value={manual}
               onChangeText={setManual}
               placeholder="https://…/logo.png"
-              placeholderTextColor={theme.colors.textMuted}
+              placeholderTextColor={colors.textMuted}
               autoCorrect={false}
               autoCapitalize="none"
               inputMode="url"
@@ -290,12 +294,12 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.lg },
   crumb: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm },
-  crumbBack: { color: theme.colors.accent, fontSize: 26, marginRight: theme.spacing.sm },
-  crumbLabel: { color: theme.colors.text, fontSize: 17, fontWeight: '700' },
+  crumbBack: { color: colors.accent, fontSize: 26, marginRight: theme.spacing.sm },
+  crumbLabel: { color: colors.text, fontSize: 17, fontWeight: '700' },
   channelRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -304,12 +308,12 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.sm,
   },
   channelText: { flex: 1 },
-  channelName: { color: theme.colors.text, fontSize: 16, fontWeight: '600' },
-  hint: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2, paddingHorizontal: theme.spacing.md },
-  message: { color: theme.colors.accent, fontSize: 13, paddingHorizontal: theme.spacing.md, marginTop: theme.spacing.xs },
-  actionText: { color: theme.colors.danger, fontSize: 15, fontWeight: '600' },
+  channelName: { color: colors.text, fontSize: 16, fontWeight: '600' },
+  hint: { color: colors.textMuted, fontSize: 13, marginTop: 2, paddingHorizontal: theme.spacing.md },
+  message: { color: colors.accent, fontSize: 13, paddingHorizontal: theme.spacing.md, marginTop: theme.spacing.xs },
+  actionText: { color: colors.danger, fontSize: 15, fontWeight: '600' },
   sectionTitle: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -319,11 +323,11 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xs,
   },
   input: {
-    backgroundColor: theme.colors.surface,
-    borderColor: theme.colors.border,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderWidth: 1,
     borderRadius: theme.radius,
-    color: theme.colors.text,
+    color: colors.text,
     padding: theme.spacing.sm + 2,
     marginHorizontal: theme.spacing.md,
     fontSize: 15,
@@ -337,13 +341,13 @@ const styles = StyleSheet.create({
     padding: theme.spacing.xs,
     borderRadius: theme.radius,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  hitActive: { borderColor: theme.colors.accent },
+  hitActive: { borderColor: colors.accent },
   hitImage: { width: 56, height: 56 },
-  hitName: { color: theme.colors.text, fontSize: 10, marginTop: 4 },
-  hitCountry: { color: theme.colors.textMuted, fontSize: 10 },
+  hitName: { color: colors.text, fontSize: 10, marginTop: 4 },
+  hitCountry: { color: colors.textMuted, fontSize: 10 },
   manual: { marginTop: theme.spacing.md },
   webRow: {
     flexDirection: 'row',
@@ -354,7 +358,7 @@ const styles = StyleSheet.create({
   },
   webHit: { flex: 0, width: 88 },
   button: {
-    backgroundColor: theme.colors.accent,
+    backgroundColor: colors.accent,
     borderRadius: theme.radius,
     padding: theme.spacing.sm + 2,
     alignItems: 'center',
@@ -362,5 +366,5 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.sm,
   },
   buttonDisabled: { opacity: 0.4 },
-  buttonText: { color: theme.colors.text, fontSize: 15, fontWeight: '700' },
+  buttonText: { color: colors.text, fontSize: 15, fontWeight: '700' },
 });

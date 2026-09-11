@@ -1,5 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { theme } from './theme.js';
+import { useStyles } from './ThemeContext.js';
+import type { ThemeColors } from './theme.js';
 import { TvPressable } from '../ui/TvPressable.js';
 
 export interface NoticeState {
@@ -27,6 +29,7 @@ interface Props {
  * afbryder ikke, og den kan tages tilbage.
  */
 export function Notice({ notice, onDismiss }: Props) {
+  const styles = useStyles(makeStyles);
   if (notice === null) return null;
 
   return (
@@ -50,11 +53,11 @@ export function Notice({ notice, onDismiss }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: colors.surfaceRaised,
     marginHorizontal: theme.spacing.md,
     marginBottom: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
@@ -62,7 +65,7 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius,
     gap: theme.spacing.md,
   },
-  text: { flex: 1, color: theme.colors.text, fontSize: 13, lineHeight: 18 },
-  action: { color: theme.colors.accent, fontSize: 13, fontWeight: '600' },
-  dismiss: { color: theme.colors.textMuted, fontSize: 14 },
+  text: { flex: 1, color: colors.text, fontSize: 13, lineHeight: 18 },
+  action: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+  dismiss: { color: colors.textMuted, fontSize: 14 },
 });

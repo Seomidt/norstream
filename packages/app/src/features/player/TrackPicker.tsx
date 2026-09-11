@@ -1,5 +1,7 @@
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { theme } from '../../ui/theme.js';
+import { useStyles } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
 export interface TrackOption {
@@ -21,6 +23,7 @@ export function TrackPicker({
   emptyText: string;
   onClose: () => void;
 }) {
+  const styles = useStyles(makeStyles);
   return (
     <View style={styles.picker}>
       <View style={styles.pickerHeader}>
@@ -46,16 +49,16 @@ export function TrackPicker({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   picker: {
     position: 'absolute',
     left: theme.spacing.md,
     right: theme.spacing.md,
     bottom: 96,
     maxHeight: 320,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: theme.radius,
-    borderColor: theme.colors.border,
+    borderColor: colors.border,
     borderWidth: StyleSheet.hairlineWidth,
     elevation: 8,
   },
@@ -64,13 +67,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: theme.spacing.md,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  pickerTitle: { color: theme.colors.text, fontSize: 15, fontWeight: '700' },
-  pickerClose: { color: theme.colors.textMuted, fontSize: 18 },
+  pickerTitle: { color: colors.text, fontSize: 15, fontWeight: '700' },
+  pickerClose: { color: colors.textMuted, fontSize: 18 },
   pickerRow: { paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm + 2 },
-  pickerLabel: { color: theme.colors.text, fontSize: 15 },
-  pickerActive: { color: theme.colors.accent, fontWeight: '700' },
-  pickerEmpty: { color: theme.colors.textMuted, padding: theme.spacing.md },
+  pickerLabel: { color: colors.text, fontSize: 15 },
+  pickerActive: { color: colors.accent, fontWeight: '700' },
+  pickerEmpty: { color: colors.textMuted, padding: theme.spacing.md },
 });

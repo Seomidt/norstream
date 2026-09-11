@@ -7,6 +7,8 @@ import { listProgrammes } from '../../storage/programmes.js';
 import { ensureFullEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
 import type { CellState } from './layout.js';
 import { TvPressable } from '../../ui/TvPressable.js';
@@ -36,6 +38,8 @@ const MAX_DAYS_BACK = 7;
  * dagene bagud er fyldt; derefter laeses hver dag fra cachen.
  */
 export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay, onRestart }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const daysBack = Math.min(MAX_DAYS_BACK, Math.max(0, channel.archiveDays));
   const [dayDelta, setDayDelta] = useState(0);
   const [programmes, setProgrammes] = useState<Programme[] | null>(null);
@@ -115,7 +119,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
         <Text style={styles.crumbLabel} numberOfLines={1}>
           {channel.name}
         </Text>
-        {fetching && <ActivityIndicator color={theme.colors.accent} />}
+        {fetching && <ActivityIndicator color={colors.accent} />}
       </TvPressable>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dayRow} contentContainerStyle={styles.dayRowContent}>
@@ -140,7 +144,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
 
       {programmes === null ? (
         <View style={styles.centered}>
-          <ActivityIndicator color={theme.colors.accent} />
+          <ActivityIndicator color={colors.accent} />
         </View>
       ) : (
         <FlatList
@@ -224,8 +228,8 @@ function clock(date: Date): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   crumb: {
     flexDirection: 'row',
@@ -234,34 +238,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
   },
-  crumbBack: { color: theme.colors.accent, fontSize: 26 },
-  crumbLabel: { flex: 1, color: theme.colors.text, fontSize: 17, fontWeight: '700' },
+  crumbBack: { color: colors.accent, fontSize: 26 },
+  crumbLabel: { flex: 1, color: colors.text, fontSize: 17, fontWeight: '700' },
   dayRow: { flexGrow: 0 },
   dayRowContent: { paddingHorizontal: theme.spacing.sm, paddingBottom: theme.spacing.sm, gap: theme.spacing.xs },
   dayChip: {
     paddingHorizontal: theme.spacing.sm + 2,
     paddingVertical: theme.spacing.xs + 1,
     borderRadius: 14,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
   },
-  dayChipActive: { backgroundColor: theme.colors.accent },
-  dayChipText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600' },
-  dayChipTextActive: { color: theme.colors.text },
-  hint: { color: theme.colors.textMuted, fontSize: 13, paddingHorizontal: theme.spacing.md, paddingBottom: theme.spacing.sm },
-  empty: { color: theme.colors.textMuted, textAlign: 'center', padding: theme.spacing.lg },
+  dayChipActive: { backgroundColor: colors.accent },
+  dayChipText: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
+  dayChipTextActive: { color: colors.text },
+  hint: { color: colors.textMuted, fontSize: 13, paddingHorizontal: theme.spacing.md, paddingBottom: theme.spacing.sm },
+  empty: { color: colors.textMuted, textAlign: 'center', padding: theme.spacing.lg },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm + 2,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  rowLive: { backgroundColor: theme.colors.surface },
-  time: { width: 52, color: theme.colors.textMuted, fontSize: 13, fontVariant: ['tabular-nums'] },
+  rowLive: { backgroundColor: colors.surface },
+  time: { width: 52, color: colors.textMuted, fontSize: 13, fontVariant: ['tabular-nums'] },
   rowText: { flex: 1 },
-  title: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
-  titleMuted: { color: theme.colors.textMuted, fontWeight: '400' },
-  meta: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
-  chevron: { color: theme.colors.accent, fontSize: 16, marginLeft: theme.spacing.sm, width: 18 },
+  title: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  titleMuted: { color: colors.textMuted, fontWeight: '400' },
+  meta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  chevron: { color: colors.accent, fontSize: 16, marginLeft: theme.spacing.sm, width: 18 },
 });

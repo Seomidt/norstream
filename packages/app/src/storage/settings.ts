@@ -385,3 +385,25 @@ export async function getHomeProviders(db: SqlDatabase): Promise<HomeProvider[]>
 export async function setHomeProviders(db: SqlDatabase, providers: readonly HomeProvider[]): Promise<void> {
   await setSetting(db, KEY_HOME_PROVIDERS, JSON.stringify(providers));
 }
+
+const KEY_THEME_MODE = 'theme_mode';
+const KEY_THEME_PLACE = 'theme_place';
+
+/** Temaet: foelg solen (standard), foelg telefonen, moerkt eller lyst. Se ui/themeMode.ts. */
+export async function getThemeMode(db: SqlDatabase): Promise<'sun' | 'system' | 'dark' | 'light'> {
+  const value = await getSetting(db, KEY_THEME_MODE);
+  return value === 'system' || value === 'dark' || value === 'light' ? value : 'sun';
+}
+
+export async function setThemeMode(db: SqlDatabase, mode: 'sun' | 'system' | 'dark' | 'light'): Promise<void> {
+  await setSetting(db, KEY_THEME_MODE, mode);
+}
+
+/** Stedet solen regnes for (noegle i PLACES), eller null for standarden. */
+export async function getThemePlace(db: SqlDatabase): Promise<string | null> {
+  return getSetting(db, KEY_THEME_PLACE);
+}
+
+export async function setThemePlace(db: SqlDatabase, key: string): Promise<void> {
+  await setSetting(db, KEY_THEME_PLACE, key);
+}

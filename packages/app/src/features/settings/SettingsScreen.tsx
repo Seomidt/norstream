@@ -29,12 +29,20 @@ import {
   setYoutubeApiKey,
   setMiniPreviewEnabled,
   setStreamFormatSetting,
+  getThemeMode,
+  getThemePlace,
+  setThemeMode,
+  setThemePlace,
 } from '../../storage/settings.js';
 import type { HomeProvider, StreamFormatSetting, SubtitlePreference } from '../../storage/settings.js';
 import { tmdbFetch } from '../../sync/tmdb.js';
+import { PLACES, THEME_MODES, setThemePreference, themePreference } from '../../ui/themeMode.js';
+import type { ThemeMode } from '../../ui/themeMode.js';
 import { listTmdbProvidersWithUk } from '../../sync/tmdbHome.js';
 import { applyStreamFormatSetting } from '../player/format.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
@@ -59,6 +67,13 @@ interface Props {
 }
 
 const SIGNED_OUT_MESSAGE = 'Du er logget ud. Log ind igen for at fortsætte.';
+
+const THEME_LABELS: Record<ThemeMode, string> = {
+  sun: 'Følg solen',
+  system: 'Følg telefonen',
+  dark: 'Mørk',
+  light: 'Lys',
+};
 
 const SUBTITLE_CHOICES: readonly { value: SubtitlePreference; label: string }[] = [
   { value: 'auto', label: 'Telefonens sprog' },
@@ -89,6 +104,8 @@ export function SettingsScreen({
   onSignedOut,
   onRestored,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const [hidden, setHidden] = useState<string[]>([]);
   // Bekraeftelsen ligger i skaermen, ikke i en Alert: react-native-web
   // implementerer ikke Alert, saa udlogning ville doe stille paa web.
@@ -113,6 +130,8 @@ export function SettingsScreen({
   /** Hvad sidste sikkerhedskopiering eller gendannelse endte med. */
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
+  const [themeMode, setThemeModeState] = useState<ThemeMode>(themePreference().mode);
+  const [themePlace, setThemePlaceState] = useState(themePreference().placeKey);
 
   const load = useCallback(async (): Promise<void> => {
     const [hiddenCountries, format, key, tmdb, preferredSubtitles, counts, google] = await Promise.all([
@@ -134,6 +153,8 @@ export function SettingsScreen({
     setPosterApiKey(tmdb);
     setSubtitles(preferredSubtitles);
     setVod(counts);
+    setThemeModeState(await getThemeMode(session.db));
+    setThemePlaceState((await getThemePlace(session.db)) ?? themePreference().placeKey);
     setRadio(await countRadioChannels(session.db));
     const errors: string[] = [];
     for (const access of session.sources) {
@@ -222,6 +243,18 @@ export function SettingsScreen({
     }
   }
 
+  function chooseTheme(mode: ThemeMode): void {
+    setThemeModeState(mode);
+    setThemePreference({ mode });
+    void setThemeMode(session.db, mode);
+  }
+
+  function choosePlace(key: string): void {
+    setThemePlaceState(key);
+    setThemePreference({ placeKey: key });
+    void setThemePlace(session.db, key);
+  }
+
   async function chooseSubtitles(value: SubtitlePreference): Promise<void> {
     setSubtitles(value);
     await setSubtitlePreference(session.db, value);
@@ -277,7 +310,7 @@ export function SettingsScreen({
           onValueChange={(value) => {
             void togglePreview(value);
           }}
-          trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
+          trackColor={{ true: colors.accent, false: colors.border }}
         />
       </TvPressable>
 
@@ -355,7 +388,7 @@ export function SettingsScreen({
           void setGoogleSearchKey(session.db, value);
         }}
         placeholder="Google API-nøgle (valgfri)"
-        placeholderTextColor={theme.colors.textMuted}
+        placeholderTextColor={colors.textMuted}
         autoCorrect={false}
         autoCapitalize="none"
       />
@@ -367,10 +400,43 @@ export function SettingsScreen({
           void setGoogleSearchCx(session.db, value);
         }}
         placeholder="Søgemaskinens id, cx (valgfri)"
-        placeholderTextColor={theme.colors.textMuted}
+        placeholderTextColor={colors.textMuted}
         autoCorrect={false}
         autoCapitalize="none"
       />
+
+      <Text style={styles.sectionTitle}>Tema</Text>
+      <Text style={styles.hint}>
+        Følg solen: lyst fra solopgang til solnedgang, mørkt når det er mørkt udenfor, så
+        skærmen ikke trætter øjnene om aftenen.
+      </Text>
+      <View style={styles.choices}>
+        {THEME_MODES.filter((mode) => mode !== 'system' || !isTV).map((mode) => (
+          <TvPressable
+            key={mode}
+            style={[styles.choice, themeMode === mode && styles.choiceSelected]}
+            onPress={() => chooseTheme(mode)}
+          >
+            <Text style={[styles.choiceText, themeMode === mode && styles.choiceTextSelected]}>{THEME_LABELS[mode]}</Text>
+          </TvPressable>
+        ))}
+      </View>
+      {themeMode === 'sun' && (
+        <>
+          <Text style={styles.hint}>Stedet solen regnes for.</Text>
+          <View style={styles.choices}>
+            {PLACES.map((place) => (
+              <TvPressable
+                key={place.key}
+                style={[styles.choice, themePlace === place.key && styles.choiceSelected]}
+                onPress={() => choosePlace(place.key)}
+              >
+                <Text style={[styles.choiceText, themePlace === place.key && styles.choiceTextSelected]}>{place.name}</Text>
+              </TvPressable>
+            ))}
+          </View>
+        </>
+      )}
 
       <Text style={styles.sectionTitle}>Undertekster</Text>
       <Text style={styles.hint}>
@@ -446,7 +512,7 @@ export function SettingsScreen({
           setPosterApiKey(value);
         }}
         placeholder="TMDB API-nøgle (valgfri)"
-        placeholderTextColor={theme.colors.textMuted}
+        placeholderTextColor={colors.textMuted}
         autoCorrect={false}
         autoCapitalize="none"
       />
@@ -472,7 +538,7 @@ export function SettingsScreen({
             value={providerSearch}
             onChangeText={setProviderSearch}
             placeholder="Find en tjeneste, fx SkyShowtime"
-            placeholderTextColor={theme.colors.textMuted}
+            placeholderTextColor={colors.textMuted}
             autoCorrect={false}
             autoCapitalize="none"
           />
@@ -518,7 +584,7 @@ export function SettingsScreen({
           void setYoutubeApiKey(session.db, value);
         }}
         placeholder="YouTube API-nøgle (valgfri)"
-        placeholderTextColor={theme.colors.textMuted}
+        placeholderTextColor={colors.textMuted}
         autoCorrect={false}
         autoCapitalize="none"
       />
@@ -616,13 +682,13 @@ function countryLabel(key: string): string {
   return country === null ? key : `${country.flag} ${country.name}`;
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   input: {
-    backgroundColor: theme.colors.surface,
-    borderColor: theme.colors.border,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderWidth: 1,
     borderRadius: theme.radius,
-    color: theme.colors.text,
+    color: colors.text,
     padding: theme.spacing.sm + 2,
     marginTop: theme.spacing.sm,
     marginBottom: theme.spacing.sm,
@@ -633,15 +699,15 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
     borderRadius: theme.radius,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
   },
-  choiceSelected: { backgroundColor: theme.colors.accent },
-  choiceText: { color: theme.colors.textMuted, fontSize: 15, fontWeight: '600' },
-  choiceTextSelected: { color: theme.colors.text },
-  container: { flex: 1, backgroundColor: theme.colors.background },
+  choiceSelected: { backgroundColor: colors.accent },
+  choiceText: { color: colors.textMuted, fontSize: 15, fontWeight: '600' },
+  choiceTextSelected: { color: colors.text },
+  container: { flex: 1, backgroundColor: colors.background },
   content: { padding: theme.spacing.md, paddingBottom: theme.spacing.xl },
   sectionTitle: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
     textTransform: 'uppercase',
@@ -651,35 +717,35 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: theme.radius,
     padding: theme.spacing.md,
     marginBottom: theme.spacing.sm,
   },
   rowText: { flex: 1, marginRight: theme.spacing.md },
-  rowTitle: { flex: 1, color: theme.colors.text, fontSize: 15 },
-  rowHint: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2, lineHeight: 18 },
-  hint: { color: theme.colors.textMuted, fontSize: 14, lineHeight: 20 },
-  layoutInfo: { color: theme.colors.textMuted, fontSize: 11, marginTop: theme.spacing.lg, textAlign: 'center' },
+  rowTitle: { flex: 1, color: colors.text, fontSize: 15 },
+  rowHint: { color: colors.textMuted, fontSize: 13, marginTop: 2, lineHeight: 18 },
+  hint: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
+  layoutInfo: { color: colors.textMuted, fontSize: 11, marginTop: theme.spacing.lg, textAlign: 'center' },
   action: {
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: colors.surfaceRaised,
     borderRadius: theme.radius,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
   },
-  actionText: { color: theme.colors.text, fontSize: 13 },
+  actionText: { color: colors.text, fontSize: 13 },
   confirmBox: {
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: theme.radius,
     padding: theme.spacing.md,
   },
-  confirmText: { color: theme.colors.text, fontSize: 14, marginBottom: theme.spacing.md },
+  confirmText: { color: colors.text, fontSize: 14, marginBottom: theme.spacing.md },
   confirmActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: theme.spacing.sm },
   dangerButton: {
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: theme.radius,
     padding: theme.spacing.md,
     alignItems: 'center',
   },
-  dangerText: { color: theme.colors.danger, fontSize: 15, fontWeight: '600' },
+  dangerText: { color: colors.danger, fontSize: 15, fontWeight: '600' },
 });

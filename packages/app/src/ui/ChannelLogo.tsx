@@ -3,7 +3,8 @@ import type { ReactElement } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { initials, tileColour } from './initials.js';
 import { cachedLogoUri, ensureLogo, logoFailedToRender, subscribeLogo } from './logoCache.js';
-import { theme } from './theme.js';
+import { useStyles } from './ThemeContext.js';
+import type { ThemeColors } from './theme.js';
 
 interface Props {
   /**
@@ -40,6 +41,7 @@ interface Props {
  * og her tegnes filen. Netvaerket roeres kun for kanaler uden fil.
  */
 export function ChannelLogo({ uris, name, size = 44, memoryKey }: Props) {
+  const styles = useStyles(makeStyles);
   const box = { width: size, height: size, borderRadius: Math.round(size / 6) };
   const fallback = (
     <View style={[styles.fallback, box, { backgroundColor: tileColour(name) }]}>
@@ -70,6 +72,7 @@ function CachedLogo({
   box: Box;
   fallback: ReactElement;
 }) {
+  const styles = useStyles(makeStyles);
   const [, redraw] = useReducer((count: number) => count + 1, 0);
   const key = uris.join('|');
   useEffect(() => {
@@ -104,6 +107,7 @@ function DirectLogo({
   box: Box;
   fallback: ReactElement;
 }) {
+  const styles = useStyles(makeStyles);
   const [attempt, setAttempt] = useState(0);
   const key = uris.join('|');
   useEffect(() => {
@@ -122,10 +126,11 @@ function DirectLogo({
   );
 }
 
-const styles = StyleSheet.create({
-  image: { backgroundColor: theme.colors.surface },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  // Bag logoet: paa lyst en moerk plade, ellers forsvinder hvide logoer.
+  image: { backgroundColor: colors.logoBackdrop },
   fallback: {
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: colors.surfaceRaised,
     alignItems: 'center',
     justifyContent: 'center',
   },

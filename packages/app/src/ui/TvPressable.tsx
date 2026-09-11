@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import type { ReactNode } from 'react';
 import type { PressableProps, StyleProp, ViewStyle } from 'react-native';
 import { theme } from './theme.js';
+import type { ThemeColors } from './theme.js';
+import { useStyles } from './ThemeContext.js';
 import { isTV } from './tv.js';
 
 interface Props extends Omit<PressableProps, 'children'> {
@@ -19,6 +21,7 @@ interface Props extends Omit<PressableProps, 'children'> {
  */
 export function TvPressable({ style, onFocus, onBlur, children, ...rest }: Props) {
   const [focused, setFocused] = useState(false);
+  const styles = useStyles(makeStyles);
   return (
     <Pressable
       {...rest}
@@ -41,7 +44,7 @@ export function TvPressable({ style, onFocus, onBlur, children, ...rest }: Props
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   // Tydelig fra sofaen: hvid ramme uden om fladen, blaa toning af fladen,
   // og en anelse stoerre. Det er det eneste der viser hvor
   // fjernbetjeningen er. Rammen er en outline og ikke en border: en
@@ -49,12 +52,12 @@ const styles = StyleSheet.create({
   // og en blaa ramme paa en blaa flade (den valgte fane, en aktiv knap)
   // forsvandt. Hvid staar paa alt.
   focused: {
-    outlineColor: '#ffffff',
+    outlineColor: colors.focusRing,
     outlineWidth: 3,
     outlineOffset: 2,
     outlineStyle: 'solid',
     borderRadius: theme.radius,
-    backgroundColor: 'rgba(76, 141, 255, 0.3)',
+    backgroundColor: colors.focusTint,
     transform: [{ scale: 1.03 }],
   },
   ring: {
@@ -64,7 +67,7 @@ const styles = StyleSheet.create({
     right: -2,
     bottom: -2,
     borderWidth: 3,
-    borderColor: '#ffffff',
+    borderColor: colors.focusRing,
     borderRadius: theme.radius + 2,
   },
 });

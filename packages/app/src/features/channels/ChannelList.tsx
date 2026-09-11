@@ -18,6 +18,8 @@ import { restartFilterEnabled, setRestartFilterEnabled, subscribeRestartFilter }
 import { ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { isTV, useCanvasSize } from '../../ui/tv.js';
 import { keepInMiddle, useTvListTail } from '../../ui/tvScroll.js';
 import { cameBySelect } from '../../ui/tvKeys.js';
@@ -81,6 +83,8 @@ export function ChannelList({
   focusFirst = false,
   allowRestartFilter = true,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const [nowTitles, setNowTitles] = useState<Record<string, string>>({});
   const [previewChannel, setPreviewChannel] = useState<StoredChannel | null>(null);
   const sideBySide = guideTopLayout(useCanvasSize().width) === 'side';
@@ -201,7 +205,7 @@ export function ChannelList({
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={theme.colors.accent} />
+        <ActivityIndicator color={colors.accent} />
       </View>
     );
   }
@@ -259,7 +263,7 @@ export function ChannelList({
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={theme.colors.accent}
+              tintColor={colors.accent}
             />
           )
         }
@@ -314,43 +318,43 @@ export function ChannelList({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
-  containerSide: { flex: 1, flexDirection: 'row', alignItems: 'stretch', backgroundColor: theme.colors.background },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  containerSide: { flex: 1, flexDirection: 'row', alignItems: 'stretch', backgroundColor: colors.background },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.background,
+    backgroundColor: colors.background,
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  logo: { width: 44, height: 44, borderRadius: 6, backgroundColor: theme.colors.surface },
+  logo: { width: 44, height: 44, borderRadius: 6, backgroundColor: colors.surface },
   rowText: { flex: 1, marginLeft: theme.spacing.md },
-  channelName: { color: theme.colors.text, fontSize: 16 },
-  restartMark: { color: theme.colors.accent, fontSize: 14 },
+  channelName: { color: colors.text, fontSize: 16 },
+  restartMark: { color: colors.accent, fontSize: 14 },
   filter: {
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
   },
-  filterOn: { backgroundColor: '#4c8dff22', borderBottomColor: theme.colors.accent },
-  filterText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '600' },
-  filterTextOn: { color: theme.colors.accent },
-  nowTitle: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
-  tvHint: { color: theme.colors.textMuted, fontSize: 12, paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.xs },
-  starOn: { color: theme.colors.accent, fontSize: 22 },
-  starOff: { color: theme.colors.border, fontSize: 22 },
+  filterOn: { backgroundColor: '#4c8dff22', borderBottomColor: colors.accent },
+  filterText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+  filterTextOn: { color: colors.accent },
+  nowTitle: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
+  tvHint: { color: colors.textMuted, fontSize: 12, paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.xs },
+  starOn: { color: colors.accent, fontSize: 22 },
+  starOff: { color: colors.border, fontSize: 22 },
   empty: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     textAlign: 'center',
     marginTop: theme.spacing.xl,
     paddingHorizontal: theme.spacing.lg,

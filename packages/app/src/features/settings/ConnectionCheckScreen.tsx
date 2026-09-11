@@ -4,6 +4,8 @@ import type { AppSession } from '../../session.js';
 import { runConnectionCheck } from '../../net/connectionCheck.js';
 import type { CheckReport, Probe } from '../../net/connectionCheck.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
@@ -47,6 +49,8 @@ const VERDICT_TITLES = {
  * videre som den er.
  */
 export function ConnectionCheckScreen({ session, onBack }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const [running, setRunning] = useState(false);
   const [report, setReport] = useState<CheckReport | null>(null);
   const panelUrl = session.sources[0]?.source.url ?? null;
@@ -78,7 +82,7 @@ export function ConnectionCheckScreen({ session, onBack }: Props) {
         ) : (
           <TvPressable style={[styles.button, running && styles.buttonBusy]} disabled={running} onPress={() => void run()}>
             {running ? (
-              <ActivityIndicator color={theme.colors.text} />
+              <ActivityIndicator color={colors.text} />
             ) : (
               <Text style={styles.buttonText}>{report === null ? 'Kør målingen' : 'Kør igen'}</Text>
             )}
@@ -108,34 +112,34 @@ export function ConnectionCheckScreen({ session, onBack }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   crumb: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
   },
-  crumbBack: { color: theme.colors.accent, fontSize: 26, marginRight: theme.spacing.sm },
-  crumbLabel: { color: theme.colors.text, fontSize: 17, fontWeight: '700' },
+  crumbBack: { color: colors.accent, fontSize: 26, marginRight: theme.spacing.sm },
+  crumbLabel: { color: colors.text, fontSize: 17, fontWeight: '700' },
   content: { padding: theme.spacing.md, paddingBottom: theme.spacing.xl },
-  hint: { color: theme.colors.textMuted, fontSize: 14, lineHeight: 20, marginBottom: theme.spacing.md },
+  hint: { color: colors.textMuted, fontSize: 14, lineHeight: 20, marginBottom: theme.spacing.md },
   button: {
-    backgroundColor: theme.colors.accent,
+    backgroundColor: colors.accent,
     borderRadius: theme.radius,
     paddingVertical: theme.spacing.sm + 4,
     alignItems: 'center',
   },
   buttonBusy: { opacity: 0.7 },
-  buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '600' },
+  buttonText: { color: colors.text, fontSize: 16, fontWeight: '600' },
   report: { marginTop: theme.spacing.lg },
-  verdict: { color: theme.colors.text, fontSize: 18, fontWeight: '700' },
-  advice: { color: theme.colors.text, fontSize: 14, lineHeight: 20, marginTop: theme.spacing.sm, marginBottom: theme.spacing.md },
+  verdict: { color: colors.text, fontSize: 18, fontWeight: '700' },
+  advice: { color: colors.text, fontSize: 14, lineHeight: 20, marginTop: theme.spacing.sm, marginBottom: theme.spacing.md },
   step: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: theme.spacing.sm },
   mark: { width: 24, fontSize: 16, fontWeight: '700' },
   markOk: { color: '#4ade80' },
   markBad: { color: '#f87171' },
   stepText: { flex: 1 },
-  stepTitle: { color: theme.colors.text, fontSize: 15 },
-  stepDetail: { color: theme.colors.textMuted, fontSize: 13, lineHeight: 18, marginTop: 2 },
+  stepTitle: { color: colors.text, fontSize: 15 },
+  stepDetail: { color: colors.textMuted, fontSize: 13, lineHeight: 18, marginTop: 2 },
 });

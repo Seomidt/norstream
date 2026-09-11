@@ -1,5 +1,5 @@
 import { Image, StyleSheet, View } from 'react-native';
-import { theme } from './theme.js';
+import { useTheme } from './ThemeContext.js';
 
 /**
  * Hvor mange baand nedtoningen bygges af.
@@ -25,6 +25,7 @@ interface Props {
  * bundtet.
  */
 export function Aurora({ height }: Props) {
+  const { colors } = useTheme();
   return (
     <View style={[styles.container, { height }]} pointerEvents="none">
       <Image
@@ -39,7 +40,7 @@ export function Aurora({ height }: Props) {
             style={[
               styles.band,
               {
-                backgroundColor: theme.colors.background,
+                backgroundColor: colors.background,
                 // Kvadratisk frem for lineaert: overgangen begynder naesten
                 // usynligt oppe i billedet og lukker helt i bunden, saa kanten
                 // ikke tegner sig som en streg.

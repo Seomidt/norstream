@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { StyleSheet, TextInput } from 'react-native';
 import type { TextInputProps } from 'react-native';
-import { theme } from './theme.js';
+import { useTheme } from './ThemeContext.js';
 import { isTV } from './tv.js';
 
 /**
@@ -11,12 +11,13 @@ import { isTV } from './tv.js';
  * felt tastaturet skriver i. Paa telefonen er det et almindeligt felt.
  */
 export function TvTextInput({ style, onFocus, onBlur, ...rest }: TextInputProps) {
+  const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
   return (
     <TextInput
-      placeholderTextColor={theme.colors.textMuted}
+      placeholderTextColor={colors.textMuted}
       {...rest}
-      style={[style, isTV && focused && styles.focused]}
+      style={[style, isTV && focused && [styles.focused, { outlineColor: colors.focusRing, backgroundColor: colors.focusTint }]]}
       onFocus={(event) => {
         setFocused(true);
         onFocus?.(event);
@@ -30,5 +31,5 @@ export function TvTextInput({ style, onFocus, onBlur, ...rest }: TextInputProps)
 }
 
 const styles = StyleSheet.create({
-  focused: { outlineColor: '#ffffff', outlineWidth: 3, outlineOffset: 2, outlineStyle: 'solid', backgroundColor: 'rgba(76, 141, 255, 0.3)' },
+  focused: { outlineWidth: 3, outlineOffset: 2, outlineStyle: 'solid' },
 });

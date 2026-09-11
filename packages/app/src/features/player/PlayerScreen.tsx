@@ -19,6 +19,8 @@ import { ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { liveUrlFor } from '../../sources/access.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { setLastChannelId } from '../../storage/settings.js';
@@ -62,6 +64,7 @@ export function PlayerScreen({
   startFrom: initialStartFrom,
   zap,
 }: Props) {
+  const styles = useStyles(makeStyles);
   const landscape = useLandscape();
   /**
    * Kanalen der spilles. Begynder som den man kom med, og skifter naar man
@@ -703,6 +706,8 @@ function RestartBlocked({
   busy: boolean;
   onRepair: () => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const hint = restartHint(block);
   return (
     <View style={styles.blocked}>
@@ -711,7 +716,7 @@ function RestartBlocked({
       {hint.action !== null && (
         <TvPressable style={styles.blockedAction} disabled={busy} onPress={onRepair}>
           {busy ? (
-            <ActivityIndicator color={theme.colors.accent} />
+            <ActivityIndicator color={colors.accent} />
           ) : (
             <Text style={styles.blockedActionText}>{hint.action}</Text>
           )}
@@ -735,7 +740,7 @@ function shortName(name: string): string {
   return withoutPrefix.replace(/\b(FHD|UHD|HD|SD|4K|HEVC|RAW)\b/gi, '').replace(/\s+/g, ' ').trim().slice(0, 14);
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   banner: {
     position: 'absolute',
     top: theme.spacing.sm,
@@ -745,48 +750,48 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius,
     backgroundColor: '#000000aa',
   },
-  bannerName: { color: theme.colors.text, fontSize: 16, fontWeight: '700' },
-  bannerTitle: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
+  bannerName: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  bannerTitle: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
   container: { flex: 1, backgroundColor: '#000000' },
   video: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000000' },
   hiddenVideo: { width: 1, height: 1 },
   info: { padding: theme.spacing.md },
   channelLine: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
-  channelName: { color: theme.colors.text, fontSize: 20, fontWeight: '600', flexShrink: 1 },
-  airtime: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
+  channelName: { color: colors.text, fontSize: 20, fontWeight: '600', flexShrink: 1 },
+  airtime: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
   blocked: {
     marginHorizontal: theme.spacing.md,
     padding: theme.spacing.md,
     borderRadius: theme.radius,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
   },
-  blockedTitle: { color: theme.colors.text, fontSize: 14, fontWeight: '600' },
+  blockedTitle: { color: colors.text, fontSize: 14, fontWeight: '600' },
   blockedText: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     marginTop: theme.spacing.xs,
     lineHeight: 18,
   },
   blockedAction: { alignSelf: 'flex-start', marginTop: theme.spacing.sm, minHeight: 20 },
-  blockedActionText: { color: theme.colors.accent, fontSize: 14, fontWeight: '600' },
-  nowTitle: { color: theme.colors.text, fontSize: 15, marginTop: theme.spacing.xs },
-  nextTitle: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
-  badge: { color: theme.colors.accent, fontSize: 13, marginTop: theme.spacing.sm },
+  blockedActionText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
+  nowTitle: { color: colors.text, fontSize: 15, marginTop: theme.spacing.xs },
+  nextTitle: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
+  badge: { color: colors.accent, fontSize: 13, marginTop: theme.spacing.sm },
   warn: {
-    color: theme.colors.danger,
+    color: colors.danger,
     fontSize: 13,
     marginTop: theme.spacing.sm,
     lineHeight: 18,
   },
-  error: { color: theme.colors.danger, fontSize: 13, marginTop: theme.spacing.sm },
+  error: { color: colors.danger, fontSize: 13, marginTop: theme.spacing.sm },
   actions: { flexDirection: 'row', flexWrap: 'wrap', padding: theme.spacing.md, gap: theme.spacing.sm },
   button: {
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: colors.surfaceRaised,
     borderRadius: theme.radius,
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.lg,
   },
-  buttonAccent: { backgroundColor: theme.colors.accent },
-  buttonDone: { backgroundColor: theme.colors.surface },
-  buttonText: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
+  buttonAccent: { backgroundColor: colors.accent },
+  buttonDone: { backgroundColor: colors.surface },
+  buttonText: { color: colors.text, fontSize: 15, fontWeight: '600' },
 });

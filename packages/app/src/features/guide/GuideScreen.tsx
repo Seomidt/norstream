@@ -22,6 +22,8 @@ import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { isTV, useCanvasSize } from '../../ui/tv.js';
 import { MiniPreview } from '../preview/MiniPreview.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
@@ -110,6 +112,8 @@ export function GuideScreen({
   previewEnabled,
   previewHandle,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const [channels, setChannels] = useState<StoredChannel[]>([]);
   const [rows, setRows] = useState<Record<string, Programme[]>>({});
   /**
@@ -541,7 +545,7 @@ export function GuideScreen({
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={theme.colors.accent} />
+        <ActivityIndicator color={colors.accent} />
       </View>
     );
   }
@@ -841,6 +845,7 @@ const GuideRow = memo(function GuideRow({
   /** Tv: cellen der skal have fokus efter et vinduesskift; null for alle andre raekker. */
   focusKey: string | null;
 }) {
+  const styles = useStyles(makeStyles);
   const cells = useMemo(
     () => layoutRow(programmes, new Date(windowStartMs), new Date(windowEndMs), new Date(nowMs)),
     [programmes, windowStartMs, windowEndMs, nowMs],
@@ -979,28 +984,28 @@ function dayDeltaOf(start: Date, now: Date): number {
   return Math.round((a.getTime() - b.getTime()) / 86_400_000);
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
-  topSide: { flexDirection: 'row', alignItems: 'stretch', backgroundColor: theme.colors.surface },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
+  topSide: { flexDirection: 'row', alignItems: 'stretch', backgroundColor: colors.surface },
   // flex: 1, saa boksen med nu/naeste (som selv har flex: 1) faar hoejde:
   // uden det havde soejlen kun previewets hoejde, og boksen blev nul
   // punkter hoej med alt indhold klippet vaek. "Ser meget tomt ud."
-  topColumn: { flex: 1, backgroundColor: theme.colors.surface },
+  topColumn: { flex: 1, backgroundColor: colors.surface },
   tvSplit: { flex: 1, flexDirection: 'row' },
   hidden: { display: 'none' },
   tvLeft: { flex: 1 },
-  tvRight: { width: '28%', marginLeft: theme.spacing.sm, backgroundColor: theme.colors.surface },
-  dayOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: theme.colors.background },
+  tvRight: { width: '28%', marginLeft: theme.spacing.sm, backgroundColor: colors.surface },
+  dayOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.background },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: theme.spacing.lg,
-    backgroundColor: theme.colors.background,
+    backgroundColor: colors.background,
   },
-  emptyTitle: { color: theme.colors.text, fontSize: 18, fontWeight: '600' },
+  emptyTitle: { color: colors.text, fontSize: 18, fontWeight: '600' },
   emptyText: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 15,
     textAlign: 'center',
     marginTop: theme.spacing.sm,
@@ -1008,12 +1013,12 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
   button: {
-    backgroundColor: theme.colors.accent,
+    backgroundColor: colors.accent,
     borderRadius: theme.radius,
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.lg,
   },
-  buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '600' },
+  buttonText: { color: colors.text, fontSize: 16, fontWeight: '600' },
   toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1027,27 +1032,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
   },
-  pager: { color: theme.colors.accent, fontSize: 26, paddingHorizontal: theme.spacing.sm },
+  pager: { color: colors.accent, fontSize: 26, paddingHorizontal: theme.spacing.sm },
   dayRow: { flexGrow: 0, flexShrink: 1 },
   dayRowContent: { paddingHorizontal: theme.spacing.sm, paddingBottom: theme.spacing.xs, gap: theme.spacing.xs },
   dayChip: {
     paddingHorizontal: theme.spacing.sm + 2,
     paddingVertical: theme.spacing.xs + 1,
     borderRadius: 14,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
   },
-  dayChipActive: { backgroundColor: theme.colors.accent },
-  dayChipText: { color: theme.colors.textMuted, fontSize: isTV ? 14 : 12, fontWeight: '600' },
-  dayChipTextActive: { color: theme.colors.text },
-  windowLabel: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
+  dayChipActive: { backgroundColor: colors.accent },
+  dayChipText: { color: colors.textMuted, fontSize: isTV ? 14 : 12, fontWeight: '600' },
+  dayChipTextActive: { color: colors.text },
+  windowLabel: { color: colors.text, fontSize: 15, fontWeight: '600' },
   timeHeader: {
     flexDirection: 'row',
     paddingBottom: theme.spacing.xs,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   timeSpacer: { width: CHANNEL_COLUMN },
-  timeMark: { flex: 1, color: theme.colors.textMuted, fontSize: isTV ? 13 : 11 },
+  timeMark: { flex: 1, color: colors.textMuted, fontSize: isTV ? 13 : 11 },
   grid: { flex: 1 },
   // Bredden er ét fysisk punkt bred paa alle skaerme. En streg paa 2 dp ville
   // daekke et par minutter i et to timers vindue og saaledes lyve en smule om
@@ -1057,7 +1062,7 @@ const styles = StyleSheet.create({
     top: 0,
     bottom: 0,
     width: StyleSheet.hairlineWidth * 2,
-    backgroundColor: theme.colors.danger,
+    backgroundColor: colors.danger,
     zIndex: 2,
   },
   nowDot: {
@@ -1066,7 +1071,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: theme.colors.danger,
+    backgroundColor: colors.danger,
   },
   row: { flexDirection: 'row', height: ROW_HEIGHT },
   channelCell: {
@@ -1074,13 +1079,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: theme.spacing.sm,
-    borderRightColor: theme.colors.border,
+    borderRightColor: colors.border,
     borderRightWidth: StyleSheet.hairlineWidth,
   },
-  channelCellPreviewing: { backgroundColor: theme.colors.surfaceRaised },
+  channelCellPreviewing: { backgroundColor: colors.surfaceRaised },
   channelText: { flex: 1, marginLeft: theme.spacing.xs },
-  channelName: { color: theme.colors.text, fontSize: GUIDE_TEXT },
-  channelBadges: { color: theme.colors.accent, fontSize: 9, marginTop: 1 },
+  channelName: { color: colors.text, fontSize: GUIDE_TEXT },
+  channelBadges: { color: colors.accent, fontSize: 9, marginTop: 1 },
   cells: { flex: 1, flexDirection: 'row' },
   cell: {
     justifyContent: 'center',
@@ -1088,12 +1093,12 @@ const styles = StyleSheet.create({
     marginRight: 1,
     marginVertical: 1,
     borderRadius: 4,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
     overflow: 'hidden',
   },
-  cellLive: { backgroundColor: theme.colors.surfaceRaised },
-  cellRestartable: { borderLeftColor: theme.colors.accent, borderLeftWidth: 2 },
+  cellLive: { backgroundColor: colors.surfaceRaised },
+  cellRestartable: { borderLeftColor: colors.accent, borderLeftWidth: 2 },
   cellInactive: { opacity: 0.45 },
-  cellText: { color: theme.colors.text, fontSize: GUIDE_TEXT },
-  cellTextMuted: { color: theme.colors.textMuted },
+  cellText: { color: colors.text, fontSize: GUIDE_TEXT },
+  cellTextMuted: { color: colors.textMuted },
 });

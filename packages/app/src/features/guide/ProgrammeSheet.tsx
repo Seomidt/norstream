@@ -4,6 +4,8 @@ import type { Programme } from '@norstream/core';
 import type { StoredChannel } from '../../storage/channels.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { programmeOptions } from './layout.js';
 import type { CellState } from './layout.js';
 import { TvPressable } from '../../ui/TvPressable.js';
@@ -42,6 +44,7 @@ export function ProgrammeSheet({
   onClose,
   onDay,
 }: Props) {
+  const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
   const options = programmeOptions(state, channel, hasDialect);
 
@@ -129,10 +132,10 @@ function minutes(programme: Programme): number {
   return Math.round((programme.stop.getTime() - programme.start.getTime()) / 60_000);
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: '#000000cc' },
   sheet: {
-    backgroundColor: theme.colors.background,
+    backgroundColor: colors.background,
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     paddingHorizontal: theme.spacing.md,
@@ -143,31 +146,31 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: theme.colors.border,
+    backgroundColor: colors.border,
     marginBottom: theme.spacing.md,
   },
   header: { flexDirection: 'row', alignItems: 'center' },
   headerText: { flex: 1, marginLeft: theme.spacing.sm },
-  channel: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
-  time: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
+  channel: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  time: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
   title: {
-    color: theme.colors.text,
+    color: colors.text,
     fontSize: 20,
     fontWeight: '700',
     marginTop: theme.spacing.md,
   },
   descriptionBox: { maxHeight: 160, marginTop: theme.spacing.sm },
-  description: { color: theme.colors.textMuted, fontSize: 14, lineHeight: 20 },
+  description: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
   actions: { marginTop: theme.spacing.lg, gap: theme.spacing.sm },
   button: {
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: colors.surfaceRaised,
     borderRadius: theme.radius,
     paddingVertical: theme.spacing.md,
     alignItems: 'center',
   },
-  buttonAccent: { backgroundColor: theme.colors.accent },
-  buttonText: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
-  hint: { color: theme.colors.textMuted, fontSize: 13, lineHeight: 18 },
+  buttonAccent: { backgroundColor: colors.accent },
+  buttonText: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  hint: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
   close: { alignSelf: 'center', paddingVertical: theme.spacing.md },
-  closeText: { color: theme.colors.accent, fontSize: 15, fontWeight: '600' },
+  closeText: { color: colors.accent, fontSize: 15, fontWeight: '600' },
 });

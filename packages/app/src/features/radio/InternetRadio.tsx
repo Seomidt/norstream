@@ -19,6 +19,8 @@ import type { RadioCountry, RadioStation } from '../../sync/radioBrowser.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { RememberedList } from '../../ui/RememberedList.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
 
@@ -93,6 +95,8 @@ export function InternetRadio({
   frontSignal = 0,
   onFavouritesCount,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const listPadding = { paddingBottom: contentBottom };
   /** Antal per hentet land efter sammenlaegning; registrets tal for de andre. */
   const [localCounts, setLocalCounts] = useState<Map<string, number>>(() => new Map());
@@ -269,7 +273,7 @@ export function InternetRadio({
       value={search}
       onChangeText={setSearch}
       placeholder="Søg station i hele verden"
-      placeholderTextColor={theme.colors.textMuted}
+      placeholderTextColor={colors.textMuted}
       autoCorrect={false}
       autoCapitalize="none"
     />
@@ -329,7 +333,7 @@ export function InternetRadio({
       <View style={styles.container}>
         {searchField}
         {results === null ? (
-          <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
+          <ActivityIndicator color={colors.accent} style={styles.spinner} />
         ) : (
           <RememberedList
             memoryKey={`radio:search:${query}`}
@@ -358,7 +362,7 @@ export function InternetRadio({
           <Text style={styles.count}>{stations === null ? '' : `${stations.length}`}</Text>
         </TvPressable>
         {stations === null ? (
-          <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
+          <ActivityIndicator color={colors.accent} style={styles.spinner} />
         ) : (
           <RememberedList
             memoryKey={`radio:country:${country.code}`}
@@ -426,7 +430,7 @@ export function InternetRadio({
       {searchField}
       {tabs}
       {countries === null ? (
-        <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
+        <ActivityIndicator color={colors.accent} style={styles.spinner} />
       ) : (
         <RememberedList
           memoryKey="radio:countries"
@@ -453,15 +457,15 @@ export function InternetRadio({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1 },
-  tvHint: { color: theme.colors.textMuted, fontSize: 12, marginLeft: theme.spacing.sm, alignSelf: 'center' },
+  tvHint: { color: colors.textMuted, fontSize: 12, marginLeft: theme.spacing.sm, alignSelf: 'center' },
   input: {
-    backgroundColor: theme.colors.surface,
-    borderColor: theme.colors.border,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderWidth: 1,
     borderRadius: theme.radius,
-    color: theme.colors.text,
+    color: colors.text,
     padding: theme.spacing.sm + 2,
     marginHorizontal: theme.spacing.md,
     marginBottom: theme.spacing.sm,
@@ -475,10 +479,10 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.sm,
   },
-  crumbBack: { color: theme.colors.accent, fontSize: 26 },
-  crumbLabel: { flex: 1, color: theme.colors.text, fontSize: 17, fontWeight: '700' },
+  crumbBack: { color: colors.accent, fontSize: 26 },
+  crumbLabel: { flex: 1, color: colors.text, fontSize: 17, fontWeight: '700' },
   sectionTitle: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -493,7 +497,7 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm + 2,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   stationRow: {
@@ -502,17 +506,17 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
     height: STATION_ROW_HEIGHT,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   rowText: { flex: 1 },
   flag: { fontSize: 24, width: 34 },
-  name: { flex: 1, color: theme.colors.text, fontSize: 15, fontWeight: '600' },
-  meta: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
-  count: { color: theme.colors.textMuted, fontSize: 13 },
-  chevron: { color: theme.colors.textMuted, fontSize: 22 },
-  starOn: { color: theme.colors.accent, fontSize: 24, paddingHorizontal: theme.spacing.xs },
-  starOff: { color: theme.colors.textMuted, fontSize: 24, paddingHorizontal: theme.spacing.xs },
+  name: { flex: 1, color: colors.text, fontSize: 15, fontWeight: '600' },
+  meta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  count: { color: colors.textMuted, fontSize: 13 },
+  chevron: { color: colors.textMuted, fontSize: 22 },
+  starOn: { color: colors.accent, fontSize: 24, paddingHorizontal: theme.spacing.xs },
+  starOff: { color: colors.textMuted, fontSize: 24, paddingHorizontal: theme.spacing.xs },
   tabs: {
     flexDirection: 'row',
     gap: theme.spacing.sm,
@@ -523,10 +527,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.xs + 2,
     borderRadius: 16,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
   },
-  tabActive: { backgroundColor: theme.colors.accent },
-  tabText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: '700' },
-  tabTextActive: { color: theme.colors.text },
-  empty: { color: theme.colors.textMuted, textAlign: 'center', padding: theme.spacing.lg },
+  tabActive: { backgroundColor: colors.accent },
+  tabText: { color: colors.textMuted, fontSize: 13, fontWeight: '700' },
+  tabTextActive: { color: colors.text },
+  empty: { color: colors.textMuted, textAlign: 'center', padding: theme.spacing.lg },
 });

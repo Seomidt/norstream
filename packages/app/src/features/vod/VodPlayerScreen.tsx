@@ -11,6 +11,8 @@ import type { StoredEpisode } from '../../storage/vod.js';
 import { buildEpisodeUrl } from '@norstream/core';
 import { nextEpisode } from './episodes.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import type { Playback } from './VodDetailScreen.js';
 import { TrackPicker } from '../player/TrackPicker.js';
 import { LandscapePlayer, useLandscape } from '../player/Landscape.js';
@@ -45,6 +47,7 @@ const NEXT_COUNTDOWN_S = 10;
  * hvor den skal begynde. Samme skaerm, samme regel for film og afsnit.
  */
 export function VodPlayerScreen({ session, playback, onBack }: Props) {
+  const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
   const landscape = useLandscape();
   /**
@@ -399,29 +402,29 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   video: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000000' },
-  info: { padding: theme.spacing.md, backgroundColor: theme.colors.background, flex: 1 },
-  title: { color: theme.colors.text, fontSize: 18, fontWeight: '700' },
-  subtitleLine: { color: theme.colors.textMuted, fontSize: 14, marginTop: 4 },
-  error: { color: theme.colors.danger, marginTop: theme.spacing.sm },
+  info: { padding: theme.spacing.md, backgroundColor: colors.background, flex: 1 },
+  title: { color: colors.text, fontSize: 18, fontWeight: '700' },
+  subtitleLine: { color: colors.textMuted, fontSize: 14, marginTop: 4 },
+  error: { color: colors.danger, marginTop: theme.spacing.sm },
   actions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
     paddingTop: theme.spacing.sm,
-    backgroundColor: theme.colors.background,
+    backgroundColor: colors.background,
   },
   button: {
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: colors.surfaceRaised,
     borderRadius: theme.radius,
     paddingVertical: theme.spacing.sm + 2,
     paddingHorizontal: theme.spacing.md,
   },
-  buttonText: { color: theme.colors.text, fontSize: 14, fontWeight: '600' },
-  buttonAccent: { backgroundColor: theme.colors.accent },
+  buttonText: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  buttonAccent: { backgroundColor: colors.accent },
   next: {
     position: 'absolute',
     left: theme.spacing.md,
@@ -429,12 +432,12 @@ const styles = StyleSheet.create({
     bottom: 96,
     padding: theme.spacing.md,
     borderRadius: theme.radius,
-    backgroundColor: theme.colors.surface,
-    borderColor: theme.colors.border,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderWidth: StyleSheet.hairlineWidth,
     elevation: 8,
   },
-  nextLabel: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600', textTransform: 'uppercase' },
-  nextTitle: { color: theme.colors.text, fontSize: 16, fontWeight: '700', marginTop: 4 },
+  nextLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '600', textTransform: 'uppercase' },
+  nextTitle: { color: colors.text, fontSize: 16, fontWeight: '700', marginTop: 4 },
   nextRow: { flexDirection: 'row', gap: theme.spacing.sm, marginTop: theme.spacing.sm },
 });

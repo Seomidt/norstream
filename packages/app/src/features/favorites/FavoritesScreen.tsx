@@ -22,6 +22,8 @@ import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
 import { cameBySelect } from '../../ui/tvKeys.js';
@@ -67,6 +69,8 @@ export function FavoritesScreen({
   onRefresh,
   reloadToken,
 }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const [channels, setChannels] = useState<StoredChannel[]>([]);
   const [categories, setCategories] = useState<FavoriteCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,7 +128,7 @@ export function FavoritesScreen({
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={theme.colors.accent} />
+        <ActivityIndicator color={colors.accent} />
       </View>
     );
   }
@@ -138,7 +142,7 @@ export function FavoritesScreen({
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={theme.colors.accent}
+            tintColor={colors.accent}
           />
         }
       >
@@ -247,6 +251,7 @@ function SortView({
   onMove: (channel: StoredChannel, toIndex: number) => Promise<void>;
   onDone: () => void;
 }) {
+  const styles = useStyles(makeStyles);
   const [order, setOrder] = useState(channels);
   useEffect(() => {
     setOrder(channels);
@@ -488,24 +493,24 @@ function SortView({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.background,
+    backgroundColor: colors.background,
   },
   emptyBox: {
     flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: theme.spacing.lg,
-    backgroundColor: theme.colors.background,
+    backgroundColor: colors.background,
   },
-  emptyTitle: { color: theme.colors.text, fontSize: 18, fontWeight: '600' },
+  emptyTitle: { color: colors.text, fontSize: 18, fontWeight: '600' },
   emptyText: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 15,
     textAlign: 'center',
     marginTop: theme.spacing.sm,
@@ -513,14 +518,14 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
   button: {
-    backgroundColor: theme.colors.accent,
+    backgroundColor: colors.accent,
     borderRadius: theme.radius,
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.lg,
   },
-  buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '600' },
+  buttonText: { color: colors.text, fontSize: 16, fontWeight: '600' },
   toolbar: {
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
   },
@@ -533,32 +538,32 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xs,
   },
   resumeText: { flex: 1 },
-  resumeLabel: { color: theme.colors.textMuted, fontSize: 12, fontWeight: '600', textTransform: 'uppercase' },
-  resumeName: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
-  resumePlay: { color: theme.colors.accent, fontSize: 18 },
-  toolbarCount: { flex: 1, color: theme.colors.textMuted, fontSize: 13 },
+  resumeLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '600', textTransform: 'uppercase' },
+  resumeName: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  resumePlay: { color: colors.accent, fontSize: 18 },
+  toolbarCount: { flex: 1, color: colors.textMuted, fontSize: 13 },
   spacer: { flex: 1 },
-  sortHint: { color: theme.colors.text, fontSize: 14, marginBottom: theme.spacing.sm },
+  sortHint: { color: colors.text, fontSize: 14, marginBottom: theme.spacing.sm },
   action: {
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: colors.surfaceRaised,
     borderRadius: theme.radius,
     paddingHorizontal: theme.spacing.sm + 2,
     paddingVertical: theme.spacing.xs + 2,
   },
-  actionAccent: { backgroundColor: theme.colors.accent },
-  actionText: { color: theme.colors.text, fontSize: 13, fontWeight: '600' },
+  actionAccent: { backgroundColor: colors.accent },
+  actionText: { color: colors.text, fontSize: 13, fontWeight: '600' },
   row: {
     height: ROW_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    backgroundColor: theme.colors.background,
+    backgroundColor: colors.background,
   },
   rowDragging: {
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: colors.surfaceRaised,
     zIndex: 10,
     elevation: 6,
     shadowColor: '#000000',
@@ -566,8 +571,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
   },
-  position: { width: 28, color: theme.colors.textMuted, fontSize: 13, textAlign: 'right' },
-  channelName: { flex: 1, color: theme.colors.text, fontSize: 16 },
+  position: { width: 28, color: colors.textMuted, fontSize: 13, textAlign: 'right' },
+  channelName: { flex: 1, color: colors.text, fontSize: 16 },
   /** Bredt nok til en tommelfinger; det er det man traekker i. */
   handle: {
     width: 44,
@@ -575,7 +580,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  handleText: { color: theme.colors.textMuted, fontSize: 20 },
+  handleText: { color: colors.textMuted, fontSize: 20 },
   rowTv: { paddingHorizontal: 0 },
   tvRow: {
     flex: 1,
@@ -585,5 +590,5 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
   },
-  tvRowPicked: { borderWidth: 2, borderColor: theme.colors.accent, borderRadius: theme.radius },
+  tvRowPicked: { borderWidth: 2, borderColor: colors.accent, borderRadius: theme.radius },
 });

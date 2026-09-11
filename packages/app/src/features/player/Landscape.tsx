@@ -5,6 +5,8 @@ import { StatusBar } from 'expo-status-bar';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { theme } from '../../ui/theme.js';
+import { useStyles } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
 
@@ -44,6 +46,7 @@ export function LandscapePlayer({
   /** Vaelgere og lignende, der skal ligge oven paa alt. */
   overlays?: ReactNode;
 }) {
+  const styles = useStyles(makeStyles);
   useKeepAwake();
   const insets = useSafeAreaInsets();
   const [barShown, setBarShown] = useState(true);
@@ -100,7 +103,7 @@ export function LandscapePlayer({
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000000' },
   corner: {
     position: 'absolute',
@@ -113,7 +116,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#00000088',
   },
-  cornerText: { color: theme.colors.text, fontSize: 22, fontWeight: '700' },
+  cornerText: { color: colors.text, fontSize: 22, fontWeight: '700' },
   bar: {
     position: 'absolute',
     left: 0,

@@ -6,6 +6,8 @@ import type { StoredChannel } from '../../storage/channels.js';
 import { searchNameFor } from '../../sync/logoSearch.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
 import { useSongInfo } from './songInfo.js';
@@ -60,6 +62,7 @@ export function RadioView({
   onNext,
   onToggle,
 }: Props) {
+  const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const landscape = width > height;
@@ -176,6 +179,7 @@ function Cover({ coverUrl, size, fallback }: { coverUrl: string | null; size: nu
 
 /** Soejler der svinger i hver sin takt mens der spilles, og lægger sig ned naar der er stille. */
 function Equalizer({ playing }: { playing: boolean }) {
+  const styles = useStyles(makeStyles);
   const values = useRef(BAR_PERIODS_MS.map(() => new Animated.Value(0.15))).current;
   useEffect(() => {
     if (!playing) {
@@ -227,7 +231,7 @@ function Equalizer({ playing }: { playing: boolean }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0b0b12', paddingHorizontal: theme.spacing.lg },
   hidden: { position: 'absolute', width: 1, height: 1, opacity: 0 },
   glowTop: {
@@ -237,7 +241,7 @@ const styles = StyleSheet.create({
     width: 360,
     height: 360,
     borderRadius: 180,
-    backgroundColor: theme.colors.accent,
+    backgroundColor: colors.accent,
     opacity: 0.16,
   },
   glowBottom: {
@@ -257,20 +261,20 @@ const styles = StyleSheet.create({
   // Tv: teksten til venstre ved siden af det store cover, med plads til beskrivelsen.
   textTv: { alignItems: 'flex-start', maxWidth: 620, flexShrink: 1 },
   leftText: { textAlign: 'left' },
-  meta: { color: theme.colors.textMuted, fontSize: 14, textAlign: 'center' },
+  meta: { color: colors.textMuted, fontSize: 14, textAlign: 'center' },
   about: { marginTop: theme.spacing.md, gap: theme.spacing.xs },
-  aboutText: { color: theme.colors.text, fontSize: 14, lineHeight: 20, opacity: 0.9 },
-  kicker: { color: theme.colors.accent, fontSize: 12, fontWeight: '800', letterSpacing: 3 },
-  title: { color: theme.colors.text, fontSize: 26, fontWeight: '800', textAlign: 'center' },
-  artist: { color: theme.colors.text, fontSize: 16, fontWeight: '600', textAlign: 'center', opacity: 0.85 },
-  subtitle: { color: theme.colors.textMuted, fontSize: 12, textAlign: 'center' },
-  state: { color: theme.colors.textMuted, fontSize: 13, marginTop: theme.spacing.xs },
-  stateError: { color: theme.colors.danger },
+  aboutText: { color: colors.text, fontSize: 14, lineHeight: 20, opacity: 0.9 },
+  kicker: { color: colors.accent, fontSize: 12, fontWeight: '800', letterSpacing: 3 },
+  title: { color: colors.text, fontSize: 26, fontWeight: '800', textAlign: 'center' },
+  artist: { color: colors.text, fontSize: 16, fontWeight: '600', textAlign: 'center', opacity: 0.85 },
+  subtitle: { color: colors.textMuted, fontSize: 12, textAlign: 'center' },
+  state: { color: colors.textMuted, fontSize: 13, marginTop: theme.spacing.xs },
+  stateError: { color: colors.danger },
   equalizer: { flexDirection: 'row', alignItems: 'flex-end', gap: 5, height: 44, marginTop: theme.spacing.sm },
-  bar: { width: 6, borderRadius: 3, backgroundColor: theme.colors.accent },
+  bar: { width: 6, borderRadius: 3, backgroundColor: colors.accent },
   controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: theme.spacing.md },
   side: { flex: 1 },
-  sideText: { color: theme.colors.textMuted, fontSize: 15, fontWeight: '600' },
+  sideText: { color: colors.textMuted, fontSize: 15, fontWeight: '600' },
   round: {
     width: 52,
     height: 52,
@@ -280,14 +284,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff14',
   },
   roundDisabled: { opacity: 0.3 },
-  roundText: { color: theme.colors.text, fontSize: 20 },
+  roundText: { color: colors.text, fontSize: 20 },
   play: {
     width: 76,
     height: 76,
     borderRadius: 38,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.accent,
+    backgroundColor: colors.accent,
   },
   playText: { color: '#ffffff', fontSize: 28, fontWeight: '800' },
 });

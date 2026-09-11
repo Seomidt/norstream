@@ -22,6 +22,8 @@ import {
 } from '../../storage/vod.js';
 import type { StoredVodItem, VodCategorySummary } from '../../storage/vod.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
 import { cameBySelect } from '../../ui/tvKeys.js';
@@ -66,6 +68,8 @@ const COLUMNS = isTV ? 6 : 3;
  * appen er den samme app paa begge faner.
  */
 export function VodScreen({ session, level, onLevelChange, onOpen }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<StoredVodItem[]>([]);
@@ -99,7 +103,7 @@ export function VodScreen({ session, level, onLevelChange, onOpen }: Props) {
     <TextInput
       style={styles.search}
       placeholder="Søg blandt film og serier"
-      placeholderTextColor={theme.colors.textMuted}
+      placeholderTextColor={colors.textMuted}
       value={search}
       onChangeText={setSearch}
       autoCorrect={false}
@@ -112,7 +116,7 @@ export function VodScreen({ session, level, onLevelChange, onOpen }: Props) {
       <View style={styles.container}>
         {searchField}
         {loading ? (
-          <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />
+          <ActivityIndicator color={colors.accent} style={styles.spinner} />
         ) : (
           <PosterGrid items={results} onOpen={onOpen} emptyText="Intet matcher søgningen." />
         )}
@@ -188,6 +192,8 @@ function Home({
   onOpen: (item: StoredVodItem) => void;
   onBrowse: (kind: VodKind) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const [counts, setCounts] = useState<{ movies: number; series: number } | null>(null);
   const [inProgress, setInProgress] = useState<StoredVodItem[]>([]);
   const [watchlist, setWatchlist] = useState<StoredVodItem[]>([]);
@@ -214,7 +220,7 @@ function Home({
   }, [load]);
 
   if (counts === null) {
-    return <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />;
+    return <ActivityIndicator color={colors.accent} style={styles.spinner} />;
   }
 
   if (counts.movies === 0 && counts.series === 0) {
@@ -258,6 +264,7 @@ function Shelf({
   items: StoredVodItem[];
   onOpen: (item: StoredVodItem) => void;
 }) {
+  const styles = useStyles(makeStyles);
   return (
     <View style={styles.shelf}>
       <Text style={styles.shelfTitle}>{title}</Text>
@@ -282,6 +289,8 @@ function Countries({
   kind: VodKind;
   onPick: (country: CountryGroup) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const [groups, setGroups] = useState<CountryGroup[] | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -293,7 +302,7 @@ function Countries({
     };
   }, [session.db, kind]);
 
-  if (groups === null) return <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />;
+  if (groups === null) return <ActivityIndicator color={colors.accent} style={styles.spinner} />;
   return (
     <FlatList
       data={groups}
@@ -326,6 +335,8 @@ function Categories({
   countryKey: string;
   onPick: (category: VodCategorySummary) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const [categories, setCategories] = useState<VodCategorySummary[] | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -338,7 +349,7 @@ function Categories({
   }, [session.db, kind, countryKey]);
 
   if (categories === null) {
-    return <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />;
+    return <ActivityIndicator color={colors.accent} style={styles.spinner} />;
   }
   return (
     <FlatList
@@ -369,6 +380,8 @@ function Items({
   categoryId: string;
   onOpen: (item: StoredVodItem) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const [items, setItems] = useState<StoredVodItem[] | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -380,7 +393,7 @@ function Items({
     };
   }, [session.db, categoryId]);
 
-  if (items === null) return <ActivityIndicator color={theme.colors.accent} style={styles.spinner} />;
+  if (items === null) return <ActivityIndicator color={colors.accent} style={styles.spinner} />;
   return <PosterGrid items={items} onOpen={onOpen} emptyText="Ingen titler i denne kategori." />;
 }
 
@@ -393,6 +406,7 @@ function PosterGrid({
   onOpen: (item: StoredVodItem) => void;
   emptyText: string;
 }) {
+  const styles = useStyles(makeStyles);
   return (
     <FlatList
       data={items}
@@ -428,6 +442,7 @@ export function Poster({
   /** Paa tv: faar fokus naar gitteret kommer frem, saa fjernbetjeningen ikke lander i menuen. */
   preferFocus?: boolean;
 }) {
+  const styles = useStyles(makeStyles);
   const [failed, setFailed] = useState(false);
   const sizing = width === undefined ? styles.posterFlex : { width };
   // Uden plakat: bed om en fra TMDB, og tegn den naar den kommer.
@@ -488,6 +503,7 @@ export function Poster({
 }
 
 function Crumb({ label, onBack }: { label: string; onBack: () => void }) {
+  const styles = useStyles(makeStyles);
   return (
     <TvPressable style={styles.crumb} onPress={onBack} hitSlop={8}>
       <Text style={styles.crumbBack}>‹</Text>
@@ -498,16 +514,16 @@ function Crumb({ label, onBack }: { label: string; onBack: () => void }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.lg },
   spinner: { marginTop: theme.spacing.xl },
   search: {
-    backgroundColor: theme.colors.surface,
-    borderColor: theme.colors.border,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderWidth: 1,
     borderRadius: theme.radius,
-    color: theme.colors.text,
+    color: colors.text,
     padding: theme.spacing.sm + 2,
     margin: theme.spacing.md,
     marginBottom: theme.spacing.sm,
@@ -517,17 +533,17 @@ const styles = StyleSheet.create({
   browseRow: { flexDirection: 'row', gap: theme.spacing.sm, paddingHorizontal: theme.spacing.md },
   browseButton: {
     flex: 1,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: theme.radius,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: colors.border,
     padding: theme.spacing.md,
   },
-  browseTitle: { color: theme.colors.text, fontSize: 18, fontWeight: '700' },
-  browseCount: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
+  browseTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
+  browseCount: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   shelf: { marginTop: theme.spacing.lg },
   shelfTitle: {
-    color: theme.colors.text,
+    color: colors.text,
     fontSize: 16,
     fontWeight: '700',
     paddingHorizontal: theme.spacing.md,
@@ -542,11 +558,11 @@ const styles = StyleSheet.create({
     aspectRatio: 2 / 3,
     borderRadius: theme.radius,
     overflow: 'hidden',
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
   },
   posterImage: { width: '100%', height: '100%' },
   posterFallback: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.sm },
-  posterFallbackText: { color: theme.colors.textMuted, fontSize: 12, textAlign: 'center', fontWeight: '600' },
+  posterFallbackText: { color: colors.textMuted, fontSize: 12, textAlign: 'center', fontWeight: '600' },
   ratingBadge: {
     position: 'absolute',
     top: 6,
@@ -566,7 +582,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
-  kindText: { color: theme.colors.text, fontSize: 10, fontWeight: '700' },
+  kindText: { color: colors.text, fontSize: 10, fontWeight: '700' },
   progressTrack: {
     position: 'absolute',
     left: 0,
@@ -576,34 +592,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
-  progressFill: { backgroundColor: theme.colors.accent },
-  posterTitle: { color: theme.colors.text, fontSize: 12, marginTop: 6, lineHeight: 16 },
-  posterYear: { color: theme.colors.textMuted, fontSize: 11, marginTop: 1 },
+  progressFill: { backgroundColor: colors.accent },
+  posterTitle: { color: colors.text, fontSize: 12, marginTop: 6, lineHeight: 16 },
+  posterYear: { color: colors.textMuted, fontSize: 11, marginTop: 1 },
   crumb: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
     paddingBottom: theme.spacing.sm,
   },
-  crumbBack: { color: theme.colors.accent, fontSize: 26, marginRight: theme.spacing.sm },
-  crumbLabel: { color: theme.colors.text, fontSize: 15, fontWeight: '600', flex: 1 },
+  crumbBack: { color: colors.accent, fontSize: 26, marginRight: theme.spacing.sm },
+  crumbLabel: { color: colors.text, fontSize: 15, fontWeight: '600', flex: 1 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm + 4,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   flag: { fontSize: 22, marginRight: theme.spacing.md },
   rowMain: { flex: 1 },
-  rowTitle: { color: theme.colors.text, fontSize: 16 },
-  rowCount: { color: theme.colors.textMuted, fontSize: 12, marginTop: 2 },
-  chevron: { color: theme.colors.textMuted, fontSize: 22 },
-  empty: { color: theme.colors.textMuted, textAlign: 'center', padding: theme.spacing.lg },
-  emptyTitle: { color: theme.colors.text, fontSize: 18, fontWeight: '600' },
+  rowTitle: { color: colors.text, fontSize: 16 },
+  rowCount: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  chevron: { color: colors.textMuted, fontSize: 22 },
+  empty: { color: colors.textMuted, textAlign: 'center', padding: theme.spacing.lg },
+  emptyTitle: { color: colors.text, fontSize: 18, fontWeight: '600' },
   emptyText: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 15,
     textAlign: 'center',
     marginTop: theme.spacing.sm,

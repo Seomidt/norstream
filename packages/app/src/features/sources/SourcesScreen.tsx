@@ -23,6 +23,8 @@ import { connectM3u, connectXtream, hostOf, probeArchive } from '../../sources/c
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
@@ -40,6 +42,8 @@ interface Props {
  * kan slaa en fra uden at miste det man har bygget op omkring den.
  */
 export function SourcesScreen({ session, onSourcesChanged }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState<SourceKind | null>(null);
@@ -117,7 +121,7 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={theme.colors.accent} />
+        <ActivityIndicator color={colors.accent} />
       </View>
     );
   }
@@ -176,7 +180,7 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
                     }}
                   >
                     {probing === source.id ? (
-                      <ActivityIndicator color={theme.colors.accent} />
+                      <ActivityIndicator color={colors.accent} />
                     ) : (
                       <Text style={styles.action}>Prøv igen</Text>
                     )}
@@ -219,7 +223,7 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
             onValueChange={(value) => {
               void toggle(source, value);
             }}
-            trackColor={{ true: theme.colors.accent, false: theme.colors.border }}
+            trackColor={{ true: colors.accent, false: colors.border }}
           />
         </View>
       ))}
@@ -246,6 +250,8 @@ function AddSource({
   onCancel: () => void;
   onAdded: (name: string) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [username, setUsername] = useState('');
@@ -346,7 +352,7 @@ function AddSource({
           }}
         >
           {busy ? (
-            <ActivityIndicator color={theme.colors.text} />
+            <ActivityIndicator color={colors.text} />
           ) : (
             <Text style={styles.buttonText}>Tilføj</Text>
           )}
@@ -371,6 +377,8 @@ function Field({
   secure?: boolean;
   keyboardType?: 'url';
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -379,7 +387,7 @@ function Field({
         value={value}
         onChangeText={onChange}
         placeholder={placeholder}
-        placeholderTextColor={theme.colors.textMuted}
+        placeholderTextColor={colors.textMuted}
         autoCapitalize="none"
         autoCorrect={false}
         secureTextEntry={secure === true}
@@ -389,59 +397,59 @@ function Field({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   content: { padding: theme.spacing.md, paddingBottom: theme.spacing.xl },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.colors.background,
+    backgroundColor: colors.background,
   },
   sectionTitle: {
-    color: theme.colors.text,
+    color: colors.text,
     fontSize: 18,
     fontWeight: '700',
     marginBottom: theme.spacing.md,
   },
   hint: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 13,
     lineHeight: 18,
     marginBottom: theme.spacing.md,
   },
-  empty: { color: theme.colors.textMuted, fontSize: 14, marginBottom: theme.spacing.md },
+  empty: { color: colors.textMuted, fontSize: 14, marginBottom: theme.spacing.md },
   row: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     paddingVertical: theme.spacing.sm,
-    borderBottomColor: theme.colors.border,
+    borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   rowText: { flex: 1, paddingRight: theme.spacing.sm },
-  rowTitle: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
-  rowMeta: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
-  rowWarn: { color: theme.colors.danger, fontSize: 12, marginTop: 4, lineHeight: 16 },
-  rowOk: { color: theme.colors.textMuted, fontSize: 12, marginTop: 4, lineHeight: 16 },
+  rowTitle: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  rowMeta: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
+  rowWarn: { color: colors.danger, fontSize: 12, marginTop: 4, lineHeight: 16 },
+  rowOk: { color: colors.textMuted, fontSize: 12, marginTop: 4, lineHeight: 16 },
   archiveLine: { marginTop: 2 },
   confirm: { marginTop: theme.spacing.xs },
   confirmRow: { flexDirection: 'row', gap: theme.spacing.md, marginTop: theme.spacing.xs },
-  action: { color: theme.colors.accent, fontSize: 14, fontWeight: '600' },
-  danger: { color: theme.colors.danger, fontSize: 14, fontWeight: '600', marginTop: 4 },
+  action: { color: colors.accent, fontSize: 14, fontWeight: '600' },
+  danger: { color: colors.danger, fontSize: 14, fontWeight: '600', marginTop: 4 },
   field: { marginBottom: theme.spacing.md },
-  fieldLabel: { color: theme.colors.textMuted, fontSize: 13, marginBottom: theme.spacing.xs },
+  fieldLabel: { color: colors.textMuted, fontSize: 13, marginBottom: theme.spacing.xs },
   input: {
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
     borderRadius: theme.radius,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
-    color: theme.colors.text,
+    color: colors.text,
     fontSize: 15,
   },
-  error: { color: theme.colors.danger, fontSize: 14, marginBottom: theme.spacing.md },
+  error: { color: colors.danger, fontSize: 14, marginBottom: theme.spacing.md },
   actions: { flexDirection: 'row', gap: theme.spacing.sm, marginTop: theme.spacing.sm },
   button: {
-    backgroundColor: theme.colors.accent,
+    backgroundColor: colors.accent,
     borderRadius: theme.radius,
     paddingVertical: theme.spacing.md,
     paddingHorizontal: theme.spacing.lg,
@@ -450,7 +458,7 @@ const styles = StyleSheet.create({
     minWidth: 120,
   },
   buttonQuiet: {
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: colors.surfaceRaised,
     borderRadius: theme.radius,
     paddingVertical: theme.spacing.md,
     paddingHorizontal: theme.spacing.lg,
@@ -458,5 +466,5 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.md,
   },
   buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
+  buttonText: { color: colors.text, fontSize: 15, fontWeight: '600' },
 });

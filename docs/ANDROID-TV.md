@@ -207,6 +207,28 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
   fjernbetjeningen. Alt der ligger bag den, skal også kunne nås fra en knap.
 - `Alert.alert` bruges ikke (heller ikke på telefonen); brug `Notice`.
 
+## 4b. Farver og tema
+
+Appen har to temaer, mørkt og lyst (`src/ui/theme.ts`), og følger solen
+som standard (`src/ui/themeMode.ts`, solberegning i `src/ui/sun.ts`): lyst
+fra solopgang til solnedgang, mørkt ellers, også på tv. Under Indstillinger
+→ Tema kan man vælge Følg solen, Følg telefonen (kun telefon), Mørk eller
+Lys, og stedet solen regnes for.
+
+- **Ingen `theme.colors` i skærme.** Farverne læses gennem
+  `useTheme()` og stilark bygges med `useStyles(makeStyles)`, hvor
+  `makeStyles = (colors: ThemeColors) => StyleSheet.create({...})`. Et
+  stilark på modulniveau er bygget ved opstart og skifter aldrig.
+  `theme.spacing` og `theme.radius` er stadig faste.
+- **Nye farver hører til i `ThemeColors`** med en værdi i begge paletter.
+  Hårdkodede farver er kun i orden oven på video, plakater og sort
+  (afspillerne, trailere, plakatoverlæg).
+- **Logoer får en mørk plade bag sig** (`colors.logoBackdrop`): mange
+  kanallogoer er hvide på gennemsigtig bund og forsvinder på lyst.
+- **Fokusrammen** er `colors.focusRing`: hvid på mørkt, næsten sort på lyst.
+- NorRadio har ingen `ThemeProvider` og er derfor altid mørk; de delte
+  skærme (InternetRadio, RadioView) virker begge steder.
+
 ## 5. Tjekliste før et tv-build
 
 1. `npm run typecheck --workspace @norstream/app` og `npm test`.

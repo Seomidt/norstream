@@ -15,6 +15,8 @@ import { connectM3u, connectXtream } from '../../sources/connect.js';
 import { Aurora } from '../../ui/Aurora.js';
 import { Logo } from '../../ui/Logo.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { TvTextInput } from '../../ui/TvTextInput.js';
@@ -39,6 +41,8 @@ type Kind = 'xtream' | 'm3u';
  * M3U-liste, kunne altsaa ikke komme i gang.
  */
 export function OnboardingScreen({ onDone, notice }: Props) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
   const [kind, setKind] = useState<Kind>('xtream');
   const [baseUrl, setBaseUrl] = useState('');
@@ -141,7 +145,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
               returnKeyType="go"
               blurOnSubmit={false}
               placeholder={isPanel ? 'http://panel.example:8080' : 'http://.../liste.m3u'}
-              placeholderTextColor={theme.colors.textMuted}
+              placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
               autoCorrect={false}
               inputMode="url"
@@ -157,7 +161,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
               returnKeyType="go"
               blurOnSubmit={false}
                   placeholder="Brugernavn"
-                  placeholderTextColor={theme.colors.textMuted}
+                  placeholderTextColor={colors.textMuted}
                   autoCapitalize="none"
                   autoCorrect={false}
                   value={username}
@@ -169,7 +173,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
               returnKeyType="go"
               blurOnSubmit={false}
                   placeholder="Adgangskode"
-                  placeholderTextColor={theme.colors.textMuted}
+                  placeholderTextColor={colors.textMuted}
                   autoCapitalize="none"
                   autoCorrect={false}
                   secureTextEntry
@@ -185,7 +189,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
               returnKeyType="go"
               blurOnSubmit={false}
               placeholder="XMLTV-adresse (valgfri)"
-              placeholderTextColor={theme.colors.textMuted}
+              placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
               autoCorrect={false}
               inputMode="url"
@@ -210,7 +214,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
               }}
             >
               {busy ? (
-                <ActivityIndicator color={theme.colors.text} />
+                <ActivityIndicator color={colors.text} />
               ) : (
                 <Text style={styles.buttonText}>{isPanel ? 'Forbind' : 'Hent listen'}</Text>
               )}
@@ -235,6 +239,7 @@ function KindTab({
   active: boolean;
   onPress: () => void;
 }) {
+  const styles = useStyles(makeStyles);
   return (
     <TvPressable style={[styles.tab, active && styles.tabActive]} onPress={onPress}>
       <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
@@ -243,8 +248,8 @@ function KindTab({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   content: {
     flexGrow: 1,
@@ -258,20 +263,20 @@ const styles = StyleSheet.create({
   titleTv: { fontSize: 30 },
   cardTv: { flex: 1.4 },
   title: {
-    color: theme.colors.text,
+    color: colors.text,
     fontSize: 38,
     fontWeight: '800',
     letterSpacing: 0.5,
     marginTop: theme.spacing.md,
   },
-  subtitle: { color: theme.colors.textMuted, fontSize: 15, marginTop: theme.spacing.xs },
+  subtitle: { color: colors.textMuted, fontSize: 15, marginTop: theme.spacing.xs },
   // Kortet er nesten uigennemsigtigt: felterne skal kunne laeses oven paa
   // nordlyset, og en let baggrund ville lade billedet skinne igennem teksten.
   card: {
-    backgroundColor: 'rgba(22, 22, 28, 0.94)',
+    backgroundColor: colors.cardOverlay,
     borderRadius: theme.radius * 1.8,
     borderWidth: 1,
-    borderColor: theme.colors.border,
+    borderColor: colors.border,
     padding: theme.spacing.md,
   },
   tabs: { flexDirection: 'row', gap: theme.spacing.sm, marginBottom: theme.spacing.md },
@@ -281,19 +286,19 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.sm,
     borderRadius: theme.radius,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  tabActive: { borderColor: theme.colors.accent, backgroundColor: theme.colors.surfaceRaised },
-  tabLabel: { color: theme.colors.textMuted, fontSize: 15, fontWeight: '600' },
-  tabLabelActive: { color: theme.colors.text },
-  tabHint: { color: theme.colors.textMuted, fontSize: 11, marginTop: 1 },
+  tabActive: { borderColor: colors.accent, backgroundColor: colors.surfaceRaised },
+  tabLabel: { color: colors.textMuted, fontSize: 15, fontWeight: '600' },
+  tabLabelActive: { color: colors.text },
+  tabHint: { color: colors.textMuted, fontSize: 11, marginTop: 1 },
   input: {
-    backgroundColor: theme.colors.surface,
-    borderColor: theme.colors.border,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderWidth: 1,
     borderRadius: theme.radius,
-    color: theme.colors.text,
+    color: colors.text,
     padding: theme.spacing.md,
     marginBottom: theme.spacing.sm,
     fontSize: 16,
@@ -301,33 +306,33 @@ const styles = StyleSheet.create({
   /** Tv-skaermen er lav: mindre felter, saa kortet med knappen er paa skaermen paa én gang. */
   inputTv: { paddingVertical: theme.spacing.sm, marginBottom: theme.spacing.xs, fontSize: 14 },
   hint: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     lineHeight: 17,
     marginBottom: theme.spacing.sm,
   },
   notice: {
-    color: theme.colors.text,
+    color: colors.text,
     fontSize: 14,
     marginBottom: theme.spacing.md,
     textAlign: 'center',
   },
   error: {
-    color: theme.colors.danger,
+    color: colors.danger,
     marginTop: theme.spacing.xs,
     marginBottom: theme.spacing.sm,
   },
   button: {
-    backgroundColor: theme.colors.accent,
+    backgroundColor: colors.accent,
     borderRadius: theme.radius,
     padding: theme.spacing.md,
     alignItems: 'center',
     marginTop: theme.spacing.xs,
   },
   buttonDisabled: { opacity: 0.4 },
-  buttonText: { color: theme.colors.text, fontSize: 16, fontWeight: '700' },
+  buttonText: { color: colors.text, fontSize: 16, fontWeight: '700' },
   footer: {
-    color: theme.colors.textMuted,
+    color: colors.textMuted,
     fontSize: 12,
     textAlign: 'center',
     marginTop: theme.spacing.lg,

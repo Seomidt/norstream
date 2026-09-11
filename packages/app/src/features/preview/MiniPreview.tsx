@@ -6,6 +6,8 @@ import { buildLiveUrl } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
 import { liveUrlFor } from '../../sources/access.js';
 import { formatForPlatform } from '../player/format.js';
 import { TvPressable } from '../../ui/TvPressable.js';
@@ -60,6 +62,7 @@ const BUSY_MESSAGE =
   'Tryk på kanalen for at se den, eller slå forhåndsvisning fra i indstillinger.';
 
 export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props) {
+  const styles = useStyles(makeStyles);
   // Kanalen previewet faktisk viser. Foelger `channel` efter IDLE_MS.
   const [target, setTarget] = useState<StoredChannel | null>(null);
   // Lyd fra som standard paa telefonen (spec sec. 7), til paa tv: der er
@@ -210,7 +213,7 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { backgroundColor: '#000000' },
   frame: { width: '100%', aspectRatio: 16 / 9 },
   video: { width: '100%', height: '100%', backgroundColor: '#000000' },
@@ -224,15 +227,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: theme.spacing.md,
   },
-  errorText: { color: theme.colors.text, fontSize: 13, textAlign: 'center' },
-  placeholder: { color: theme.colors.textMuted, fontSize: 13 },
+  errorText: { color: colors.text, fontSize: 13, textAlign: 'center' },
+  placeholder: { color: colors.textMuted, fontSize: 13 },
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.xs,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: colors.surface,
   },
-  title: { flex: 1, color: theme.colors.text, fontSize: 13 },
+  title: { flex: 1, color: colors.text, fontSize: 13 },
   sound: { fontSize: 18 },
 });
