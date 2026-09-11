@@ -259,9 +259,11 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         <Text style={styles.hint}>{note ?? 'Trailer fra YouTube'}</Text>
       </View>
       <View style={[styles.actions, { paddingBottom: theme.spacing.md + insets.bottom }]}>
-        <TvPressable style={styles.button} onPress={onBack}>
-          <Text style={styles.buttonText}>Tilbage</Text>
-        </TvPressable>
+        {!isTV && (
+          <TvPressable style={styles.button} onPress={onBack}>
+            <Text style={styles.buttonText}>Tilbage</Text>
+          </TvPressable>
+        )}
         {/* Altid, ikke kun ved fejl: nogle trailere maa ifoelge deres ejer
             ikke vises uden for YouTube, og saa er det her den eneste vej. */}
         <TvPressable

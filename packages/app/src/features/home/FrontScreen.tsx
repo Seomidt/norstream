@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Text,
   View,
+  BackHandler,
 } from 'react-native';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
@@ -163,6 +164,15 @@ export function FrontScreen({
   /** Sidste fejl fra TMDB, uden adresser, til raekken. */
   const [shelfError, setShelfError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  // Tilbage lukker bladet (Google: ingen Luk-knap paa tv, fjernbetjeningens Tilbage er vejen).
+  useEffect(() => {
+    if (sheet === null) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      setSheet(null);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [sheet]);
 
   const loadLocal = useCallback(async (): Promise<void> => {
     const now = new Date();
@@ -470,9 +480,11 @@ export function FrontScreen({
               </Text>
             </TvPressable>
             {sheet.message !== null && <Text style={styles.sheetHint}>{sheet.message}</Text>}
-            <TvPressable style={styles.close} onPress={() => setSheet(null)} hitSlop={8}>
-              <Text style={styles.closeText}>Luk</Text>
-            </TvPressable>
+            {!isTV && (
+              <TvPressable style={styles.close} onPress={() => setSheet(null)} hitSlop={8}>
+                <Text style={styles.closeText}>Luk</Text>
+              </TvPressable>
+            )}
           </View>
         </View>
       )}

@@ -105,9 +105,11 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
     return (
       <View style={styles.centered}>
         <Text style={styles.plot}>Titlen findes ikke længere.</Text>
-        <TvPressable style={styles.button} onPress={onBack}>
-          <Text style={styles.buttonText}>Tilbage</Text>
-        </TvPressable>
+        {!isTV && (
+          <TvPressable style={styles.button} onPress={onBack}>
+            <Text style={styles.buttonText}>Tilbage</Text>
+          </TvPressable>
+        )}
       </View>
     );
   }
@@ -194,9 +196,11 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
             />
           )}
           <View style={styles.heroScrim} />
-          <TvPressable style={styles.back} onPress={onBack} hitSlop={12}>
-            <Text style={styles.backText}>‹ Tilbage</Text>
-          </TvPressable>
+          {!isTV && (
+            <TvPressable style={styles.back} onPress={onBack} hitSlop={12}>
+              <Text style={styles.backText}>‹ Tilbage</Text>
+            </TvPressable>
+          )}
           <View style={styles.heroBottom}>
             {item.posterUrl !== null && (
               <Image source={{ uri: item.posterUrl }} style={styles.poster} resizeMode="cover" />

@@ -124,6 +124,22 @@ Regler der er blevet til af fejl:
 
 ## 4. Fjernbetjeningen
 
+Googles egne regler for tv (developer.android.com, "Navigation on TV",
+"TV navigation", "Focus system", "Navigation drawer") er det appen retter
+sig efter. De vigtigste, med hvordan appen gør det:
+
+| Google siger | I appen |
+|---|---|
+| D-pad flytter fokus til det nærmeste element i retningen; alle synlige knapper skal kunne nås ad en lige vej, og "controls in hard-to-reach places" skal flyttes | Sortér i højre søjle, ingen knapper over guiden, previewet kan ikke få fokus |
+| Kategorier på den lodrette akse, emner på den vandrette | Rækker i Hjem, favoritgrupper over guiden, kanaler ned og tid hen ad |
+| Vis aldrig en Tilbage-knap på skærmen; fjernbetjeningens Tilbage er vejen | Ingen Tilbage/Luk-knapper på tv; brødkrummer er tekst (`focusable={!isTV}`); blade lukker på Tilbage |
+| Tilbage fra indholdet med sidemenu: "activate the left side menu and focus on the currently active menu item" | `railFocusSignal` i HomeScreen |
+| Tilbage fører til forrige destination og til sidst ud af appen; ingen bekræftelse, ingen uendelig løkke | Tilbage: undermenu → menu → Hjem → ud |
+| Der skal altid være noget i fokus, og fokus skal ses tydeligt: skalering (1,025–1,1), ramme, glød eller farve, ens i hele appen | `TvPressable`: ramme, toning, 1,03 |
+| Menusøjlen: både sammenfoldet (ikoner) og udfoldet (ikoner + tekst), 5–6 destinationer, aktiv markering | Søjlen folder sig sammen efter 2 s |
+| Lister: pil op/ned ruller listen, OK vælger; det fokuserede holdes et fast sted | `keepInMiddle` |
+
+
 På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
 
 - **Alle trykflader er `TvPressable`** (`src/ui/TvPressable.tsx`), aldrig
@@ -217,9 +233,9 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
   `favorite_group_members`). Den valgte gruppe ligger i indstillingen
   `favorite_group` og gælder Favoritter, Guide og zapning (listen der
   åbnes med). Brugeren laver dem selv under Favoritter → Grupper
-  (`GroupsScreen`); intet lægges i dem af sig selv. På tv skifter pil op i
-  guidens øverste række til næste gruppe, og gruppens navn står i
-  tidslinjens hjørne.
+  (`GroupsScreen`); intet lægges i dem af sig selv. På tv står grupperne
+  som knapper over guidens gitter (kun når der er grupper): pil op fra
+  øverste række, pil ned igen. Gruppens navn står også i tidslinjens hjørne.
 - **Knapper der skal kunne nås fra en lang liste, står i højre søjle**
   under previewet (`sidePanel` på `ChannelList`), ikke over listen: fra
   bunden af halvtreds favoritter var Sortér halvtreds tryk væk; til højre

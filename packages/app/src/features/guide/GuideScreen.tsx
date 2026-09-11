@@ -176,7 +176,7 @@ export function GuideScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusFirstSignal]);
   useTVEventHandler((event) => {
-    if (!isTV || (event.eventType !== 'right' && event.eventType !== 'left' && event.eventType !== 'up')) return;
+    if (!isTV || (event.eventType !== 'right' && event.eventType !== 'left')) return;
     // Android sender tryk ned (0) og op (1); kun det ene skal taelle.
     if (event.eventKeyAction !== undefined && Number(event.eventKeyAction) === 0) return;
     const cell = focusedCell.current;
@@ -185,18 +185,6 @@ export function GuideScreen({
     // den foerste: en time tilbage, saa man kan lede efter noget der har
     // vaeret uden at vide hvilken kanal. Gitteret holder paa fokus til begge
     // sider (TVFocusGuideView), saa man ikke ryger ud paa logoet eller i menuen.
-    if (event.eventType === 'up' && groups.length > 0 && channels[0]?.id === cell.channelId) {
-      // Oeverste raekke, pil op: naeste gruppe (Alle -> foerste -> ... -> Alle).
-      const order: Array<FavoriteGroup | null> = [null, ...groups];
-      const at = order.findIndex((entry) => (entry?.id ?? null) === (group?.id ?? null));
-      const next = order[(at + 1) % order.length] ?? null;
-      void setFavoriteGroup(session.db, next?.id ?? null).then(() => {
-        setLoading(true);
-        setGroupTick((value) => value + 1);
-        setFocusTarget({ channelId: '', key: '' });
-      });
-      return;
-    }
     if (event.eventType === 'right' && cell.index === cell.count - 1) {
       setFocusTarget({ channelId: cell.channelId, key: cell.key });
       setOffsetMinutes((value) => Math.min(DRAG_MAX_MINUTES, value + 60));
@@ -734,7 +722,7 @@ export function GuideScreen({
 
   /* Bladreknapper, dagsknapper, tidslinje og selve gitteret. */
   const guideBlock = (
-    <>
+    <TVFocusGuideView style={styles.guideBlock} trapFocusUp={isTV}>
       {/* Bred skaerm: bladreknapperne og dagsknapperne deler én linje, saa
           gitteret faar hoejden. Paa tv er laerredet 405 punkter hoejt, og
           med preview, to linjer knapper og tidslinje var der ingen raekker
@@ -771,6 +759,30 @@ export function GuideScreen({
       {!isTV && !sideBySide && dayChips}
 
 
+      {/* Favoritgrupperne over gitteret paa tv, som Googles "kategorier
+          paa den lodrette akse": pil op fra oeverste raekke, pil ned igen.
+          Kun naar der er grupper. Tilbage gaar til menuen. */}
+      {isTV && groups.length > 0 && (
+        <View style={styles.groupRow}>
+          {[null, ...groups].map((entry) => {
+            const active = (entry?.id ?? null) === (group?.id ?? null);
+            return (
+              <TvPressable
+                key={entry?.id ?? 'all'}
+                style={[styles.dayChip, active && styles.dayChipActive]}
+                onPress={() => {
+                  void setFavoriteGroup(session.db, entry?.id ?? null).then(() => {
+                    setLoading(true);
+                    setGroupTick((value) => value + 1);
+                  });
+                }}
+              >
+                <Text style={[styles.dayChipText, active && styles.dayChipTextActive]}>{entry === null ? 'Alle' : entry.name}</Text>
+              </TvPressable>
+            );
+          })}
+        </View>
+      )}
       <View style={styles.timeHeader}>
         <View style={styles.timeSpacer}>
           {/* Paa tv staar dagen her, naar vinduet ikke er i dag. */}
@@ -815,7 +827,7 @@ export function GuideScreen({
             ]}
           />
         )}
-        <TVFocusGuideView style={styles.grid} trapFocusRight={isTV} trapFocusLeft={isTV} trapFocusUp={isTV}>
+        <TVFocusGuideView style={styles.grid} trapFocusRight={isTV} trapFocusLeft={isTV}>
         <FlatList
           data={channels}
           keyExtractor={(item) => item.id}
@@ -837,7 +849,7 @@ export function GuideScreen({
         />
         </TVFocusGuideView>
       </View>
-    </>
+    </TVFocusGuideView>
   );
 
   return (
@@ -1134,6 +1146,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   pager: { color: colors.accent, fontSize: 26, paddingHorizontal: theme.spacing.sm },
   dayRow: { flexGrow: 0, flexShrink: 1 },
+  groupRow: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.xs, paddingHorizontal: theme.spacing.sm, paddingBottom: theme.spacing.xs },
   dayRowContent: { paddingHorizontal: theme.spacing.sm, paddingBottom: theme.spacing.xs, gap: theme.spacing.xs },
   dayChip: {
     paddingHorizontal: theme.spacing.sm + 2,
@@ -1154,6 +1167,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   timeSpacer: { width: CHANNEL_COLUMN },
   timeMark: { flex: 1, color: colors.textMuted, fontSize: isTV ? 13 : 11 },
   grid: { flex: 1 },
+  guideBlock: { flex: 1 },
   // Bredden er ét fysisk punkt bred paa alle skaerme. En streg paa 2 dp ville
   // daekke et par minutter i et to timers vindue og saaledes lyve en smule om
   // hvor nu er.

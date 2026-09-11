@@ -112,9 +112,11 @@ export function ProgrammeSheet({
             <Text style={styles.buttonText}>Hele dagen på {channel.name.includes('|') ? channel.name.slice(channel.name.lastIndexOf('|') + 1).trim() : channel.name}</Text>
           </TvPressable>
         )}
-        <TvPressable style={styles.close} onPress={onClose}>
-          <Text style={styles.closeText}>Luk</Text>
-        </TvPressable>
+        {!isTV && (
+          <TvPressable style={styles.close} onPress={onClose}>
+            <Text style={styles.closeText}>Luk</Text>
+          </TvPressable>
+        )}
       </View>
     </Modal>
   );

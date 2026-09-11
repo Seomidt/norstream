@@ -114,7 +114,7 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
       <View style={styles.container}>
         <View style={styles.toolbar}>
           <View style={styles.row}>
-            <TvPressable style={styles.action} onPress={() => { setOpen(null); void load(); }}>
+            <TvPressable style={styles.action} focusable={!isTV} onPress={() => { setOpen(null); void load(); }}>
               <Text style={styles.actionText}>‹ Grupper</Text>
             </TvPressable>
             <Text style={styles.title} numberOfLines={1}>
@@ -204,7 +204,7 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
     <View style={styles.container}>
       <View style={styles.toolbar}>
         <View style={styles.row}>
-          <TvPressable style={styles.action} onPress={onBack}>
+          <TvPressable style={styles.action} focusable={!isTV} onPress={onBack}>
             <Text style={styles.actionText}>‹ Favoritter</Text>
           </TvPressable>
           <Text style={styles.title}>Grupper</Text>

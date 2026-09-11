@@ -134,9 +134,11 @@ export function RadioView({
       </View>
 
       <View style={styles.controls}>
-        <TvPressable style={styles.side} onPress={onBack} hitSlop={8} accessibilityLabel="Tilbage">
-          <Text style={styles.sideText}>‹ Tilbage</Text>
-        </TvPressable>
+        {!isTV && (
+          <TvPressable style={styles.side} onPress={onBack} hitSlop={8} accessibilityLabel="Tilbage">
+            <Text style={styles.sideText}>‹ Tilbage</Text>
+          </TvPressable>
+        )}
         <TvPressable
           style={[styles.round, !hasPrevious && styles.roundDisabled]}
           disabled={!hasPrevious}

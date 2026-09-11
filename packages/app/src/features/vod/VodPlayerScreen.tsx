@@ -300,9 +300,11 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
 
   const actions = (
     <>
-      <TvPressable style={styles.button} onPress={onBack}>
-        <Text style={styles.buttonText}>Tilbage</Text>
-      </TvPressable>
+      {!isTV && (
+        <TvPressable style={styles.button} onPress={onBack}>
+          <Text style={styles.buttonText}>Tilbage</Text>
+        </TvPressable>
+      )}
       <TvPressable
         style={styles.button}
         onPress={() => {

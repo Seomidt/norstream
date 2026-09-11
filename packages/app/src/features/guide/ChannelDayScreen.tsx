@@ -113,7 +113,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
 
   return (
     <View style={styles.container}>
-      <TvPressable style={styles.crumb} onPress={onBack} hitSlop={8}>
+      <TvPressable style={styles.crumb} focusable={!isTV} onPress={onBack} hitSlop={8}>
         <Text style={styles.crumbBack}>‹</Text>
         <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={28} />
         <Text style={styles.crumbLabel} numberOfLines={1}>

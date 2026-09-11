@@ -354,7 +354,7 @@ export function InternetRadio({
     return (
       <View style={styles.container}>
         {searchField}
-        <TvPressable style={styles.crumb} onPress={() => backRef.current()} hitSlop={8}>
+        <TvPressable style={styles.crumb} focusable={!isTV} onPress={() => backRef.current()} hitSlop={8}>
           <Text style={styles.crumbBack}>‹</Text>
           <Text style={styles.crumbLabel} numberOfLines={1}>
             {country.flag} {country.name}

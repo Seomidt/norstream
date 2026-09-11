@@ -339,7 +339,7 @@ export function BrowseScreen({
 function Crumb({ label, onBack }: { label: string; onBack: () => void }) {
   const styles = useStyles(makeStyles);
   return (
-    <TvPressable style={styles.crumb} onPress={onBack}>
+    <TvPressable style={styles.crumb} focusable={!isTV} onPress={onBack}>
       <Text style={styles.crumbText} numberOfLines={1}>
         ‹ {label}
       </Text>

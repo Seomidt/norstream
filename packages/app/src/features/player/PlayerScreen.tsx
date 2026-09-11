@@ -534,9 +534,13 @@ export function PlayerScreen({
   const canRestart = !restarted && restartBlock === null && now !== null;
   const actions = (
     <>
-      <TvPressable style={styles.button} hasTVPreferredFocus={isTV && !restarted && !canRestart} onPress={onBack}>
-        <Text style={styles.buttonText}>Tilbage</Text>
-      </TvPressable>
+      {/* Ingen Tilbage-knap paa tv: Google — "brug fjernbetjeningens
+          Tilbage, vis ikke en knap paa skaermen". */}
+      {!isTV && (
+        <TvPressable style={styles.button} onPress={onBack}>
+          <Text style={styles.buttonText}>Tilbage</Text>
+        </TvPressable>
+      )}
       {zapList.length > 1 && zapIndex !== -1 && (
         <>
           <TvPressable
@@ -568,6 +572,7 @@ export function PlayerScreen({
       )}
       <TvPressable
         style={styles.button}
+        hasTVPreferredFocus={isTV && !restarted && !canRestart}
         onPress={() => {
           setSubtitleTracks(player.availableSubtitleTracks);
           setSubtitle(player.subtitleTrack);

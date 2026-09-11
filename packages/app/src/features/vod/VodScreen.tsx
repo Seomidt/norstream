@@ -511,7 +511,7 @@ export function Poster({
 function Crumb({ label, onBack }: { label: string; onBack: () => void }) {
   const styles = useStyles(makeStyles);
   return (
-    <TvPressable style={styles.crumb} onPress={onBack} hitSlop={8}>
+    <TvPressable style={styles.crumb} focusable={!isTV} onPress={onBack} hitSlop={8}>
       <Text style={styles.crumbBack}>‹</Text>
       <Text style={styles.crumbLabel} numberOfLines={1}>
         {label}
