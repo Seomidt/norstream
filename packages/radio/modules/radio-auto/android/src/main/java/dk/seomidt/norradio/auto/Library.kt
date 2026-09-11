@@ -119,7 +119,8 @@ class Library(val favourites: List<Station>, val countries: List<Country>) {
         if (RadioBrowser.isKnownDeadUrl(station.url)) continue
         out.add(station)
       }
-      return RadioBrowser.byName(RadioBrowser.preferBestQuality(out) { RadioBrowser.streamScore(it.url, 0) })
+      // Filens raekkefoelge er appens: de mest populaere foerst.
+      return RadioBrowser.preferBestQuality(out) { RadioBrowser.streamScore(it.url, 0) }
     }
 
     private const val EXTRA_NAME = "name"

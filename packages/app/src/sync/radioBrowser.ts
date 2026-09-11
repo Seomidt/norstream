@@ -276,10 +276,14 @@ export function preferBestQuality(stations: readonly RadioStation[]): RadioStati
   return order.map((key) => {
     const group = groups.get(key) ?? [];
     let best = group[0] as RadioStation;
+    let votes = 0;
     for (const candidate of group) {
       if (streamScore(candidate) > streamScore(best)) best = candidate;
+      votes = Math.max(votes, candidate.votes);
     }
-    return best;
+    // Stemmerne er stationens, ikke udgavens: den bedste stream er tit den
+    // mindst stemte, og saa roeg stationen ned ad listen.
+    return votes === best.votes ? best : { ...best, votes };
   });
 }
 
@@ -305,12 +309,18 @@ export async function searchRadioStations(fetchImpl: RadioFetch, query: string, 
 }
 
 /**
- * Alfabetisk efter navn med dansk sortering (æ, ø, å sidst), tal som tal.
- * Registret sorterer efter stemmer, og det ser tilfaeldigt ud i en liste
- * paa 160. RadioBrowser.byName i bilen goer det samme.
+ * De mest populaere foerst: flest stemmer i registret oeverst, og ved lige
+ * stemmetal alfabetisk med dansk sortering (æ, ø, å sidst), tal som tal.
+ *
+ * Alfabetisk var en tur: "de populaere oeverst er bedre end det der
+ * alfabetisk". Stemmerne er registrets egne og gaelder hele verden, men for
+ * Danmark ligger P3, P4, Nova og The Voice oeverst paa dem, og det passer.
+ * Bilen (RadioBrowser.kt) beholder registrets raekkefoelge, som er den samme.
  */
-export function sortStationsByName(stations: readonly RadioStation[]): RadioStation[] {
-  return [...stations].sort((a, b) => a.name.localeCompare(b.name, 'da', { sensitivity: 'base', numeric: true }));
+export function sortStationsByPopularity(stations: readonly RadioStation[]): RadioStation[] {
+  return [...stations].sort(
+    (a, b) => b.votes - a.votes || a.name.localeCompare(b.name, 'da', { sensitivity: 'base', numeric: true }),
+  );
 }
 
 /**

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   displayName,
-  sortStationsByName,
+  sortStationsByPopularity,
   fetchRadioCountries,
   fetchRadioStations,
   homepageIconUrl,
@@ -229,11 +229,26 @@ describe('displayName', () => {
   });
 });
 
-describe('sortStationsByName', () => {
-  const station = (name: string) => ({ id: name, name, country: 'DK', url: 'http://x', logoUrl: null, homepage: null, votes: 0, codec: '', bitrate: 0, tags: [] });
-  it('sorterer alfabetisk med dansk raekkefoelge og tal som tal', () => {
-    const names = sortStationsByName([station('Radio 208'), station('Ålborg Radio'), station('radio 100'), station('DR P3'), station('Aarhus Radio')]).map((s) => s.name);
+describe('sortStationsByPopularity', () => {
+  const station = (name: string, votes = 0) => ({ id: name, name, country: 'DK', url: 'http://x', logoUrl: null, homepage: null, votes, codec: '', bitrate: 0, tags: [] });
+  it('flest stemmer foerst, og ved lige stemmetal alfabetisk med dansk raekkefoelge og tal som tal', () => {
+    const names = sortStationsByPopularity([
+      station('Radio 208'),
+      station('Ålborg Radio'),
+      station('radio 100'),
+      station('DR P3', 900),
+      station('Aarhus Radio'),
+      station('Nova', 120),
+    ]).map((s) => s.name);
     // Dansk sortering regner "Aa" som "Å", saa Aarhus staar sidst, som i telefonbogen.
-    expect(names).toEqual(['DR P3', 'radio 100', 'Radio 208', 'Ålborg Radio', 'Aarhus Radio']);
+    expect(names).toEqual(['DR P3', 'Nova', 'radio 100', 'Radio 208', 'Ålborg Radio', 'Aarhus Radio']);
+  });
+
+  it('stationen beholder sine stemmer selv om den bedste udgave har faerre', () => {
+    const low = { ...station('DR P3', 5), id: 'hi', bitrate: 192 };
+    const popular = { ...station('DR P3', 900), id: 'lo', bitrate: 128 };
+    const kept = preferBestQuality([popular, low]);
+    expect(kept.map((s) => s.id)).toEqual(['hi']);
+    expect(kept[0]?.votes).toBe(900);
   });
 });
