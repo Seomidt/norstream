@@ -142,13 +142,22 @@ export function GuideScreen({
   }, []);
   const [focusTarget, setFocusTarget] = useState<{ channelId: string; key: string } | null>(null);
   useTVEventHandler((event) => {
-    if (!isTV || event.eventType !== 'right') return;
+    if (!isTV || (event.eventType !== 'right' && event.eventType !== 'left')) return;
     // Android sender tryk ned (0) og op (1); kun det ene skal taelle.
     if (event.eventKeyAction !== undefined && Number(event.eventKeyAction) === 0) return;
     const cell = focusedCell.current;
-    if (cell === null || cell.index !== cell.count - 1) return;
-    setFocusTarget({ channelId: cell.channelId, key: cell.key });
-    setOffsetMinutes((value) => Math.min(DRAG_MAX_MINUTES, value + 60));
+    if (cell === null) return;
+    // Pil hoejre paa den sidste udsendelse: en time frem. Pil venstre paa
+    // den foerste: en time tilbage, saa man kan lede efter noget der har
+    // vaeret uden at vide hvilken kanal. Gitteret holder paa fokus til begge
+    // sider (TVFocusGuideView), saa man ikke ryger ud paa logoet eller i menuen.
+    if (event.eventType === 'right' && cell.index === cell.count - 1) {
+      setFocusTarget({ channelId: cell.channelId, key: cell.key });
+      setOffsetMinutes((value) => Math.min(DRAG_MAX_MINUTES, value + 60));
+    } else if (event.eventType === 'left' && cell.index === 0) {
+      setFocusTarget({ channelId: cell.channelId, key: cell.key });
+      setOffsetMinutes((value) => Math.max(DRAG_MIN_MINUTES, value - 60));
+    }
   });
   /** Kanalen hvis hele dag vises, i stedet for gitteret. */
   const [dayFor, setDayFor] = useState<StoredChannel | null>(null);
@@ -719,7 +728,7 @@ export function GuideScreen({
             ]}
           />
         )}
-        <TVFocusGuideView style={styles.grid} trapFocusRight={isTV}>
+        <TVFocusGuideView style={styles.grid} trapFocusRight={isTV} trapFocusLeft={isTV}>
         <FlatList
           data={channels}
           keyExtractor={(item) => item.id}
@@ -860,10 +869,11 @@ const GuideRow = memo(function GuideRow({
           raekke, og de nederste kan aldrig rulles derop. */}
       <TvPressable
         style={[styles.channelCell, previewing && styles.channelCellPreviewing]}
-        // Paa tv: fokus viser kanalen i previewet, OK aabner bladet med se
-        // live, start forfra og hele dagen, som et tryk paa telefonen.
+        // Paa tv kan logoet ikke faa fokus: fjernbetjeningen bliver blandt
+        // udsendelserne, og previewet foelger dem alligevel. Kanalens valg
+        // (se, start forfra, hele dagen) ligger paa OK paa en udsendelse.
+        focusable={!isTV}
         onPress={() => (isTV ? onOpen(channel, CHANNEL_CELL) : onPreview(channel))}
-        onFocus={isTV ? () => onPreview(channel) : undefined}
         onLongPress={() => onOpen(channel, CHANNEL_CELL)}
         delayLongPress={400}
       >

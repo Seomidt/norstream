@@ -155,10 +155,12 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
   dem. Ethvert tryk viser bjælken igen.
 - **Menusøjlen folder sig sammen** til ikoner to sekunder efter at
   fjernbetjeningen har forladt den, og folder sig ud ved pil-venstre.
-- **Guiden på tv:** gitteret holder på fokus mod højre
-  (`TVFocusGuideView trapFocusRight`); pil-højre på den sidste udsendelse i
-  en række flytter vinduet en time frem og bliver på samme udsendelse
-  (`focusTarget` + `hasTVPreferredFocus`). Søjlen til højre (`NowNextBox
+- **Guiden på tv:** gitteret holder på fokus til begge sider
+  (`TVFocusGuideView trapFocusRight trapFocusLeft`), og kanalcellen med
+  logoet kan ikke få fokus; pil-højre på den sidste udsendelse i en række
+  flytter vinduet en time frem, pil-venstre på den første en time tilbage,
+  og fokus bliver på samme udsendelse (`focusTarget` +
+  `hasTVPreferredFocus`). Menuen nås fra dagsknapperne over gitteret. Søjlen til højre (`NowNextBox
   rich`) har ingen knapper: den kan ikke nås når gitteret holder på fokus,
   og OK på udsendelsen giver de samme valg (se kanalen, start forfra, hele
   dagen).

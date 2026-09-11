@@ -122,7 +122,7 @@ export function NowNextBox({ channel, programmes, now, compact, onOpen, rich = f
       {/* Ingen knapper her paa tv: gitteret holder paa fokus mod hoejre,
           saa knapperne kunne ikke naas — og OK paa udsendelsen giver de
           samme valg. Kun vinket staar tilbage. */}
-      {rich && <Text style={styles.hint}>OK på udsendelsen: se kanalen, start forfra, hele dagen · Pil højre: senere · Hold OK: favorit ★</Text>}
+      {rich && <Text style={styles.hint}>OK på udsendelsen: se kanalen, start forfra, hele dagen · Pil højre/venstre i kanten: frem og tilbage i tiden · Hold OK: favorit ★</Text>}
     </>
   );
 
