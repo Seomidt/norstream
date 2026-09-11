@@ -260,6 +260,7 @@ function AppInner() {
           session={session}
           place={place}
           onPlaceChange={setPlace}
+          covered={route.name !== 'home'}
           onSelect={(channel, startFrom, neighbours) =>
             setRoute({ name: 'player', channel, startFrom, zap: neighbours })
           }

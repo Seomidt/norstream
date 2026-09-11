@@ -67,6 +67,8 @@ interface Props {
   onSourcesChanged: () => void;
   /** Udfyldes med det telefonens tilbage-knap skal goere i Hjem. Falsk = lad Android lukke. */
   backRef: { current: () => boolean };
+  /** Sand mens en afspiller eller filmside ligger over Hjem: previewet skal vaere afmonteret imens. */
+  covered?: boolean;
 }
 
 export type Tab = 'home' | 'favorites' | 'browse' | 'guide' | 'vod' | 'radio' | 'settings';
@@ -108,6 +110,7 @@ export function HomeScreen({
   onSignedOut,
   onSourcesChanged,
   backRef,
+  covered = false,
 }: Props) {
   const styles = useStyles(makeStyles);
   // Telefonens navigationslinje ligger oven i fanelinjen uden det her.
@@ -117,6 +120,8 @@ export function HomeScreen({
   const tab = place.tab;
   const setTab = (next: Tab): void => onPlaceChange({ ...place, tab: next });
   const [previewEnabled, setPreviewEnabled] = useState(false);
+  /** Previewet vises kun mens Hjem er oeverst: under afspilleren skal dets videoflade vaere vaek. */
+  const previewOn = previewEnabled && !covered;
   const [refreshing, setRefreshing] = useState(false);
   const [homeVisits, setHomeVisits] = useState(0);
   const [favoritesToken, setFavoritesToken] = useState(0);
@@ -505,7 +510,7 @@ export function HomeScreen({
             onSelect={(channel, neighbours) => open(channel, undefined, neighbours)}
             onAuthError={handleAuthError}
             onBrowse={() => setTab('browse')}
-            previewEnabled={previewEnabled}
+            previewEnabled={previewOn}
             previewHandle={previewHandle}
             onPickLogo={pickLogo}
             refreshing={refreshing}
@@ -519,7 +524,7 @@ export function HomeScreen({
             session={session}
             onSelect={(channel, neighbours) => open(channel, undefined, neighbours)}
             onAuthError={handleAuthError}
-            previewEnabled={previewEnabled}
+            previewEnabled={previewOn}
             previewHandle={previewHandle}
             onPickLogo={pickLogo}
             onFavoritesChanged={() => setFavoritesToken((value) => value + 1)}
@@ -536,7 +541,7 @@ export function HomeScreen({
             onRestart={(channel, programme) => open(channel, programme)}
             onAuthError={handleAuthError}
             onBrowse={() => setTab('browse')}
-            previewEnabled={previewEnabled}
+            previewEnabled={previewOn}
             previewHandle={previewHandle}
             focusFirstSignal={enterSignal}
           />

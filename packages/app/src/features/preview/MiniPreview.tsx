@@ -191,7 +191,12 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
           if (target !== null) onOpen(target);
         }}
       >
-        <VideoView style={styles.video} player={player} nativeControls={false} />
+        {/* TextureView, ikke SurfaceView: en SurfaceView er sin egen
+            hardwareflade og kan lægge sig oven på afspillerens, også naar
+            den ligger under i traeet. Stoppet og uden billede er den groen:
+            "groen skaerm med lyd" naar en udsendelse blev startet forfra
+            fra guiden paa tv. */}
+        <VideoView style={styles.video} player={player} nativeControls={false} surfaceType="textureView" />
         {error !== null && (
           <View style={styles.overlay}>
             <Text style={styles.errorText}>{error}</Text>
