@@ -188,6 +188,17 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
   `hasTVPreferredFocus`, som i favoritternes `SortView`. Og brug aldrig
   `disabled` på en knap der kan have fokus: en deaktiveret knap kan ikke
   have fokus, så fokus røg samme sekund kanalen nåede toppen.
+- **Sortering på tv er "tag op, flyt, sæt":** OK på rækken tager kanalen
+  op, pil op/ned flytter den (samme `drag`-tilstand som fingeren, så intet
+  bygges om undervejs), OK sætter den. Imens er alle andre rækker og
+  Færdig `focusable={false}` og listen ligger i en `TVFocusGuideView` der
+  fanger fokus i alle retninger, ellers gik pil op til Hjem i søjlen.
+  Pilene læses med `useTVEventHandler` (kun `eventKeyAction` 1, ellers
+  tæller hvert tryk dobbelt). En knap per plads (▲/▼) var for langsomt.
+- **Åbner en skærm med OK, skal dens første række have
+  `hasTVPreferredFocus`** — regnet ud én gang ved montering
+  (`useRef(isTV && cameBySelect()).current`), ikke ved hver tegning:
+  ellers sprang fokus tilbage til første række ved næste OK-tryk.
 - **Ingen trækfinger.** Trækfladen i guiden (`PanResponder`) virker ikke på
   tv; derfor findes dagsknapperne og bladreknapperne ‹ ›. En ny skærm der
   kun kan betjenes med træk eller lang-tryk, er brudt på tv.
@@ -227,7 +238,7 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
 | Film-fanen tom, forsiden mangler rækker | VOD-hentningen fejlede stille | Fejlen gemmes og vises under Kilder; "Hent"-knap |
 | Indstillinger kan ikke rulles helt ned | Switch-rækken kunne ikke få fokus | Rækken er en `TvPressable` |
 | Kanaler/lande: bunden af listen kan ikke nås | Rækken var inde i listen, men under lærredets kant | Fokus holdes i midten (`keepInMiddle`) + luft nederst |
-| Sortér favoritter: fokus ryger ved hvert flyt | Rækken bygges om; `disabled` knap kan ikke have fokus | Ny `key` + `hasTVPreferredFocus` på knappen; ingen `disabled` |
+| Sortér favoritter: fokus ryger ved hvert flyt, åbner på Hjem | Rækken bygges om; `disabled` knap kan ikke have fokus; ingen foretrukket fokus ved åbning | Tag op/flyt/sæt med OK og pile; fokus fanget imens; første række foretrukket ved åbning |
 | Plakater der er på telefonen mangler på tv | En forkert TMDB-nøgle en tid: "svar 401" blev gemt som "findes ikke" i 30 dage | Fejl gemmes ikke som nej; nøgleskift og "Hent … nu" glemmer de gamle nej |
 
 ## 7. Hvad der ikke er gjort

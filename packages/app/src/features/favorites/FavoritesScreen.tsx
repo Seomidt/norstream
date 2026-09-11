@@ -7,8 +7,10 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  TVFocusGuideView,
   Text,
   View,
+  useTVEventHandler,
 } from 'react-native';
 import type { AppSession } from '../../session.js';
 import { getChannel, listChannels, setFavorite } from '../../storage/channels.js';
@@ -22,6 +24,7 @@ import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
+import { cameBySelect } from '../../ui/tvKeys.js';
 import { ChannelList } from '../channels/ChannelList.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 
@@ -250,42 +253,20 @@ function SortView({
   }, [channels]);
 
   /**
-   * Paa tv: den knap fjernbetjeningen skal staa paa efter et flyt.
+   * Paa tv: OK paa en kanal tager den op, pil op/ned flytter den, OK
+   * saetter den. Som paa telefonen, hvor man trækker — bare med taster.
    *
-   * Naar raekken flytter sig, bygger Android dens visning om, og fokus
-   * roeg — til Faerdig eller til Hjem i menuen, saa hvert flyt kostede
-   * en tur tilbage til kanalen ("kan ikke faa sortere kanaler til at
-   * virke"). Knappen faar en ny noegle per flyt, saa den tegnes forfra
-   * med foretrukket fokus, og listen ruller kanalen ind i midten.
+   * Mens en kanal er taget op, er alle andre raekker og Faerdig
+   * ufokuserbare og listen holder paa fokus (TVFocusGuideView), saa
+   * pilene ikke flytter fokus til naboen eller op i menuen (Hjem). I
+   * stedet flyttes kanalen: samme `drag`-tilstand som fingeren bruger,
+   * saa raekkerne imellem rykker sig og intet bygges om foer den saettes.
+   * Foerst da flytter raekken sig i traeet, og saa mister Android fokus;
+   * derfor faar den satte raekke en ny key og foretrukket fokus.
    */
-  const [tvFocus, setTvFocus] = useState<{ id: string; dir: 'up' | 'down'; nonce: number } | null>(null);
-  const moveOnTv = (index: number, dir: 'up' | 'down'): void => {
-    const to = dir === 'up' ? index - 1 : index + 1;
-    const moved = order[index];
-    if (moved === undefined) return;
-    if (to < 0 || to >= order.length) {
-      // I enden: knappen bliver staaende med fokus, men intet flyttes.
-      setTvFocus({ id: moved.id, dir, nonce: (tvFocus?.nonce ?? 0) + 1 });
-      return;
-    }
-    // Vises med det samme; databasen foelger efter.
-    const next = [...order];
-    next.splice(index, 1);
-    next.splice(to, 0, moved);
-    setOrder(next);
-    setTvFocus({ id: moved.id, dir, nonce: (tvFocus?.nonce ?? 0) + 1 });
-    void onMove(moved, to);
-    const visible = frame.current.height;
-    scrollRef.current?.scrollTo({
-      y: Math.max(0, to * ROW_HEIGHT - Math.max(0, visible - ROW_HEIGHT) / 2),
-      animated: true,
-    });
-  };
-  const tvKey = (item: StoredChannel, dir: 'up' | 'down'): string =>
-    tvFocus !== null && tvFocus.id === item.id && tvFocus.dir === dir ? `${dir}-${tvFocus.nonce}` : dir;
-  const tvPreferred = (item: StoredChannel, dir: 'up' | 'down'): boolean =>
-    isTV && tvFocus !== null && tvFocus.id === item.id && tvFocus.dir === dir;
-
+  const [tvFocus, setTvFocus] = useState<{ id: string; nonce: number } | null>(null);
+  /** Den foerste raekke faar fokus naar sorteringen aabnes; ellers landede fjernbetjeningen paa Hjem. */
+  const focusFirst = useRef(isTV && cameBySelect()).current;
   const [drag, setDrag] = useState<{ index: number; hover: number } | null>(null);
   const dragRef = useRef<{ index: number; hover: number; startScroll: number } | null>(null);
   const translate = useRef(new Animated.Value(0)).current;
@@ -372,15 +353,56 @@ function SortView({
       onPanResponderTerminate: finish,
     });
 
+  /** Tv: OK tager kanalen op, eller saetter den hvor den er naaet til. */
+  const pickOrDrop = (index: number): void => {
+    const current = dragRef.current;
+    if (current === null) {
+      dragRef.current = { index, hover: index, startScroll: scrollY.current };
+      translate.setValue(0);
+      setDrag({ index, hover: index });
+      return;
+    }
+    const moved = order[current.index];
+    finish();
+    if (moved !== undefined) setTvFocus({ id: moved.id, nonce: (tvFocus?.nonce ?? 0) + 1 });
+  };
+  const moveHover = (step: -1 | 1): void => {
+    const current = dragRef.current;
+    if (current === null) return;
+    const hover = Math.max(0, Math.min(order.length - 1, current.hover + step));
+    if (hover === current.hover) return;
+    current.hover = hover;
+    translate.setValue((hover - current.index) * ROW_HEIGHT);
+    setDrag({ index: current.index, hover });
+    // Kanalen holdes midt i listen mens den flyttes.
+    const visible = frame.current.height;
+    scrollRef.current?.scrollTo({
+      y: Math.max(0, hover * ROW_HEIGHT - Math.max(0, visible - ROW_HEIGHT) / 2),
+      animated: true,
+    });
+  };
+  useTVEventHandler((event) => {
+    if (!isTV || dragRef.current === null) return;
+    // Android sender tryk ned (0) og op (1); kun det ene skal taelle.
+    if (event.eventKeyAction !== undefined && Number(event.eventKeyAction) === 0) return;
+    if (event.eventType === 'up') moveHover(-1);
+    else if (event.eventType === 'down') moveHover(1);
+  });
+  const picking = drag !== null;
+
   return (
     <View style={styles.container}>
       <View style={styles.toolbar}>
         <Text style={styles.sortHint}>
-          {isTV ? 'Flyt kanalen op eller ned med ▲ og ▼ ud for den.' : 'Træk i ☰ og slip kanalen hvor den skal ligge.'}
+          {isTV
+            ? picking
+              ? 'Flyt kanalen med ▲ og ▼, og tryk OK for at sætte den.'
+              : 'Tryk OK på en kanal, flyt den med ▲ og ▼, og tryk OK igen.'
+            : 'Træk i ☰ og slip kanalen hvor den skal ligge.'}
         </Text>
         <View style={styles.toolbarRow}>
           <View style={styles.spacer} />
-          <TvPressable style={[styles.action, styles.actionAccent]} hitSlop={8} onPress={onDone}>
+          <TvPressable style={[styles.action, styles.actionAccent]} hitSlop={8} focusable={!picking} onPress={onDone}>
             <Text style={styles.actionText}>Færdig</Text>
           </TvPressable>
         </View>
@@ -394,6 +416,13 @@ function SortView({
           });
         }}
       >
+        <TVFocusGuideView
+          style={styles.container}
+          trapFocusUp={isTV && picking}
+          trapFocusDown={isTV && picking}
+          trapFocusLeft={isTV && picking}
+          trapFocusRight={isTV && picking}
+        >
         <ScrollView
           ref={scrollRef}
           scrollEnabled={drag === null}
@@ -409,49 +438,51 @@ function SortView({
               if (drag.index < index && index <= drag.hover) shift = -ROW_HEIGHT;
               else if (drag.hover <= index && index < drag.index) shift = ROW_HEIGHT;
             }
+            const inner = (
+              <>
+                <Text style={styles.position}>{(picking && drag.index === index ? drag.hover : index) + 1}</Text>
+                <ChannelLogo uris={item.logoUrls} name={item.name} memoryKey={item.id} size={36} />
+                <Text style={styles.channelName} numberOfLines={1}>
+                  {item.name}
+                </Text>
+              </>
+            );
+            const targeted = tvFocus !== null && tvFocus.id === item.id;
             return (
               <Animated.View
                 key={item.id}
                 style={[
                   styles.row,
+                  isTV && styles.rowTv,
                   dragging && styles.rowDragging,
                   { transform: [{ translateY: dragging ? translate : shift }] },
                 ]}
               >
-                <Text style={styles.position}>{index + 1}</Text>
-                <ChannelLogo uris={item.logoUrls} name={item.name} memoryKey={item.id} size={36} />
-                <Text style={styles.channelName} numberOfLines={1}>
-                  {item.name}
-                </Text>
                 {isTV ? (
-                  // Ingen finger at traekke med: to knapper flytter én plads ad gangen.
-                  <>
-                    <TvPressable
-                      key={tvKey(item, 'up')}
-                      style={styles.handle}
-                      hasTVPreferredFocus={tvPreferred(item, 'up')}
-                      onPress={() => moveOnTv(index, 'up')}
-                    >
-                      <Text style={[styles.handleText, index === 0 && styles.handleTextDim]}>▲</Text>
-                    </TvPressable>
-                    <TvPressable
-                      key={tvKey(item, 'down')}
-                      style={styles.handle}
-                      hasTVPreferredFocus={tvPreferred(item, 'down')}
-                      onPress={() => moveOnTv(index, 'down')}
-                    >
-                      <Text style={[styles.handleText, index === order.length - 1 && styles.handleTextDim]}>▼</Text>
-                    </TvPressable>
-                  </>
+                  // Hele raekken er trykpunktet: OK tager den op eller saetter den.
+                  <TvPressable
+                    key={targeted ? `row-${tvFocus.nonce}` : 'row'}
+                    style={[styles.tvRow, dragging && styles.tvRowPicked]}
+                    focusable={!picking || dragging}
+                    hasTVPreferredFocus={targeted || (focusFirst && tvFocus === null && index === 0)}
+                    onPress={() => pickOrDrop(index)}
+                  >
+                    {inner}
+                    <Text style={styles.handleText}>{dragging ? '⇅' : '☰'}</Text>
+                  </TvPressable>
                 ) : (
-                  <View style={styles.handle} hitSlop={12} {...responderFor(index).panHandlers}>
-                    <Text style={styles.handleText}>☰</Text>
-                  </View>
+                  <>
+                    {inner}
+                    <View style={styles.handle} hitSlop={12} {...responderFor(index).panHandlers}>
+                      <Text style={styles.handleText}>☰</Text>
+                    </View>
+                  </>
                 )}
               </Animated.View>
             );
           })}
         </ScrollView>
+        </TVFocusGuideView>
       </View>
     </View>
   );
@@ -545,5 +576,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   handleText: { color: theme.colors.textMuted, fontSize: 20 },
-  handleTextDim: { opacity: 0.3 },
+  rowTv: { paddingHorizontal: 0 },
+  tvRow: {
+    flex: 1,
+    height: ROW_HEIGHT,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+  },
+  tvRowPicked: { borderWidth: 2, borderColor: theme.colors.accent, borderRadius: theme.radius },
 });
