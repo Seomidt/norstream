@@ -205,7 +205,7 @@ export function FavoritesScreen({
     </View>
   );
 
-  return (
+  const list = (
     <ChannelList
       session={session}
       channels={channels}
@@ -221,9 +221,22 @@ export function FavoritesScreen({
       onLongPress={onPickLogo}
       refreshing={refreshing}
       onRefresh={onRefresh}
-      header={header}
+      header={isTV ? undefined : header}
     />
   );
+
+  // Paa tv staar Se videre og Sortér fast over listen, ikke inde i den:
+  // som listehoved rullede de vaek og blev klippet fra, og saa kunne
+  // fjernbetjeningen ikke naa Sortér ("kan ikke komme til at vaelge sortér").
+  if (isTV) {
+    return (
+      <View style={styles.container}>
+        {header}
+        {list}
+      </View>
+    );
+  }
+  return list;
 }
 
 /** Raekkehoejden i sorteringen. Fast, saa en fingerposition kan regnes om til en plads. */
