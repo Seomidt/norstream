@@ -52,8 +52,6 @@ interface Props {
   onRefresh: () => void;
   /** Sand mens hentningen koerer; naar den slutter, laeses tallene igen. */
   refreshing: boolean;
-  /** Paa tv: skaermens, laerredets og indholdets maal, nederst — til fejlsoegning fra et foto. */
-  layoutInfo?: string | null;
   onOpenSources: () => void;
   /** Aabner listen over kanaler uden logo, hvor man kan vaelge selv. */
   onOpenLogos: () => void;
@@ -95,7 +93,6 @@ export function SettingsScreen({
   session,
   onRefresh,
   refreshing,
-  layoutInfo = null,
   onOpenSources,
   onOpenLogos,
   onOpenCheck,
@@ -130,6 +127,7 @@ export function SettingsScreen({
   /** Hvad sidste sikkerhedskopiering eller gendannelse endte med. */
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
+  const [providersOpen, setProvidersOpen] = useState(false);
   const [themeMode, setThemeModeState] = useState<ThemeMode>(themePreference().mode);
   const [themePlace, setThemePlaceState] = useState(themePreference().placeKey);
 
@@ -322,7 +320,7 @@ export function SettingsScreen({
             {refreshing
               ? 'Henter fra panelet. Tallene nedenfor opdateres, når det er færdigt.'
               : isTV
-                ? 'Samme som træk-ned under Kanaler på telefonen. Tager et par minutter på et stort panel.'
+                ? 'Henter alt forfra fra panelet. Tager et par minutter på et stort panel.'
                 : 'Samme som at trække ned under Kanaler.'}
           </Text>
         </View>
@@ -342,8 +340,9 @@ export function SettingsScreen({
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>Tjek forbindelsen til panelet</Text>
           <Text style={styles.rowHint}>
-            Virker appen på mobildata men ikke på Wi-Fi? Målingen siger om det er navnet,
-            adressen eller panelet, der afviser.
+            {isTV
+              ? 'Målingen siger om det er navnet, adressen eller panelet, der afviser.'
+              : 'Virker appen på mobildata men ikke på Wi-Fi? Målingen siger om det er navnet, adressen eller panelet, der afviser.'}
           </Text>
         </View>
         <Text style={styles.actionText}>Åbn</Text>
@@ -362,6 +361,9 @@ export function SettingsScreen({
         <Text style={styles.hint}>Sidste hentning af film og serier fejlede. {vodErrors.join(' · ')}</Text>
       )}
 
+      {/* Ikke paa tv: logoer vaelges ikke fra sofaen, og noeglerne tastes paa telefonen. */}
+      {!isTV && (
+        <>
       <Text style={styles.sectionTitle}>Kanallogoer</Text>
       <TvPressable style={styles.row} onPress={onOpenLogos}>
         <View style={styles.rowText}>
@@ -404,6 +406,9 @@ export function SettingsScreen({
         autoCorrect={false}
         autoCapitalize="none"
       />
+
+        </>
+      )}
 
       <Text style={styles.sectionTitle}>Tema</Text>
       <Text style={styles.hint}>
@@ -455,7 +460,7 @@ export function SettingsScreen({
             <Text
               style={[styles.choiceText, subtitles === option.value && styles.choiceTextSelected]}
             >
-              {option.label}
+              {option.value === 'auto' && isTV ? 'Enhedens sprog' : option.label}
             </Text>
           </TvPressable>
         ))}
@@ -518,8 +523,8 @@ export function SettingsScreen({
       />
       <Text style={styles.hint}>
         Nøglen laves gratis på themoviedb.org: opret en konto, gå til Settings → API, og kopiér
-        enten "API Key" eller "API Read Access Token". Begge virker; du skal kun bruge én. Den
-        gemmes kun på telefonen og i din sikkerhedskopi.
+        enten "API Key" eller "API Read Access Token". Begge virker; du skal kun bruge én.
+        {isTV ? ' Den gemmes kun på denne enhed.' : ' Den gemmes kun på telefonen og i din sikkerhedskopi.'}
       </Text>
 
       <Text style={styles.sectionTitle}>Forside</Text>
@@ -533,42 +538,68 @@ export function SettingsScreen({
         <Text style={styles.hint}>Henter tjenesterne …</Text>
       ) : (
         <>
-          <TextInput
-            style={styles.input}
-            value={providerSearch}
-            onChangeText={setProviderSearch}
-            placeholder="Find en tjeneste, fx SkyShowtime"
-            placeholderTextColor={colors.textMuted}
-            autoCorrect={false}
-            autoCapitalize="none"
-          />
-          <View style={styles.choices}>
-          {[...chosenProviders.filter((c) => !providers.some((p) => p.id === c.id)), ...providers]
-            .filter((provider) => {
-              const needle = providerSearch.trim().toLowerCase();
-              // De valgte staar der altid, saa man kan tage dem fra igen.
-              return needle.length === 0 || provider.name.toLowerCase().includes(needle) || chosenProviders.some((c) => c.id === provider.id);
-            })
-            .map((provider) => {
-            const selected = chosenProviders.some((entry) => entry.id === provider.id);
-            return (
-              <TvPressable
-                key={provider.id}
-                style={[styles.choice, selected && styles.choiceSelected]}
-                onPress={() => {
-                  void toggleProvider(provider);
-                }}
-              >
-                <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>
-                  {provider.region === 'DK' ? provider.name : `${provider.name} (UK)`}
-                </Text>
-              </TvPressable>
-            );
-          })}
-          </View>
+          {/* Foldet sammen som standard: over hundrede tjenester fyldte
+              hele skaermen nedad. Raekken siger hvad der er valgt. */}
+          <TvPressable style={styles.row} onPress={() => setProvidersOpen((open) => !open)}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>
+                Streamingtjenester{chosenProviders.length > 0 ? ` · ${chosenProviders.length} valgt` : ''}
+              </Text>
+              <Text style={styles.rowHint} numberOfLines={2}>
+                {chosenProviders.length === 0
+                  ? 'Ingen valgt endnu. Tryk for at vælge.'
+                  : chosenProviders.map((entry) => entry.name).join(', ')}
+              </Text>
+            </View>
+            <Text style={styles.actionText}>{providersOpen ? '▴ Luk' : '▾ Vælg'}</Text>
+          </TvPressable>
+          {providersOpen && (
+            <>
+              <TextInput
+                style={styles.input}
+                value={providerSearch}
+                onChangeText={setProviderSearch}
+                placeholder="Find en tjeneste, fx SkyShowtime"
+                placeholderTextColor={colors.textMuted}
+                autoCorrect={false}
+                autoCapitalize="none"
+              />
+              <View style={styles.choices}>
+                {[...chosenProviders.filter((c) => !providers.some((p) => p.id === c.id)), ...providers]
+                  .filter((provider) => {
+                    const needle = providerSearch.trim().toLowerCase();
+                    // De valgte staar der altid, saa man kan tage dem fra igen.
+                    return (
+                      needle.length === 0 ||
+                      provider.name.toLowerCase().includes(needle) ||
+                      chosenProviders.some((c) => c.id === provider.id)
+                    );
+                  })
+                  .map((provider) => {
+                    const selected = chosenProviders.some((entry) => entry.id === provider.id);
+                    return (
+                      <TvPressable
+                        key={provider.id}
+                        style={[styles.choice, selected && styles.choiceSelected]}
+                        onPress={() => {
+                          void toggleProvider(provider);
+                        }}
+                      >
+                        <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>
+                          {provider.region === 'DK' ? provider.name : `${provider.name} (UK)`}
+                        </Text>
+                      </TvPressable>
+                    );
+                  })}
+              </View>
+            </>
+          )}
         </>
       )}
 
+      {/* Ikke paa tv: YouTube-noeglen er kun til soegningen, som tv'et ikke viser, og filvaelgeren findes ikke paa Google TV. */}
+      {!isTV && (
+        <>
       <Text style={styles.sectionTitle}>Trailere</Text>
       <Text style={styles.hint}>
         Med TMDB-nøglen ovenfor er TMDB's officielle trailer altid første valg. Kender TMDB
@@ -617,10 +648,13 @@ export function SettingsScreen({
       </TvPressable>
       {backupMessage !== null && <Text style={styles.hint}>{backupMessage}</Text>}
 
+        </>
+      )}
+
       <Text style={styles.sectionTitle}>Skjulte lande</Text>
       {hidden.length === 0 ? (
         <Text style={styles.hint}>
-          Ingen. Hold fingeren nede på et land under Kanaler for at skjule det.
+          {isTV ? 'Ingen. Hold OK nede på et land under Kanaler for at skjule det.' : 'Ingen. Hold fingeren nede på et land under Kanaler for at skjule det.'}
         </Text>
       ) : (
         hidden.map((key) => (
@@ -666,7 +700,6 @@ export function SettingsScreen({
           <Text style={styles.dangerText}>Log ud</Text>
         </TvPressable>
       )}
-      {layoutInfo !== null && layoutInfo !== undefined && <Text style={styles.layoutInfo}>{layoutInfo}</Text>}
     </ScrollView>
   );
 }
@@ -726,7 +759,6 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   rowTitle: { flex: 1, color: colors.text, fontSize: 15 },
   rowHint: { color: colors.textMuted, fontSize: 13, marginTop: 2, lineHeight: 18 },
   hint: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
-  layoutInfo: { color: colors.textMuted, fontSize: 11, marginTop: theme.spacing.lg, textAlign: 'center' },
   action: {
     backgroundColor: colors.surfaceRaised,
     borderRadius: theme.radius,

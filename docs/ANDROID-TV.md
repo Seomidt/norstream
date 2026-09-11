@@ -180,9 +180,10 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
   skærmen. Derfor holder listerne på tv den fokuserede række i midten
   (`keepInMiddle` i `src/ui/tvScroll.ts`, kaldt fra rækkens `onFocus`) og
   har luft nederst (`useTvListTail`), så også den sidste række kan nå
-  midten. Brug det i enhver ny liste. Nederst under Indstillinger står
-  skærmens, lærredets og indholdets mål; er indholdet højere end
-  lærredet, er det dét der er galt.
+  midten. Brug det i enhver ny liste.
+- **Indstillinger på tv viser kun det der bruges der:** ingen logovalg,
+  Google-nøgler, YouTube-nøgle eller sikkerhedskopi (`!isTV`), og ingen
+  tekster om "telefonen". Streamingtjenesterne er foldet sammen.
 - **Fokus overlever ikke at en række flytter sig.** Bygger listen rækken
   om (sortering, en fjernet favorit), går fokus til Færdig eller til Hjem i
   søjlen. Giv den knap der skal beholde fokus en ny `key` per flyt og

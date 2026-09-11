@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, useTVEventHandler, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, Text, View, useTVEventHandler } from 'react-native';
 import { XtreamAuthError } from '@norstream/core';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
@@ -14,7 +14,7 @@ import { prefetchFavouritesEpg } from '../../sync/prefetchEpg.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
-import { isTV, useCanvasSize } from '../../ui/tv.js';
+import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { forgetPosterMisses } from '../../ui/posterFill.js';
 import { BrowseScreen } from '../browse/BrowseScreen.js';
@@ -111,18 +111,6 @@ export function HomeScreen({
   // Maalt frem for gaettet: en fast polstring rammer forkert paa baade
   // gestus-navigation og de gammeldags tre knapper.
   const insets = useSafeAreaInsets();
-  /**
-   * Maal til Indstillinger paa tv: vinduet, laerredet og hvad indholdet
-   * faktisk fik af plads. Er indholdet hoejere end laerredet, ligger
-   * bunden af listerne uden for skaermen — og det kan ikke ses paa andet
-   * end netop de tal, naar man ikke sidder ved fjernsynet.
-   */
-  const window = useWindowDimensions();
-  const canvas = useCanvasSize();
-  const [bodySize, setBodySize] = useState({ width: 0, height: 0 });
-  const layoutInfo = isTV
-    ? `Skærm ${Math.round(window.width)}×${Math.round(window.height)} · lærred ${Math.round(canvas.width)}×${Math.round(canvas.height)} · indhold ${Math.round(bodySize.width)}×${Math.round(bodySize.height)}`
-    : null;
   const tab = place.tab;
   const setTab = (next: Tab): void => onPlaceChange({ ...place, tab: next });
   const [previewEnabled, setPreviewEnabled] = useState(false);
@@ -446,13 +434,7 @@ export function HomeScreen({
           onDismiss={() => setRejected(false)}
         />
       )}
-      <View
-        style={styles.body}
-        onLayout={(event) => {
-          const { width, height } = event.nativeEvent.layout;
-          setBodySize((current) => (current.width === width && current.height === height ? current : { width, height }));
-        }}
-      >
+      <View style={styles.body}>
         {/* Hjem, Film og Radio bliver staaende naar man forlader dem, bare
             skjult: at bygge dem op igen ved hvert besoeg laeste alt ind
             forfra og var langsomt paa tv. Kanaler, Favoritter og Guide
@@ -579,7 +561,6 @@ export function HomeScreen({
             session={session}
             onRefresh={refresh}
             refreshing={refreshing}
-            layoutInfo={layoutInfo}
             previewEnabled={previewEnabled}
             onPreviewEnabledChange={setPreviewEnabled}
             onOpenSources={() => setShowingSources(true)}
