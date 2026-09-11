@@ -28,6 +28,8 @@ interface Props {
    * tasterne. Boksen selv kan ikke trykkes; det kan knapperne.
    */
   rich?: boolean;
+  /** Tv: udsendelsen fjernbetjeningen staar paa i gitteret. Saa handler soejlen om den, ikke om det der er i gang lige nu. */
+  focus?: Programme | null;
 }
 
 /**
@@ -39,10 +41,26 @@ interface Props {
  * og boksen fylder resten af bredden med beskrivelsen, som ellers kun kan
  * ses ved at aabne bladet.
  */
-export function NowNextBox({ channel, programmes, now, compact, onOpen, rich = false }: Props) {
+export function NowNextBox({ channel, programmes, now, compact, onOpen, rich = false, focus = null }: Props) {
   const styles = useStyles(makeStyles);
-  const { now: current, next } = nowAndNext(programmes, now);
-  const later = rich ? upcoming(programmes, now, 2) : next === null ? [] : [next];
+  const live = nowAndNext(programmes, now);
+  // Med en udsendelse i fokus er det den der beskrives, og "naeste" er
+  // dem efter den. Uden er det den der er i gang.
+  const current = focus ?? live.now;
+  const next = live.next;
+  const isLive = current !== null && current.start.getTime() <= now.getTime() && current.stop.getTime() > now.getTime();
+  const later = rich
+    ? focus !== null
+      ? [...programmes]
+          .filter((p) => p !== focus && p.start.getTime() >= focus.stop.getTime() - 1)
+          .sort((a, b) => a.start.getTime() - b.start.getTime())
+          .slice(0, 2)
+      : upcoming(programmes, now, 2)
+    : next === null
+      ? []
+      : [next];
+  const kicker =
+    current === null || isLive ? 'NU' : current.stop.getTime() <= now.getTime() ? 'SENDT' : 'SENERE';
 
   if (channel === null) {
     return compact ? null : (
@@ -82,7 +100,7 @@ export function NowNextBox({ channel, programmes, now, compact, onOpen, rich = f
         </Text>
       </View>
 
-      <Text style={styles.kicker}>NU</Text>
+      <Text style={styles.kicker}>{kicker}</Text>
       {current === null ? (
         <Text style={styles.muted}>Ingen programdata for kanalen lige nu.</Text>
       ) : (
@@ -92,11 +110,13 @@ export function NowNextBox({ channel, programmes, now, compact, onOpen, rich = f
           </Text>
           <View style={styles.timeRow}>
             <Text style={styles.time}>{formatSpan(current)}</Text>
-            {rich && <Text style={styles.time}>{minutesLeft(current, now)} min tilbage</Text>}
+            {rich && isLive && <Text style={styles.time}>{minutesLeft(current, now)} min tilbage</Text>}
           </View>
-          <View style={styles.track}>
-            <View style={[styles.fill, { width: `${Math.round(progressRatio(current, now) * 100)}%` }]} />
-          </View>
+          {isLive && (
+            <View style={styles.track}>
+              <View style={[styles.fill, { width: `${Math.round(progressRatio(current, now) * 100)}%` }]} />
+            </View>
+          )}
           {current.description !== null && current.description.length > 0 && (
             <Text style={styles.description} numberOfLines={rich ? 5 : 4}>
               {current.description}

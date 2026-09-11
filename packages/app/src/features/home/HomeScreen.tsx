@@ -75,12 +75,14 @@ export type Tab = 'home' | 'favorites' | 'browse' | 'guide' | 'vod' | 'radio' | 
 const RAIL_KEYS = new Set(['left', 'longLeft', 'up', 'longUp', 'down', 'longDown']);
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
+  // Det man bruger hver dag oeverst; Kanaler er mest opsaetning (favoritter
+  // til/fra) og staar derfor nede ved Indstillinger.
   { id: 'home', label: 'Hjem', icon: '⌂' },
   { id: 'favorites', label: 'Favoritter', icon: '★' },
-  { id: 'browse', label: 'Kanaler', icon: '☰' },
   { id: 'guide', label: 'Guide', icon: '▦' },
   { id: 'vod', label: 'Film', icon: '▶' },
   { id: 'radio', label: 'Radio', icon: '♪' },
+  { id: 'browse', label: 'Kanaler', icon: '☰' },
   { id: 'settings', label: 'Indstil.', icon: '⚙' },
 ];
 

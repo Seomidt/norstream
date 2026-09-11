@@ -140,8 +140,11 @@ export function GuideScreen({
    * ikke hopper over i soejlen; den naas fra dagsknapperne.
    */
   const focusedCell = useRef<{ channelId: string; index: number; count: number; key: string } | null>(null);
-  const onCellFocus = useCallback((channelId: string, index: number, count: number, key: string) => {
+  /** Udsendelsen fjernbetjeningen staar paa: soejlen til hoejre beskriver den. */
+  const [focusedProgramme, setFocusedProgramme] = useState<Programme | null>(null);
+  const onCellFocus = useCallback((channelId: string, index: number, count: number, key: string, programme: Programme | null) => {
     focusedCell.current = { channelId, index, count, key };
+    setFocusedProgramme(programme);
   }, []);
   // Uden dette huskede gitteret den sidste celle efter en tur i menuen, og
   // pil hoejre fra menuen ind i guiden bladrede en time frem med det samme.
@@ -665,6 +668,7 @@ export function GuideScreen({
           now={now}
           compact={!sideBySide && !isTV}
           rich={isTV}
+          focus={isTV && focusedProgramme !== null && previewChannel !== null ? focusedProgramme : null}
           onOpen={(channel, programme) =>
             setSheet({
               channel,
@@ -874,7 +878,7 @@ const GuideRow = memo(function GuideRow({
   /** Bredden paa tidsaksen. Traekket regner minutter ud af den. */
   onMeasureCells: (width: number) => void;
   /** Tv: hvilken celle fjernbetjeningen staar paa, til pil-hoejre-bladring. */
-  onCellFocus: (channelId: string, index: number, count: number, key: string) => void;
+  onCellFocus: (channelId: string, index: number, count: number, key: string, programme: Programme | null) => void;
   onCellBlur: () => void;
   /** Tv: cellen der skal have fokus efter et vinduesskift; null for alle andre raekker. */
   focusKey: string | null;
@@ -939,7 +943,7 @@ const GuideRow = memo(function GuideRow({
                 isTV
                   ? () => {
                       onPreview(channel);
-                      onCellFocus(channel.id, index, cells.length, cell.key);
+                      onCellFocus(channel.id, index, cells.length, cell.key, cell.programme);
                     }
                   : undefined
               }
