@@ -151,7 +151,16 @@ export function GuideScreen({
   const onCellBlur = useCallback(() => {
     focusedCell.current = null;
   }, []);
-  const [focusTarget, setFocusTarget] = useState<{ channelId: string; key: string; nonce: number } | null>(null);
+  const [focusTarget, setFocusTarget] = useState<{ channelId: string; key: string } | null>(null);
+  // Maalet slippes igen en tegning senere: saa gaar hasTVPreferredFocus
+  // falsk -> sand ved naeste maal, ogsaa paa samme celle. Cellen tegnes
+  // ikke forfra (ingen ny key): det tabte fokus et oejeblik, og ved hurtige
+  // tryk landede det oppe i hjoernet paa dagsknapperne.
+  useEffect(() => {
+    if (focusTarget === null) return;
+    const frame = requestAnimationFrame(() => setFocusTarget(null));
+    return () => cancelAnimationFrame(frame);
+  }, [focusTarget]);
   // Fra menuen ind i guiden: den foerste raekkes foerste udsendelse (den
   // der er i gang) faar fokus. Noeglen '' findes ikke, saa raekken tager
   // sin foerste celle.
@@ -160,7 +169,7 @@ export function GuideScreen({
     if (!isTV || focusFirstSignal === signalAtMount.current) return;
     const first = channels[0];
     if (first === undefined) return;
-    setFocusTarget((current) => ({ channelId: first.id, key: '', nonce: (current?.nonce ?? 0) + 1 }));
+    setFocusTarget({ channelId: first.id, key: '' });
     // Kun signalet skal udloese det; kanalerne laeses naar det kommer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusFirstSignal]);
@@ -175,10 +184,10 @@ export function GuideScreen({
     // vaeret uden at vide hvilken kanal. Gitteret holder paa fokus til begge
     // sider (TVFocusGuideView), saa man ikke ryger ud paa logoet eller i menuen.
     if (event.eventType === 'right' && cell.index === cell.count - 1) {
-      setFocusTarget((current) => ({ channelId: cell.channelId, key: cell.key, nonce: (current?.nonce ?? 0) + 1 }));
+      setFocusTarget({ channelId: cell.channelId, key: cell.key });
       setOffsetMinutes((value) => Math.min(DRAG_MAX_MINUTES, value + 60));
     } else if (event.eventType === 'left' && cell.index === 0) {
-      setFocusTarget((current) => ({ channelId: cell.channelId, key: cell.key, nonce: (current?.nonce ?? 0) + 1 }));
+      setFocusTarget({ channelId: cell.channelId, key: cell.key });
       setOffsetMinutes((value) => Math.max(DRAG_MIN_MINUTES, value - 60));
     }
   });
@@ -570,7 +579,6 @@ export function GuideScreen({
         onCellFocus={onCellFocus}
         onCellBlur={onCellBlur}
         focusKey={focusTarget !== null && focusTarget.channelId === item.id ? focusTarget.key : null}
-        focusNonce={focusTarget?.nonce ?? 0}
       />
     ),
     [rows, windowStartMs, windowEndMs, nowMs, hasDialectFor, previewingId, onPreviewRow, onMeasureCells, onOpenCell, onCellFocus, onCellBlur, focusTarget],
@@ -862,7 +870,6 @@ const GuideRow = memo(function GuideRow({
   onCellFocus,
   onCellBlur,
   focusKey,
-  focusNonce,
 }: {
   channel: StoredChannel;
   programmes: readonly Programme[];
@@ -882,8 +889,6 @@ const GuideRow = memo(function GuideRow({
   onCellBlur: () => void;
   /** Tv: cellen der skal have fokus efter et vinduesskift; null for alle andre raekker. */
   focusKey: string | null;
-  /** Taelles op per fokusflytning, saa samme celle kan bede om fokus igen (ny key = tegnes forfra). */
-  focusNonce: number;
 }) {
   const styles = useStyles(makeStyles);
   const cells = useMemo(
@@ -927,7 +932,7 @@ const GuideRow = memo(function GuideRow({
           const action = guideAction(cell, channel, hasDialect);
           return (
             <TvPressable
-              key={index === targetIndex ? `${cell.key}-${focusNonce}` : cell.key}
+              key={cell.key}
               hasTVPreferredFocus={index === targetIndex}
               style={[
                 styles.cell,

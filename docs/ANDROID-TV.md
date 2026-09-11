@@ -200,10 +200,13 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
   Pilene læses med `useTVEventHandler` (kun `eventKeyAction` 1, ellers
   tæller hvert tryk dobbelt). En knap per plads (▲/▼) var for langsomt.
 - **Pil højre fra menuen giver den første række fokus.** HomeScreen
-  tæller `enterSignal` op når pil højre trykkes mens søjlen har fokus, og
-  Favoritter, Kanaler og Guide giver deres første række/celle
-  `hasTVPreferredFocus` med ny `key` (kun når signalet er nyere end
-  monteringen, ellers stjal en fane fokus mens man rullede i menuen).
+  tæller `enterSignal` op når pil højre trykkes mens søjlen har fokus
+  (eller inden for 400 ms efter den mistede det: Android flytter fokus ved
+  tryk ned, før tryk op når til JS), og Favoritter, Kanaler og Guide giver
+  deres første række/celle `hasTVPreferredFocus` i én tegning (falsk →
+  sand → falsk via `requestAnimationFrame`). **Aldrig med en ny `key`:**
+  et view der tegnes forfra kan få anmodningen før det sidder i vinduet,
+  fokus går tabt, og Android sætter det øverst i hjørnet.
   Previewet kan ikke få fokus på tv (`focusable={!isTV}`) og følger den
   række der har fokus, aldrig den øverste synlige.
 - **Knapper der skal kunne nås fra en lang liste, står i højre søjle**

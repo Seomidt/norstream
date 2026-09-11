@@ -75,14 +75,14 @@ export type Tab = 'home' | 'favorites' | 'browse' | 'guide' | 'vod' | 'radio' | 
 const RAIL_KEYS = new Set(['left', 'longLeft', 'up', 'longUp', 'down', 'longDown']);
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
-  // Det man bruger hver dag oeverst; Kanaler er mest opsaetning (favoritter
-  // til/fra) og staar derfor nede ved Indstillinger.
+  // Det man bruger hver dag oeverst; Kanaler og Favoritter er mest
+  // opsaetning (hvad guiden viser) og staar derfor nede ved Indstillinger.
   { id: 'home', label: 'Hjem', icon: '⌂' },
-  { id: 'favorites', label: 'Favoritter', icon: '★' },
   { id: 'guide', label: 'Guide', icon: '▦' },
   { id: 'vod', label: 'Film', icon: '▶' },
   { id: 'radio', label: 'Radio', icon: '♪' },
   { id: 'browse', label: 'Kanaler', icon: '☰' },
+  { id: 'favorites', label: 'Favoritter', icon: '★' },
   { id: 'settings', label: 'Indstil.', icon: '⚙' },
 ];
 
@@ -350,10 +350,12 @@ export function HomeScreen({
    * i listen som den foerste kanal.
    */
   const railFocused = useRef(false);
+  /** Hvornaar soejlen sidst mistede fokus: Android flytter fokus ved tryk ned, foer tryk op naar herind. */
+  const railBlurredAt = useRef(0);
   const [enterSignal, setEnterSignal] = useState(0);
   useTVEventHandler((event) => {
     if (event.eventType !== 'focus' && event.eventType !== 'blur') lastKey.current = { type: event.eventType, at: Date.now() };
-    if (event.eventType === 'right' && railFocused.current) {
+    if (event.eventType === 'right' && (railFocused.current || Date.now() - railBlurredAt.current < 400)) {
       if (event.eventKeyAction !== undefined && Number(event.eventKeyAction) === 0) return;
       setEnterSignal((value) => value + 1);
     }
@@ -394,6 +396,7 @@ export function HomeScreen({
   };
   const onRailBlur = () => {
     railFocused.current = false;
+    railBlurredAt.current = Date.now();
     if (railTimer.current !== null) clearTimeout(railTimer.current);
     railTimer.current = setTimeout(() => setRailOpen(false), 2000);
   };

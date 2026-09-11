@@ -102,11 +102,21 @@ export function ChannelList({
   const tail = useTvListTail();
   // Signalet taeller kun naar det kommer efter monteringen: en fane der
   // monteres mens man ruller i menuen, maa ikke traekke fokus til sig.
+  // Fra menuen: den foerste raekke beder om fokus i én tegning (falsk ->
+  // sand -> falsk), uden at blive tegnet forfra: et nyt view kan faa
+  // anmodningen foer det sidder fast i vinduet, og saa sker der intet.
   const consumedSignal = useRef(focusFirstSignal);
-  const enterFocus = isTV && focusFirstSignal !== consumedSignal.current;
+  const [enterFocus, setEnterFocus] = useState(false);
   useEffect(() => {
+    if (!isTV || focusFirstSignal === consumedSignal.current) return;
     consumedSignal.current = focusFirstSignal;
+    setEnterFocus(true);
   }, [focusFirstSignal]);
+  useEffect(() => {
+    if (!enterFocus) return;
+    const frame = requestAnimationFrame(() => setEnterFocus(false));
+    return () => cancelAnimationFrame(frame);
+  }, [enterFocus]);
   // Regnet ud én gang, naar listen kommer frem. Blev det regnet ud ved
   // hver tegning, bad den foerste raekke om fokus igen efter ethvert
   // OK-tryk — ogsaa det lange tryk der goer en kanal til favorit, og saa
@@ -294,7 +304,6 @@ export function ChannelList({
         ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
         renderItem={({ item, index }) => (
           <TvPressable
-            key={index === 0 ? `first-${focusFirstSignal}` : undefined}
             style={styles.row}
             hasTVPreferredFocus={index === 0 && (focusFirstAtMount || enterFocus)}
             onPress={() => {
