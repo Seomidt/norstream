@@ -158,9 +158,10 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
 - **Guiden på tv:** gitteret holder på fokus mod højre
   (`TVFocusGuideView trapFocusRight`); pil-højre på den sidste udsendelse i
   en række flytter vinduet en time frem og bliver på samme udsendelse
-  (`focusTarget` + `hasTVPreferredFocus`). Søjlen til højre nås fra
-  dagsknapperne og har selv knapperne Se kanalen, Start forfra og Hele dagen
-  (`NowNextBox rich`).
+  (`focusTarget` + `hasTVPreferredFocus`). Søjlen til højre (`NowNextBox
+  rich`) har ingen knapper: den kan ikke nås når gitteret holder på fokus,
+  og OK på udsendelsen giver de samme valg (se kanalen, start forfra, hele
+  dagen).
 - **Langt tryk på OK på en kanal er favorit til/fra.** Stjernen i rækken
   er ikke fokuserbar på tv (`focusable={!isTV}`): et trykpunkt inde i et
   trykpunkt var ikke til at ramme. Listerne siger det i en linje øverst.

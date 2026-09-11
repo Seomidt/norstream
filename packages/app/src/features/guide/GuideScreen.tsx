@@ -630,16 +630,6 @@ export function GuideScreen({
           now={now}
           compact={!sideBySide && !isTV}
           rich={isTV}
-          actions={
-            isTV && previewChannel !== null
-              ? {
-                  onPlay: () => onPlay(previewChannel, channels),
-                  onRestart: (programme) => onRestart(previewChannel, programme),
-                  canRestart: previewChannel.hasArchive && hasDialectFor(previewChannel),
-                  onDay: () => setDayFor(previewChannel),
-                }
-              : undefined
-          }
           onOpen={(channel, programme) =>
             setSheet({
               channel,

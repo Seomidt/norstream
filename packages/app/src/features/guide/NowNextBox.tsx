@@ -7,14 +7,6 @@ import { TvPressable } from '../../ui/TvPressable.js';
 import { formatClock, formatSpan, minutesLeft, nowAndNext, progressRatio, upcoming } from './nowNext.js';
 
 /** Knapperne i boksen paa tv: se kanalen, start forfra, hele dagen. */
-export interface NowNextActions {
-  onPlay: () => void;
-  /** Start den udsendelse der sendes nu forfra. Vises kun naar kanalen har arkiv. */
-  onRestart: (programme: Programme) => void;
-  canRestart: boolean;
-  onDay: () => void;
-}
-
 interface Props {
   /** Kanalen previewet viser; null naar der ikke er nogen. */
   channel: StoredChannel | null;
@@ -34,7 +26,6 @@ interface Props {
    * tasterne. Boksen selv kan ikke trykkes; det kan knapperne.
    */
   rich?: boolean;
-  actions?: NowNextActions;
 }
 
 /**
@@ -46,7 +37,7 @@ interface Props {
  * og boksen fylder resten af bredden med beskrivelsen, som ellers kun kan
  * ses ved at aabne bladet.
  */
-export function NowNextBox({ channel, programmes, now, compact, onOpen, rich = false, actions }: Props) {
+export function NowNextBox({ channel, programmes, now, compact, onOpen, rich = false }: Props) {
   const { now: current, next } = nowAndNext(programmes, now);
   const later = rich ? upcoming(programmes, now, 2) : next === null ? [] : [next];
 
@@ -125,24 +116,10 @@ export function NowNextBox({ channel, programmes, now, compact, onOpen, rich = f
         </View>
       )}
 
-      {rich && actions !== undefined && (
-        <>
-          <View style={styles.actions}>
-            <TvPressable style={[styles.button, styles.buttonAccent]} onPress={actions.onPlay}>
-              <Text style={styles.buttonText}>▶ Se kanalen</Text>
-            </TvPressable>
-            {current !== null && actions.canRestart && (
-              <TvPressable style={styles.button} onPress={() => actions.onRestart(current)}>
-                <Text style={styles.buttonText}>⏱ Start forfra</Text>
-              </TvPressable>
-            )}
-            <TvPressable style={styles.button} onPress={actions.onDay}>
-              <Text style={styles.buttonText}>Hele dagen</Text>
-            </TvPressable>
-          </View>
-          <Text style={styles.hint}>Pil højre i gitteret: senere udsendelser · OK: menu · Hold OK: favorit ★</Text>
-        </>
-      )}
+      {/* Ingen knapper her paa tv: gitteret holder paa fokus mod hoejre,
+          saa knapperne kunne ikke naas — og OK paa udsendelsen giver de
+          samme valg. Kun vinket staar tilbage. */}
+      {rich && <Text style={styles.hint}>OK på udsendelsen: se kanalen, start forfra, hele dagen · Pil højre: senere · Hold OK: favorit ★</Text>}
     </>
   );
 
@@ -188,14 +165,5 @@ const styles = StyleSheet.create({
   nextLine: { flexDirection: 'row', gap: theme.spacing.sm, alignItems: 'baseline' },
   nextClock: { color: theme.colors.textMuted, fontSize: 14, width: 44, fontVariant: ['tabular-nums'] },
   nextTitle: { flex: 1, color: theme.colors.text, fontSize: 14, fontWeight: '600' },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.xs, paddingTop: theme.spacing.sm },
-  button: {
-    backgroundColor: theme.colors.surfaceRaised,
-    borderRadius: theme.radius,
-    paddingVertical: theme.spacing.xs + 2,
-    paddingHorizontal: theme.spacing.sm + 2,
-  },
-  buttonAccent: { backgroundColor: theme.colors.accent },
-  buttonText: { color: theme.colors.text, fontSize: 13, fontWeight: '700' },
   hint: { color: theme.colors.textMuted, fontSize: 11, paddingTop: theme.spacing.xs },
 });
