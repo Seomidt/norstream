@@ -47,7 +47,21 @@ interface Props {
   onPickLogo?: (channel: StoredChannel) => void;
   /** Udfyldes med det tilbage-knappen skal goere her. Falsk = intet at gaa op i. */
   backRef: { current: () => boolean };
+  /**
+   * Forsidens fane, styret udefra. Er den sat, tegner foraelderen selv
+   * knapperne Mine stationer og Lande (NorStream har dem oppe i toppen ved
+   * siden af Internetradio), og de tegnes ikke her. Uden er fanen egen
+   * tilstand med knapperne over listen (NorRadio).
+   */
+  tab?: FrontTab;
+  onTabChange?: (tab: FrontTab) => void;
+  /** Taelles op naar foraelderen vil have forsiden frem: en soegning og et aabent land lukkes. */
+  frontSignal?: number;
+  /** Antal gemte stationer, til at skrive paa foraelderens knap. */
+  onFavouritesCount?: (count: number) => void;
 }
+
+export type FrontTab = 'countries' | 'mine';
 
 const SEARCH_DEBOUNCE_MS = 350;
 /** Landelisten gemmes som JSON i indstillingerne og hentes igen efter en uge. */
@@ -74,12 +88,21 @@ export function InternetRadio({
   titledIds,
   onFavouritesChanged,
   favouritesSignal = 0,
+  tab: controlledTab,
+  onTabChange,
+  frontSignal = 0,
+  onFavouritesCount,
 }: Props) {
   const listPadding = { paddingBottom: contentBottom };
   /** Antal per hentet land efter sammenlaegning; registrets tal for de andre. */
   const [localCounts, setLocalCounts] = useState<Map<string, number>>(() => new Map());
   /** Forsiden: landene, eller ens egne stationer. Aabner altid paa landene. */
-  const [tab, setTab] = useState<'countries' | 'mine'>('countries');
+  const [ownTab, setOwnTab] = useState<FrontTab>('countries');
+  const tab = controlledTab ?? ownTab;
+  const setTab = (next: FrontTab): void => {
+    setOwnTab(next);
+    onTabChange?.(next);
+  };
   const [countries, setCountries] = useState<RadioCountry[] | null>(null);
   const [stations, setStations] = useState<RadioStation[] | null>(null);
   const [favourites, setFavourites] = useState<RadioStation[]>([]);
@@ -161,6 +184,18 @@ export function InternetRadio({
   useEffect(() => {
     void loadFavourites();
   }, [loadFavourites, favouritesSignal]);
+
+  useEffect(() => {
+    onFavouritesCount?.(favourites.length);
+  }, [favourites.length, onFavouritesCount]);
+
+  // Foraelderen bad om forsiden (et tryk paa Mine stationer eller Lande i
+  // toppen): en soegning eller et aabent land skal vaek foerst.
+  useEffect(() => {
+    if (frontSignal === 0) return;
+    setSearch('');
+    setQuery('');
+  }, [frontSignal]);
 
   // Landets stationer: fra databasen naar de er friske, ellers fra registret.
   useEffect(() => {
@@ -342,10 +377,16 @@ export function InternetRadio({
   }
 
   // Forsiden: to faner. Landene foerst, saa favoritterne ikke skubber dem
-  // ned ad siden; Mine stationer ved siden af med antallet.
-  const tabs = (
+  // ned ad siden; Mine stationer ved siden af med antallet. Styrer
+  // foraelderen fanen, staar knapperne hos den, og her kun tv-vinket.
+  const tvHint = isTV && (
+    <Text style={styles.tvHint}>Hold OK nede på en station for at gemme eller fjerne den under Mine stationer.</Text>
+  );
+  const tabs = controlledTab !== undefined ? (
+    <View style={styles.tabs}>{tvHint}</View>
+  ) : (
     <View style={styles.tabs}>
-      {isTV && <Text style={styles.tvHint}>Hold OK nede på en station for at gemme eller fjerne den under Mine stationer.</Text>}
+      {tvHint}
       <TvPressable style={[styles.tab, tab === 'countries' && styles.tabActive]} onPress={() => setTab('countries')}>
         <Text style={[styles.tabText, tab === 'countries' && styles.tabTextActive]}>Lande</Text>
       </TvPressable>

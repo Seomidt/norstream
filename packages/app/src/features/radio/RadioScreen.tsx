@@ -8,6 +8,7 @@ import { ChannelList } from '../channels/ChannelList.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import type { RadioCountry } from '../../sync/radioBrowser.js';
 import { InternetRadio } from './InternetRadio.js';
+import type { FrontTab } from './InternetRadio.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
@@ -29,9 +30,11 @@ export interface RadioPlace {
   part: RadioPart;
   /** Internetradioens aabne land, eller null for landelisten. */
   country: RadioCountry | null;
+  /** Internetradioens forside: landene eller ens egne stationer. */
+  tab?: FrontTab;
 }
 
-export const RADIO_START: RadioPlace = { part: 'internet', country: null };
+export const RADIO_START: RadioPlace = { part: 'internet', country: null, tab: 'countries' };
 
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -53,6 +56,15 @@ export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onP
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
+  /** Antal gemte internetstationer, til knappen Mine stationer. */
+  const [mineCount, setMineCount] = useState(0);
+  /** Taelles op naar Mine stationer eller Lande trykkes: forsiden frem. */
+  const [frontSignal, setFrontSignal] = useState(0);
+  const frontTab = place.tab ?? 'countries';
+  const showFront = (tab: FrontTab): void => {
+    onPlaceChange({ part: 'internet', country: null, tab });
+    setFrontSignal((value) => value + 1);
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => setQuery(search.trim()), SEARCH_DEBOUNCE_MS);
@@ -78,21 +90,34 @@ export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onP
     );
   }
 
-  const parts: { id: RadioPart; label: string }[] = [
-    { id: 'internet', label: 'Internetradio' },
-    { id: 'panel', label: `Fra panelet${loading ? '' : ` (${channels.length})`}` },
+  /**
+   * Knapperne i toppen: Internetradio, saa dens to forsider Mine stationer
+   * og Lande lige ved siden af, og til sidst panelets radiokanaler. Foer
+   * laa Mine stationer og Lande som en raekke nede over listen; oppe i
+   * toppen er de ét tryk vaek uanset hvor man staar.
+   */
+  const chips: { id: string; label: string; active: boolean; onPress: () => void }[] = [
+    { id: 'internet', label: 'Internetradio', active: part === 'internet', onPress: () => setPart('internet') },
+    {
+      id: 'mine',
+      label: `Mine stationer${mineCount > 0 ? ` · ${mineCount}` : ''}`,
+      active: part === 'internet' && frontTab === 'mine',
+      onPress: () => showFront('mine'),
+    },
+    { id: 'countries', label: 'Lande', active: part === 'internet' && frontTab === 'countries', onPress: () => showFront('countries') },
+    { id: 'panel', label: `Fra panelet${loading ? '' : ` (${channels.length})`}`, active: part === 'panel', onPress: () => setPart('panel') },
   ];
   const header = (
     <View style={styles.header}>
       <Text style={styles.title}>Radio</Text>
       <View style={styles.parts}>
-        {parts.map((entry) => (
+        {chips.map((entry) => (
           <TvPressable
             key={entry.id}
-            style={[styles.part, part === entry.id && styles.partActive]}
-            onPress={() => setPart(entry.id)}
+            style={[styles.part, entry.active && styles.partActive]}
+            onPress={entry.onPress}
           >
-            <Text style={[styles.partText, part === entry.id && styles.partTextActive]}>{entry.label}</Text>
+            <Text style={[styles.partText, entry.active && styles.partTextActive]}>{entry.label}</Text>
           </TvPressable>
         ))}
       </View>
@@ -107,6 +132,10 @@ export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onP
           session={session}
           country={place.country}
           onCountryChange={(country) => onPlaceChange({ ...place, country })}
+          tab={frontTab}
+          onTabChange={(tab) => onPlaceChange({ ...place, tab })}
+          frontSignal={frontSignal}
+          onFavouritesCount={setMineCount}
           onSelect={onSelect}
           onPickLogo={onPickLogo}
           backRef={internetBack}
@@ -155,7 +184,7 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
   },
   title: { color: theme.colors.text, fontSize: 20, fontWeight: '700' },
-  parts: { flexDirection: 'row', gap: theme.spacing.xs },
+  parts: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.xs },
   part: {
     paddingHorizontal: theme.spacing.sm + 4,
     paddingVertical: theme.spacing.xs + 2,
