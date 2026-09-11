@@ -8,6 +8,7 @@ import {
   clearLastSyncMs,
   getMiniPreviewEnabled,
   getStreamFormatSetting,
+  getVideoSurface,
 } from '../../storage/settings.js';
 import { syncAllSources } from '../../sync/syncAll.js';
 import { prefetchFavouritesEpg } from '../../sync/prefetchEpg.js';
@@ -32,7 +33,7 @@ import { LogoGapsScreen } from '../settings/LogoGapsScreen.js';
 import { ConnectionCheckScreen } from '../settings/ConnectionCheckScreen.js';
 import { LogoPickerScreen } from '../settings/LogoPickerScreen.js';
 import { Notice } from '../../ui/Notice.js';
-import { applyStreamFormatSetting } from '../player/format.js';
+import { applyStreamFormatSetting, applyVideoSurfaceSetting } from '../player/format.js';
 import { VodScreen } from '../vod/VodScreen.js';
 import type { VodLevel } from '../vod/VodScreen.js';
 import type { StoredVodItem } from '../../storage/vod.js';
@@ -194,8 +195,17 @@ export function HomeScreen({
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const enabled = await getMiniPreviewEnabled(session.db);
-      if (!cancelled) setPreviewEnabled(enabled);
+      const [enabled, format, surface] = await Promise.all([
+        getMiniPreviewEnabled(session.db),
+        getStreamFormatSetting(session.db),
+        getVideoSurface(session.db),
+      ]);
+      if (cancelled) return;
+      setPreviewEnabled(enabled);
+      // Afspillerens valg skal gaelde fra start, ikke foerst naar
+      // Indstillinger har vaeret aabnet.
+      applyStreamFormatSetting(format);
+      applyVideoSurfaceSetting(surface);
     })();
     return () => {
       cancelled = true;

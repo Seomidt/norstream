@@ -407,3 +407,20 @@ export async function getThemePlace(db: SqlDatabase): Promise<string | null> {
 export async function setThemePlace(db: SqlDatabase, key: string): Promise<void> {
   await setSetting(db, KEY_THEME_PLACE, key);
 }
+
+const KEY_VIDEO_SURFACE = 'video_surface';
+
+/**
+ * Hvordan videoen tegnes paa Android: SurfaceView (standard, bedst til
+ * HDR og ydelse) eller TextureView. Et valg til fejlsoegning: en groen
+ * skaerm med lyd paa arkivstreams kan vaere overfladen, ikke streamen.
+ */
+export type VideoSurface = 'surface' | 'texture';
+
+export async function getVideoSurface(db: SqlDatabase): Promise<VideoSurface> {
+  return (await getSetting(db, KEY_VIDEO_SURFACE)) === 'texture' ? 'texture' : 'surface';
+}
+
+export async function setVideoSurface(db: SqlDatabase, value: VideoSurface): Promise<void> {
+  await setSetting(db, KEY_VIDEO_SURFACE, value);
+}

@@ -18,6 +18,8 @@ import {
   getSetting,
   getHomeProviders,
   getStreamFormatSetting,
+  getVideoSurface,
+  setVideoSurface,
   getSubtitlePreference,
   getTmdbApiKey,
   getYoutubeApiKey,
@@ -34,12 +36,12 @@ import {
   setThemeMode,
   setThemePlace,
 } from '../../storage/settings.js';
-import type { HomeProvider, StreamFormatSetting, SubtitlePreference } from '../../storage/settings.js';
+import type { HomeProvider, StreamFormatSetting, SubtitlePreference, VideoSurface } from '../../storage/settings.js';
 import { tmdbFetch } from '../../sync/tmdb.js';
 import { PLACES, THEME_MODES, setThemePreference, themePreference } from '../../ui/themeMode.js';
 import type { ThemeMode } from '../../ui/themeMode.js';
 import { listTmdbProvidersWithUk } from '../../sync/tmdbHome.js';
-import { applyStreamFormatSetting } from '../player/format.js';
+import { applyStreamFormatSetting, applyVideoSurfaceSetting } from '../player/format.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
@@ -81,6 +83,11 @@ const SUBTITLE_CHOICES: readonly { value: SubtitlePreference; label: string }[] 
   { value: 'no', label: 'Norsk' },
   { value: 'de', label: 'Tysk' },
   { value: 'off', label: 'Ingen' },
+];
+
+const VIDEO_SURFACES: readonly { value: VideoSurface; label: string }[] = [
+  { value: 'surface', label: 'Standard' },
+  { value: 'texture', label: 'Alternativ' },
 ];
 
 const STREAM_FORMATS: readonly { value: StreamFormatSetting; label: string }[] = [
@@ -128,6 +135,7 @@ export function SettingsScreen({
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
   const [providersOpen, setProvidersOpen] = useState(false);
+  const [videoSurface, setVideoSurfaceState] = useState<VideoSurface>('surface');
   const [themeMode, setThemeModeState] = useState<ThemeMode>(themePreference().mode);
   const [themePlace, setThemePlaceState] = useState(themePreference().placeKey);
 
@@ -152,6 +160,9 @@ export function SettingsScreen({
     setSubtitles(preferredSubtitles);
     setVod(counts);
     setThemeModeState(await getThemeMode(session.db));
+    const surface = await getVideoSurface(session.db);
+    setVideoSurfaceState(surface);
+    applyVideoSurfaceSetting(surface);
     setThemePlaceState((await getThemePlace(session.db)) ?? themePreference().placeKey);
     setRadio(await countRadioChannels(session.db));
     const errors: string[] = [];
@@ -239,6 +250,12 @@ export function SettingsScreen({
     } finally {
       setBackupBusy(false);
     }
+  }
+
+  function chooseVideoSurface(value: VideoSurface): void {
+    setVideoSurfaceState(value);
+    applyVideoSurfaceSetting(value);
+    void setVideoSurface(session.db, value);
   }
 
   function chooseTheme(mode: ThemeMode): void {
@@ -498,6 +515,23 @@ export function SettingsScreen({
       <Text style={styles.hint}>
         Skiftet gælder næste gang du åbner en kanal, også når du starter forfra.
       </Text>
+
+      <Text style={styles.sectionTitle}>Videogengivelse</Text>
+      <Text style={styles.hint}>
+        Grøn skærm med lyd, fx når en udsendelse startes forfra? Prøv Alternativ. Den tegner
+        videoen på en anden måde; Standard er bedst til HDR. Gælder næste gang du åbner en kanal.
+      </Text>
+      <View style={styles.choices}>
+        {VIDEO_SURFACES.map((option) => (
+          <TvPressable
+            key={option.value}
+            style={[styles.choice, videoSurface === option.value && styles.choiceSelected]}
+            onPress={() => chooseVideoSurface(option.value)}
+          >
+            <Text style={[styles.choiceText, videoSurface === option.value && styles.choiceTextSelected]}>{option.label}</Text>
+          </TvPressable>
+        ))}
+      </View>
 
       <Text style={styles.sectionTitle}>Plakater</Text>
       <Text style={styles.hint}>

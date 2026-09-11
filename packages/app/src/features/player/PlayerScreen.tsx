@@ -24,7 +24,7 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { setLastChannelId } from '../../storage/settings.js';
-import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback } from './format.js';
+import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback, surfaceTypeForPlatform } from './format.js';
 import { restartBlockFor, restartHint } from './restart.js';
 import { TrackPicker } from './TrackPicker.js';
 import { LandscapePlayer, useLandscape } from './Landscape.js';
@@ -244,6 +244,25 @@ export function PlayerScreen({
   useEffect(() => {
     const subscription = player.addListener('playingChange', ({ isPlaying }: { isPlaying: boolean }) => {
       setPlaying(isPlaying);
+    });
+    return () => subscription.remove();
+  }, [player]);
+
+  /**
+   * Videosporet, til én linje i bjaelken paa tv: format, stoerrelse og om
+   * enheden kan afkode det. Groen skaerm med lyd (DR startet forfra) kan
+   * ikke ses herfra, men det kan et "understoettet: nej".
+   */
+  const [videoInfo, setVideoInfo] = useState<string | null>(null);
+  useEffect(() => {
+    const describe = (track: { mimeType: string | null; size: { width: number; height: number }; isSupported: boolean; frameRate?: number | null } | null): string | null => {
+      if (track === null) return null;
+      const codec = (track.mimeType ?? 'ukendt').replace('video/', '');
+      const fps = typeof track.frameRate === 'number' && track.frameRate > 0 ? ` ${Math.round(track.frameRate)} fps` : '';
+      return `${codec} ${track.size.width}×${track.size.height}${fps} · ${track.isSupported ? 'understøttet' : 'IKKE understøttet af enheden'}`;
+    };
+    const subscription = player.addListener('videoTrackChange', ({ videoTrack }: { videoTrack: { mimeType: string | null; size: { width: number; height: number }; isSupported: boolean; frameRate?: number | null } | null }) => {
+      setVideoInfo(describe(videoTrack));
     });
     return () => subscription.remove();
   }, [player]);
@@ -573,6 +592,7 @@ export function PlayerScreen({
       {/* Startet forfra paa tv: pause og spoling, saa reklamerne kan
           springes over. Paa telefonen har afspillerens egne knapper det. */}
       {restarted && isTV && <SeekButtons player={player} playing={playing} preferFocus />}
+      {restarted && isTV && videoInfo !== null && <Text style={styles.videoInfo}>{videoInfo}</Text>}
     </>
   );
 
@@ -644,7 +664,7 @@ export function PlayerScreen({
         // Paa tv uden afspillerens egne knapper: de tog fjernbetjeningen,
         // saa Tilbage foerst lukkede dem og saa maaske kanalen. Appens egen
         // bjaelke har det samme, og Tilbage gaar altid til listen.
-        video={<VideoView style={StyleSheet.absoluteFill} player={player} nativeControls={!isTV} />}
+        video={<VideoView style={StyleSheet.absoluteFill} player={player} nativeControls={!isTV} surfaceType={surfaceTypeForPlatform()} />}
         bar={actions}
         overlays={
           <>
@@ -806,6 +826,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     paddingHorizontal: theme.spacing.lg,
   },
   buttonAccent: { backgroundColor: colors.accent },
+  videoInfo: { color: colors.textMuted, fontSize: 12, alignSelf: 'center', paddingHorizontal: theme.spacing.sm },
   buttonDone: { backgroundColor: colors.surface },
   buttonText: { color: colors.text, fontSize: 15, fontWeight: '600' },
 });

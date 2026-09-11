@@ -46,3 +46,15 @@ export function hasFormatFallback(): boolean {
 
 /** Det andet containerformat. Kun meningsfuldt naar hasFormatFallback() er sand. */
 export const FALLBACK_FORMAT: StreamFormat = 'm3u8';
+
+/** Videooverfladen, sat fra Indstillinger og laest af afspilleren. Se storage/settings getVideoSurface. */
+let surface: 'surface' | 'texture' = 'surface';
+
+export function applyVideoSurfaceSetting(value: 'surface' | 'texture'): void {
+  surface = value;
+}
+
+/** Til VideoView paa Android: surfaceView (standard) eller textureView. */
+export function surfaceTypeForPlatform(): 'surfaceView' | 'textureView' {
+  return surface === 'texture' ? 'textureView' : 'surfaceView';
+}
