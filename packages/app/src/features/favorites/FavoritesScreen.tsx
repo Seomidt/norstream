@@ -155,6 +155,8 @@ export function FavoritesScreen({
   }
 
   if (managingGroups) {
+    // Listen bagved laeses foerst igen naar Grupper lukkes: at laese den
+    // ved hvert flueben tegnede gruppesiden om midt i et tryk.
     return (
       <GroupsScreen
         session={session}
@@ -162,7 +164,7 @@ export function FavoritesScreen({
           setManagingGroups(false);
           void load();
         }}
-        onChanged={() => void load()}
+        onChanged={() => undefined}
       />
     );
   }

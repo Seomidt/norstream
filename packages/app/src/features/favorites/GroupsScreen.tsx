@@ -48,6 +48,14 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
   const [newName, setNewName] = useState('');
   const [renameTo, setRenameTo] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  /**
+   * Paa tv findes navnefeltet kun mens man omdoeber. Laa det fast oeverst,
+   * tog det fokus (og tastaturet kom frem) hver gang et flueben blev sat,
+   * og listen roeg til toppen.
+   */
+  const [renaming, setRenaming] = useState(false);
+  /** Foerste raekke beder om fokus i én tegning naar gruppen aabnes — aldrig ved senere tegninger. */
+  const [firstFocus, setFirstFocus] = useState(false);
   const listRef = useRef<FlatList<StoredChannel>>(null);
 
   const load = useCallback(async (): Promise<void> => {
@@ -68,10 +76,18 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
     });
     setRenameTo(open.name);
     setConfirmingDelete(false);
+    setRenaming(!isTV);
     return () => {
       cancelled = true;
     };
   }, [session.db, open]);
+
+  useEffect(() => {
+    if (!isTV || open === null) return;
+    setFirstFocus(true);
+    const frame = requestAnimationFrame(() => setFirstFocus(false));
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
 
   // Tilbage: ud af gruppen foerst, saa ud af skaermen.
   useEffect(() => {
@@ -94,6 +110,14 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
     onChanged();
     await load();
     setOpen(created);
+  }
+
+  async function saveName(): Promise<void> {
+    if (open === null) return;
+    await renameFavoriteGroup(session.db, open.id, renameTo);
+    onChanged();
+    setOpen({ ...open, name: renameTo.trim() || open.name });
+    if (isTV) setRenaming(false);
   }
 
   async function toggleMember(channel: StoredChannel): Promise<void> {
@@ -122,25 +146,26 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
             </Text>
           </View>
           <View style={styles.row}>
-            <TvTextInput
-              style={styles.input}
-              value={renameTo}
-              onChangeText={setRenameTo}
-              placeholder="Navn"
-              autoCorrect={false}
-              onSubmitEditing={() => void renameFavoriteGroup(session.db, open.id, renameTo).then(onChanged)}
-            />
-            <TvPressable
-              style={styles.action}
-              onPress={() => {
-                void renameFavoriteGroup(session.db, open.id, renameTo).then(() => {
-                  onChanged();
-                  setOpen({ ...open, name: renameTo.trim() || open.name });
-                });
-              }}
-            >
-              <Text style={styles.actionText}>Gem navn</Text>
-            </TvPressable>
+            {renaming ? (
+              <>
+                <TvTextInput
+                  style={styles.input}
+                  value={renameTo}
+                  onChangeText={setRenameTo}
+                  placeholder="Navn"
+                  autoCorrect={false}
+                  autoFocus={isTV}
+                  onSubmitEditing={() => void saveName()}
+                />
+                <TvPressable style={styles.action} onPress={() => void saveName()}>
+                  <Text style={styles.actionText}>Gem navn</Text>
+                </TvPressable>
+              </>
+            ) : (
+              <TvPressable style={styles.action} onPress={() => setRenaming(true)}>
+                <Text style={styles.actionText}>Omdøb</Text>
+              </TvPressable>
+            )}
             <TvPressable
               style={styles.action}
               onPress={() => {
@@ -189,6 +214,7 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
           </View>
           <Text style={styles.hint}>
             {isTV ? 'Tryk OK på en kanal for at sætte eller fjerne fluebenet.' : 'Tryk på en kanal for at sætte eller fjerne fluebenet.'}
+            {' '}Kun favoritter kan komme i en gruppe: læg kanalen i favoritter under Kanaler først.
           </Text>
         </View>
         <FlatList
@@ -203,7 +229,7 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
             return (
               <TvPressable
                 style={styles.channel}
-                hasTVPreferredFocus={isTV && index === 0}
+                hasTVPreferredFocus={firstFocus && index === 0}
                 onFocus={isTV ? () => keepInMiddle(listRef.current, index) : undefined}
                 onPress={() => {
                   void toggleMember(item);
