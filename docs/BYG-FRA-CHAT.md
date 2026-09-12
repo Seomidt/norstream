@@ -160,9 +160,9 @@ Installation:
 
 | Hvad | Nummer | Link |
 |---|---|---|
-| NorStream tv | 136 | https://github.com/Seomidt/norstream/actions/runs/34446798657 |
-| NorRadio | 129 | https://github.com/Seomidt/norstream/actions/runs/34386842441 |
-| NorStream telefon | 104 | https://github.com/Seomidt/norstream/actions/runs/34263033244 |
+| NorStream tv | 195 | https://github.com/Seomidt/norstream/actions/runs/34695343813 |
+| NorStream telefon | 196 | https://github.com/Seomidt/norstream/actions/runs/34695344602 |
+| NorRadio | 198 (197 fejlede paa to Kotlin-linjer, rettet) | se Actions paa branchen |
 
 Åbne punkter, som en ny chat kan blive spurgt om: Android Auto ruller til
 toppen af listen få sekunder efter start (uafklaret; gearhead beder selv
