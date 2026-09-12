@@ -52,6 +52,53 @@ GitHub, aldrig EAS; se `docs/BYG-FRA-CHAT.md`.
   Workflowet bruger secret `EXPO`; det gamle Expo-token skal være
   tilbagekaldt.
 
+### Nyt siden 12. september — bygget, endnu ikke prøvet på enhed
+
+Brugerens svar på idélisten var "lav det hele undtagen Emulator". Alt
+nedenfor er kodet, typechecket og testet, men **ikke set på tv, telefon
+eller i bilen** før de næste builds. Regn med småting.
+
+- **Forsiden**: rækkerne "Fortsæt hvor du slap" (arkiv-udsendelser man
+  ikke så færdig, med bjælke og "Fra N min"), "Sidst sete" (kanaler),
+  "<gruppe> nu" per favoritgruppe og "Nye afsnit" (fulgte serier).
+  `features/home/FrontScreen.tsx`; lagring i `storage/history.ts`,
+  `storage/followedSeries.ts`. Skema v21.
+- **Påmindelser**: "Mind mig om det" i programarket for kommende
+  udsendelser (guide og kanaldag). `features/reminders/ReminderBanner.tsx`
+  viser et banner øverst til højre 3 min før start, med "Se nu" i fokus på
+  tv; Tilbage lukker. **Kun mens appen er åben** — ingen
+  systemnotifikation. `storage/reminders.ts`.
+- **Følg serien**: knap på seriens side; `sync/vodDetails.ts`
+  `refreshFollowedSeries` henter fulgte serier igen hver 6. time som del af
+  synk, og forsiden viser dem med nye afsnit.
+- **Automatisk ugentlig sikkerhedskopi** (kun telefon): vælg mappen én
+  gang under Indstillinger → Sikkerhedskopi; adressen gemmes
+  (`backup_folder_uri`), og ved start skrives filen igen når der er gået en
+  uge (`storage/autoBackup.ts`, kaldt 15 s efter start i HomeScreen). Fejler
+  mappen, står det i rækken.
+- **Gem sang** (NorRadio og NorStreams radio): knap under sangen når
+  streamen fortæller hvad der spilles; listen "Gemte sange" åbner sangen i
+  Spotify (`spotify:search:` og ellers open.spotify.com), hold nede
+  fjerner. Skema v22 `saved_songs`, `storage/savedSongs.ts`,
+  `features/radio/SavedSongsScreen.tsx`, `useSaveSong.ts`. I bilen: et
+  bogmærke ved siden af hjertet (`CMD_SAVE_SONG` i `RadioAutoService.kt`,
+  `SavedSongs.kt` lægger til side, `applyCarSongs` i `radio/src/library.ts`
+  fører ind ved næste åbning).
+- **Vækkeur i NorRadio**: `⏰ Vækkeur` i toppen; klokkeslæt, en af Mine
+  stationer, kontakt. `Alarm.kt` (AlarmManager `setAlarmClock`),
+  `AlarmReceiver.kt` starter tjenesten med `ACTION_RING`, som
+  `RadioAutoService.onStartCommand` afspiller; sættes op igen dagligt og
+  efter genstart. Tilladelser `USE_EXACT_ALARM`/`SCHEDULE_EXACT_ALARM`/
+  `RECEIVE_BOOT_COMPLETED`. Uden lov til præcise alarmer viser siden en
+  vej til systemindstillingen. Ikke prøvet: om media3 når at gå i
+  forgrunden i tide på alle telefoner, og batterisparetilstand.
+- **DNS over HTTPS som nødudgang** (`net/doh.ts`): fejler et panelkald
+  uden svar, slås navnet op hos Google/Cloudflare, og kaldet sendes igen
+  til adressen med `Host`-hoved; adressen huskes en time og bruges også
+  til streams (`streamSource` i afspiller, preview og film). Kun http.
+  Hvis brugerens problem på dansk Wi-Fi er DNS-blokering, kan det gøre
+  VPN'en overflødig — kør forbindelsestjekket for at se det.
+
 ### Åbne punkter
 
 - **DR-kanaler er grønne ved start forfra på tv'et** (lyd, ingen billede),
@@ -70,7 +117,8 @@ GitHub, aldrig EAS; se `docs/BYG-FRA-CHAT.md`.
 
 ### Hvordan det er verificeret
 
-- 505 tests og typecheck grønne i app-pakken, typecheck i radio-pakken.
+- 524 tests og typecheck grønne i app-pakken, 4 tests og typecheck i
+  radio-pakken.
 - Alt tv-arbejde er verificeret af brugeren på fjernsynet med fotos; der
   er ingen emulator i kæden. Skærmkomponenterne har ingen enhedstests.
 
@@ -97,9 +145,12 @@ Målt, ikke gættet. Disse tal er grunden til at det oprindelige design ikke hol
 1. **DR grøn skærm** (se åbne punkter). Første prøve er telefonen gennem
    NordVPN New York på samme udsendelse.
 2. **Kør forbindelsestjekket** på dansk Wi-Fi uden VPN. Er dommen
-   DNS-blokering, kan appen slå navnet op selv (DNS-over-HTTPS findes
-   allerede i `net/connectionCheck.ts`) og gøre VPN'en overflødig.
-3. Idéer der er drøftet men ikke bygget: se "Parkerede punkter".
+   DNS-blokering, burde nødudgangen i `net/doh.ts` nu klare det uden VPN;
+   prøv en kanal uden VPN bagefter.
+3. **Prøv det nye** (afsnittet ovenfor) på tv, telefon og i bilen, og ret
+   det der driller. Vækkeuret og bogmærket i bilen er de to ting med mest
+   Android-maskineri i.
+4. Idéer der er drøftet men ikke bygget: se "Parkerede punkter".
 
 ### Hvis noget ikke virker
 
@@ -221,3 +272,7 @@ Brugerens panel-adgangsoplysninger står **ikke** i dette repo og skal ikke skri
 5. **Kanaler hvis `category_id` ikke peger på en kendt kategori** tælles ikke med i landeoversigten og kan kun findes via søgning.
 6. **Indbygget VPN** (WireGuard via `VpnService`, kun NorStreams trafik) er drøftet og fravalgt så længe udbyderen er NordVPN, som ikke udleverer WireGuard-opsætninger officielt. Nords egen tv-app med split tunneling gør det samme.
 7. **Faner skifter ved fokus i menusøjlen**, ikke ved OK. Googles faneside siger "ved valg", men Googles egne tv-apps gør som vi. Bevidst valg.
+8. **Påmindelser er kun i appen.** En rigtig notifikation kræver
+   `expo-notifications` og planlagte lokale notifikationer; det er ikke
+   sat op, fordi tv'et alligevel viser appen når man ser fjernsyn.
+9. **Emulator i byggekæden** er fravalgt af brugeren indtil videre.

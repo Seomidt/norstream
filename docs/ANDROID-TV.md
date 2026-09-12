@@ -322,6 +322,22 @@ Lys, og stedet solen regnes for.
 | Sortér favoritter: fokus ryger ved hvert flyt, åbner på Hjem | Rækken bygges om; `disabled` knap kan ikke have fokus; ingen foretrukket fokus ved åbning | Tag op/flyt/sæt med OK og pile; fokus fanget imens; første række foretrukket ved åbning |
 | Plakater der er på telefonen mangler på tv | En forkert TMDB-nøgle en tid: "svar 401" blev gemt som "findes ikke" i 30 dage | Fejl gemmes ikke som nej; nøgleskift og "Hent … nu" glemmer de gamle nej |
 
+## 6b. Nye skærme og hvad de gør på tv
+
+- **Påmindelsesbanneret** (`features/reminders/ReminderBanner.tsx`) ligger
+  øverst til højre, oven på alt. "Se nu" får fokus når det kommer
+  (`hasTVPreferredFocus`), Tilbage lukker det og fjerner påmindelsen. Det
+  er den eneste ting der stjæler fokus af sig selv; den kommer 3 min før
+  udsendelsen og forsvinder 5 min efter start.
+- **Forsidens nye rækker** (Fortsæt, Sidst sete, grupper nu, Nye afsnit)
+  er almindelige vandrette rækker af `TvPressable`-kort; ingen knapper
+  inde i kortene.
+- **Gemte sange** (`features/radio/SavedSongsScreen.tsx`): OK åbner i
+  Spotify (kræver Spotify på tv'et, ellers webadressen), hold OK nede
+  fjerner. Knappen "Gem sang" i radioafspilleren er en `TvPressable` under
+  kunstneren, kun når streamen sender en sang.
+- **Automatisk sikkerhedskopi** vises ikke på tv (ingen mappevælger).
+
 ## 7. Hvad der ikke er gjort
 
 - **Apple TV.** Kræver Apple Developer Program og en macOS-bygger (EAS).
