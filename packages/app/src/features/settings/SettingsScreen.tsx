@@ -7,7 +7,7 @@ import { countRadioChannels } from '../../storage/channels.js';
 import { createBackup, parseBackup, restoreBackup, serialiseBackup } from '../../storage/backup.js';
 import { forgetLogoMisses, resetLogo } from '../../ui/logoCache.js';
 import { setPosterApiKey } from '../../ui/posterFill.js';
-import { pickBackupFolder, readChosenBackupFile, saveBackupToChosenFolder, writeBackupToFolder } from './backupFiles.js';
+import { USB_FOLDER, pickBackupFolder, readBackupFromUsb, readChosenBackupFile, saveBackupToChosenFolder, usbBackupFolder, writeBackupToFolder } from './backupFiles.js';
 import { fetchBackupFromLink } from './backupLink.js';
 import { getAutoBackupState, runWeeklyBackup } from '../../storage/autoBackup.js';
 import type { AutoBackupState } from '../../storage/autoBackup.js';
@@ -139,6 +139,8 @@ export function SettingsScreen({
   /** Hvad sidste sikkerhedskopiering eller gendannelse endte med. */
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
+  /** USB-drevet der sidder i, hvis der er et. Slaas op naar siden laeses og foer hvert tryk. */
+  const [usb, setUsb] = useState<{ uri: string; name: string } | null>(null);
   /** Delelinket til filen, til Gendan fra link. Huskes, saa det kan hentes igen uden at taste. */
   const [backupLink, setBackupLinkState] = useState('');
   const changeBackupLink = (value: string): void => {
@@ -180,6 +182,7 @@ export function SettingsScreen({
     setRadio(await countRadioChannels(session.db));
     setAutoBackup(await getAutoBackupState(session.db));
     setBackupLinkState(await getBackupLink(session.db));
+    setUsb(usbBackupFolder());
     const errors: string[] = [];
     for (const access of session.sources) {
       const error = await getSetting(session.db, `last_vod_error:${access.source.id}`);
@@ -280,7 +283,58 @@ export function SettingsScreen({
     }
   }
 
-  /** Tv'ets vej: filen hentes fra et delelink (Drev, Dropbox, OneDrive) i stedet for en filvaelger. */
+  /** Tv'ets foerste vej: filen paa USB-drevet, uden Drev og uden link. */
+  async function saveToUsb(): Promise<void> {
+    setBackupBusy(true);
+    try {
+      const found = usbBackupFolder();
+      setUsb(found);
+      await writeBackupToFolder(USB_FOLDER, serialiseBackup(await createBackup(session.db)));
+      setBackupMessage(`Sikkerhedskopien er gemt på ${found?.name ?? 'USB-drevet'}.`);
+    } catch (cause) {
+      setBackupMessage(cause instanceof Error ? cause.message : 'Kopien kunne ikke skrives til USB-drevet.');
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function restoreFromUsb(): Promise<void> {
+    setBackupBusy(true);
+    try {
+      setUsb(usbBackupFolder());
+      await restoreFromText(await readBackupFromUsb());
+    } catch (cause) {
+      setBackupMessage(cause instanceof Error ? cause.message : 'Kopien på USB-drevet kunne ikke læses.');
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  /** Ugentlig kopi paa USB: skriver med det samme, og igen hver uge ved start naar drevet sidder i. */
+  async function toggleUsbWeekly(on: boolean): Promise<void> {
+    setBackupBusy(true);
+    try {
+      if (!on) {
+        await setBackupFolderUri(session.db, null);
+        setAutoBackup(await getAutoBackupState(session.db));
+        setBackupMessage('Den automatiske sikkerhedskopi er slået fra.');
+        return;
+      }
+      setUsb(usbBackupFolder());
+      await setBackupFolderUri(session.db, USB_FOLDER);
+      const result = await runWeeklyBackup(session.db, writeBackupToFolder, Date.now(), true);
+      setAutoBackup(await getAutoBackupState(session.db));
+      setBackupMessage(
+        result === 'written'
+          ? 'Sikkerhedskopien er gemt på USB-drevet, og den fornys hver uge når drevet sidder i.'
+          : 'Der kunne ikke skrives til USB-drevet. Sidder det i? Den prøver igen ved næste start.',
+      );
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  /** Tv'ets anden vej: filen hentes fra et delelink (Drev, Dropbox, OneDrive) i stedet for en filvaelger. */
   async function restoreFromLink(): Promise<void> {
     setBackupBusy(true);
     setBackupMessage('Henter filen …');
@@ -771,11 +825,63 @@ export function SettingsScreen({
         <>
           <Text style={styles.sectionTitle}>Sikkerhedskopi</Text>
           <Text style={styles.hint}>
-            Tv'et har ingen filvælger, så kopien hentes fra et link. Gem den på telefonen under
-            Indstillinger → Sikkerhedskopi, læg filen i Google Drev, Dropbox eller OneDrive, del den
-            med "Alle med linket", og skriv linket her. Google TV-appen på telefonen kan skrive det
-            for dig. Log ind på panelet først.
+            Favoritter i din rækkefølge, grupper, egne logoer, skjulte lande og indstillinger. Ikke
+            adgangskoder. Nemmest med et USB-drev i en hub med strøm igennem: kopien ligger på drevet,
+            og på en ny boks er det log ind, sæt drevet i, Gendan fra USB. Ellers hentes den fra et
+            link til filen i Google Drev, Dropbox eller OneDrive (delt med "Alle med linket");
+            Google TV-appen på telefonen kan skrive linket.
           </Text>
+        </>
+      )}
+      {(isTV || usb !== null) && (
+        <>
+          <View style={styles.row}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>USB-drev</Text>
+              <Text style={styles.rowHint}>
+                {usb === null
+                  ? 'Intet USB-drev fundet. Sæt det i en hub med strøm igennem, og åbn Indstillinger igen.'
+                  : `${usb.name} sidder i. Filen ligger i Android/data/dk.seomidt.norstream/files på drevet.`}
+              </Text>
+            </View>
+          </View>
+          <TvPressable style={styles.row} disabled={backupBusy || usb === null} onPress={() => void saveToUsb()}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Gem på USB nu</Text>
+              <Text style={styles.rowHint}>Skriver norstream-sikkerhedskopi.json på drevet.</Text>
+            </View>
+            <Text style={styles.actionText}>Gem</Text>
+          </TvPressable>
+          <TvPressable style={styles.row} disabled={backupBusy} onPress={() => void toggleUsbWeekly(autoBackup.folderUri !== USB_FOLDER)}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Automatisk hver uge på USB</Text>
+              <Text style={styles.rowHint}>
+                {autoBackup.folderUri !== USB_FOLDER
+                  ? 'Lad drevet sidde i, så fornys filen af sig selv.'
+                  : autoBackup.failed
+                    ? 'Drevet sad ikke i sidst. Den prøver igen ved næste start.'
+                    : autoBackup.lastMs === null
+                      ? 'Slået til. Første kopi skrives ved næste start.'
+                      : `Sidst gemt ${new Date(autoBackup.lastMs).toLocaleDateString('da-DK', { day: 'numeric', month: 'long' })}.`}
+              </Text>
+            </View>
+            <Switch
+              value={autoBackup.folderUri === USB_FOLDER}
+              focusable={false}
+              disabled={backupBusy}
+              onValueChange={(value) => {
+                void toggleUsbWeekly(value);
+              }}
+              trackColor={{ true: colors.accent, false: colors.border }}
+            />
+          </TvPressable>
+          <TvPressable style={styles.row} disabled={backupBusy || usb === null} onPress={() => void restoreFromUsb()}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Gendan fra USB</Text>
+              <Text style={styles.rowHint}>Læser filen på drevet og erstatter favoritter, grupper, egne logoer og skjulte lande.</Text>
+            </View>
+            <Text style={styles.actionText}>Gendan</Text>
+          </TvPressable>
         </>
       )}
       <TvTextInput

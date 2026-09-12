@@ -221,14 +221,12 @@ export function HomeScreen({
       // Indstillinger har vaeret aabnet.
       applyStreamFormatSetting(format);
       applyVideoSurfaceSetting(surface);
-      // Den ugentlige sikkerhedskopi, naar en mappe er valgt. Kun telefon:
-      // tv har ingen mappevaelger. Lidt efter start, saa den ikke staar i
-      // vejen for det foerste billede.
-      if (!isTV) {
-        setTimeout(() => {
-          void runWeeklyBackup(session.db, writeBackupToFolder);
-        }, 15_000);
-      }
+      // Den ugentlige sikkerhedskopi, naar en mappe (telefon) eller USB
+      // (tv) er valgt. Lidt efter start, saa den ikke staar i vejen for det
+      // foerste billede.
+      setTimeout(() => {
+        void runWeeklyBackup(session.db, writeBackupToFolder);
+      }, 15_000);
     })();
     return () => {
       cancelled = true;

@@ -93,6 +93,15 @@ eller i bilen** før de næste builds. Regn med småting.
   `RECEIVE_BOOT_COMPLETED`. Uden lov til præcise alarmer viser siden en
   vej til systemindstillingen. Ikke prøvet: om media3 når at gå i
   forgrunden i tide på alle telefoner, og batterisparetilstand.
+- **Sikkerhedskopi på USB** (tv): native-modulet `packages/app/modules/usb-storage`
+  finder USB-drev der sidder i (`getExternalFilesDirs` + `StorageVolume`),
+  og appen skriver/læser `norstream-sikkerhedskopi.json` i sin egen mappe
+  på drevet (`Android/data/dk.seomidt.norstream/files`) uden tilladelser.
+  Rækkerne Gem på USB nu, Automatisk hver uge på USB (`backup_folder_uri`
+  = `usb`) og Gendan fra USB under Indstillinger. Ny boks: log ind, sæt
+  drevet i, Gendan fra USB. Fælde: afinstalleres appen mens drevet sidder
+  i, sletter Android appens mappe på drevet — tag drevet ud først. Kræver
+  en USB-hub med strøm igennem på Google TV Streamer; ikke prøvet endnu.
 - **Gendan fra link** (`features/settings/backupLink.ts`): tv'et har
   ingen filvælger, så sikkerhedskopien hentes fra et delelink (Drev,
   Dropbox, OneDrive skrives om til direkte download). Feltet står under

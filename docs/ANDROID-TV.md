@@ -336,9 +336,10 @@ Lys, og stedet solen regnes for.
   Spotify (kræver Spotify på tv'et, ellers webadressen), hold OK nede
   fjerner. Knappen "Gem sang" i radioafspilleren er en `TvPressable` under
   kunstneren, kun når streamen sender en sang.
-- **Automatisk sikkerhedskopi** vises ikke på tv (ingen mappevælger).
-  Gendannelse på tv sker fra et delelink (Gendan fra link under
-  Indstillinger); Google TV-appen på telefonen kan skrive linket.
+- **Sikkerhedskopi på tv**: ingen mappevælger, så to veje i stedet: et
+  USB-drev (appens egen mappe på drevet, `modules/usb-storage`), eller et
+  delelink (Gendan fra link); Google TV-appen på telefonen kan skrive
+  linket. Den ugentlige kopi skriver til USB når drevet sidder i.
 - **Indholdet holder på fokus opad, nedad og mod højre** (`TVFocusGuideView`
   om hele indholdet i `HomeScreen`). Før ledte Android videre når en liste
   slap op — pil ned på den sidste udsendelse under Hele dagen landede på
