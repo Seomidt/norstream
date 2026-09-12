@@ -160,7 +160,7 @@ Installation:
 
 | Hvad | Nummer | Link |
 |---|---|---|
-| NorStream tv | 203 | https://github.com/Seomidt/norstream/actions/runs/34702337805 |
+| NorStream tv | 204 | https://github.com/Seomidt/norstream/actions/runs/34708734583 |
 | NorStream telefon | 196 | https://github.com/Seomidt/norstream/actions/runs/34695344602 |
 | NorRadio | 198 (197 fejlede paa to Kotlin-linjer, rettet) | se Actions paa branchen |
 
