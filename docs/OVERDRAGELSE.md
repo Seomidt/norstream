@@ -93,6 +93,12 @@ eller i bilen** før de næste builds. Regn med småting.
   `RECEIVE_BOOT_COMPLETED`. Uden lov til præcise alarmer viser siden en
   vej til systemindstillingen. Ikke prøvet: om media3 når at gå i
   forgrunden i tide på alle telefoner, og batterisparetilstand.
+- **Gendan fra link** (`features/settings/backupLink.ts`): tv'et har
+  ingen filvælger, så sikkerhedskopien hentes fra et delelink (Drev,
+  Dropbox, OneDrive skrives om til direkte download). Feltet står under
+  Sikkerhedskopi på både tv og telefon.
+- **Grupper på tv**: navnefeltet findes kun efter "Omdøb"; lå det fast,
+  tog det fokus ved hvert flueben (tastatur frem, listen til toppen).
 - **DNS over HTTPS som nødudgang** (`net/doh.ts`): fejler et panelkald
   uden svar, slås navnet op hos Google/Cloudflare, og kaldet sendes igen
   til adressen med `Host`-hoved; adressen huskes en time og bruges også

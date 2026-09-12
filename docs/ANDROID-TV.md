@@ -337,6 +337,11 @@ Lys, og stedet solen regnes for.
   fjerner. Knappen "Gem sang" i radioafspilleren er en `TvPressable` under
   kunstneren, kun når streamen sender en sang.
 - **Automatisk sikkerhedskopi** vises ikke på tv (ingen mappevælger).
+  Gendannelse på tv sker fra et delelink (Gendan fra link under
+  Indstillinger); Google TV-appen på telefonen kan skrive linket.
+- **Et tekstfelt må aldrig ligge fast over en liste man trykker OK i**:
+  mister rækken fokus et øjeblik, tager feltet det, og tastaturet kommer
+  frem. Vis feltet først når man har bedt om det (Grupper → Omdøb).
 
 ## 7. Hvad der ikke er gjort
 
