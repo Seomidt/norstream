@@ -84,6 +84,43 @@ CREATE TABLE IF NOT EXISTS favorite_group_members (
   PRIMARY KEY (group_id, channel_id)
 );
 
+-- Sidst sete kanaler, én raekke per kanal med seneste tidspunkt: forsidens
+-- "Sidst sete".
+CREATE TABLE IF NOT EXISTS channel_history (
+  channel_id TEXT PRIMARY KEY,
+  watched_ms INTEGER NOT NULL
+);
+
+-- Paamindelser om udsendelser: et par minutter foer start staar der en
+-- bjaelke, og OK skifter kanal. Slettes naar udsendelsen er slut.
+CREATE TABLE IF NOT EXISTS reminders (
+  channel_id TEXT NOT NULL,
+  start_ms   INTEGER NOT NULL,
+  stop_ms    INTEGER NOT NULL,
+  title      TEXT NOT NULL,
+  PRIMARY KEY (channel_id, start_ms)
+);
+
+-- Hvor langt man er naaet i en udsendelse startet forfra: forsidens
+-- "Fortsaet". Vaek naar den er set faerdig eller for gammel.
+CREATE TABLE IF NOT EXISTS archive_progress (
+  channel_id TEXT NOT NULL,
+  start_ms   INTEGER NOT NULL,
+  stop_ms    INTEGER NOT NULL,
+  title      TEXT NOT NULL,
+  position_s INTEGER NOT NULL,
+  updated_ms INTEGER NOT NULL,
+  PRIMARY KEY (channel_id, start_ms)
+);
+
+-- Serier man foelger: forsiden viser nye afsnit naar panelet faar dem.
+-- seen_episodes er antallet man har set listen med; flere end det er nyt.
+CREATE TABLE IF NOT EXISTS followed_series (
+  series_key    TEXT PRIMARY KEY,
+  followed_ms   INTEGER NOT NULL,
+  seen_episodes INTEGER NOT NULL
+);
+
 -- Kanaler brugeren har fjernet fra en favoriseret kategori. Uden den ville
 -- "opdatér" paa kategorien haente dem tilbage hver gang, og en oprydning i
 -- 979 danske kanaler skulle laves forfra efter hvert tryk.
@@ -340,6 +377,10 @@ const TABLES = [
   'favorites',
   'favorite_groups',
   'favorite_group_members',
+  'channel_history',
+  'reminders',
+  'archive_progress',
+  'followed_series',
   'favorite_exclusions',
   'programmes',
   'epg_fetch',
@@ -373,7 +414,8 @@ const TABLES = [
 // v14: vod_posters. v15: vod_posters.rating. v16: vod_watched.
 // v17: logo_search_tried. v18: samme tabel toemt én gang (se migrate).
 // v19: radio_stations og radio_favorites. v20: favorite_groups og medlemmer.
-const SCHEMA_VERSION = 20;
+// v21: channel_history, reminders, archive_progress, followed_series.
+const SCHEMA_VERSION = 21;
 
 /**
  * Foerste version der kan opgraderes additivt.
