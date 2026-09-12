@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View, useTVEventHandler } from 'react-native';
+import { Pressable, StyleSheet, TVFocusGuideView, Text, View, useTVEventHandler } from 'react-native';
 import { XtreamAuthError } from '@norstream/core';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
@@ -497,7 +497,11 @@ export function HomeScreen({
           onDismiss={() => setRejected(false)}
         />
       )}
-      <View style={styles.body}>
+      {/* Indholdet holder paa fokus opad, nedad og mod hoejre: naar en
+          liste slipper op, ledte Android videre efter naermeste trykpunkt
+          og fandt Hjem i menuen — og saa skiftede fanen. Kun venstre er
+          aaben, ind i menuen. */}
+      <TVFocusGuideView style={styles.body} trapFocusUp={isTV} trapFocusDown={isTV} trapFocusRight={isTV}>
         {/* Hjem, Film og Radio bliver staaende naar man forlader dem, bare
             skjult: at bygge dem op igen ved hvert besoeg laeste alt ind
             forfra og var langsomt paa tv. Kanaler, Favoritter og Guide
@@ -642,7 +646,7 @@ export function HomeScreen({
             }}
           />
         )}
-      </View>
+      </TVFocusGuideView>
 
       {!isTV && tabs}
       </View>

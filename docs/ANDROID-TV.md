@@ -339,6 +339,10 @@ Lys, og stedet solen regnes for.
 - **Automatisk sikkerhedskopi** vises ikke på tv (ingen mappevælger).
   Gendannelse på tv sker fra et delelink (Gendan fra link under
   Indstillinger); Google TV-appen på telefonen kan skrive linket.
+- **Indholdet holder på fokus opad, nedad og mod højre** (`TVFocusGuideView`
+  om hele indholdet i `HomeScreen`). Før ledte Android videre når en liste
+  slap op — pil ned på den sidste udsendelse under Hele dagen landede på
+  Hjem i menuen, og fanen skiftede. Kun venstre er åben, ind i menuen.
 - **Et tekstfelt må aldrig ligge fast over en liste man trykker OK i**:
   mister rækken fokus et øjeblik, tager feltet det, og tastaturet kommer
   frem. Vis feltet først når man har bedt om det (Grupper → Omdøb).
