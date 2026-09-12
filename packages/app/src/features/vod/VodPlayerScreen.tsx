@@ -305,6 +305,9 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
           <Text style={styles.buttonText}>Tilbage</Text>
         </TvPressable>
       )}
+      {/* Paa tv er afspillerens egne knapper slaaet fra: pause og spoling
+          her, og foerst i raekken, for det er dem fokus lander paa. */}
+      {isTV && <SeekButtons player={player} playing={playing} preferFocus />}
       <TvPressable
         style={styles.button}
         onPress={() => {
@@ -325,8 +328,6 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
       >
         <Text style={styles.buttonText}>Lyd{audio !== null ? `: ${trackName(audio)}` : ''}</Text>
       </TvPressable>
-      {/* Paa tv er afspillerens egne knapper slaaet fra: pause og spoling her. */}
-      {isTV && <SeekButtons player={player} playing={playing} preferFocus />}
     </>
   );
 
@@ -389,6 +390,19 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
         video={<VideoView style={StyleSheet.absoluteFill} player={player} nativeControls={!isTV} surfaceType={surfaceTypeForPlatform()} />}
         bar={actions}
         overlays={pickers}
+        playing={playing}
+        onPlayerKey={(key) => {
+          try {
+            if (key === 'select' || key === 'playPause') {
+              if (player.playing) player.pause();
+              else player.play();
+            } else if (key === 'left' || key === 'rewind') player.seekBy(-10);
+            else player.seekBy(30);
+            return true;
+          } catch {
+            return false;
+          }
+        }}
       />
     );
   }

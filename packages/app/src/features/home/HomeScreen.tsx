@@ -427,10 +427,13 @@ export function HomeScreen({
      tv-apps. Se selectTab for hvad et fanevalg goer. */
   const tabs = (
     <View style={isTV ? [styles.rail, !railOpen && styles.railFolded] : [styles.tabBar, { paddingBottom: theme.spacing.sm + (isTV ? 0 : insets.bottom) }]}>
+      {/* Indstillinger sidst og, paa tv, nederst i soejlen som et tandhjul
+          med luft over: Googles menusoejle har 5-6 destinationer og
+          handlingerne (indstillinger) for sig i bunden. */}
       {TABS.map((item) => (
         <TvPressable
           key={item.id}
-          style={isTV ? styles.railTab : styles.tab}
+          style={[isTV ? styles.railTab : styles.tab, isTV && item.id === 'settings' && styles.railSettings]}
           hasTVPreferredFocus={isTV && railWantsFocus && tab === item.id}
           onPress={() => {
             if (pendingTab.current !== null) clearTimeout(pendingTab.current);
@@ -654,6 +657,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   railFolded: { width: 44 },
   railTab: { alignItems: 'center', paddingVertical: theme.spacing.sm, marginHorizontal: theme.spacing.xs, marginBottom: theme.spacing.xs },
+  railSettings: { marginTop: 'auto', marginBottom: theme.spacing.md, borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: theme.spacing.md },
   tabBar: {
     flexDirection: 'row',
     borderTopColor: colors.border,

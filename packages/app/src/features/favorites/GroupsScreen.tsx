@@ -141,6 +141,28 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
             >
               <Text style={styles.actionText}>Gem navn</Text>
             </TvPressable>
+            <TvPressable
+              style={styles.action}
+              onPress={() => {
+                void moveFavoriteGroup(session.db, open.id, -1).then(() => {
+                  onChanged();
+                  void load();
+                });
+              }}
+            >
+              <Text style={styles.actionText}>Flyt op</Text>
+            </TvPressable>
+            <TvPressable
+              style={styles.action}
+              onPress={() => {
+                void moveFavoriteGroup(session.db, open.id, 1).then(() => {
+                  onChanged();
+                  void load();
+                });
+              }}
+            >
+              <Text style={styles.actionText}>Flyt ned</Text>
+            </TvPressable>
             {confirmingDelete ? (
               <>
                 <TvPressable style={styles.action} onPress={() => setConfirmingDelete(false)}>
@@ -233,36 +255,14 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
         contentContainerStyle={tail}
         ListEmptyComponent={<Text style={styles.empty}>Ingen grupper endnu. Skriv et navn ovenfor og tryk Opret.</Text>}
         renderItem={({ item, index }) => (
-          <View style={styles.groupRow}>
-            <TvPressable style={styles.groupMain} hasTVPreferredFocus={isTV && index === 0} onPress={() => setOpen(item)}>
-              <Text style={styles.groupName} numberOfLines={1}>
-                {item.name}
-              </Text>
-              <Text style={styles.groupCount}>{item.count} kanaler</Text>
-            </TvPressable>
-            <TvPressable
-              style={styles.small}
-              onPress={() => {
-                void moveFavoriteGroup(session.db, item.id, -1).then(() => {
-                  onChanged();
-                  void load();
-                });
-              }}
-            >
-              <Text style={[styles.actionText, index === 0 && styles.dim]}>▲</Text>
-            </TvPressable>
-            <TvPressable
-              style={styles.small}
-              onPress={() => {
-                void moveFavoriteGroup(session.db, item.id, 1).then(() => {
-                  onChanged();
-                  void load();
-                });
-              }}
-            >
-              <Text style={[styles.actionText, index === groups.length - 1 && styles.dim]}>▼</Text>
-            </TvPressable>
-          </View>
+          // Ingen knapper inde i raekken (Googles listeregel): flyt op/ned
+          // ligger paa gruppens egen side.
+          <TvPressable style={styles.groupRow} hasTVPreferredFocus={isTV && index === 0} onPress={() => setOpen(item)}>
+            <Text style={styles.groupName} numberOfLines={1}>
+              {item.name}
+            </Text>
+            <Text style={styles.groupCount}>{item.count} kanaler</Text>
+          </TvPressable>
         )}
       />
       <Text style={[styles.hint, { color: colors.textMuted }]}>{isTV ? 'Tilbage lukker.' : ''}</Text>
@@ -302,21 +302,15 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   actionAccent: { backgroundColor: colors.accent },
   actionDanger: { backgroundColor: colors.danger },
   actionText: { color: colors.text, fontSize: 13, fontWeight: '600' },
-  dim: { opacity: 0.3 },
   empty: { color: colors.textMuted, textAlign: 'center', padding: theme.spacing.lg, lineHeight: 20 },
   groupRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
-    paddingVertical: theme.spacing.xs,
+    paddingVertical: theme.spacing.sm,
     borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  groupMain: { flex: 1, paddingVertical: theme.spacing.sm, paddingHorizontal: theme.spacing.sm, borderRadius: theme.radius },
   groupName: { color: colors.text, fontSize: 16, fontWeight: '600' },
   groupCount: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
-  small: { paddingHorizontal: theme.spacing.sm, paddingVertical: theme.spacing.sm, borderRadius: theme.radius },
   channel: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -57,7 +57,8 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     outlineOffset: 2,
     outlineStyle: 'solid',
     borderRadius: theme.radius,
-    transform: [{ scale: 1.03 }],
+    // Googles fokusskalering: 1,025 til 1,1; knapper 1,1. 1,05 passer til raekker og kort.
+    transform: [{ scale: 1.05 }],
   },
   ring: {
     position: 'absolute',

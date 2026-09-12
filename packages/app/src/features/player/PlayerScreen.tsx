@@ -532,6 +532,8 @@ export function PlayerScreen({
   // den ("skal trykke en masse gange"). Spoler man, er det 30 s frem;
   // ellers Start forfra; og er den der ikke, Tilbage.
   const canRestart = !restarted && restartBlock === null && now !== null;
+  // Raekkefoelgen er Googles: den primaere handling foerst, for det er den
+  // fokus lander paa. Start forfra eller spoling, saa tekst, saa zap.
   const actions = (
     <>
       {/* Ingen Tilbage-knap paa tv: Google — "brug fjernbetjeningens
@@ -541,6 +543,33 @@ export function PlayerScreen({
           <Text style={styles.buttonText}>Tilbage</Text>
         </TvPressable>
       )}
+      {canRestart && (
+        <TvPressable
+          style={[styles.button, styles.buttonAccent]}
+          hasTVPreferredFocus={isTV}
+          onPress={() => {
+            void playFromStart(now);
+          }}
+        >
+          <Text style={styles.buttonText}>Start forfra</Text>
+        </TvPressable>
+      )}
+      {/* Startet forfra paa tv: pause og spoling, saa reklamerne kan
+          springes over. Paa telefonen har afspillerens egne knapper det. */}
+      {restarted && isTV && <SeekButtons player={player} playing={playing} preferFocus />}
+      <TvPressable
+        style={styles.button}
+        hasTVPreferredFocus={isTV && !restarted && !canRestart}
+        onPress={() => {
+          setSubtitleTracks(player.availableSubtitleTracks);
+          setSubtitle(player.subtitleTrack);
+          setShowingSubtitles((value) => !value);
+        }}
+      >
+        <Text style={styles.buttonText}>
+          Tekst{subtitle !== null ? `: ${trackName(subtitle)}` : ''}
+        </Text>
+      </TvPressable>
       {zapList.length > 1 && zapIndex !== -1 && (
         <>
           <TvPressable
@@ -570,33 +599,6 @@ export function PlayerScreen({
           <Text style={styles.buttonText}>⇄ {shortName(previous.name)}</Text>
         </TvPressable>
       )}
-      <TvPressable
-        style={styles.button}
-        hasTVPreferredFocus={isTV && !restarted && !canRestart}
-        onPress={() => {
-          setSubtitleTracks(player.availableSubtitleTracks);
-          setSubtitle(player.subtitleTrack);
-          setShowingSubtitles((value) => !value);
-        }}
-      >
-        <Text style={styles.buttonText}>
-          Tekst{subtitle !== null ? `: ${trackName(subtitle)}` : ''}
-        </Text>
-      </TvPressable>
-      {canRestart && (
-        <TvPressable
-          style={[styles.button, styles.buttonAccent]}
-          hasTVPreferredFocus={isTV}
-          onPress={() => {
-            void playFromStart(now);
-          }}
-        >
-          <Text style={styles.buttonText}>Start forfra</Text>
-        </TvPressable>
-      )}
-      {/* Startet forfra paa tv: pause og spoling, saa reklamerne kan
-          springes over. Paa telefonen har afspillerens egne knapper det. */}
-      {restarted && isTV && <SeekButtons player={player} playing={playing} preferFocus />}
       {restarted && isTV && videoInfo !== null && <Text style={styles.videoInfo}>{videoInfo}</Text>}
     </>
   );
@@ -671,6 +673,23 @@ export function PlayerScreen({
         // bjaelke har det samme, og Tilbage gaar altid til listen.
         video={<VideoView style={StyleSheet.absoluteFill} player={player} nativeControls={!isTV} surfaceType={surfaceTypeForPlatform()} />}
         bar={actions}
+        playing={playing}
+        onPlayerKey={(key) => {
+          try {
+            if (key === 'select' || key === 'playPause') {
+              if (player.playing) player.pause();
+              else player.play();
+              return true;
+            }
+            // Spoling kun i arkivet: en live-kanal har intet at spole i.
+            if (!restarted) return false;
+            if (key === 'left' || key === 'rewind') player.seekBy(-10);
+            else player.seekBy(30);
+            return true;
+          } catch {
+            return false;
+          }
+        }}
         overlays={
           <>
             {banner}

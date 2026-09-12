@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View, useTVEventHandler, useWindowDimensions } from 'react-native';
 import type { ReactNode } from 'react';
 import { StatusBar } from 'expo-status-bar';
@@ -34,10 +34,25 @@ export function useLandscape(): boolean {
 /** Hvor laenge bjaelken staar, foer den gemmer sig igen. */
 const AUTO_HIDE_MS = 5_000;
 
+/** Tasterne fra fjernbetjeningen som afspilleren selv skal tage sig af. */
+export type PlayerKey = 'select' | 'left' | 'right' | 'playPause' | 'rewind' | 'fastForward';
+
+/**
+ * Skaermen holdes vaagen, men kun mens der afspilles (Google TV-BY: ved
+ * pause maa fjernsynet gaa i pauseskaerm). En egen komponent, saa
+ * useKeepAwake kan slaas til og fra ved at montere den.
+ */
+function KeepAwake() {
+  useKeepAwake();
+  return null;
+}
+
 export function LandscapePlayer({
   video,
   bar,
   overlays,
+  playing = true,
+  onPlayerKey,
 }: {
   /** Selve videoen; laegges over hele skaermen. */
   video: ReactNode;
@@ -45,9 +60,18 @@ export function LandscapePlayer({
   bar: ReactNode;
   /** Vaelgere og lignende, der skal ligge oven paa alt. */
   overlays?: ReactNode;
+  /** Sand mens der afspilles: saa holdes skaermen vaagen. */
+  playing?: boolean;
+  /**
+   * Tv, Googles regler for afspilning (TV-PC, TV-PP): OK pauser og
+   * genoptager, pil venstre/hoejre spoler, og play/pause-tasten virker.
+   * Kaldes for OK og pilene kun naar bjaelken er skjult (ellers rammer
+   * de knapperne), og for medietasterne altid. Returnerer sand naar
+   * tasten er brugt.
+   */
+  onPlayerKey?: (key: PlayerKey) => boolean;
 }) {
   const styles = useStyles(makeStyles);
-  useKeepAwake();
   const insets = useSafeAreaInsets();
   const [barShown, setBarShown] = useState(true);
   /** Taeller op ved hvert tryk, saa uret til at gemme bjaelken starter forfra. */
@@ -55,8 +79,17 @@ export function LandscapePlayer({
   // Paa tv: ethvert tryk paa fjernbetjeningen viser bjaelken igen og
   // giver den ny tid. Foer gemte den sig fem sekunder efter at den kom
   // frem, ogsaa midt i at man koerte hen til en knap: "knapperne virker ikke".
+  const barShownRef = useRef(barShown);
+  barShownRef.current = barShown;
   useTVEventHandler((event) => {
     if (event.eventType === 'focus' || event.eventType === 'blur') return;
+    // Android sender tryk ned (0) og op (1); tasterne taeller én gang.
+    const keyUp = event.eventKeyAction === undefined || Number(event.eventKeyAction) !== 0;
+    const type = event.eventType;
+    if (keyUp && onPlayerKey !== undefined) {
+      if (type === 'playPause' || type === 'rewind' || type === 'fastForward') onPlayerKey(type);
+      else if (!barShownRef.current && (type === 'select' || type === 'left' || type === 'right')) onPlayerKey(type);
+    }
     setBarShown(true);
     setActivity((value) => value + 1);
   });
@@ -69,6 +102,7 @@ export function LandscapePlayer({
   return (
     <View style={styles.root}>
       <StatusBar hidden />
+      {playing && <KeepAwake />}
       <View style={StyleSheet.absoluteFill}>{video}</View>
       {/* Hjoerneknappen er til fingre: paa tv viser ethvert tryk paa
           fjernbetjeningen bjaelken, og en prik-knap oppe i hjoernet var

@@ -138,6 +138,11 @@ sig efter. De vigtigste, med hvordan appen gør det:
 | Der skal altid være noget i fokus, og fokus skal ses tydeligt: skalering (1,025–1,1), ramme, glød eller farve, ens i hele appen | `TvPressable`: ramme, toning, 1,03 |
 | Menusøjlen: både sammenfoldet (ikoner) og udfoldet (ikoner + tekst), 5–6 destinationer, aktiv markering | Søjlen folder sig sammen efter 2 s |
 | Lister: pil op/ned ruller listen, OK vælger; det fokuserede holdes et fast sted | `keepInMiddle` |
+| Under afspilning: OK pauser/genoptager, pil venstre/højre spoler, play/pause-tasten virker (TV-PC, TV-PP) | `onPlayerKey` i `LandscapePlayer`, når bjælken er skjult |
+| Den første knap i en gruppe er den primære, for fokus lander på den | Afspillerbjælken: Start forfra/spoling først, så Tekst og zap |
+| Ingen knapper inde i listerækker | Grupper: flyt op/ned ligger på gruppens side |
+| Menusøjle: 5–6 destinationer, indstillinger som handling nederst | Tandhjulet nederst i søjlen (`railSettings`) |
+| Skærmen holdes kun vågen mens der afspilles (TV-BY) | `KeepAwake` monteres kun når `playing` |
 
 
 På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
