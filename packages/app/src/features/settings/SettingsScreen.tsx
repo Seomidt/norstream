@@ -11,7 +11,7 @@ import { pickBackupFolder, readChosenBackupFile, saveBackupToChosenFolder, write
 import { fetchBackupFromLink } from './backupLink.js';
 import { getAutoBackupState, runWeeklyBackup } from '../../storage/autoBackup.js';
 import type { AutoBackupState } from '../../storage/autoBackup.js';
-import { setBackupFolderUri } from '../../storage/settings.js';
+import { getBackupLink, setBackupFolderUri, setBackupLink } from '../../storage/settings.js';
 import { listHiddenCountries, unhideCountry } from '../../storage/countries.js';
 import { OTHER_COUNTRY_KEY } from '../../storage/countries.js';
 import { clearSourceCredentials } from '../../storage/credentials.js';
@@ -139,8 +139,12 @@ export function SettingsScreen({
   /** Hvad sidste sikkerhedskopiering eller gendannelse endte med. */
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
-  /** Delelinket til filen, til Gendan fra link. */
-  const [backupLink, setBackupLink] = useState('');
+  /** Delelinket til filen, til Gendan fra link. Huskes, saa det kan hentes igen uden at taste. */
+  const [backupLink, setBackupLinkState] = useState('');
+  const changeBackupLink = (value: string): void => {
+    setBackupLinkState(value);
+    void setBackupLink(session.db, value);
+  };
   /** Den automatiske ugentlige kopi: mappe, sidste skrivning, om den fejlede. */
   const [autoBackup, setAutoBackup] = useState<AutoBackupState>({ folderUri: null, lastMs: null, failed: false });
   const [providersOpen, setProvidersOpen] = useState(false);
@@ -175,6 +179,7 @@ export function SettingsScreen({
     setThemePlaceState((await getThemePlace(session.db)) ?? themePreference().placeKey);
     setRadio(await countRadioChannels(session.db));
     setAutoBackup(await getAutoBackupState(session.db));
+    setBackupLinkState(await getBackupLink(session.db));
     const errors: string[] = [];
     for (const access of session.sources) {
       const error = await getSetting(session.db, `last_vod_error:${access.source.id}`);
@@ -776,7 +781,7 @@ export function SettingsScreen({
       <TvTextInput
         style={styles.input}
         value={backupLink}
-        onChangeText={setBackupLink}
+        onChangeText={changeBackupLink}
         placeholder="Link til norstream-sikkerhedskopi.json"
         autoCorrect={false}
         autoCapitalize="none"
@@ -787,7 +792,10 @@ export function SettingsScreen({
       <TvPressable style={styles.row} disabled={backupBusy || backupLink.trim().length === 0} onPress={() => void restoreFromLink()}>
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>Gendan fra link</Text>
-          <Text style={styles.rowHint}>Henter filen fra linket og erstatter favoritter, grupper, egne logoer og skjulte lande.</Text>
+          <Text style={styles.rowHint}>
+            Henter filen fra linket og erstatter favoritter, grupper, egne logoer og skjulte lande. Linket
+            huskes, så du bare trykker Hent næste gang filen er fornyet.
+          </Text>
         </View>
         <Text style={styles.actionText}>Hent</Text>
       </TvPressable>

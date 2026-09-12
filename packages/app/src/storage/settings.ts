@@ -19,6 +19,7 @@ const KEY_HOME_PROVIDERS = 'home_providers';
 const KEY_BACKUP_FOLDER = 'backup_folder_uri';
 const KEY_BACKUP_LAST = 'backup_auto_last_ms';
 const KEY_BACKUP_FAILED = 'backup_auto_failed';
+const KEY_BACKUP_LINK = 'backup_link';
 
 export async function getSetting(
   db: SqlDatabase,
@@ -473,4 +474,13 @@ export async function getBackupFailed(db: SqlDatabase): Promise<boolean> {
 
 export async function setBackupFailed(db: SqlDatabase, failed: boolean): Promise<void> {
   await setSetting(db, KEY_BACKUP_FAILED, failed ? '1' : '0');
+}
+
+/** Delelinket til sikkerhedskopien, saa Gendan fra link kan bruges igen uden at taste det. */
+export async function getBackupLink(db: SqlDatabase): Promise<string> {
+  return (await getSetting(db, KEY_BACKUP_LINK)) ?? '';
+}
+
+export async function setBackupLink(db: SqlDatabase, link: string): Promise<void> {
+  await setSetting(db, KEY_BACKUP_LINK, link.trim());
 }
