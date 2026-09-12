@@ -53,6 +53,16 @@ export interface PendingSong {
   savedMs: number;
 }
 
+/** Vaekkeuret: klokkeslaet, station, og om det er slaaet til. */
+export interface AlarmSetting {
+  enabled: boolean;
+  hour: number;
+  minute: number;
+  station: AutoStation | null;
+  /** Naeste ringning, naar uret er sat. */
+  nextMs: number | null;
+}
+
 export interface AutoLibrary {
   favourites: AutoStation[];
   countries: { code: string; name: string; flag: string; stations: AutoStation[] }[];
@@ -69,6 +79,10 @@ interface NativeModule {
   titledStations(): string[];
   pendingFavourites(): PendingFavourite[];
   clearPendingFavourites(): void;
+  getAlarm(): Partial<AlarmSetting>;
+  setAlarm(json: string): void;
+  canScheduleExactAlarms(): boolean;
+  openExactAlarmSettings(): void;
   pendingSongs(): PendingSong[];
   clearPendingSongs(): void;
   clearAutoLog(): void;
@@ -143,6 +157,49 @@ export function clearPendingFavourites(): void {
     native?.clearPendingFavourites();
   } catch {
     // Intet at rydde.
+  }
+}
+
+const ALARM_OFF: AlarmSetting = { enabled: false, hour: 7, minute: 0, station: null, nextMs: null };
+
+export function getAlarm(): AlarmSetting {
+  try {
+    const raw = native?.getAlarm();
+    if (raw === undefined) return ALARM_OFF;
+    return {
+      enabled: raw.enabled ?? false,
+      hour: raw.hour ?? 7,
+      minute: raw.minute ?? 0,
+      station: raw.station ?? null,
+      nextMs: raw.nextMs ?? null,
+    };
+  } catch {
+    return ALARM_OFF;
+  }
+}
+
+export function setAlarm(setting: Omit<AlarmSetting, 'nextMs'>): void {
+  try {
+    native?.setAlarm(JSON.stringify(setting));
+  } catch {
+    // Uret findes kun paa Android.
+  }
+}
+
+/** Om telefonen lader appen saette praecise alarmer (Android 12+ kan sige nej). */
+export function canScheduleExactAlarms(): boolean {
+  try {
+    return native?.canScheduleExactAlarms() ?? true;
+  } catch {
+    return true;
+  }
+}
+
+export function openExactAlarmSettings(): void {
+  try {
+    native?.openExactAlarmSettings();
+  } catch {
+    // Ingen indstillingsside.
   }
 }
 

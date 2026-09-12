@@ -11,6 +11,7 @@ import { theme } from '@norstream/app/src/ui/theme.js';
 import { RadioPlayerScreen } from './src/RadioPlayerScreen.js';
 import { applyCarFavourites, applyCarSongs, syncAutoLibrary } from './src/library.js';
 import { SavedSongsScreen } from '@norstream/app/src/features/radio/SavedSongsScreen.js';
+import { AlarmScreen } from './src/AlarmScreen.js';
 import { autoLog, clearAutoLog, current, nowPlayingEnabled, setNowPlayingEnabled, subscribe, titledStations } from './modules/radio-auto/index.js';
 import type { AutoSnapshot } from './modules/radio-auto/index.js';
 
@@ -30,6 +31,7 @@ type Route =
   | { name: 'home' }
   | { name: 'player'; channel: StoredChannel; zap: StoredChannel[] }
   | { name: 'songs' }
+  | { name: 'alarm' }
   | { name: 'error' };
 
 export default function App() {
@@ -103,7 +105,7 @@ export default function App() {
         closePlayer();
         return true;
       }
-      if (route.name === 'songs') {
+      if (route.name === 'songs' || route.name === 'alarm') {
         setRoute({ name: 'home' });
         return true;
       }
@@ -133,15 +135,20 @@ export default function App() {
             <Text style={styles.errorText}>Appen kunne ikke starte. Luk den helt og åbn den igen.</Text>
           </View>
         )}
-        {(route.name === 'home' || route.name === 'player' || route.name === 'songs') && session !== null && (
+        {route.name !== 'loading' && route.name !== 'error' && session !== null && (
           <View style={styles.host} pointerEvents={route.name === 'home' ? 'auto' : 'none'}>
             <View style={styles.header}>
               <Pressable onLongPress={openLog} delayLongPress={800}>
                 <Text style={styles.title}>NorRadio</Text>
               </Pressable>
-              <Pressable onPress={() => setRoute({ name: 'songs' })} hitSlop={8} accessibilityLabel="Gemte sange">
-                <Text style={styles.headerAction}>♫ Gemte sange</Text>
-              </Pressable>
+              <View style={styles.headerActions}>
+                <Pressable onPress={() => setRoute({ name: 'alarm' })} hitSlop={8} accessibilityLabel="Vækkeur">
+                  <Text style={styles.headerAction}>⏰ Vækkeur</Text>
+                </Pressable>
+                <Pressable onPress={() => setRoute({ name: 'songs' })} hitSlop={8} accessibilityLabel="Gemte sange">
+                  <Text style={styles.headerAction}>♫ Sange</Text>
+                </Pressable>
+              </View>
             </View>
             <InternetRadio
               session={session}
@@ -220,6 +227,19 @@ export default function App() {
           </SafeAreaView>
         </View>
       )}
+      {route.name === 'alarm' && session !== null && (
+        <View style={styles.overlay}>
+          <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
+            <View style={styles.logBar}>
+              <Pressable onPress={() => setRoute({ name: 'home' })} hitSlop={8}>
+                <Text style={styles.logAction}>‹ Tilbage</Text>
+              </Pressable>
+              <Text style={styles.title}>Vækkeur</Text>
+            </View>
+            <AlarmScreen db={session.db} />
+          </SafeAreaView>
+        </View>
+      )}
       {route.name === 'player' && session !== null && (
         <View style={styles.overlay}>
           <RadioPlayerScreen db={session.db} channel={route.channel} zap={route.zap} onBack={closePlayer} />
@@ -240,6 +260,7 @@ const styles = StyleSheet.create({
     paddingTop: theme.spacing.sm,
     paddingBottom: theme.spacing.sm,
   },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md },
   headerAction: { color: theme.colors.accent, fontSize: 14, fontWeight: '700' },
   title: { color: theme.colors.text, fontSize: 22, fontWeight: '800' },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.lg },

@@ -5,6 +5,10 @@
   <uses-permission android:name="android.permission.WAKE_LOCK" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+  <!-- Vaekkeuret: praecise alarmer (Android 13+ giver USE_EXACT_ALARM til ure; foer det SCHEDULE_EXACT_ALARM) og genopsaetning efter genstart. -->
+  <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
   <application>
     <!-- Smaa, cachede logoer til bilens lister; se Artwork.kt. -->
@@ -13,6 +17,17 @@
       android:authorities="${applicationId}.art"
       android:exported="true"
       android:grantUriPermissions="true" />
+
+    <!-- Vaekkeuret ringer, eller telefonen er genstartet: se AlarmReceiver.kt. -->
+    <receiver
+      android:name="dk.seomidt.norradio.auto.AlarmReceiver"
+      android:exported="false">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+        <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+      </intent-filter>
+    </receiver>
 
     <!-- Siger til Android Auto at appen er en medie-app. -->
     <meta-data

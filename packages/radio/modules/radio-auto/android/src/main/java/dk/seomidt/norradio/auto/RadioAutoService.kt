@@ -215,6 +215,25 @@ class RadioAutoService : MediaLibraryService() {
 
   override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
 
+  /** Vaekkeuret: spil stationen der er valgt til det. Alt andet er media3's egne knapper. */
+  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    if (intent?.action == Alarm.ACTION_RING) {
+      val station = Alarm.station(this)
+      val p = player
+      if (station == null || p == null) {
+        AutoLog.add("vaekkeur: ingen station at spille")
+      } else {
+        AutoLog.add("vaekkeur: spiller ${station.name}")
+        p.volume = 1f
+        p.setMediaItem(Library.item(station, this))
+        p.prepare()
+        p.play()
+      }
+      return START_NOT_STICKY
+    }
+    return super.onStartCommand(intent, flags, startId)
+  }
+
   override fun onTaskRemoved(rootIntent: Intent?) {
     // Swipes appen vaek mens der spilles, spiller radioen videre. Er der
     // stille, er der ingen grund til at holde tjenesten i live.
