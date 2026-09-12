@@ -8,6 +8,7 @@ import { createBackup, parseBackup, restoreBackup, serialiseBackup } from '../..
 import { forgetLogoMisses, resetLogo } from '../../ui/logoCache.js';
 import { setPosterApiKey } from '../../ui/posterFill.js';
 import { pickBackupFolder, readChosenBackupFile, saveBackupToChosenFolder, writeBackupToFolder } from './backupFiles.js';
+import { fetchBackupFromLink } from './backupLink.js';
 import { getAutoBackupState, runWeeklyBackup } from '../../storage/autoBackup.js';
 import type { AutoBackupState } from '../../storage/autoBackup.js';
 import { setBackupFolderUri } from '../../storage/settings.js';
@@ -50,6 +51,7 @@ import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { TvTextInput } from '../../ui/TvTextInput.js';
 
 interface Props {
   session: AppSession;
@@ -137,6 +139,8 @@ export function SettingsScreen({
   /** Hvad sidste sikkerhedskopiering eller gendannelse endte med. */
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
+  /** Delelinket til filen, til Gendan fra link. */
+  const [backupLink, setBackupLink] = useState('');
   /** Den automatiske ugentlige kopi: mappe, sidste skrivning, om den fejlede. */
   const [autoBackup, setAutoBackup] = useState<AutoBackupState>({ folderUri: null, lastMs: null, failed: false });
   const [providersOpen, setProvidersOpen] = useState(false);
@@ -263,6 +267,29 @@ export function SettingsScreen({
     try {
       const text = await readChosenBackupFile();
       if (text === null) return;
+      await restoreFromText(text);
+    } catch (cause) {
+      setBackupMessage(cause instanceof Error ? cause.message : 'Filen kunne ikke læses.');
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  /** Tv'ets vej: filen hentes fra et delelink (Drev, Dropbox, OneDrive) i stedet for en filvaelger. */
+  async function restoreFromLink(): Promise<void> {
+    setBackupBusy(true);
+    setBackupMessage('Henter filen …');
+    try {
+      await restoreFromText(await fetchBackupFromLink(backupLink));
+    } catch (cause) {
+      setBackupMessage(cause instanceof Error ? cause.message : 'Filen kunne ikke hentes.');
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function restoreFromText(text: string): Promise<void> {
+    {
       const result = await restoreBackup(session.db, parseBackup(text));
       // De valgte logoer hentes om, saa filen paa telefonen er den valgte.
       for (const key of result.overrideKeys) await resetLogo(key);
@@ -279,10 +306,6 @@ export function SettingsScreen({
           ? ''
           : ` Kilden ${result.missingSources.join(', ')} findes ikke her, så dens favoritter blev sprunget over — log ind på den først, og gendan igen.`;
       setBackupMessage(`Gendannet: ${parts.join(', ')}.${missing}`);
-    } catch (cause) {
-      setBackupMessage(cause instanceof Error ? cause.message : 'Filen kunne ikke læses.');
-    } finally {
-      setBackupBusy(false);
     }
   }
 
@@ -737,10 +760,38 @@ export function SettingsScreen({
           trackColor={{ true: colors.accent, false: colors.border }}
         />
       </TvPressable>
-      {backupMessage !== null && <Text style={styles.hint}>{backupMessage}</Text>}
-
         </>
       )}
+      {isTV && (
+        <>
+          <Text style={styles.sectionTitle}>Sikkerhedskopi</Text>
+          <Text style={styles.hint}>
+            Tv'et har ingen filvælger, så kopien hentes fra et link. Gem den på telefonen under
+            Indstillinger → Sikkerhedskopi, læg filen i Google Drev, Dropbox eller OneDrive, del den
+            med "Alle med linket", og skriv linket her. Google TV-appen på telefonen kan skrive det
+            for dig. Log ind på panelet først.
+          </Text>
+        </>
+      )}
+      <TvTextInput
+        style={styles.input}
+        value={backupLink}
+        onChangeText={setBackupLink}
+        placeholder="Link til norstream-sikkerhedskopi.json"
+        autoCorrect={false}
+        autoCapitalize="none"
+        keyboardType="url"
+        returnKeyType="go"
+        onSubmitEditing={() => void restoreFromLink()}
+      />
+      <TvPressable style={styles.row} disabled={backupBusy || backupLink.trim().length === 0} onPress={() => void restoreFromLink()}>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Gendan fra link</Text>
+          <Text style={styles.rowHint}>Henter filen fra linket og erstatter favoritter, grupper, egne logoer og skjulte lande.</Text>
+        </View>
+        <Text style={styles.actionText}>Hent</Text>
+      </TvPressable>
+      {backupMessage !== null && <Text style={styles.hint}>{backupMessage}</Text>}
 
       <Text style={styles.sectionTitle}>Skjulte lande</Text>
       {hidden.length === 0 ? (
