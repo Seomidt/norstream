@@ -9,6 +9,8 @@ import {
   saveVodDetails,
 } from '../storage/vod.js';
 import type { StoredVodItem } from '../storage/vod.js';
+import { getVodItem } from '../storage/vod.js';
+import { listFollowedSeriesKeys } from '../storage/followedSeries.js';
 
 /**
  * Det panelet ved om én titel — fra databasen naar det er friskt nok, ellers
@@ -27,9 +29,10 @@ export async function ensureVodDetails(
   creds: XtreamCredentials | null,
   fetchImpl: FetchLike,
   now: Date = new Date(),
+  maxAgeMs: number = DETAILS_MAX_AGE_MS,
 ): Promise<VodDetails> {
   const cached = await getVodDetails(db, item.key);
-  const fresh = cached !== null && now.getTime() - cached.fetchedAt.getTime() < DETAILS_MAX_AGE_MS;
+  const fresh = cached !== null && now.getTime() - cached.fetchedAt.getTime() < maxAgeMs;
   if (fresh) return cached.details;
   if (creds === null) {
     if (cached !== null) return cached.details;
@@ -52,5 +55,32 @@ export async function ensureVodDetails(
   } catch (cause) {
     if (cached !== null) return cached.details;
     throw cause;
+  }
+}
+
+/** Fulgte serier holdes friske ved hver synkronisering, saa "nye afsnit" paa forsiden passer. */
+const FOLLOWED_MAX_AGE_MS = 6 * 60 * 60_000;
+
+/**
+ * Henter afsnitlisten igen for de serier man foelger fra denne kilde.
+ * Ét kald per fulgt serie, hoejst hver sjette time; alle andre serier
+ * hentes stadig kun naar de aabnes.
+ */
+export async function refreshFollowedSeries(
+  db: SqlDatabase,
+  sourceId: string,
+  creds: XtreamCredentials,
+  fetchImpl: FetchLike,
+  now: Date = new Date(),
+): Promise<void> {
+  const keys = (await listFollowedSeriesKeys(db)).filter((key) => key.startsWith(`${sourceId}:`));
+  for (const key of keys) {
+    const item = await getVodItem(db, key);
+    if (item === null || item.kind !== 'series') continue;
+    try {
+      await ensureVodDetails(db, item, creds, fetchImpl, now, FOLLOWED_MAX_AGE_MS);
+    } catch {
+      // Naeste gang.
+    }
   }
 }

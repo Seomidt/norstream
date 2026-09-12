@@ -22,6 +22,8 @@ interface Props {
   onClose: () => void;
   /** Aabner kanalens hele dag: arkivet dag for dag. */
   onDay?: () => void;
+  /** En udsendelse der ikke er begyndt: paamindelse til/fra. undefined mens det slaas op. */
+  reminder?: { set: boolean; onToggle: () => void };
 }
 
 /**
@@ -43,6 +45,7 @@ export function ProgrammeSheet({
   onRestart,
   onClose,
   onDay,
+  reminder,
 }: Props) {
   const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
@@ -96,6 +99,11 @@ export function ProgrammeSheet({
           {options.restart && (
             <TvPressable style={[styles.button, styles.buttonAccent]} onPress={onRestart} hasTVPreferredFocus={isTV}>
               <Text style={styles.buttonText}>▶ Start forfra</Text>
+            </TvPressable>
+          )}
+          {reminder !== undefined && programme !== null && state === 'future' && (
+            <TvPressable style={[styles.button, reminder.set && styles.buttonAccent]} onPress={reminder.onToggle}>
+              <Text style={styles.buttonText}>{reminder.set ? '✓ Påmindelse sat' : '🔔 Mind mig om det'}</Text>
             </TvPressable>
           )}
           {!options.restart && programme !== null && (

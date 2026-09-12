@@ -15,6 +15,7 @@ import { getVodItem, listEpisodes, setInWatchlist, setWatched } from '../../stor
 import { continueEpisodeFor } from './episodes.js';
 import type { StoredEpisode, StoredVodItem } from '../../storage/vod.js';
 import { ensureVodDetails } from '../../sync/vodDetails.js';
+import { followSeries, isFollowed, markSeriesSeen, unfollowSeries } from '../../storage/followedSeries.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
@@ -66,6 +67,8 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
   const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
   const [item, setItem] = useState<StoredVodItem | null | undefined>(undefined);
+  /** Serien foelges: forsiden viser nye afsnit naar panelet faar dem. */
+  const [followed, setFollowed] = useState(false);
   const [details, setDetails] = useState<VodDetails | null>(null);
   const [episodes, setEpisodes] = useState<StoredEpisode[]>([]);
   const [season, setSeason] = useState<number | null>(null);
@@ -87,6 +90,10 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
       const list = await listEpisodes(session.db, stored.key);
       setEpisodes(list);
       setSeason((current) => current ?? list[0]?.season ?? null);
+      // Listen er set: forsidens "nye afsnit" nulstilles for serien.
+      const following = await isFollowed(session.db, stored.key);
+      setFollowed(following);
+      if (following) await markSeriesSeen(session.db, stored.key);
     }
   }, [session, itemKey]);
 
@@ -272,6 +279,16 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
           >
             <Text style={styles.buttonText}>{item.inWatchlist ? '✓ Min liste' : '+ Min liste'}</Text>
           </TvPressable>
+          {item.kind === 'series' && (
+            <TvPressable
+              style={[styles.button, followed && styles.buttonDone]}
+              onPress={() => {
+                void (followed ? unfollowSeries(session.db, item.key) : followSeries(session.db, item.key)).then(() => setFollowed(!followed));
+              }}
+            >
+              <Text style={styles.buttonText}>{followed ? '✓ Følger serien' : '🔔 Følg serien'}</Text>
+            </TvPressable>
+          )}
         </View>
 
         {creds === null && (

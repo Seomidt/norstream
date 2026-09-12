@@ -18,6 +18,7 @@ import type { StoredChannel } from '../../storage/channels.js';
 import { listProgrammes } from '../../storage/programmes.js';
 import { getFavoriteGroup, setFavoriteGroup, sourcesWithDialect } from '../../storage/settings.js';
 import { listFavoriteGroups } from '../../storage/favoriteGroups.js';
+import { addReminder, hasReminder, removeReminder } from '../../storage/reminders.js';
 import type { FavoriteGroup } from '../../storage/favoriteGroups.js';
 import { ensureFullEpg, ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
@@ -233,6 +234,19 @@ export function GuideScreen({
     channel: StoredChannel;
     cell: GuideCell;
   } | null>(null);
+  /** Om der er sat paamindelse paa bladets udsendelse; null mens det slaas op. */
+  const [sheetReminder, setSheetReminder] = useState<boolean | null>(null);
+  useEffect(() => {
+    setSheetReminder(null);
+    if (sheet === null || sheet.cell.programme === null) return;
+    let cancelled = false;
+    void hasReminder(session.db, sheet.channel.id, sheet.cell.programme.start.getTime()).then((set) => {
+      if (!cancelled) setSheetReminder(set);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session.db, sheet]);
 
   // Nu-tidspunktet fastholdes mens skaermen er aaben, saa cellerne ikke
   // hopper mellem tilstande midt i et tryk. Det opdateres hvert minut.
@@ -879,6 +893,21 @@ export function GuideScreen({
           programme={sheet.cell.programme}
           state={sheet.cell.state}
           hasDialect={hasDialectFor(sheet.channel)}
+          reminder={
+            sheetReminder === null
+              ? undefined
+              : {
+                  set: sheetReminder,
+                  onToggle: () => {
+                    const programme = sheet.cell.programme;
+                    if (programme === null) return;
+                    void (sheetReminder
+                      ? removeReminder(session.db, sheet.channel.id, programme.start.getTime())
+                      : addReminder(session.db, sheet.channel.id, programme)
+                    ).then(() => setSheetReminder(!sheetReminder));
+                  },
+                }
+          }
           onClose={() => setSheet(null)}
           onPlay={() => {
             setSheet(null);

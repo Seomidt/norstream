@@ -14,6 +14,7 @@ import { checkLogoHosts } from './logoHosts.js';
 import { syncChannels } from './syncChannels.js';
 import { syncM3u } from './syncM3u.js';
 import { syncVod } from './syncVod.js';
+import { refreshFollowedSeries } from './vodDetails.js';
 import { syncLogoRegistry } from './syncLogoRegistry.js';
 import { forgetLogoMisses } from '../ui/logoCache.js';
 import { syncXmltv } from './syncXmltv.js';
@@ -96,6 +97,8 @@ export async function syncAllSources(
         // Film og serier foelger kanalernes doegnrytme. Fejler de, staar
         // kanalerne stadig — `syncVod` sluger selv sine fejl per slags.
         await syncVod(db, access.source.id, access.creds, fetchImpl, now);
+        // Serier man foelger: afsnitlisten igen, saa forsiden kan sige "nye afsnit".
+        await refreshFollowedSeries(db, access.source.id, access.creds, fetchImpl, now).catch(() => undefined);
       } else {
         // Kilden findes, men adgangsoplysningerne er vaek fra Keychain.
         result.rejected.push(access.source.name);

@@ -59,7 +59,7 @@ interface Props {
   session: AppSession;
   place: HomePlace;
   onPlaceChange: (place: HomePlace) => void;
-  onSelect: (channel: StoredChannel, startFrom?: Programme, neighbours?: StoredChannel[]) => void;
+  onSelect: (channel: StoredChannel, startFrom?: Programme, neighbours?: StoredChannel[], resumeAtSeconds?: number) => void;
   /** En film eller serie aabnes. Selve afspilningen sker fra dens egen skaerm. */
   onOpenVod: (item: StoredVodItem) => void;
   onSignedOut: (notice: string) => void;
@@ -298,14 +298,14 @@ export function HomeScreen({
    * noget er vaerre end en stream der maaske skal proeve igen.
    */
   const open = useCallback(
-    (channel: StoredChannel, startFrom?: Programme, neighbours?: StoredChannel[]): void => {
+    (channel: StoredChannel, startFrom?: Programme, neighbours?: StoredChannel[], resumeAtSeconds?: number): void => {
       void (async () => {
         try {
           await previewHandle.current?.release();
         } catch {
           // Med vilje.
         }
-        onSelect(channel, startFrom, neighbours);
+        onSelect(channel, startFrom, neighbours, resumeAtSeconds);
       })();
     },
     [onSelect],
@@ -498,6 +498,7 @@ export function HomeScreen({
           <FrontScreen
             session={session}
             onSelect={(channel, neighbours) => open(channel, undefined, neighbours)}
+            onResume={(channel, programme, positionSeconds) => open(channel, programme, undefined, positionSeconds)}
             onOpenVod={onOpenVod}
             onOpenSettings={() => setTab('settings')}
             onBrowse={() => setTab('browse')}

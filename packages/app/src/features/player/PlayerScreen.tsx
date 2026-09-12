@@ -24,6 +24,7 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { setLastChannelId } from '../../storage/settings.js';
+import { recordChannelWatch, saveArchiveProgress } from '../../storage/history.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback, surfaceTypeForPlatform } from './format.js';
 import { restartBlockFor, restartHint } from './restart.js';
 import { TrackPicker } from './TrackPicker.js';
@@ -51,6 +52,8 @@ interface Props {
    * Uden den er der ingen pile.
    */
   zap?: StoredChannel[];
+  /** Forsidens "Fortsaet": spol hertil naar arkivstreamen er klar. */
+  resumeAtSeconds?: number;
 }
 
 const MAX_RETRIES = 2;
@@ -64,6 +67,7 @@ export function PlayerScreen({
   onBack,
   startFrom: initialStartFrom,
   zap,
+  resumeAtSeconds,
 }: Props) {
   const styles = useStyles(makeStyles);
   const landscape = useLandscape();
@@ -134,6 +138,8 @@ export function PlayerScreen({
   // "Se videre" oeverst i favoritterne: den kanal der sidst blev set.
   useEffect(() => {
     void setLastChannelId(session.db, channel.id).catch(() => undefined);
+    // Og forsidens "Sidst sete".
+    void recordChannelWatch(session.db, channel.id).catch(() => undefined);
   }, [session.db, channel.id]);
 
   const zapList = zap ?? [];
@@ -180,8 +186,40 @@ export function PlayerScreen({
     p.loop = false;
     p.staysActiveInBackground = isRadio;
     p.showNowPlayingNotification = isRadio;
+    // Hvert sekund: hvor langt arkivstreamen er naaet, til "Fortsaet".
+    p.timeUpdateEventInterval = 1;
     p.play();
   });
+
+  /**
+   * Fremdrift i arkivet, til forsidens "Fortsaet": gemmes hvert tiende
+   * sekund mens en udsendelse startet forfra spiller. Og "Fortsaet" den
+   * anden vej: naar streamen er klar, spoles der til hvor man slap.
+   */
+  const lastSaved = useRef(0);
+  const resumed = useRef(false);
+  useEffect(() => {
+    const subscription = player.addListener('timeUpdate', ({ currentTime }: { currentTime: number }) => {
+      if (!restarted || startFrom === undefined || !Number.isFinite(currentTime)) return;
+      if (currentTime - lastSaved.current < 10 && currentTime >= lastSaved.current) return;
+      lastSaved.current = currentTime;
+      void saveArchiveProgress(session.db, channel.id, startFrom, currentTime).catch(() => undefined);
+    });
+    return () => subscription.remove();
+  }, [player, restarted, startFrom, session.db, channel.id]);
+  useEffect(() => {
+    if (resumeAtSeconds === undefined || resumeAtSeconds <= 0) return;
+    const subscription = player.addListener('statusChange', ({ status }: { status: string }) => {
+      if (status !== 'readyToPlay' || resumed.current || !restarted) return;
+      resumed.current = true;
+      try {
+        player.currentTime = resumeAtSeconds;
+      } catch {
+        // Afspilleren er vaek.
+      }
+    });
+    return () => subscription.remove();
+  }, [player, resumeAtSeconds, restarted]);
   useEffect(() => {
     try {
       player.staysActiveInBackground = isRadio;

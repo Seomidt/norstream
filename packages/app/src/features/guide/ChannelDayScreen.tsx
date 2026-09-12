@@ -13,6 +13,7 @@ import { ProgrammeSheet } from './ProgrammeSheet.js';
 import type { CellState } from './layout.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
+import { addReminder, hasReminder, removeReminder } from '../../storage/reminders.js';
 
 interface Props {
   session: AppSession;
@@ -45,6 +46,18 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
   const [programmes, setProgrammes] = useState<Programme[] | null>(null);
   const [fetching, setFetching] = useState(true);
   const [sheet, setSheet] = useState<{ programme: Programme; state: CellState } | null>(null);
+  const [sheetReminder, setSheetReminder] = useState<boolean | null>(null);
+  useEffect(() => {
+    setSheetReminder(null);
+    if (sheet === null) return;
+    let cancelled = false;
+    void hasReminder(session.db, channel.id, sheet.programme.start.getTime()).then((set) => {
+      if (!cancelled) setSheetReminder(set);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session.db, channel.id, sheet]);
   const now = new Date();
 
   /**
@@ -193,6 +206,19 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
           programme={sheet.programme}
           state={sheet.state}
           hasDialect={hasDialect}
+          reminder={
+            sheetReminder === null
+              ? undefined
+              : {
+                  set: sheetReminder,
+                  onToggle: () => {
+                    void (sheetReminder
+                      ? removeReminder(session.db, channel.id, sheet.programme.start.getTime())
+                      : addReminder(session.db, channel.id, sheet.programme)
+                    ).then(() => setSheetReminder(!sheetReminder));
+                  },
+                }
+          }
           onClose={() => setSheet(null)}
           onPlay={() => {
             setSheet(null);

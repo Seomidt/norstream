@@ -26,13 +26,14 @@ import { getThemeMode, getThemePlace } from './src/storage/settings.js';
 import { CanvasContext, TV_SAFE_MARGIN, TV_SCALE, isTV } from './src/ui/tv.js';
 import { startTvKeyTracking } from './src/ui/tvKeys.js';
 import { TvPressable } from './src/ui/TvPressable.js';
+import { ReminderBanner } from './src/features/reminders/ReminderBanner.js';
 
 type Route =
   | { name: 'loading' }
   | { name: 'onboarding'; notice?: string }
   | { name: 'home' }
   /** `startFrom` er sat naar afspilningen kommer fra guidens start-forfra. */
-  | { name: 'player'; channel: StoredChannel; startFrom?: Programme; zap?: StoredChannel[] }
+  | { name: 'player'; channel: StoredChannel; startFrom?: Programme; zap?: StoredChannel[]; resumeAtSeconds?: number }
   /** En film eller serie. Afspilleren husker hvilken titel den kom fra. */
   | { name: 'vodDetail'; itemKey: string }
   | { name: 'vodPlayer'; itemKey: string; playback: Playback }
@@ -261,8 +262,8 @@ function AppInner() {
           place={place}
           onPlaceChange={setPlace}
           covered={route.name !== 'home'}
-          onSelect={(channel, startFrom, neighbours) =>
-            setRoute({ name: 'player', channel, startFrom, zap: neighbours })
+          onSelect={(channel, startFrom, neighbours, resumeAtSeconds) =>
+            setRoute({ name: 'player', channel, startFrom, zap: neighbours, resumeAtSeconds })
           }
           onOpenVod={(item) => setRoute({ name: 'vodDetail', itemKey: item.key })}
           backRef={homeBack}
@@ -286,10 +287,13 @@ function AppInner() {
         <ThemeProvider scheme="dark">
         <View style={styles.overlay}>
           <PlayerScreen
+            // Ny kanal fra en paamindelse mens afspilleren er aaben: tegnes forfra.
+            key={`${route.channel.id}:${route.startFrom?.start.getTime() ?? 'live'}`}
             session={session}
             channel={route.channel}
             startFrom={route.startFrom}
             zap={route.zap}
+            resumeAtSeconds={route.resumeAtSeconds}
             onBack={() => setRoute({ name: 'home' })}
           />
         </View>
@@ -332,6 +336,10 @@ function AppInner() {
           />
         </View>
         </ThemeProvider>
+      )}
+      {/* Paamindelser om udsendelser: oven paa alt, ogsaa afspilleren. */}
+      {session !== null && route.name !== 'loading' && route.name !== 'onboarding' && (
+        <ReminderBanner db={session.db} onOpen={(channel) => setRoute({ name: 'player', channel })} />
       )}
       </SafeAreaView>
       </View>

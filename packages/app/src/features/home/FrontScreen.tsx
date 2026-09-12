@@ -19,6 +19,12 @@ import { getNowNext } from '../../storage/programmes.js';
 import { ensureEpg } from '../../sync/epgCache.js';
 import { describeError } from '../../sync/syncVod.js';
 import { getHomeProviders, getLastChannelId, getSetting, getTmdbApiKey, setSetting } from '../../storage/settings.js';
+import { listArchiveProgress, listRecentChannels } from '../../storage/history.js';
+import type { ArchiveProgress } from '../../storage/history.js';
+import { listFavoriteGroups } from '../../storage/favoriteGroups.js';
+import type { FavoriteGroup } from '../../storage/favoriteGroups.js';
+import { listFollowedSeries } from '../../storage/followedSeries.js';
+import type { FollowedSeries } from '../../storage/followedSeries.js';
 import type { HomeProvider } from '../../storage/settings.js';
 import type { SqlDatabase } from '../../storage/types.js';
 import { listVodItems } from '../../storage/vod.js';
@@ -38,6 +44,8 @@ import { findInPanel } from './panelMatch.js';
 interface Props {
   session: AppSession;
   onSelect: (channel: StoredChannel, neighbours: StoredChannel[]) => void;
+  /** "Fortsaet": en udsendelse startet forfra, spolet til hvor man slap. */
+  onResume: (channel: StoredChannel, programme: Programme, positionSeconds: number) => void;
   onOpenVod: (item: StoredVodItem) => void;
   onOpenSettings: () => void;
   onBrowse: () => void;
@@ -50,6 +58,8 @@ interface Props {
 /** Hvor mange favoritter der vises i raekken. Resten er paa deres egen fane. */
 const FAVOURITES_LIMIT = 12;
 const IN_PROGRESS_LIMIT = 10;
+/** Sidst sete kanaler paa forsiden. */
+const RECENT_LIMIT = 5;
 const NEWEST_LIMIT = 15;
 /** Plakatbredden i forsidens raekker. Mindre paa tv: 104 punkter er 208 pixel paa en 1080p-skaerm, og raekken tog en tredjedel af hoejden. */
 const POSTER_WIDTH = isTV ? 96 : 104;
@@ -103,7 +113,11 @@ async function storedShelf(db: SqlDatabase, key: string): Promise<{ at: number; 
 
 type Row =
   | { kind: 'continue' }
+  | { kind: 'archive' }
+  | { kind: 'recent' }
   | { kind: 'favourites' }
+  | { kind: 'group'; group: FavoriteGroup }
+  | { kind: 'followed' }
   | { kind: 'card'; card: 'key' | 'providers' }
   | { kind: 'provider'; provider: HomeProvider }
   | { kind: 'trending' }
@@ -111,6 +125,8 @@ type Row =
 
 /** Bredden paa et kanalkort i raekken, til at regne placeringer ud uden at maale. */
 const CHANNEL_WIDTH = 132;
+/** Kortet for en paabegyndt arkivudsendelse: bredere, der er en titel og en bjaelke. */
+const ARCHIVE_WIDTH = 180;
 
 interface FavouriteNow {
   channel: StoredChannel;
@@ -137,6 +153,7 @@ interface Sheet {
 export function FrontScreen({
   session,
   onSelect,
+  onResume,
   onOpenVod,
   onOpenSettings,
   onBrowse,
@@ -154,6 +171,11 @@ export function FrontScreen({
   }, [reloadToken]);
   const [lastNow, setLastNow] = useState<Programme | null>(null);
   const [favourites, setFavourites] = useState<FavouriteNow[] | null>(null);
+  /** Forsidens nye raekker: sidst sete, paabegyndte arkivudsendelser, favoritgrupperne med det de sender, fulgte serier. */
+  const [recent, setRecent] = useState<FavouriteNow[]>([]);
+  const [archive, setArchive] = useState<ArchiveProgress[]>([]);
+  const [groupsNow, setGroupsNow] = useState<Array<{ group: FavoriteGroup; entries: FavouriteNow[] }>>([]);
+  const [followed, setFollowed] = useState<FollowedSeries[]>([]);
   const [inProgress, setInProgress] = useState<StoredVodItem[]>([]);
   const [newest, setNewest] = useState<StoredVodItem[]>([]);
   const [tmdbKey, setTmdbKey] = useState<string | null>(null);
@@ -195,6 +217,23 @@ export function FrontScreen({
     setLastChannel(last);
     setLastNow(last === null ? null : await nowFor(last));
     setFavourites(await withNow(favouriteChannels));
+    // De nye raekker. Hver for sig og fejltolerant: en tom raekke er bare vaek.
+    const [recentChannels, started, groups, series] = await Promise.all([
+      listRecentChannels(session.db, RECENT_LIMIT).catch(() => []),
+      listArchiveProgress(session.db, now.getTime()).catch(() => []),
+      listFavoriteGroups(session.db).catch(() => []),
+      listFollowedSeries(session.db).catch(() => []),
+    ]);
+    setRecent(await withNow(recentChannels));
+    setArchive(started);
+    setFollowed(series);
+    const perGroup = await Promise.all(
+      groups.map(async (group) => ({
+        group,
+        entries: await withNow(await listChannels(session.db, { favouritesOnly: true, groupId: group.id, limit: FAVOURITES_LIMIT })),
+      })),
+    );
+    setGroupsNow(perGroup.filter((entry) => entry.entries.length > 0));
 
     // Bagefter: det panelet har, for de kanaler cachen ikke daekker. Cachen
     // foerst, saa kortene ikke staar tomme mens panelet svarer.
@@ -295,7 +334,11 @@ export function FrontScreen({
    */
   const rows: Row[] = [];
   if (hasContinue) rows.push({ kind: 'continue' });
+  if (archive.length > 0) rows.push({ kind: 'archive' });
+  if (recent.length > 0) rows.push({ kind: 'recent' });
   rows.push({ kind: 'favourites' });
+  for (const entry of groupsNow) rows.push({ kind: 'group', group: entry.group });
+  if (followed.some((entry) => entry.episodes > entry.seenEpisodes)) rows.push({ kind: 'followed' });
   // Kortet om noeglen kun paa telefonen, og kortet "vaelg tjenester" slet
   // ikke: paa tv stod de som fremmede kasser midt paa forsiden, og valget
   // ligger under Indstillinger, hvor man alligevel skal hen.
@@ -319,6 +362,86 @@ export function FrontScreen({
                   <Poster item={entry.vod} width={POSTER_WIDTH} onOpen={onOpenVod} />
                 )
               }
+            />
+          </Section>
+        );
+      case 'archive':
+        return (
+          <Section title="Fortsæt hvor du slap">
+            <Shelf
+              data={archive.map((entry) => ({ key: `${entry.channel.id}:${entry.programme.start.getTime()}`, entry }))}
+              width={ARCHIVE_WIDTH}
+              renderItem={({ entry }) => (
+                <TvPressable style={styles.archive} onPress={() => onResume(entry.channel, entry.programme, entry.positionSeconds)}>
+                  <View style={styles.archiveHead}>
+                    <ChannelLogo uris={entry.channel.logoUrls} name={entry.channel.name} memoryKey={entry.channel.id} size={28} />
+                    <Text style={styles.channelNow} numberOfLines={1}>
+                      {entry.channel.name}
+                    </Text>
+                  </View>
+                  <Text style={styles.channelName} numberOfLines={2}>
+                    {entry.programme.title}
+                  </Text>
+                  <Text style={styles.archiveWhere}>Fra {Math.max(1, Math.round(entry.positionSeconds / 60))} min</Text>
+                  <View style={styles.track}>
+                    <View
+                      style={[
+                        styles.fill,
+                        { width: `${Math.round((100 * entry.positionSeconds) / Math.max(1, (entry.programme.stop.getTime() - entry.programme.start.getTime()) / 1000))}%` },
+                      ]}
+                    />
+                  </View>
+                </TvPressable>
+              )}
+            />
+          </Section>
+        );
+      case 'recent':
+        return (
+          <Section title="Sidst sete">
+            <Shelf
+              data={recent.map((entry) => ({ key: entry.channel.id, entry }))}
+              width={CHANNEL_WIDTH}
+              renderItem={({ entry }) => (
+                <ChannelCard channel={entry.channel} now={entry.now} onPress={() => onSelect(entry.channel, recent.map((r) => r.channel))} />
+              )}
+            />
+          </Section>
+        );
+      case 'group': {
+        const found = groupsNow.find((entry) => entry.group.id === item.group.id);
+        if (found === undefined) return null;
+        return (
+          <Section title={`${item.group.name} nu`}>
+            <Shelf
+              data={found.entries.map((entry) => ({ key: entry.channel.id, entry }))}
+              width={CHANNEL_WIDTH}
+              renderItem={({ entry }) => (
+                <ChannelCard
+                  channel={entry.channel}
+                  now={entry.now}
+                  minutesLeft={entry.now === null ? null : Math.max(0, Math.ceil((entry.now.stop.getTime() - Date.now()) / 60_000))}
+                  onPress={() => onSelect(entry.channel, found.entries.map((r) => r.channel))}
+                />
+              )}
+            />
+          </Section>
+        );
+      }
+      case 'followed':
+        return (
+          <Section title="Nye afsnit">
+            <Shelf
+              data={followed.filter((entry) => entry.episodes > entry.seenEpisodes).map((entry) => ({ key: entry.series.key, entry }))}
+              width={POSTER_WIDTH}
+              renderItem={({ entry }) => (
+                <View>
+                  <Poster item={entry.series} width={POSTER_WIDTH} onOpen={onOpenVod} />
+                  <Text style={styles.newEpisodes}>
+                    {entry.episodes - entry.seenEpisodes === 1 ? '1 nyt afsnit' : `${entry.episodes - entry.seenEpisodes} nye afsnit`}
+                  </Text>
+                </View>
+              )}
             />
           </Section>
         );
@@ -543,11 +666,14 @@ const ChannelCard = memo(function ChannelCard({
   channel,
   now,
   wide,
+  minutesLeft,
   onPress,
 }: {
   channel: StoredChannel;
   now: Programme | null;
   wide?: boolean;
+  /** Grupperaekkerne: hvor laenge det der sender nu varer endnu. */
+  minutesLeft?: number | null;
   onPress: () => void;
 }) {
   const styles = useStyles(makeStyles);
@@ -560,6 +686,7 @@ const ChannelCard = memo(function ChannelCard({
       <Text style={styles.channelNow} numberOfLines={2}>
         {now === null ? (wide === true ? 'Sidst set' : ' ') : now.title}
       </Text>
+      {minutesLeft !== undefined && minutesLeft !== null && <Text style={styles.minutesLeft}>{minutesLeft} min tilbage</Text>}
     </TvPressable>
   );
 });
@@ -627,6 +754,19 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   channelWide: { width: 160 },
   channelName: { color: colors.text, fontSize: 13, fontWeight: '600' },
   channelNow: { color: colors.textMuted, fontSize: 12, minHeight: 32 },
+  minutesLeft: { color: colors.accent, fontSize: 11, fontWeight: '600' },
+  archive: {
+    width: ARCHIVE_WIDTH,
+    padding: theme.spacing.sm,
+    borderRadius: theme.radius,
+    backgroundColor: colors.surface,
+    gap: 4,
+  },
+  archiveHead: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.xs },
+  archiveWhere: { color: colors.accent, fontSize: 12, fontWeight: '600' },
+  track: { height: 3, borderRadius: 2, backgroundColor: colors.border, overflow: 'hidden' },
+  fill: { height: 3, backgroundColor: colors.accent },
+  newEpisodes: { color: colors.accent, fontSize: 11, fontWeight: '600', marginTop: 4, width: POSTER_WIDTH },
   title: { width: POSTER_WIDTH },
   titleFrame: {
     width: POSTER_WIDTH,
