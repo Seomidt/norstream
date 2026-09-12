@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import { streamSource } from '../../net/doh.js';
 import type { AudioTrack, SubtitleTrack } from 'expo-video';
 import type { AppSession } from '../../session.js';
 import { getSubtitlePreference } from '../../storage/settings.js';
@@ -69,7 +70,7 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
   const [error, setError] = useState<string | null>(null);
   const resumed = useRef(false);
 
-  const player = useVideoPlayer(current.url, (p) => {
+  const player = useVideoPlayer(streamSource(current.url), (p) => {
     p.loop = false;
     // Én gang i sekundet melder afspilleren hvor langt den er. Det er den
     // eneste kilde til fremdriften ved afgang; se `lastKnown`.

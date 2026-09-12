@@ -9,6 +9,7 @@ import { theme } from '../../ui/theme.js';
 import { useStyles } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { liveUrlFor } from '../../sources/access.js';
+import { streamSource } from '../../net/doh.js';
 import { formatForPlatform } from '../player/format.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
@@ -121,7 +122,7 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
       // Uden adresse er der intet at vise. Et forsoeg paa at aabne null ville
       // efterlade et sort felt der ligner en stream der ikke ville starte.
       if (url === null) return;
-      await player.replaceAsync(url);
+      await player.replaceAsync(streamSource(url));
       if (cancelled) return;
       player.muted = muted;
       player.play();

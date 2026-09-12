@@ -1,6 +1,7 @@
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
 import { withPanelCooldown } from './net/cooldown.js';
 import { createFetchImpl } from './net/fetchImpl.js';
+import { withDnsFallback } from './net/doh.js';
 import { initLogoCache } from './ui/logoCache.js';
 import { createLogoFileStore } from './ui/logoFiles.js';
 import { initPosterFill } from './ui/posterFill.js';
@@ -91,7 +92,8 @@ export async function createSession(): Promise<AppSession> {
   await initLogoCache(db, createLogoFileStore());
 
   const sources = await readSources(db);
-  const fetchImpl = withPanelCooldown(createFetchImpl());
+  // Nedkoelingen yderst (den ser panelets navn), DNS-noedudgangen inderst.
+  const fetchImpl = withPanelCooldown(withDnsFallback(createFetchImpl()));
   // Plakater til film og serier uden: slaas op efterhaanden som de vises.
   // Egen hentning: TMDBs laesetoken skal med som et hoved, og appens
   // saedvanlige fetch kender ingen hoveder.

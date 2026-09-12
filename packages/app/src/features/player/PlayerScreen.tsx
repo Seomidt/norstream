@@ -18,6 +18,7 @@ import type { SubtitlePreference } from '../../storage/settings.js';
 import { ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { liveUrlFor } from '../../sources/access.js';
+import { streamSource } from '../../net/doh.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
@@ -184,7 +185,7 @@ export function PlayerScreen({
   // panelets radiokanaler gaar gennem panelet og sender ingen titel.
   const nowPlaying = useRadioNowPlaying(isRadioKey(channel.id) ? channel.streamUrl : null, channel.name, isRadio && radioState === 'playing');
   const saveSong = useSaveSong(session.db, nowPlaying, channel.name);
-  const player = useVideoPlayer(source, (p) => {
+  const player = useVideoPlayer(source === null ? null : streamSource(source), (p) => {
     p.loop = false;
     p.staysActiveInBackground = isRadio;
     p.showNowPlayingNotification = isRadio;
@@ -352,7 +353,7 @@ export function PlayerScreen({
 
   useEffect(() => {
     if (source === null) return;
-    player.replace(source);
+    player.replace(streamSource(source));
     player.play();
   }, [player, source]);
 
@@ -385,8 +386,8 @@ export function PlayerScreen({
       if (attempt <= MAX_RETRIES) {
         if (retryTimer !== null) clearTimeout(retryTimer);
         retryTimer = setTimeout(() => {
-          if (cancelled) return;
-          player.replace(source);
+          if (cancelled || source === null) return;
+          player.replace(streamSource(source));
           player.play();
         }, attempt * RETRY_BACKOFF_MS);
         return;

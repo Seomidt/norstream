@@ -1,3 +1,4 @@
+import { DOH_RESOLVERS, parseDnsJson } from './doh.js';
 /**
  * Maaler vejen fra telefonen til panelet, trin for trin.
  *
@@ -75,26 +76,15 @@ function describeError(cause: unknown): string {
 }
 
 async function resolveOverHttps(probe: Probe, host: string): Promise<{ ips: string[]; via: string }> {
-  const attempts: Array<{ via: string; url: string; headers?: Record<string, string> }> = [
-    { via: 'Google', url: `https://dns.google/resolve?name=${encodeURIComponent(host)}&type=A` },
-    {
-      via: 'Cloudflare',
-      url: `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(host)}&type=A`,
-      headers: { accept: 'application/dns-json' },
-    },
-  ];
   let lastError = '';
-  for (const attempt of attempts) {
+  for (const resolver of DOH_RESOLVERS) {
     try {
-      const response = await probe(attempt.url, attempt.headers);
-      const parsed = JSON.parse(response.text) as { Answer?: Array<{ type?: number; data?: string }> };
-      const ips = (parsed.Answer ?? [])
-        .filter((answer) => answer.type === 1 && typeof answer.data === 'string')
-        .map((answer) => answer.data as string);
-      if (ips.length > 0) return { ips, via: attempt.via };
-      lastError = `${attempt.via} kender ikke navnet`;
+      const response = await probe(resolver.url(host), resolver.headers);
+      const ips = parseDnsJson(response.text);
+      if (ips.length > 0) return { ips, via: resolver.via };
+      lastError = `${resolver.via} kender ikke navnet`;
     } catch (cause) {
-      lastError = `${attempt.via}: ${describeError(cause)}`;
+      lastError = `${resolver.via}: ${describeError(cause)}`;
     }
   }
   throw new Error(lastError);
