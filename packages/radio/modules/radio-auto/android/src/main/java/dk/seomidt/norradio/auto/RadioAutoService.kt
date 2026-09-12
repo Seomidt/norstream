@@ -159,7 +159,7 @@ class RadioAutoService : MediaLibraryService() {
   private fun saveSongButton(): CommandButton? {
     val song = currentSong ?: return null
     val saved = SavedSongs.isPending(this, song)
-    return CommandButton.Builder(if (saved) CommandButton.ICON_BOOKMARK_FILLED else CommandButton.ICON_BOOKMARK)
+    return CommandButton.Builder(if (saved) CommandButton.ICON_BOOKMARK_FILLED else CommandButton.ICON_BOOKMARK_UNFILLED)
       .setDisplayName(if (saved) "Sangen er gemt" else "Gem sang")
       .setSessionCommand(SessionCommand(CMD_SAVE_SONG, Bundle.EMPTY))
       .setEnabled(!saved)

@@ -87,8 +87,8 @@ class RadioAutoModule : Module() {
     Function("setAlarm") { json: String -> appContext.reactContext?.let { Alarm.set(it, json) } }
     Function("canScheduleExactAlarms") { appContext.reactContext?.let { Alarm.canScheduleExact(it) } ?: true }
     Function("openExactAlarmSettings") {
-      val context = appContext.reactContext ?: return@Function
-      if (Build.VERSION.SDK_INT >= 31) {
+      val context = appContext.reactContext
+      if (context != null && Build.VERSION.SDK_INT >= 31) {
         try {
           context.startActivity(
             Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
@@ -99,6 +99,7 @@ class RadioAutoModule : Module() {
           // Ingen saadan side paa denne telefon.
         }
       }
+      Unit
     }
     Function("pendingSongs") { appContext.reactContext?.let { SavedSongs.pending(it) } ?: emptyList<Map<String, Any?>>() }
     Function("clearPendingSongs") { appContext.reactContext?.let { SavedSongs.clearPending(it) } }
