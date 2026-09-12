@@ -7,7 +7,10 @@ import { countRadioChannels } from '../../storage/channels.js';
 import { createBackup, parseBackup, restoreBackup, serialiseBackup } from '../../storage/backup.js';
 import { forgetLogoMisses, resetLogo } from '../../ui/logoCache.js';
 import { setPosterApiKey } from '../../ui/posterFill.js';
-import { readChosenBackupFile, saveBackupToChosenFolder } from './backupFiles.js';
+import { pickBackupFolder, readChosenBackupFile, saveBackupToChosenFolder, writeBackupToFolder } from './backupFiles.js';
+import { getAutoBackupState, runWeeklyBackup } from '../../storage/autoBackup.js';
+import type { AutoBackupState } from '../../storage/autoBackup.js';
+import { setBackupFolderUri } from '../../storage/settings.js';
 import { listHiddenCountries, unhideCountry } from '../../storage/countries.js';
 import { OTHER_COUNTRY_KEY } from '../../storage/countries.js';
 import { clearSourceCredentials } from '../../storage/credentials.js';
@@ -134,6 +137,8 @@ export function SettingsScreen({
   /** Hvad sidste sikkerhedskopiering eller gendannelse endte med. */
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
+  /** Den automatiske ugentlige kopi: mappe, sidste skrivning, om den fejlede. */
+  const [autoBackup, setAutoBackup] = useState<AutoBackupState>({ folderUri: null, lastMs: null, failed: false });
   const [providersOpen, setProvidersOpen] = useState(false);
   const [videoSurface, setVideoSurfaceState] = useState<VideoSurface>('surface');
   const [themeMode, setThemeModeState] = useState<ThemeMode>(themePreference().mode);
@@ -165,6 +170,7 @@ export function SettingsScreen({
     applyVideoSurfaceSetting(surface);
     setThemePlaceState((await getThemePlace(session.db)) ?? themePreference().placeKey);
     setRadio(await countRadioChannels(session.db));
+    setAutoBackup(await getAutoBackupState(session.db));
     const errors: string[] = [];
     for (const access of session.sources) {
       const error = await getSetting(session.db, `last_vod_error:${access.source.id}`);
@@ -219,6 +225,34 @@ export function SettingsScreen({
       setBackupMessage(saved ? 'Sikkerhedskopien er gemt i den valgte mappe.' : null);
     } catch {
       setBackupMessage('Sikkerhedskopien kunne ikke gemmes.');
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  /**
+   * Slaar den ugentlige kopi til ved at vaelge mappen én gang og skrive
+   * med det samme; fra igen ved at glemme mappen. Filen i mappen bliver.
+   */
+  async function toggleAutoBackup(on: boolean): Promise<void> {
+    setBackupBusy(true);
+    try {
+      if (!on) {
+        await setBackupFolderUri(session.db, null);
+        setAutoBackup(await getAutoBackupState(session.db));
+        setBackupMessage('Den automatiske sikkerhedskopi er slået fra.');
+        return;
+      }
+      const folderUri = await pickBackupFolder();
+      if (folderUri === null) return;
+      await setBackupFolderUri(session.db, folderUri);
+      const result = await runWeeklyBackup(session.db, writeBackupToFolder, Date.now(), true);
+      setAutoBackup(await getAutoBackupState(session.db));
+      setBackupMessage(
+        result === 'written'
+          ? 'Sikkerhedskopien er gemt, og den fornys hver uge i den valgte mappe.'
+          : 'Der kunne ikke skrives i mappen. Prøv en anden.',
+      );
     } finally {
       setBackupBusy(false);
     }
@@ -679,6 +713,29 @@ export function SettingsScreen({
           </Text>
         </View>
         <Text style={styles.actionText}>Vælg fil</Text>
+      </TvPressable>
+      <TvPressable style={styles.row} disabled={backupBusy} onPress={() => void toggleAutoBackup(autoBackup.folderUri === null)}>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Automatisk sikkerhedskopi hver uge</Text>
+          <Text style={styles.rowHint}>
+            {autoBackup.folderUri === null
+              ? 'Vælg en mappe én gang, så fornys filen der af sig selv.'
+              : autoBackup.failed
+                ? 'Mappen kunne ikke nås sidst. Slå fra og til igen for at vælge en ny.'
+                : autoBackup.lastMs === null
+                  ? 'Slået til. Første kopi skrives ved næste start.'
+                  : `Sidst gemt ${new Date(autoBackup.lastMs).toLocaleDateString('da-DK', { day: 'numeric', month: 'long' })}.`}
+          </Text>
+        </View>
+        <Switch
+          value={autoBackup.folderUri !== null}
+          focusable={false}
+          disabled={backupBusy}
+          onValueChange={(value) => {
+            void toggleAutoBackup(value);
+          }}
+          trackColor={{ true: colors.accent, false: colors.border }}
+        />
       </TvPressable>
       {backupMessage !== null && <Text style={styles.hint}>{backupMessage}</Text>}
 

@@ -16,6 +16,9 @@ const KEY_GOOGLE_SEARCH_KEY = 'google_search_key';
 const KEY_GOOGLE_SEARCH_CX = 'google_search_cx';
 const KEY_LAST_CHANNEL = 'last_channel_id';
 const KEY_HOME_PROVIDERS = 'home_providers';
+const KEY_BACKUP_FOLDER = 'backup_folder_uri';
+const KEY_BACKUP_LAST = 'backup_auto_last_ms';
+const KEY_BACKUP_FAILED = 'backup_auto_failed';
 
 export async function getSetting(
   db: SqlDatabase,
@@ -435,4 +438,39 @@ export async function getFavoriteGroup(db: SqlDatabase): Promise<string | null> 
 
 export async function setFavoriteGroup(db: SqlDatabase, id: string | null): Promise<void> {
   await setSetting(db, KEY_FAVORITE_GROUP, id ?? '');
+}
+
+/**
+ * Mappen den automatiske sikkerhedskopi skrives i, som systemets egen
+ * adresse (content://...), eller null naar den er slaaet fra. Adressen er
+ * givet af mappevaelgeren med varig tilladelse, saa den holder efter genstart.
+ */
+export async function getBackupFolderUri(db: SqlDatabase): Promise<string | null> {
+  const value = await getSetting(db, KEY_BACKUP_FOLDER);
+  return value === null || value.length === 0 ? null : value;
+}
+
+export async function setBackupFolderUri(db: SqlDatabase, uri: string | null): Promise<void> {
+  await setSetting(db, KEY_BACKUP_FOLDER, uri ?? '');
+}
+
+/** Hvornaar den automatiske kopi sidst blev skrevet, eller null. */
+export async function getBackupLastMs(db: SqlDatabase): Promise<number | null> {
+  const value = await getSetting(db, KEY_BACKUP_LAST);
+  if (value === null) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+export async function setBackupLastMs(db: SqlDatabase, ms: number): Promise<void> {
+  await setSetting(db, KEY_BACKUP_LAST, String(Math.trunc(ms)));
+}
+
+/** Sandt naar sidste forsoeg paa at skrive den automatiske kopi mislykkedes. */
+export async function getBackupFailed(db: SqlDatabase): Promise<boolean> {
+  return (await getSetting(db, KEY_BACKUP_FAILED)) === '1';
+}
+
+export async function setBackupFailed(db: SqlDatabase, failed: boolean): Promise<void> {
+  await setSetting(db, KEY_BACKUP_FAILED, failed ? '1' : '0');
 }

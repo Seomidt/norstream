@@ -34,6 +34,8 @@ import { ConnectionCheckScreen } from '../settings/ConnectionCheckScreen.js';
 import { LogoPickerScreen } from '../settings/LogoPickerScreen.js';
 import { Notice } from '../../ui/Notice.js';
 import { applyStreamFormatSetting, applyVideoSurfaceSetting } from '../player/format.js';
+import { runWeeklyBackup } from '../../storage/autoBackup.js';
+import { writeBackupToFolder } from '../settings/backupFiles.js';
 import { VodScreen } from '../vod/VodScreen.js';
 import type { VodLevel } from '../vod/VodScreen.js';
 import type { StoredVodItem } from '../../storage/vod.js';
@@ -219,6 +221,14 @@ export function HomeScreen({
       // Indstillinger har vaeret aabnet.
       applyStreamFormatSetting(format);
       applyVideoSurfaceSetting(surface);
+      // Den ugentlige sikkerhedskopi, naar en mappe er valgt. Kun telefon:
+      // tv har ingen mappevaelger. Lidt efter start, saa den ikke staar i
+      // vejen for det foerste billede.
+      if (!isTV) {
+        setTimeout(() => {
+          void runWeeklyBackup(session.db, writeBackupToFolder);
+        }, 15_000);
+      }
     })();
     return () => {
       cancelled = true;
