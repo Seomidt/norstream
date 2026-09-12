@@ -18,36 +18,61 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
-Plan 1 (EPG og guide) og Plan 2 (navigation) er **implementeret og verificeret**, men **endnu ikke afprøvet på brugerens rigtige panel**. Det er det næste der skal ske: byg en APK og lad brugeren teste.
+**12. september 2026.** Appen kører på brugerens Google TV Streamer og
+telefon mod det rigtige panel, og brugerens ord er "nu er det hele
+efterhånden som det skal være". Nyeste builds: **tv 193, telefon 194,
+NorRadio 171** (GitHub Actions, `build-android.yml`). Alt bygges via
+GitHub, aldrig EAS; se `docs/BYG-FRA-CHAT.md`.
 
-### Hvad der er lavet siden sidst
+### Det der er på plads
 
-De tre problemer fra sidste overdragelse er alle adresseret:
+- **Tv-udgaven** følger Googles regler for tv (D-pad, fokus, Tilbage,
+  menusøjle, afspilningstaster). Reglerne og hvordan appen følger dem står
+  i `docs/ANDROID-TV.md` afsnit 4, sammen med alle fælderne. Læs den før
+  du ændrer noget der tegnes eller får fokus.
+- **Tema**: lyst og mørkt, følger solen som standard (også på tv), kan
+  låses under Indstillinger. Farver læses gennem `useTheme()`/`useStyles`.
+- **Favoritgrupper**: én favoritliste med grupper ovenpå (Sport, Film …),
+  brugerens egne. Gælder Favoritter, Guide og zapning. Skema v20.
+- **Guide på tv**: gitteret holder på fokus, pil venstre/højre i kanten
+  bladrer en time, gruppeknapper over gitteret, højre søjle beskriver
+  udsendelsen man står på, Tilbage går til nu og så menuen.
+- **Afspiller på tv**: egne knapper (ingen indbyggede), pause og spoling
+  ved start forfra og i film, OK/pile/medietaster som Google kræver,
+  altid mørkt tema, Videogengivelse (SurfaceView/TextureView) under
+  Indstillinger, diagnoselinje med videosporet.
+- **Radio**: populære stationer øverst (registrets stemmer), Mine stationer
+  og Lande i toppen, stort cover med album/år/genre og et par linjer om
+  sangen (iTunes + Wikipedia). NorRadio (bilen) har samme rækkefølge.
+- **Plakater**: TMDB-fejl (forkert nøgle, nede) gemmes ikke som "findes
+  ikke"; "Hent kanaler, film og serier nu" glemmer gamle nej.
+- **Indstillinger på tv** viser kun det der bruges der; tjenester foldet
+  sammen; tema, sted for solen, videogengivelse.
+- **Repositoriet er offentligt** (historikken er gennemgået for nøgler).
+  Workflowet bruger secret `EXPO`; det gamle Expo-token skal være
+  tilbagekaldt.
 
-| Var | Nu |
-|---|---|
-| EPG tom — 98 MB XMLTV nåede aldrig frem | `get_short_epg` per kanal, få kilobyte, slår op på `stream_id` som **alle** kanaler har |
-| Start-forfra virkede ikke | Bor i guiden: tryk på et afsluttet program på en kanal med arkiv |
-| 285 kategorier i én vandret række | Søgning → lande med flag → kategorier → kanaler |
+### Åbne punkter
 
-Derudover: kategori-favoritter med gruppering, skjulte lande, mini-preview, indstillinger, panelets tidszone, og parkeret punkt 1 (`last_sync_ms` overlevede udlogning) er lukket.
-
-**XMLTV-vejen er slettet.** `syncEpg.ts` findes ikke længere.
+- **DR-kanaler er grønne ved start forfra på tv'et** (lyd, ingen billede),
+  mens TV 2 virker og samme udsendelse virker på telefonen. Diagnoselinjen
+  siger `avc 1280×720 · understøttet`. Det virkede samme morgen. Hverken
+  format (`.ts`/HLS), TextureView, genstart eller VPN-skift har ændret det.
+  Det der er tilbage at prøve: samme udsendelse på telefonen gennem NordVPN
+  New York (server for amerikanske adresser?), og et Android-log fra
+  Streameren (`adb logcat` med ExoPlayer-linjer) hvis det kan skaffes.
+- **Brugeren kører NorStream gennem NordVPN (split tunneling, kun
+  NorStream, New York).** Panelet svarer ikke fra dansk Wi-Fi og ikke fra
+  Boston. Forbindelsestjekket under Indstillinger → Kilder siger om det er
+  DNS eller adresse; ikke kørt endnu.
+- Android Auto: rul-til-top i NorRadio (ældre punkt). Apple TV og Google
+  Play: se `docs/ANDROID-TV.md` afsnit 7.
 
 ### Hvordan det er verificeret
 
-- 298 tests og typecheck grønne i begge pakker
-- Android-bundlen bygger og Hermes-kompilerer (661 moduler)
-- **Hele den nye brugerflade kørt igennem i en rigtig browser mod et falsk Xtream-panel:** onboarding, landegruppering med flag, kategorier, "tilføj alle", favoritter, guidegitteret, sideskift i guiden, søgning på tværs, skjul/vis land, forhåndsvisning til og fra, og udlogning
-
-Det sidste er nyt for projektet og fangede fire fejl som hverken typecheck eller tests så. Se `docs/superpowers/plans/2026-09-05-udfoerelse.md`.
-
-### Hvad der **ikke** er verificeret
-
-- **Intet er kørt mod brugerens rigtige panel.** Alt panel-samspil er afprøvet mod en lokal efterligning.
-- **Ingen video er afspillet.** Det falske panel serverer ingen streams. Afspilning, start-forfra og mini-previewets lykkelige vej er uafprøvede i praksis.
-- **Migreringen fra v1 er kun kørt mod `node:sqlite`,** ikke mod `expo-sqlite` på en rigtig enhed med rigtige data.
-- Skærmkomponenterne har stadig ingen enhedstests. Den logik der kunne trækkes ud af dem — guidens layout, landeudledningen, cache-reglerne — er testet hver for sig.
+- 505 tests og typecheck grønne i app-pakken, typecheck i radio-pakken.
+- Alt tv-arbejde er verificeret af brugeren på fjernsynet med fotos; der
+  er ingen emulator i kæden. Skærmkomponenterne har ingen enhedstests.
 
 ## Panelets faktiske karakteristika
 
@@ -69,9 +94,12 @@ Målt, ikke gættet. Disse tal er grunden til at det oprindelige design ikke hol
 
 ## Næste skridt
 
-1. **Byg en APK og lad brugeren teste.** Se "Build" nedenfor. Han skal **afinstallere den gamle app først** — pakkenavnet skiftede ved omdøbningen.
-2. Bed ham især kigge efter: om EPG'en fylder ud i kanallisten og guiden, om start-forfra virker fra guiden på DR1 og TV 2, og om mini-previewet er til at leve med eller skal slås fra.
-3. Første start efter opgraderingen **sletter og genopbygger den lokale database**. Favoritter og timeshift-dialekten bevares; kanaler og EPG hentes på ny.
+1. **DR grøn skærm** (se åbne punkter). Første prøve er telefonen gennem
+   NordVPN New York på samme udsendelse.
+2. **Kør forbindelsestjekket** på dansk Wi-Fi uden VPN. Er dommen
+   DNS-blokering, kan appen slå navnet op selv (DNS-over-HTTPS findes
+   allerede i `net/connectionCheck.ts`) og gøre VPN'en overflødig.
+3. Idéer der er drøftet men ikke bygget: se "Parkerede punkter".
 
 ### Hvis noget ikke virker
 
@@ -191,3 +219,5 @@ Brugerens panel-adgangsoplysninger står **ikke** i dette repo og skal ikke skri
 3. **Guiden henter 12 programmer per kanal.** Sider man langt frem, løber den tør for data og viser huller. Flere kræver et højere `limit` eller flere kald.
 4. **Ingen UI-tests.** `vitest.config.ts` matcher kun `.ts`, ikke `.tsx`. Browserkørslen dækker hullet manuelt, men den er ikke automatiseret.
 5. **Kanaler hvis `category_id` ikke peger på en kendt kategori** tælles ikke med i landeoversigten og kan kun findes via søgning.
+6. **Indbygget VPN** (WireGuard via `VpnService`, kun NorStreams trafik) er drøftet og fravalgt så længe udbyderen er NordVPN, som ikke udleverer WireGuard-opsætninger officielt. Nords egen tv-app med split tunneling gør det samme.
+7. **Faner skifter ved fokus i menusøjlen**, ikke ved OK. Googles faneside siger "ved valg", men Googles egne tv-apps gør som vi. Bevidst valg.
