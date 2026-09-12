@@ -4,7 +4,8 @@ import type { SqlDatabase } from '@norstream/app/src/storage/types.js';
 import type { RadioCountry, RadioStation } from '@norstream/app/src/sync/radioBrowser.js';
 import { radioCountryName, radioLogoUrls } from '@norstream/app/src/sync/radioBrowser.js';
 import { countryFlag } from '@norstream/core';
-import { clearPendingFavourites, pendingFavourites, setLibrary } from '../modules/radio-auto/index.js';
+import { clearPendingFavourites, clearPendingSongs, pendingFavourites, pendingSongs, setLibrary } from '../modules/radio-auto/index.js';
+import { saveSong } from '@norstream/app/src/storage/savedSongs.js';
 import { withAllCountries } from './countries.js';
 import type { AutoLibrary, AutoStation } from '../modules/radio-auto/index.js';
 
@@ -75,6 +76,20 @@ export async function applyCarFavourites(db: SqlDatabase): Promise<boolean> {
     await setRadioFavorite(db, entry.id, entry.on);
   }
   clearPendingFavourites();
+  return true;
+}
+
+/**
+ * Sange gemt med bogmaerket i bilen foeres ind i databasen. Svarer med om
+ * der kom nogen, saa listen kan laeses igen.
+ */
+export async function applyCarSongs(db: SqlDatabase): Promise<boolean> {
+  const pending = pendingSongs();
+  if (pending.length === 0) return false;
+  for (const entry of pending) {
+    await saveSong(db, { artist: entry.artist, track: entry.track, station: entry.station }, entry.savedMs);
+  }
+  clearPendingSongs();
   return true;
 }
 

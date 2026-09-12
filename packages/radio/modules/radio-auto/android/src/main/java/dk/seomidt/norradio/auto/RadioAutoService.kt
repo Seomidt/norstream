@@ -50,6 +50,8 @@ class RadioAutoService : MediaLibraryService() {
   private var base: MediaMetadata? = null
   /** Den sidste titel streamen sendte, saa samme linje ikke behandles to gange. */
   private var lastTitle: String? = null
+  /** Sangen der spiller lige nu, til bogmaerket i bilen. Null naar streamen ikke siger nogen. */
+  private var currentSong: NowPlaying? = null
 
   /**
    * Nu-spiller: streamen sender "Kunstner - Titel" som ICY-metadata, og
@@ -124,11 +126,17 @@ class RadioAutoService : MediaLibraryService() {
     } catch (_: Exception) {
       // Ikke vaerd at afbryde lyden for.
     }
+    if (currentSong != playing) {
+      currentSong = playing
+      refreshButtons()
+    }
   }
 
   private companion object {
     /** Knappen i bilens afspilningsskaerm: favorit til/fra. */
     const val CMD_FAVOURITE = "dk.seomidt.norradio.FAVOURITE"
+    /** Bogmaerket: gem den sang der spiller, til listen i appen og Spotify. */
+    const val CMD_SAVE_SONG = "dk.seomidt.norradio.SAVE_SONG"
   }
 
   /** Stationen der spiller lige nu, som den staar i biblioteket eller blev fundet. */
@@ -147,8 +155,35 @@ class RadioAutoService : MediaLibraryService() {
       .build()
   }
 
+  /** Bogmaerket: kun naar streamen har sagt hvilken sang der spiller. Fyldt naar den er gemt. */
+  private fun saveSongButton(): CommandButton? {
+    val song = currentSong ?: return null
+    val saved = SavedSongs.isPending(this, song)
+    return CommandButton.Builder(if (saved) CommandButton.ICON_BOOKMARK_FILLED else CommandButton.ICON_BOOKMARK)
+      .setDisplayName(if (saved) "Sangen er gemt" else "Gem sang")
+      .setSessionCommand(SessionCommand(CMD_SAVE_SONG, Bundle.EMPTY))
+      .setEnabled(!saved)
+      .build()
+  }
+
+  /** Knapperne i bilen og notifikationen: hjertet, og bogmaerket naar der er en sang. */
+  fun buttons(): ImmutableList<CommandButton> {
+    val list = ImmutableList.builder<CommandButton>()
+    list.add(favouriteButton())
+    saveSongButton()?.let { list.add(it) }
+    return list.build()
+  }
+
   fun refreshButtons() {
-    session?.setMediaButtonPreferences(ImmutableList.of(favouriteButton()))
+    session?.setMediaButtonPreferences(buttons())
+  }
+
+  /** Gemmer sangen der spiller; falsk naar streamen ikke har sagt nogen. */
+  fun saveCurrentSong(): Boolean {
+    val song = currentSong ?: return false
+    SavedSongs.add(this, song, currentStation()?.name ?: base?.title?.toString() ?: "")
+    refreshButtons()
+    return true
   }
 
   private val buttonListener =
@@ -174,7 +209,7 @@ class RadioAutoService : MediaLibraryService() {
     player = built
     session =
       MediaLibrarySession.Builder(this, built, Callback(this))
-        .setMediaButtonPreferences(ImmutableList.of(favouriteButton()))
+        .setMediaButtonPreferences(buttons())
         .build()
   }
 
@@ -207,10 +242,11 @@ class RadioAutoService : MediaLibraryService() {
       val commands =
         MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
           .add(SessionCommand(CMD_FAVOURITE, Bundle.EMPTY))
+          .add(SessionCommand(CMD_SAVE_SONG, Bundle.EMPTY))
           .build()
       return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
         .setAvailableSessionCommands(commands)
-        .setMediaButtonPreferences(ImmutableList.of(service.favouriteButton()))
+        .setMediaButtonPreferences(service.buttons())
         .build()
     }
 
@@ -220,6 +256,10 @@ class RadioAutoService : MediaLibraryService() {
       customCommand: SessionCommand,
       args: Bundle,
     ): ListenableFuture<SessionResult> {
+      if (customCommand.customAction == CMD_SAVE_SONG) {
+        val ok = service.saveCurrentSong()
+        return Futures.immediateFuture(SessionResult(if (ok) SessionResult.RESULT_SUCCESS else SessionResult.RESULT_ERROR_INVALID_STATE))
+      }
       if (customCommand.customAction != CMD_FAVOURITE) return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED))
       val station = service.currentStation() ?: return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE))
       Favourites.toggle(service, station)

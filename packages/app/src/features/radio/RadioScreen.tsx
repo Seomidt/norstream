@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import type { AppSession } from '../../session.js';
 import { listChannels, setFavorite } from '../../storage/channels.js';
@@ -11,6 +11,7 @@ import type { PreviewHandle } from '../preview/MiniPreview.js';
 import type { RadioCountry } from '../../sync/radioBrowser.js';
 import { InternetRadio } from './InternetRadio.js';
 import type { FrontTab } from './InternetRadio.js';
+import { SavedSongsScreen } from './SavedSongsScreen.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
 interface Props {
@@ -53,7 +54,10 @@ export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onP
   const styles = useStyles(makeStyles);
   /** Panelets radiokanaler, eller internetradio fra Radio Browser. */
   const part = place.part;
-  const setPart = (next: RadioPart): void => onPlaceChange({ ...place, part: next });
+  const setPart = (next: RadioPart): void => {
+    setSongsOpen(false);
+    onPlaceChange({ ...place, part: next });
+  };
   const internetBack = useRef<() => boolean>(() => false);
   backRef.current = (): boolean => (part === 'internet' ? internetBack.current() : false);
   const [channels, setChannels] = useState<StoredChannel[]>([]);
@@ -65,7 +69,11 @@ export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onP
   /** Taelles op naar Mine stationer eller Lande trykkes: forsiden frem. */
   const [frontSignal, setFrontSignal] = useState(0);
   const frontTab = place.tab ?? 'countries';
+  /** Listen over sange gemt fra afspilleren, oven paa det der ellers vises. */
+  const [songsOpen, setSongsOpen] = useState(false);
+  const closeSongs = useCallback(() => setSongsOpen(false), []);
   const showFront = (tab: FrontTab): void => {
+    setSongsOpen(false);
     onPlaceChange({ part: 'internet', country: null, tab });
     setFrontSignal((value) => value + 1);
   };
@@ -110,6 +118,7 @@ export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onP
     },
     { id: 'countries', label: 'Lande', active: part === 'internet' && frontTab === 'countries', onPress: () => showFront('countries') },
     { id: 'panel', label: `Fra panelet${loading ? '' : ` (${channels.length})`}`, active: part === 'panel', onPress: () => setPart('panel') },
+    { id: 'songs', label: 'Gemte sange', active: songsOpen, onPress: () => setSongsOpen(true) },
   ];
   const header = (
     <View style={styles.header}>
@@ -127,6 +136,15 @@ export function RadioScreen({ session, onSelect, onAuthError, previewHandle, onP
       </View>
     </View>
   );
+
+  if (songsOpen) {
+    return (
+      <View style={styles.container}>
+        {header}
+        <SavedSongsScreen db={session.db} onBack={closeSongs} />
+      </View>
+    );
+  }
 
   if (part === 'internet') {
     return (

@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import type { StoredChannel } from '@norstream/app/src/storage/channels.js';
 import { RadioView } from '@norstream/app/src/features/player/RadioView.js';
 import type { RadioState } from '@norstream/app/src/features/player/RadioView.js';
+import { useSaveSong } from '@norstream/app/src/features/radio/useSaveSong.js';
+import type { SqlDatabase } from '@norstream/app/src/storage/types.js';
 import { current, pause, play, resume, subscribe } from '../modules/radio-auto/index.js';
 import type { AutoSnapshot, AutoStation } from '../modules/radio-auto/index.js';
 
 interface Props {
+  db: SqlDatabase;
   channel: StoredChannel;
   /** Listen stationen stod i, til forrige og naeste. */
   zap: StoredChannel[];
@@ -42,7 +45,7 @@ function describe(snapshot: AutoSnapshot): { state: RadioState; text: string } {
  * kommer fra tjenesten bag Android Auto, saa telefon, notifikation, rat
  * og bil styrer den samme afspiller.
  */
-export function RadioPlayerScreen({ channel: initial, zap, onBack }: Props) {
+export function RadioPlayerScreen({ db, channel: initial, zap, onBack }: Props) {
   const [channel, setChannel] = useState(initial);
   const [snapshot, setSnapshot] = useState<AutoSnapshot>(() => current());
   /**
@@ -87,6 +90,7 @@ export function RadioPlayerScreen({ channel: initial, zap, onBack }: Props) {
     snapshot.stationId === channel.streamId && snapshot.track !== null
       ? { artist: snapshot.artist ?? '', track: snapshot.track, coverUrl: snapshot.coverUrl }
       : null;
+  const saveSong = useSaveSong(db, nowPlaying, channel.name);
 
   return (
     <RadioView
@@ -94,6 +98,7 @@ export function RadioPlayerScreen({ channel: initial, zap, onBack }: Props) {
       state={shown.state}
       stateText={shown.text}
       nowPlaying={nowPlaying}
+      saveSong={saveSong}
       hiddenVideo={null}
       hasPrevious={zap.length > 1 && index !== -1}
       hasNext={zap.length > 1 && index !== -1}

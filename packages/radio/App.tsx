@@ -9,7 +9,8 @@ import { InternetRadio } from '@norstream/app/src/features/radio/InternetRadio.j
 import type { RadioCountry } from '@norstream/app/src/sync/radioBrowser.js';
 import { theme } from '@norstream/app/src/ui/theme.js';
 import { RadioPlayerScreen } from './src/RadioPlayerScreen.js';
-import { applyCarFavourites, syncAutoLibrary } from './src/library.js';
+import { applyCarFavourites, applyCarSongs, syncAutoLibrary } from './src/library.js';
+import { SavedSongsScreen } from '@norstream/app/src/features/radio/SavedSongsScreen.js';
 import { autoLog, clearAutoLog, current, nowPlayingEnabled, setNowPlayingEnabled, subscribe, titledStations } from './modules/radio-auto/index.js';
 import type { AutoSnapshot } from './modules/radio-auto/index.js';
 
@@ -24,7 +25,12 @@ import type { AutoSnapshot } from './modules/radio-auto/index.js';
 /** Hoejden paa "spiller nu"-baren, som listen faar som luft i bunden. */
 const BAR_HEIGHT = 44;
 
-type Route = { name: 'loading' } | { name: 'home' } | { name: 'player'; channel: StoredChannel; zap: StoredChannel[] } | { name: 'error' };
+type Route =
+  | { name: 'loading' }
+  | { name: 'home' }
+  | { name: 'player'; channel: StoredChannel; zap: StoredChannel[] }
+  | { name: 'songs' }
+  | { name: 'error' };
 
 export default function App() {
   const [route, setRoute] = useState<Route>({ name: 'loading' });
@@ -56,6 +62,8 @@ export default function App() {
 
   /** Taelles op naar bilen har aendret favoritterne, saa listen laeser dem igen. */
   const [favouritesSignal, setFavouritesSignal] = useState(0);
+  /** Taelles op naar bilen har gemt sange, saa listen over dem laeser igen. */
+  const [songsSignal, setSongsSignal] = useState(0);
 
   // Bibliotek til bilen: ved start, og hver gang man er tilbage paa listen.
   // Foerst foeres bilens favoritter ind; har den aendret noget, laeses listen igen.
@@ -64,6 +72,7 @@ export default function App() {
     const db = session.db;
     void (async () => {
       if (await applyCarFavourites(db)) setFavouritesSignal((count) => count + 1);
+      if (await applyCarSongs(db)) setSongsSignal((count) => count + 1);
       await syncAutoLibrary(db);
     })();
   }, [session, route.name]);
@@ -94,6 +103,10 @@ export default function App() {
         closePlayer();
         return true;
       }
+      if (route.name === 'songs') {
+        setRoute({ name: 'home' });
+        return true;
+      }
       if (route.name === 'home') return listBack.current();
       return false;
     });
@@ -120,11 +133,14 @@ export default function App() {
             <Text style={styles.errorText}>Appen kunne ikke starte. Luk den helt og åbn den igen.</Text>
           </View>
         )}
-        {(route.name === 'home' || route.name === 'player') && session !== null && (
+        {(route.name === 'home' || route.name === 'player' || route.name === 'songs') && session !== null && (
           <View style={styles.host} pointerEvents={route.name === 'home' ? 'auto' : 'none'}>
             <View style={styles.header}>
               <Pressable onLongPress={openLog} delayLongPress={800}>
                 <Text style={styles.title}>NorRadio</Text>
+              </Pressable>
+              <Pressable onPress={() => setRoute({ name: 'songs' })} hitSlop={8} accessibilityLabel="Gemte sange">
+                <Text style={styles.headerAction}>♫ Gemte sange</Text>
               </Pressable>
             </View>
             <InternetRadio
@@ -191,9 +207,22 @@ export default function App() {
           </SafeAreaView>
         </View>
       )}
+      {route.name === 'songs' && session !== null && (
+        <View style={styles.overlay}>
+          <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
+            <View style={styles.logBar}>
+              <Pressable onPress={() => setRoute({ name: 'home' })} hitSlop={8}>
+                <Text style={styles.logAction}>‹ Tilbage</Text>
+              </Pressable>
+              <Text style={styles.title}>Gemte sange</Text>
+            </View>
+            <SavedSongsScreen db={session.db} refreshSignal={songsSignal} />
+          </SafeAreaView>
+        </View>
+      )}
       {route.name === 'player' && session !== null && (
         <View style={styles.overlay}>
-          <RadioPlayerScreen channel={route.channel} zap={route.zap} onBack={closePlayer} />
+          <RadioPlayerScreen db={session.db} channel={route.channel} zap={route.zap} onBack={closePlayer} />
         </View>
       )}
     </SafeAreaProvider>
@@ -203,7 +232,15 @@ export default function App() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.colors.background },
   host: { flex: 1 },
-  header: { paddingHorizontal: theme.spacing.md, paddingTop: theme.spacing.sm, paddingBottom: theme.spacing.sm },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.sm,
+    paddingBottom: theme.spacing.sm,
+  },
+  headerAction: { color: theme.colors.accent, fontSize: 14, fontWeight: '700' },
   title: { color: theme.colors.text, fontSize: 22, fontWeight: '800' },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.lg },
   errorText: { color: theme.colors.text, fontSize: 15, textAlign: 'center' },

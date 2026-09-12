@@ -33,6 +33,8 @@ interface Props {
   hasNext: boolean;
   /** Sang og cover fra streamen. Udelades af afspillere der ikke laeser dem. */
   nowPlaying?: RadioNowPlaying | null;
+  /** "Gem sang": om den er gemt, og et tryk der gemmer eller fjerner. Null uden sang. */
+  saveSong?: { saved: boolean; onToggle: () => void } | null;
   onBack: () => void;
   onPrevious: () => void;
   onNext: () => void;
@@ -57,6 +59,7 @@ export function RadioView({
   hasPrevious,
   hasNext,
   nowPlaying = null,
+  saveSong = null,
   onBack,
   onPrevious,
   onNext,
@@ -112,6 +115,15 @@ export function RadioView({
                 <Text style={[styles.meta, isTV && styles.leftText]} numberOfLines={1}>
                   {meta}
                 </Text>
+              )}
+              {saveSong !== null && (
+                <TvPressable
+                  style={[styles.save, saveSong.saved && styles.saveOn]}
+                  onPress={saveSong.onToggle}
+                  accessibilityLabel={saveSong.saved ? 'Fjern gemt sang' : 'Gem sang'}
+                >
+                  <Text style={styles.saveText}>{saveSong.saved ? '✓ Sangen er gemt' : '♡ Gem sang'}</Text>
+                </TvPressable>
               )}
               {isTV && info.about !== null && (
                 <View style={styles.about}>
@@ -264,6 +276,16 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   textTv: { alignItems: 'flex-start', maxWidth: 620, flexShrink: 1 },
   leftText: { textAlign: 'left' },
   meta: { color: colors.textMuted, fontSize: 14, textAlign: 'center' },
+  save: {
+    marginTop: theme.spacing.xs,
+    alignSelf: 'center',
+    borderRadius: 999,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs + 2,
+    backgroundColor: '#ffffff14',
+  },
+  saveOn: { backgroundColor: colors.accent },
+  saveText: { color: colors.text, fontSize: 13, fontWeight: '700' },
   about: { marginTop: theme.spacing.md, gap: theme.spacing.xs },
   aboutText: { color: colors.text, fontSize: 14, lineHeight: 20, opacity: 0.9 },
   kicker: { color: colors.accent, fontSize: 12, fontWeight: '800', letterSpacing: 3 },

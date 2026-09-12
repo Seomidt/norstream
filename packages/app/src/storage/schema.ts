@@ -121,6 +121,16 @@ CREATE TABLE IF NOT EXISTS followed_series (
   seen_episodes INTEGER NOT NULL
 );
 
+-- Sange gemt fra radioen ("den vil jeg hoere igen"), med Spotify-link i listen.
+-- Én raekke per sang; gemmes den igen, opdateres tiden.
+CREATE TABLE IF NOT EXISTS saved_songs (
+  artist   TEXT NOT NULL,
+  track    TEXT NOT NULL,
+  station  TEXT NOT NULL,
+  saved_ms INTEGER NOT NULL,
+  PRIMARY KEY (artist, track)
+);
+
 -- Kanaler brugeren har fjernet fra en favoriseret kategori. Uden den ville
 -- "opdatér" paa kategorien haente dem tilbage hver gang, og en oprydning i
 -- 979 danske kanaler skulle laves forfra efter hvert tryk.
@@ -381,6 +391,7 @@ const TABLES = [
   'reminders',
   'archive_progress',
   'followed_series',
+  'saved_songs',
   'favorite_exclusions',
   'programmes',
   'epg_fetch',
@@ -415,7 +426,8 @@ const TABLES = [
 // v17: logo_search_tried. v18: samme tabel toemt én gang (se migrate).
 // v19: radio_stations og radio_favorites. v20: favorite_groups og medlemmer.
 // v21: channel_history, reminders, archive_progress, followed_series.
-const SCHEMA_VERSION = 21;
+// v22: saved_songs.
+const SCHEMA_VERSION = 22;
 
 /**
  * Foerste version der kan opgraderes additivt.

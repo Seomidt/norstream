@@ -45,6 +45,14 @@ export interface PendingFavourite {
   on: boolean;
 }
 
+/** En sang gemt med bogmaerket i bilen, som appen skal foere ind i databasen. */
+export interface PendingSong {
+  artist: string;
+  track: string;
+  station: string;
+  savedMs: number;
+}
+
 export interface AutoLibrary {
   favourites: AutoStation[];
   countries: { code: string; name: string; flag: string; stations: AutoStation[] }[];
@@ -61,6 +69,8 @@ interface NativeModule {
   titledStations(): string[];
   pendingFavourites(): PendingFavourite[];
   clearPendingFavourites(): void;
+  pendingSongs(): PendingSong[];
+  clearPendingSongs(): void;
   clearAutoLog(): void;
   nowPlayingEnabled(): boolean;
   setNowPlayingEnabled(enabled: boolean): void;
@@ -131,6 +141,22 @@ export function pendingFavourites(): PendingFavourite[] {
 export function clearPendingFavourites(): void {
   try {
     native?.clearPendingFavourites();
+  } catch {
+    // Intet at rydde.
+  }
+}
+
+export function pendingSongs(): PendingSong[] {
+  try {
+    return native?.pendingSongs() ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export function clearPendingSongs(): void {
+  try {
+    native?.clearPendingSongs();
   } catch {
     // Intet at rydde.
   }
