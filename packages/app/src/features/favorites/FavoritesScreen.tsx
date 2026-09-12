@@ -203,7 +203,8 @@ export function FavoritesScreen({
       <SortView
         channels={channels}
         onMove={async (channel, toIndex) => {
-          await moveFavorite(session.db, channel.id, toIndex);
+          // Pladsen gaelder den viste liste (gruppen), ikke alle favoritter.
+          await moveFavorite(session.db, channel.id, toIndex, channels.map((entry) => entry.id));
           await load();
         }}
         onDone={() => setSorting(false)}

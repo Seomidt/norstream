@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BackHandler, FlatList, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, FlatList, Keyboard, StyleSheet, Text, View } from 'react-native';
 import type { AppSession } from '../../session.js';
 import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
@@ -54,6 +54,8 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
    * og listen roeg til toppen.
    */
   const [renaming, setRenaming] = useState(false);
+  /** Paa tv findes feltet til en ny gruppe kun efter "+ Ny gruppe": et fast felt tog fokus og tastaturet daekkede listen. */
+  const [creating, setCreating] = useState(!isTV);
   /** Foerste raekke beder om fokus i én tegning naar gruppen aabnes — aldrig ved senere tegninger. */
   const [firstFocus, setFirstFocus] = useState(false);
   const listRef = useRef<FlatList<StoredChannel>>(null);
@@ -105,8 +107,10 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
 
   async function create(): Promise<void> {
     const created = await createFavoriteGroup(session.db, newName);
+    Keyboard.dismiss();
     if (created === null) return;
     setNewName('');
+    if (isTV) setCreating(false);
     onChanged();
     await load();
     setOpen(created);
@@ -261,18 +265,27 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
           Grupper oven på favoritterne: Sport, Film, Børn. Favoritter og Guide viser én gruppe ad gangen. Du bestemmer selv hvad der ligger i dem.
         </Text>
         <View style={styles.row}>
-          <TvTextInput
-            style={styles.input}
-            value={newName}
-            onChangeText={setNewName}
-            placeholder="Ny gruppe, fx Sport"
-            autoCorrect={false}
-            onSubmitEditing={() => void create()}
-            returnKeyType="done"
-          />
-          <TvPressable style={[styles.action, styles.actionAccent]} onPress={() => void create()}>
-            <Text style={styles.actionText}>Opret</Text>
-          </TvPressable>
+          {creating ? (
+            <>
+              <TvTextInput
+                style={styles.input}
+                value={newName}
+                onChangeText={setNewName}
+                placeholder="Ny gruppe, fx Sport"
+                autoCorrect={false}
+                autoFocus={isTV}
+                onSubmitEditing={() => void create()}
+                returnKeyType="done"
+              />
+              <TvPressable style={[styles.action, styles.actionAccent]} onPress={() => void create()}>
+                <Text style={styles.actionText}>Opret</Text>
+              </TvPressable>
+            </>
+          ) : (
+            <TvPressable style={[styles.action, styles.actionAccent]} onPress={() => setCreating(true)}>
+              <Text style={styles.actionText}>+ Ny gruppe</Text>
+            </TvPressable>
+          )}
         </View>
       </View>
       <FlatList

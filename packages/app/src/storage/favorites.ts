@@ -85,16 +85,36 @@ export async function favoriteCategories(db: SqlDatabase): Promise<FavoriteCateg
  * Alle numre skrives om bagefter. Tres opdateringer er ingenting, og saa er
  * der aldrig to kanaler med samme nummer eller huller der skal regnes med.
  */
+/**
+ * Flytter en favorit til plads `toIndex` i den liste brugeren ser.
+ *
+ * `visibleIds` er den liste sorteringen viser (en gruppe, eller alle).
+ * Pladsen gaelder dén liste: kanalen laegges lige foer den kanal der staar
+ * paa pladsen dér, i den faelles raekkefoelge. Uden det blev en plads i
+ * gruppen brugt som plads i hele listen, og kanalen landede et tilfaeldigt
+ * sted — typisk oeverst.
+ */
 export async function moveFavorite(
   db: SqlDatabase,
   channelId: string,
   toIndex: number,
+  visibleIds?: readonly string[],
 ): Promise<void> {
   const ids = (await listChannels(db, { favouritesOnly: true })).map((channel) => channel.id);
   const from = ids.indexOf(channelId);
   if (from === -1) return;
   ids.splice(from, 1);
-  const target = Math.max(0, Math.min(ids.length, Math.trunc(toIndex)));
+  const visible = (visibleIds ?? ids).filter((id) => id !== channelId && ids.includes(id));
+  const index = Math.max(0, Math.min(visible.length, Math.trunc(toIndex)));
+  let target: number;
+  if (index < visible.length) {
+    // Lige foer den kanal der staar paa pladsen i den viste liste.
+    target = ids.indexOf(visible[index]!);
+  } else {
+    // Efter den sidste viste kanal, eller sidst i det hele.
+    const last = visible[visible.length - 1];
+    target = last === undefined ? ids.length : ids.indexOf(last) + 1;
+  }
   ids.splice(target, 0, channelId);
   await writeOrder(db, ids);
 }

@@ -344,6 +344,10 @@ Lys, og stedet solen regnes for.
   om hele indholdet i `HomeScreen`). Før ledte Android videre når en liste
   slap op — pil ned på den sidste udsendelse under Hele dagen landede på
   Hjem i menuen, og fanen skiftede. Kun venstre er åben, ind i menuen.
+- **Sortering i en gruppe**: pladsen man vælger gælder den viste liste.
+  `moveFavorite` får de viste id'er med og lægger kanalen foran den, der
+  står på pladsen i gruppen. Uden det blev gruppens plads brugt som plads
+  i hele listen, og kanalen røg et tilfældigt sted hen ("til toppen").
 - **Et tekstfelt må aldrig ligge fast over en liste man trykker OK i**:
   mister rækken fokus et øjeblik, tager feltet det, og tastaturet kommer
   frem. Vis feltet først når man har bedt om det (Grupper → Omdøb).
