@@ -38,6 +38,7 @@ import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { refocusLastPressed } from '../../ui/refocus.js';
 import { Poster } from '../vod/VodScreen.js';
 import { findInPanel } from './panelMatch.js';
 
@@ -186,6 +187,19 @@ export function FrontScreen({
   /** Sidste fejl fra TMDB, uden adresser, til raekken. */
   const [shelfError, setShelfError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  // Naar arket lukker, tilbage til det der aabnede det: ellers gav Android
+  // fokus til det foerste trykpunkt paa skaermen.
+  const sheetWasOpen = useRef(false);
+  useEffect(() => {
+    if (sheet !== null) {
+      sheetWasOpen.current = true;
+      return;
+    }
+    if (!sheetWasOpen.current || !isTV) return;
+    sheetWasOpen.current = false;
+    const timer = setTimeout(() => refocusLastPressed(), 80);
+    return () => clearTimeout(timer);
+  }, [sheet]);
   // Tilbage lukker bladet (Google: ingen Luk-knap paa tv, fjernbetjeningens Tilbage er vejen).
   useEffect(() => {
     if (sheet === null) return;

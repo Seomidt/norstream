@@ -344,6 +344,18 @@ Lys, og stedet solen regnes for.
   om hele indholdet i `HomeScreen`). Før ledte Android videre når en liste
   slap op — pil ned på den sidste udsendelse under Hele dagen landede på
   Hjem i menuen, og fanen skiftede. Kun venstre er åben, ind i menuen.
+- **Fokus tilbage efter afspilleren og arkene** (`src/ui/refocus.ts`):
+  `TvPressable` husker de sidste tryk; når afspilleren, en films side
+  eller et programark lukker, beder skærmen om fokus tilbage på det
+  seneste tryk der stadig findes (kortet, rækken, cellen). Uden det gav
+  Android fokus til det første trykpunkt på skærmen, oppe i toppen, hver
+  gang man kom tilbage fra en kanal.
+- **Guidens celler skifter under fjernbetjeningen** (bladring til en time
+  der ikke er læst endnu, vinduet der flytter sig på et hul): rækken
+  giver cellen på samme plads fokus i én tegning (`useLayoutEffect`, som
+  kører før blur fra den fjernede celle når frem).
+- **Pil højre fra menuen** tæller kun én gang: vinduet efter blur nulstilles,
+  så et andet tryk lige efter ikke sender fokus til den første række igen.
 - **Sortering i en gruppe**: pladsen man vælger gælder den viste liste.
   `moveFavorite` får de viste id'er med og lægger kanalen foran den, der
   står på pladsen i gruppen. Uden det blev gruppens plads brugt som plads

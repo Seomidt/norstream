@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { ReactNode } from 'react';
 import type { PressableProps, StyleProp, ViewStyle } from 'react-native';
@@ -6,6 +6,7 @@ import { theme } from './theme.js';
 import type { ThemeColors } from './theme.js';
 import { useStyles } from './ThemeContext.js';
 import { isTV } from './tv.js';
+import { forgetPressable, notePressed, registerPressable } from './refocus.js';
 
 interface Props extends Omit<PressableProps, 'children'> {
   style?: StyleProp<ViewStyle>;
@@ -19,12 +20,47 @@ interface Props extends Omit<PressableProps, 'children'> {
  * hvad et tryk rammer. Paa telefonen er den en almindelig Pressable, uden
  * ekstra stil, saa det samme kort kan bruges begge steder.
  */
-export function TvPressable({ style, onFocus, onBlur, children, ...rest }: Props) {
+export function TvPressable({ style, onFocus, onBlur, onPress, onLongPress, hasTVPreferredFocus, children, ...rest }: Props) {
   const [focused, setFocused] = useState(false);
   const styles = useStyles(makeStyles);
+  // Paa tv huskes trykket, saa skaermen kan bede om fokus tilbage hertil
+  // naar det der aabnede oven paa (afspiller, ark) lukker igen. Se refocus.ts.
+  const [forced, setForced] = useState(false);
+  const entry = useRef(isTV ? registerPressable(() => setForced(true)) : null);
+  useEffect(() => {
+    const own = entry.current;
+    return () => {
+      if (own !== null) forgetPressable(own);
+    };
+  }, []);
+  useEffect(() => {
+    if (!forced) return;
+    const frame = requestAnimationFrame(() => setForced(false));
+    return () => cancelAnimationFrame(frame);
+  }, [forced]);
+  const note = (): void => {
+    if (entry.current !== null) notePressed(entry.current);
+  };
   return (
     <Pressable
       {...rest}
+      hasTVPreferredFocus={hasTVPreferredFocus === true || forced}
+      onPress={
+        onPress == null && onLongPress == null
+          ? undefined
+          : (event) => {
+              note();
+              onPress?.(event);
+            }
+      }
+      onLongPress={
+        onLongPress == null
+          ? undefined
+          : (event) => {
+              note();
+              onLongPress?.(event);
+            }
+      }
       style={[style, isTV && focused && styles.focused]}
       onFocus={(event) => {
         setFocused(true);

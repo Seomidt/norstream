@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -48,6 +48,7 @@ import {
 } from './layout.js';
 import type { GuideCell } from './layout.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { refocusLastPressed } from '../../ui/refocus.js';
 
 interface Props {
   session: AppSession;
@@ -234,6 +235,19 @@ export function GuideScreen({
     channel: StoredChannel;
     cell: GuideCell;
   } | null>(null);
+  // Naar arket lukker, tilbage til det der aabnede det: ellers gav Android
+  // fokus til det foerste trykpunkt paa skaermen.
+  const sheetWasOpen = useRef(false);
+  useEffect(() => {
+    if (sheet !== null) {
+      sheetWasOpen.current = true;
+      return;
+    }
+    if (!sheetWasOpen.current || !isTV) return;
+    sheetWasOpen.current = false;
+    const timer = setTimeout(() => refocusLastPressed(), 80);
+    return () => clearTimeout(timer);
+  }, [sheet]);
   /** Om der er sat paamindelse paa bladets udsendelse; null mens det slaas op. */
   const [sheetReminder, setSheetReminder] = useState<boolean | null>(null);
   useEffect(() => {
@@ -992,6 +1006,36 @@ const GuideRow = memo(function GuideRow({
   // Efter et vinduesskift: samme udsendelse hvis den stadig er i vinduet,
   // ellers den foerste celle i raekken.
   const targetIndex = focusKey === null ? -1 : Math.max(0, cells.findIndex((cell) => cell.key === focusKey));
+  /**
+   * Fokus maa ikke forsvinde naar cellerne skifter under fjernbetjeningen.
+   *
+   * Bladrer man tilbage til en time hvis programmer ikke er laest endnu,
+   * er raekken foerst huller; naar programmerne kommer, faar cellerne nye
+   * noegler, den celle der havde fokus forsvinder, og Android giver fokus
+   * til det foerste trykpunkt paa skaermen — oppe i toppen. Samme sag hver
+   * gang vinduet flytter sig mens man staar paa et hul. Derfor: staar
+   * fjernbetjeningen i raekken, og dens celle er vaek efter et skift, faar
+   * cellen paa samme plads fokus i én tegning. Layout-effekten koerer foer
+   * blur-haendelsen fra den fjernede celle naar frem, saa pladsen er kendt.
+   */
+  const focusedIndex = useRef<number | null>(null);
+  const [recoverKey, setRecoverKey] = useState<string | null>(null);
+  const previousCells = useRef(cells);
+  useLayoutEffect(() => {
+    const before = previousCells.current;
+    previousCells.current = cells;
+    const index = focusedIndex.current;
+    if (!isTV || index === null || before === cells) return;
+    const key = before[index]?.key;
+    if (key !== undefined && cells.some((cell) => cell.key === key)) return;
+    const next = cells[Math.min(index, cells.length - 1)];
+    if (next !== undefined) setRecoverKey(next.key);
+  }, [cells]);
+  useEffect(() => {
+    if (recoverKey === null) return;
+    const frame = requestAnimationFrame(() => setRecoverKey(null));
+    return () => cancelAnimationFrame(frame);
+  }, [recoverKey]);
   return (
     <View style={styles.row}>
       {/* Et tryk paa kanalen viser den i previewet; hold fingeren for
@@ -1027,7 +1071,7 @@ const GuideRow = memo(function GuideRow({
           return (
             <TvPressable
               key={cell.key}
-              hasTVPreferredFocus={index === targetIndex}
+              hasTVPreferredFocus={index === targetIndex || cell.key === recoverKey}
               style={[
                 styles.cell,
                 { flexGrow: cell.weight, flexShrink: cell.weight, flexBasis: 0 },
@@ -1041,12 +1085,22 @@ const GuideRow = memo(function GuideRow({
               onFocus={
                 isTV
                   ? () => {
+                      focusedIndex.current = index;
                       onPreview(channel);
                       onCellFocus(channel.id, index, cells.length, cell.key, cell.programme);
                     }
                   : undefined
               }
-              onBlur={isTV ? onCellBlur : undefined}
+              onBlur={
+                isTV
+                  ? () => {
+                      // Kun naar det er dén celle der slipper: blur fra en
+                      // fjernet celle kommer efter at en ny har faaet fokus.
+                      if (focusedIndex.current === index) focusedIndex.current = null;
+                      onCellBlur();
+                    }
+                  : undefined
+              }
             >
               {/* Uden maerket kan man ikke se hvilke afsluttede udsendelser
                   der kan startes igen. Cellerne ser ens ud, og forskellen —

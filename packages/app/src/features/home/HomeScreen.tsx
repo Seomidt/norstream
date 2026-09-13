@@ -17,6 +17,7 @@ import { useStyles } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { refocusLastPressed } from '../../ui/refocus.js';
 import { forgetPosterMisses } from '../../ui/posterFill.js';
 import { BrowseScreen } from '../browse/BrowseScreen.js';
 import type { Level } from '../browse/BrowseScreen.js';
@@ -124,6 +125,20 @@ export function HomeScreen({
   const [previewEnabled, setPreviewEnabled] = useState(false);
   /** Previewet vises kun mens Hjem er oeverst: under afspilleren skal dets videoflade vaere vaek. */
   const previewOn = previewEnabled && !covered;
+  // Tilbage fra afspilleren (eller en films side): fokus tilbage paa det
+  // kort, den raekke eller den celle man aabnede fra. Ellers gav Android
+  // det til det foerste trykpunkt paa skaermen, oppe i toppen.
+  const wasCovered = useRef(false);
+  useEffect(() => {
+    if (covered) {
+      wasCovered.current = true;
+      return;
+    }
+    if (!wasCovered.current || !isTV) return;
+    wasCovered.current = false;
+    const timer = setTimeout(() => refocusLastPressed(), 80);
+    return () => clearTimeout(timer);
+  }, [covered]);
   const [refreshing, setRefreshing] = useState(false);
   const [homeVisits, setHomeVisits] = useState(0);
   const [favoritesToken, setFavoritesToken] = useState(0);
@@ -385,6 +400,9 @@ export function HomeScreen({
     if (event.eventType !== 'focus' && event.eventType !== 'blur') lastKey.current = { type: event.eventType, at: Date.now() };
     if (event.eventType === 'right' && (railFocused.current || Date.now() - railBlurredAt.current < 400)) {
       if (event.eventKeyAction !== undefined && Number(event.eventKeyAction) === 0) return;
+      // Vinduet efter blur bruges én gang: et andet tryk paa pil hoejre
+      // lige efter maa ikke sende fokus tilbage til den foerste raekke.
+      railBlurredAt.current = 0;
       setEnterSignal((value) => value + 1);
     }
   });

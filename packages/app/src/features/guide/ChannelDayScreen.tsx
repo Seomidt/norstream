@@ -12,6 +12,7 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
 import type { CellState } from './layout.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { refocusLastPressed } from '../../ui/refocus.js';
 import { isTV } from '../../ui/tv.js';
 import { addReminder, hasReminder, removeReminder } from '../../storage/reminders.js';
 
@@ -46,6 +47,19 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
   const [programmes, setProgrammes] = useState<Programme[] | null>(null);
   const [fetching, setFetching] = useState(true);
   const [sheet, setSheet] = useState<{ programme: Programme; state: CellState } | null>(null);
+  // Naar arket lukker, tilbage til det der aabnede det: ellers gav Android
+  // fokus til det foerste trykpunkt paa skaermen.
+  const sheetWasOpen = useRef(false);
+  useEffect(() => {
+    if (sheet !== null) {
+      sheetWasOpen.current = true;
+      return;
+    }
+    if (!sheetWasOpen.current || !isTV) return;
+    sheetWasOpen.current = false;
+    const timer = setTimeout(() => refocusLastPressed(), 80);
+    return () => clearTimeout(timer);
+  }, [sheet]);
   const [sheetReminder, setSheetReminder] = useState<boolean | null>(null);
   useEffect(() => {
     setSheetReminder(null);
