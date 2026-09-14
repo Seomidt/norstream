@@ -81,7 +81,14 @@ export function CinemaScreen({ session, onOpen, onTrailer, onOpenSettings }: Pro
         setUpcoming(soon);
       } catch (cause) {
         if (cancelled) return;
-        setError(`Biografens lister kunne ikke hentes: ${cause instanceof Error ? cause.message : 'ukendt fejl'}. Prøv igen om lidt.`);
+        const message = cause instanceof Error ? cause.message : 'ukendt fejl';
+        if (/\b401\b/.test(message)) {
+          // 401 = TMDB afviste noeglen. Samme noegle som plakaterne bruger,
+          // saa den skal rettes i Indstillinger; her hjaelper intet forsoeg.
+          setError('auth');
+        } else {
+          setError(`Biografens lister kunne ikke hentes: ${message}. Prøv igen om lidt.`);
+        }
         setNowPlaying([]);
         setUpcoming([]);
       }
@@ -119,13 +126,16 @@ export function CinemaScreen({ session, onOpen, onTrailer, onOpenSettings }: Pro
     });
   }
 
-  if (tmdbKey === null) {
+  if (tmdbKey === null || error === 'auth') {
     return (
       <View style={styles.centered}>
-        <Text style={styles.emptyTitle}>Biografen kræver en TMDB-nøgle</Text>
+        <Text style={styles.emptyTitle}>
+          {tmdbKey === null ? 'Biografen kræver en TMDB-nøgle' : 'TMDB-nøglen blev afvist'}
+        </Text>
         <Text style={styles.emptyText}>
-          Listerne over det der spiller i biografen kommer fra The Movie Database. Nøglen er gratis og
-          skrives ind under Indstillinger; den giver også plakater til film og serier.
+          {tmdbKey === null
+            ? 'Listerne over det der spiller i biografen kommer fra The Movie Database. Nøglen er gratis og skrives ind under Indstillinger; den giver også plakater til film og serier.'
+            : 'The Movie Database svarede 401: nøglen er forkert eller udløbet. Åbn Indstillinger, slet feltet TMDB-nøgle, og skriv nøglen ind igen — den står på themoviedb.org under Indstillinger → API → "API Key (v3 auth)".'}
         </Text>
         <TvPressable style={styles.button} onPress={onOpenSettings} hasTVPreferredFocus={isTV}>
           <Text style={styles.buttonText}>Gå til Indstillinger</Text>
