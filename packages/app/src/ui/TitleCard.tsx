@@ -15,6 +15,7 @@ export const TitleCard = memo(function TitleCard({
   title,
   onPress,
   meta,
+  preferFocus,
 }: {
   title: TmdbTitle;
   onPress: () => void;
