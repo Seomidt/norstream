@@ -147,7 +147,9 @@ export function VodScreen({ session, level, onLevelChange, onOpen, onTrailer, on
   if (level.name === 'cinema') {
     return (
       <View style={styles.container}>
-        {searchField}
+        {/* Soegefeltet soeger i panelet, ikke i biografen; paa tv tog det
+            fokus (og tastaturet kom frem) naar siden aabnede. */}
+        {!isTV && searchField}
         <Crumb label="Biograf" onBack={() => onLevelChange({ name: 'home' })} />
         <CinemaScreen session={session} onOpen={onOpen} onTrailer={onTrailer} onOpenSettings={onOpenSettings} />
       </View>

@@ -20,10 +20,12 @@ export const TitleCard = memo(function TitleCard({
   onPress: () => void;
   /** Linjen under navnet; ellers aar og karakter. */
   meta?: string;
+  /** Tv: kortet beder om fokus (én tegning ad gangen, se hasTVPreferredFocus). */
+  preferFocus?: boolean;
 }) {
   const styles = useStyles(makeStyles);
   return (
-    <TvPressable style={styles.title} onPress={onPress}>
+    <TvPressable style={styles.title} onPress={onPress} hasTVPreferredFocus={preferFocus === true}>
       <View style={styles.titleFrame}>
         {title.thumbUrl !== null ? (
           <Image source={{ uri: title.thumbUrl }} style={styles.titleImage} resizeMode="cover" />

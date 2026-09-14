@@ -48,6 +48,21 @@ export function CinemaScreen({ session, onOpen, onTrailer, onOpenSettings }: Pro
   const [upcoming, setUpcoming] = useState<TmdbTitle[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  /**
+   * Tv: den foerste plakat faar fokus naar listerne er der. Uden det gav
+   * Android fokus til det foerste trykpunkt paa skaermen, og saa stod
+   * fjernbetjeningen et sted man ikke kunne se — og intet kunne vaelges.
+   */
+  const [firstFocus, setFirstFocus] = useState(false);
+  const focusedOnce = useRef(false);
+  useEffect(() => {
+    if (!isTV || focusedOnce.current) return;
+    if ((nowPlaying === null || nowPlaying.length === 0) && (upcoming === null || upcoming.length === 0)) return;
+    focusedOnce.current = true;
+    setFirstFocus(true);
+    const frame = requestAnimationFrame(() => setFirstFocus(false));
+    return () => cancelAnimationFrame(frame);
+  }, [nowPlaying, upcoming]);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,14 +124,15 @@ export function CinemaScreen({ session, onOpen, onTrailer, onOpenSettings }: Pro
           Listerne over det der spiller i biografen kommer fra The Movie Database. Nøglen er gratis og
           skrives ind under Indstillinger; den giver også plakater til film og serier.
         </Text>
-        <TvPressable style={styles.button} onPress={onOpenSettings}>
+        <TvPressable style={styles.button} onPress={onOpenSettings} hasTVPreferredFocus={isTV}>
           <Text style={styles.buttonText}>Gå til Indstillinger</Text>
         </TvPressable>
       </View>
     );
   }
 
-  const shelf = (heading: string, titles: TmdbTitle[] | null, meta: (title: TmdbTitle) => string | undefined) => (
+  const firstShelf = nowPlaying !== null && nowPlaying.length > 0 ? 'now' : 'soon';
+  const shelf = (id: 'now' | 'soon', heading: string, titles: TmdbTitle[] | null, meta: (title: TmdbTitle) => string | undefined) => (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{heading}</Text>
       {titles === null ? (
@@ -130,7 +146,9 @@ export function CinemaScreen({ session, onOpen, onTrailer, onOpenSettings }: Pro
           keyExtractor={(title) => String(title.id)}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.shelf}
-          renderItem={({ item }) => <TitleCard title={item} onPress={() => open(item)} meta={meta(item)} />}
+          renderItem={({ item, index }) => (
+            <TitleCard title={item} onPress={() => open(item)} meta={meta(item)} preferFocus={firstFocus && id === firstShelf && index === 0} />
+          )}
         />
       )}
     </View>
@@ -145,8 +163,8 @@ export function CinemaScreen({ session, onOpen, onTrailer, onOpenSettings }: Pro
         ListHeaderComponent={error !== null ? <Text style={styles.error}>{error}</Text> : null}
         renderItem={({ item }) =>
           item === 'now'
-            ? shelf('I biografen nu', nowPlaying, () => undefined)
-            : shelf('Kommer snart', upcoming, (title) => {
+            ? shelf('now', 'I biografen nu', nowPlaying, () => undefined)
+            : shelf('soon', 'Kommer snart', upcoming, (title) => {
                 const label = premiereLabel(title.releaseDate);
                 return label.length > 0 ? `Premiere ${label}` : undefined;
               })
