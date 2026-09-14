@@ -521,7 +521,14 @@ export function HomeScreen({
           liste slipper op, ledte Android videre efter naermeste trykpunkt
           og fandt Hjem i menuen — og saa skiftede fanen. Kun venstre er
           aaben, ind i menuen. */}
-      <TVFocusGuideView style={styles.body} trapFocusUp={isTV} trapFocusDown={isTV} trapFocusRight={isTV}>
+      <TVFocusGuideView
+        style={styles.body}
+        // Ikke naar noget ligger ovenpaa (afspiller, en films side): saa
+        // skal pilene kunne naa derop, hvis fokus blev staaende hernede.
+        trapFocusUp={isTV && !covered}
+        trapFocusDown={isTV && !covered}
+        trapFocusRight={isTV && !covered}
+      >
         {/* Hjem, Film og Radio bliver staaende naar man forlader dem, bare
             skjult: at bygge dem op igen ved hvert besoeg laeste alt ind
             forfra og var langsomt paa tv. Kanaler, Favoritter og Guide

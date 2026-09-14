@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -73,6 +73,25 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
   const [episodes, setEpisodes] = useState<StoredEpisode[]>([]);
   const [season, setSeason] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Tv: den foerste knap (Se, Fortsaet) beder om fokus lidt efter at siden
+   * er tegnet — én gang. Som fast prop virkede det ikke altid: knappen bad
+   * om fokus foer den sad i vinduet, og fjernbetjeningen blev staaende paa
+   * plakaten bagved, hvor OK intet synligt gjorde.
+   */
+  const [focusPulse, setFocusPulse] = useState(false);
+  const pulsed = useRef(false);
+  useEffect(() => {
+    if (!isTV || pulsed.current || item === null || item === undefined) return;
+    pulsed.current = true;
+    const timer = setTimeout(() => setFocusPulse(true), 120);
+    return () => clearTimeout(timer);
+  }, [item]);
+  useEffect(() => {
+    if (!focusPulse) return;
+    const frame = requestAnimationFrame(() => setFocusPulse(false));
+    return () => cancelAnimationFrame(frame);
+  }, [focusPulse]);
 
   const load = useCallback(async (): Promise<void> => {
     const stored = await getVodItem(session.db, itemKey);
@@ -229,7 +248,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
             <TvPressable
               style={[styles.button, styles.buttonAccent]}
               disabled={creds === null}
-              hasTVPreferredFocus={isTV}
+              hasTVPreferredFocus={focusPulse}
               onPress={playMovie}
             >
               <Text style={styles.buttonText}>
@@ -239,7 +258,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
           ) : continueEpisode !== undefined ? (
             <TvPressable
               style={[styles.button, styles.buttonAccent]}
-              hasTVPreferredFocus={isTV}
+              hasTVPreferredFocus={focusPulse}
               onPress={() => playEpisode(continueEpisode)}
             >
               <Text style={styles.buttonText}>
@@ -249,7 +268,7 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
           ) : shownEpisodes[0] !== undefined ? (
             <TvPressable
               style={[styles.button, styles.buttonAccent]}
-              hasTVPreferredFocus={isTV}
+              hasTVPreferredFocus={focusPulse}
               onPress={() => {
                 const first = shownEpisodes[0];
                 if (first !== undefined) playEpisode(first);

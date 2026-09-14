@@ -350,6 +350,10 @@ Lys, og stedet solen regnes for.
   seneste tryk der stadig findes (kortet, rækken, cellen). Uden det gav
   Android fokus til det første trykpunkt på skærmen, oppe i toppen, hver
   gang man kom tilbage fra en kanal.
+- **En films side (`VodDetailScreen`) beder om fokus lidt efter tegning**
+  (én puls, 120 ms), ikke som fast prop: fast prop tog ikke altid, og med
+  fokusfælden i HomeScreen kunne pilene så ikke nå op til knapperne. Fælden
+  slås fra mens noget ligger ovenpå (`covered`).
 - **Guidens celler skifter under fjernbetjeningen** (bladring til en time
   der ikke er læst endnu, vinduet der flytter sig på et hul): rækken
   giver cellen på samme plads fokus i én tegning (`useLayoutEffect`, som
