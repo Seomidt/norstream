@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TmdbFetch } from './tmdb.js';
 import {
+  cinemaTitles,
   discoverTitles,
   interleave,
   justWatchLink,
@@ -69,6 +70,7 @@ describe('toTmdbTitle', () => {
       thumbUrl: 'https://image.tmdb.org/t/p/w185/d.jpg',
       rating: 7.8,
       overview: '',
+      releaseDate: '2021-10-22',
     });
     expect(toTmdbTitle({ id: 2, name: 'The Crown', first_air_date: '2016-11-04', overview: 'Om…' }, 'series')).toMatchObject({
       kind: 'series',
@@ -162,5 +164,31 @@ describe('listTmdbProvidersWithUk', () => {
     ]);
     const providers = await listTmdbProvidersWithUk(fetchImpl, 'KEY');
     expect(providers.map((p) => `${p.name}:${p.region}`)).toEqual(['Netflix:DK', 'BBC iPlayer:GB']);
+  });
+});
+
+describe('cinemaTitles', () => {
+  it('henter biografens lister for landet, og Kommer snart kun med premiere forude', async () => {
+    const soon = new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10);
+    const later = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+    const fetchImpl = fakeFetch([
+      [/movie\/now_playing/, { results: [{ id: 1, title: 'Nu', release_date: '2026-08-20', poster_path: '/a.jpg' }] }],
+      [
+        /movie\/upcoming/,
+        {
+          results: [
+            { id: 2, title: 'Senere', release_date: later },
+            { id: 3, title: 'Allerede ude', release_date: '2026-01-01' },
+            { id: 4, title: 'Snart', release_date: soon },
+          ],
+        },
+      ],
+    ]);
+    const now = await cinemaTitles(fetchImpl, 'KEY', 'now_playing');
+    expect(now.map((t) => t.title)).toEqual(['Nu']);
+    expect(now[0]?.releaseDate).toBe('2026-08-20');
+    expect(fetchImpl.calls[0]).toContain('region=DK');
+    const upcoming = await cinemaTitles(fetchImpl, 'KEY', 'upcoming');
+    expect(upcoming.map((t) => t.title)).toEqual(['Snart', 'Senere']);
   });
 });

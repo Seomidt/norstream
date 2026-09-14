@@ -39,7 +39,8 @@ type Route =
   | { name: 'vodPlayer'; itemKey: string; playback: Playback }
   | {
       name: 'trailer';
-      itemKey: string;
+      /** Null for en biograffilm der ikke er i panelet: Tilbage gaar til Hjem. */
+      itemKey: string | null;
       trailerId: string | null;
       title: string;
       year: number | null;
@@ -139,8 +140,10 @@ function AppInner() {
           setRoute({ name: 'home' });
           return true;
         case 'vodPlayer':
-        case 'trailer':
           setRoute({ name: 'vodDetail', itemKey: route.itemKey });
+          return true;
+        case 'trailer':
+          setRoute(route.itemKey === null ? { name: 'home' } : { name: 'vodDetail', itemKey: route.itemKey });
           return true;
         case 'home':
           return homeBack.current();
@@ -266,6 +269,9 @@ function AppInner() {
             setRoute({ name: 'player', channel, startFrom, zap: neighbours, resumeAtSeconds })
           }
           onOpenVod={(item) => setRoute({ name: 'vodDetail', itemKey: item.key })}
+          onTrailer={(title) =>
+            setRoute({ name: 'trailer', itemKey: null, trailerId: null, title: title.title, year: title.year, kind: 'movie' })
+          }
           backRef={homeBack}
           onSourcesChanged={() => {
             void (async () => {
@@ -321,7 +327,7 @@ function AppInner() {
             title={route.title}
             year={route.year}
             kind={route.kind}
-            onBack={() => setRoute({ name: 'vodDetail', itemKey: route.itemKey })}
+            onBack={() => setRoute(route.itemKey === null ? { name: 'home' } : { name: 'vodDetail', itemKey: route.itemKey })}
           />
         </View>
         </ThemeProvider>

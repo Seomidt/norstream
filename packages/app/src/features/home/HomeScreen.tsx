@@ -40,6 +40,7 @@ import { writeBackupToFolder } from '../settings/backupFiles.js';
 import { VodScreen } from '../vod/VodScreen.js';
 import type { VodLevel } from '../vod/VodScreen.js';
 import type { StoredVodItem } from '../../storage/vod.js';
+import type { TmdbTitle } from '../../sync/tmdbHome.js';
 
 /**
  * Hvor brugeren staar i Hjem.
@@ -65,6 +66,8 @@ interface Props {
   onSelect: (channel: StoredChannel, startFrom?: Programme, neighbours?: StoredChannel[], resumeAtSeconds?: number) => void;
   /** En film eller serie aabnes. Selve afspilningen sker fra dens egen skaerm. */
   onOpenVod: (item: StoredVodItem) => void;
+  /** Biografen: traileren til en film der ikke er i panelet. */
+  onTrailer: (title: TmdbTitle) => void;
   onSignedOut: (notice: string) => void;
   /** Kaldes naar kilderne er aendret, saa sessionen kan laeses om. */
   onSourcesChanged: () => void;
@@ -110,6 +113,7 @@ export function HomeScreen({
   onPlaceChange,
   onSelect,
   onOpenVod,
+  onTrailer,
   onSignedOut,
   onSourcesChanged,
   backRef,
@@ -204,7 +208,7 @@ export function HomeScreen({
         onPlaceChange({ ...place, vod: { name: 'countries', kind: level.kind } });
         return true;
       }
-      if (level.name === 'countries') {
+      if (level.name === 'countries' || level.name === 'cinema') {
         onPlaceChange({ ...place, vod: { name: 'home' } });
         return true;
       }
@@ -587,6 +591,8 @@ export function HomeScreen({
             level={place.vod ?? { name: 'home' }}
             onLevelChange={(level) => onPlaceChange({ ...place, vod: level })}
             onOpen={onOpenVod}
+            onTrailer={onTrailer}
+            onOpenSettings={() => setTab('settings')}
           />
           </View>
         )}

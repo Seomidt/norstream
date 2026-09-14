@@ -93,6 +93,14 @@ eller i bilen** før de næste builds. Regn med småting.
   `RECEIVE_BOOT_COMPLETED`. Uden lov til præcise alarmer viser siden en
   vej til systemindstillingen. Ikke prøvet: om media3 når at gå i
   forgrunden i tide på alle telefoner, og batterisparetilstand.
+- **Biograf under Film** (`features/vod/CinemaScreen.tsx`): TMDB's lister
+  "now_playing" og "upcoming" for Danmark (`cinemaTitles` i
+  `sync/tmdbHome.ts`, huskes 6 timer via `sync/shelfCache.ts`, som
+  forsidens hylder nu også bruger). OK på en plakat: ark med dansk titel,
+  år, karakter, premieredato, "Se i din pakke" når `findInPanel` finder
+  filmen i panelet, og "Se trailer" (trailer-ruten med `itemKey: null`,
+  Tilbage går til Hjem). Kræver TMDB-nøgle. Plakatkortet er fælles:
+  `ui/TitleCard.tsx`.
 - **Sikkerhedskopi på USB** (tv): native-modulet `packages/app/modules/usb-storage`
   finder USB-drev der sidder i (`getExternalFilesDirs` + `StorageVolume`),
   og appen skriver/læser `norstream-sikkerhedskopi.json` i sin egen mappe

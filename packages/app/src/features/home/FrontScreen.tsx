@@ -39,6 +39,8 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
+import { cachedShelf } from '../../sync/shelfCache.js';
+import { TitleCard } from '../../ui/TitleCard.js';
 import { Poster } from '../vod/VodScreen.js';
 import { findInPanel } from './panelMatch.js';
 
@@ -64,53 +66,6 @@ const RECENT_LIMIT = 5;
 const NEWEST_LIMIT = 15;
 /** Plakatbredden i forsidens raekker. Mindre paa tv: 104 punkter er 208 pixel paa en 1080p-skaerm, og raekken tog en tredjedel af hoejden. */
 const POSTER_WIDTH = isTV ? 96 : 104;
-
-/**
- * TMDB-hylderne huskes i appens levetid, saa et skift af fane ikke koster
- * et opslag per tjeneste hver gang. Seks timer: det der er "populaert paa
- * Netflix" skifter ikke i loebet af en aften.
- */
-const SHELF_TTL_MS = 6 * 60 * 60_000;
-const shelfCache = new Map<string, { at: number; titles: TmdbTitle[] }>();
-
-/**
- * Hylderne fra TMDB, i hukommelsen og i databasen: saa staar de der med
- * det samme naeste gang appen aabnes, i stedet for at forsiden venter paa
- * TMDB ved hver start. Efter seks timer hentes de igen, men det gamle
- * vises imens, saa forsiden aldrig staar tom.
- */
-async function cachedShelf(db: SqlDatabase, key: string, load: () => Promise<TmdbTitle[]>): Promise<TmdbTitle[]> {
-  const known = shelfCache.get(key) ?? (await storedShelf(db, key));
-  if (known !== undefined) {
-    shelfCache.set(key, known);
-    if (Date.now() - known.at < SHELF_TTL_MS) return known.titles;
-  }
-  let titles: TmdbTitle[];
-  try {
-    titles = await load();
-  } catch (cause) {
-    if (known !== undefined) return known.titles;
-    throw cause;
-  }
-  if (titles.length > 0) {
-    const entry = { at: Date.now(), titles };
-    shelfCache.set(key, entry);
-    void setSetting(db, `shelf:${key}`, JSON.stringify(entry)).catch(() => undefined);
-  }
-  return titles.length > 0 ? titles : (known?.titles ?? titles);
-}
-
-async function storedShelf(db: SqlDatabase, key: string): Promise<{ at: number; titles: TmdbTitle[] } | undefined> {
-  const raw = await getSetting(db, `shelf:${key}`).catch(() => null);
-  if (raw === null) return undefined;
-  try {
-    const parsed = JSON.parse(raw) as { at?: unknown; titles?: unknown };
-    if (typeof parsed.at === 'number' && Array.isArray(parsed.titles)) return { at: parsed.at, titles: parsed.titles as TmdbTitle[] };
-  } catch {
-    // Ugyldigt; hentes igen.
-  }
-  return undefined;
-}
 
 type Row =
   | { kind: 'continue' }
@@ -705,31 +660,6 @@ const ChannelCard = memo(function ChannelCard({
   );
 });
 
-const TitleCard = memo(function TitleCard({ title, onPress }: { title: TmdbTitle; onPress: () => void }) {
-  const styles = useStyles(makeStyles);
-  return (
-    <TvPressable style={styles.title} onPress={onPress}>
-      <View style={styles.titleFrame}>
-        {title.thumbUrl !== null ? (
-          <Image source={{ uri: title.thumbUrl }} style={styles.titleImage} resizeMode="cover" />
-        ) : (
-          <View style={styles.titleFallback}>
-            <Text style={styles.titleFallbackText} numberOfLines={4}>
-              {title.title}
-            </Text>
-          </View>
-        )}
-      </View>
-      <Text style={styles.titleName} numberOfLines={1}>
-        {title.title}
-      </Text>
-      <Text style={styles.titleMeta}>
-        {title.year ?? ''}
-        {title.rating !== null ? `  ★ ${title.rating.toFixed(1)}` : ''}
-      </Text>
-    </TvPressable>
-  );
-});
 
 const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },

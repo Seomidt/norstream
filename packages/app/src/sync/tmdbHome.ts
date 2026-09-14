@@ -46,6 +46,8 @@ export interface TmdbTitle {
   thumbUrl: string | null;
   rating: number | null;
   overview: string;
+  /** Premieredato (ÅÅÅÅ-MM-DD) naar TMDB har den; til biografens "Kommer snart". */
+  releaseDate?: string | null;
 }
 
 async function getJson(fetchImpl: TmdbFetch, apiKey: string, path: string, query: string): Promise<unknown | null> {
@@ -158,7 +160,30 @@ export function toTmdbTitle(raw: RawTitle, kind: 'movie' | 'series'): TmdbTitle 
     thumbUrl: typeof raw.poster_path === 'string' ? `${THUMB_BASE}${raw.poster_path}` : null,
     rating,
     overview: typeof raw.overview === 'string' ? raw.overview : '',
+    releaseDate: typeof date === 'string' && date.length > 0 ? date : null,
   };
+}
+
+/**
+ * Biografen: det der spiller lige nu, og det der har premiere snart, i
+ * landet. TMDB's egne lister (now_playing, upcoming) med danske titler.
+ */
+export async function cinemaTitles(
+  fetchImpl: TmdbFetch,
+  apiKey: string,
+  list: 'now_playing' | 'upcoming',
+  region = HOME_REGION,
+): Promise<TmdbTitle[]> {
+  const body = await getJson(fetchImpl, apiKey, `/movie/${list}`, `region=${region}&page=1`);
+  const titles = titlesOf(body, 'movie');
+  // "Kommer snart" rummer ogsaa film der allerede er ude; kun dem med premiere forude.
+  if (list === 'upcoming') {
+    const today = new Date().toISOString().slice(0, 10);
+    return titles
+      .filter((title) => (title.releaseDate ?? '') >= today)
+      .sort((a, b) => (a.releaseDate ?? '').localeCompare(b.releaseDate ?? ''));
+  }
+  return titles;
 }
 
 function titlesOf(body: unknown, kind: 'movie' | 'series'): TmdbTitle[] {

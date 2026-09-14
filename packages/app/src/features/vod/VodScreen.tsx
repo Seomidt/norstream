@@ -26,6 +26,8 @@ import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
+import { CinemaScreen } from './CinemaScreen.js';
+import type { TmdbTitle } from '../../sync/tmdbHome.js';
 import { cameBySelect } from '../../ui/tvKeys.js';
 import { ensurePoster, foundPoster, subscribePoster } from '../../ui/posterFill.js';
 
@@ -37,6 +39,7 @@ import { ensurePoster, foundPoster, subscribePoster } from '../../ui/posterFill.
  */
 export type VodLevel =
   | { name: 'home' }
+  | { name: 'cinema' }
   | { name: 'countries'; kind: VodKind }
   | { name: 'categories'; kind: VodKind; country: CountryGroup }
   | { name: 'items'; kind: VodKind; country: CountryGroup; category: VodCategorySummary };
@@ -46,6 +49,9 @@ interface Props {
   level: VodLevel;
   onLevelChange: (level: VodLevel) => void;
   onOpen: (item: StoredVodItem) => void;
+  /** Biografen: traileren til en film der (endnu) ikke er i panelet. */
+  onTrailer: (title: TmdbTitle) => void;
+  onOpenSettings: () => void;
 }
 
 const SEARCH_DEBOUNCE_MS = 250;
@@ -67,7 +73,7 @@ const COLUMNS = isTV ? 6 : 3;
  * er vejen naar man vil se noget *bestemt*, og de er ordnet som kanalerne, saa
  * appen er den samme app paa begge faner.
  */
-export function VodScreen({ session, level, onLevelChange, onOpen }: Props) {
+export function VodScreen({ session, level, onLevelChange, onOpen, onTrailer, onOpenSettings }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const [search, setSearch] = useState('');
@@ -128,7 +134,22 @@ export function VodScreen({ session, level, onLevelChange, onOpen }: Props) {
     return (
       <View style={styles.container}>
         {searchField}
-        <Home session={session} onOpen={onOpen} onBrowse={(kind) => onLevelChange({ name: 'countries', kind })} />
+        <Home
+          session={session}
+          onOpen={onOpen}
+          onBrowse={(kind) => onLevelChange({ name: 'countries', kind })}
+          onCinema={() => onLevelChange({ name: 'cinema' })}
+        />
+      </View>
+    );
+  }
+
+  if (level.name === 'cinema') {
+    return (
+      <View style={styles.container}>
+        {searchField}
+        <Crumb label="Biograf" onBack={() => onLevelChange({ name: 'home' })} />
+        <CinemaScreen session={session} onOpen={onOpen} onTrailer={onTrailer} onOpenSettings={onOpenSettings} />
       </View>
     );
   }
@@ -187,10 +208,12 @@ function Home({
   session,
   onOpen,
   onBrowse,
+  onCinema,
 }: {
   session: AppSession;
   onOpen: (item: StoredVodItem) => void;
   onBrowse: (kind: VodKind) => void;
+  onCinema: () => void;
 }) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
@@ -245,6 +268,10 @@ function Home({
         <TvPressable style={styles.browseButton} onPress={() => onBrowse('series')}>
           <Text style={styles.browseTitle}>Serier</Text>
           <Text style={styles.browseCount}>{counts.series} · efter land</Text>
+        </TvPressable>
+        <TvPressable style={styles.browseButton} onPress={onCinema}>
+          <Text style={styles.browseTitle}>Biograf</Text>
+          <Text style={styles.browseCount}>i biografen nu · kommer snart</Text>
         </TvPressable>
       </View>
       {inProgress.length > 0 && <Shelf title="Fortsæt" items={inProgress} onOpen={onOpen} />}
