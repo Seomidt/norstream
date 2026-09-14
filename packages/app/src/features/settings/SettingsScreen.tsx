@@ -101,6 +101,13 @@ const STREAM_FORMATS: readonly { value: StreamFormatSetting; label: string }[] =
   { value: 'm3u8', label: 'HLS' },
 ];
 
+/** Noeglen sloeret: foerste og sidste fire tegn, resten som prikker. */
+function maskKey(key: string): string {
+  const trimmed = key.trim();
+  if (trimmed.length <= 8) return '••••';
+  return `${trimmed.slice(0, 4)}…${trimmed.slice(-4)}`;
+}
+
 export function SettingsScreen({
   session,
   onRefresh,
@@ -128,6 +135,12 @@ export function SettingsScreen({
   const [youtubeKey, setYoutubeKey] = useState('');
   /** Brugerens egen noegle til TMDB, til plakater panelet ikke gav. */
   const [tmdbKey, setTmdbKey] = useState('');
+  /**
+   * Noeglen er laast som udgangspunkt, naar der staar en. Saa kan et
+   * uheldigt tastetryk ikke aendre et enkelt tegn (det giver 401 og en tom
+   * biograf); man laaser op med vilje foer man retter.
+   */
+  const [tmdbLocked, setTmdbLocked] = useState(true);
   /** Noegle og soegemaskine-id til Googles billedsoegning, til logoer. */
   const [googleKey, setGoogleKey] = useState('');
   const [googleCx, setGoogleCx] = useState('');
@@ -171,6 +184,7 @@ export function SettingsScreen({
     setStreamFormat(format);
     setYoutubeKey(key ?? '');
     setTmdbKey(tmdb ?? '');
+    setTmdbLocked((tmdb ?? '').trim().length > 0);
     setPosterApiKey(tmdb);
     setSubtitles(preferredSubtitles);
     setVod(counts);
@@ -655,22 +669,43 @@ export function SettingsScreen({
         død. Med en nøgle til The Movie Database (TMDB) slår appen dem op, der mangler, én gang
         hver, og husker svaret.
       </Text>
-      <TextInput
-        style={styles.input}
-        value={tmdbKey}
-        onChangeText={(value) => {
-          // Gemmes ved hvert tastetryk. Kun ved tab af fokus var ikke nok:
-          // gaar man ud af skaermen med tastaturet aabent, mister feltet
-          // aldrig fokus, og noeglen stod der uden at vaere gemt.
-          setTmdbKey(value);
-          void setTmdbApiKey(session.db, value);
-          setPosterApiKey(value);
-        }}
-        placeholder="TMDB API-nøgle (valgfri)"
-        placeholderTextColor={colors.textMuted}
-        autoCorrect={false}
-        autoCapitalize="none"
-      />
+      {tmdbLocked && tmdbKey.trim().length > 0 ? (
+        <TvPressable style={styles.row} onPress={() => setTmdbLocked(false)}>
+          <View style={styles.rowText}>
+            <Text style={styles.rowTitle}>Nøglen er låst</Text>
+            <Text style={styles.rowHint}>{maskKey(tmdbKey)} · virker. Lås op for at ændre den.</Text>
+          </View>
+          <Text style={styles.actionText}>Lås op</Text>
+        </TvPressable>
+      ) : (
+        <>
+          <TextInput
+            style={styles.input}
+            value={tmdbKey}
+            onChangeText={(value) => {
+              // Gemmes ved hvert tastetryk. Kun ved tab af fokus var ikke nok:
+              // gaar man ud af skaermen med tastaturet aabent, mister feltet
+              // aldrig fokus, og noeglen stod der uden at vaere gemt.
+              setTmdbKey(value);
+              void setTmdbApiKey(session.db, value);
+              setPosterApiKey(value);
+            }}
+            placeholder="TMDB API-nøgle (valgfri)"
+            placeholderTextColor={colors.textMuted}
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          {tmdbKey.trim().length > 0 && (
+            <TvPressable style={styles.row} onPress={() => setTmdbLocked(true)}>
+              <View style={styles.rowText}>
+                <Text style={styles.rowTitle}>Lås nøglen</Text>
+                <Text style={styles.rowHint}>Så kan den ikke ændres ved et uheld.</Text>
+              </View>
+              <Text style={styles.actionText}>Lås</Text>
+            </TvPressable>
+          )}
+        </>
+      )}
       <Text style={styles.hint}>
         Nøglen laves gratis på themoviedb.org: opret en konto, gå til Settings → API, og kopiér
         enten "API Key" eller "API Read Access Token". Begge virker; du skal kun bruge én.
