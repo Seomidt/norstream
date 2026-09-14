@@ -174,8 +174,22 @@ export async function cinemaTitles(
   list: 'now_playing' | 'upcoming',
   region = HOME_REGION,
 ): Promise<TmdbTitle[]> {
-  const body = await getJson(fetchImpl, apiKey, `/movie/${list}`, `region=${region}&page=1`);
-  const titles = titlesOf(body, 'movie');
+  // Kaster med grunden naar TMDB ikke svarer: siden skal kunne sige hvad
+  // der er galt, ikke bare "ingen film".
+  const auth = tmdbAuth(apiKey);
+  const fetchList = async (query: string): Promise<unknown> => {
+    let response: Awaited<ReturnType<TmdbFetch>>;
+    try {
+      response = await fetchImpl(`${API}/movie/${list}?${query}&language=da-DK${auth.query}`, auth.headers);
+    } catch (cause) {
+      throw new Error(`TMDB kunne ikke nås (${cause instanceof Error ? cause.message : String(cause)})`);
+    }
+    if (!response.ok) throw new Error(`TMDB svarede HTTP ${response.status}`);
+    return response.json();
+  };
+  let titles = titlesOf(await fetchList(`region=${region}&page=1`), 'movie');
+  // Ingen for landet: saa den verdensomspaendende liste, hellere end tomt.
+  if (titles.length === 0) titles = titlesOf(await fetchList('page=1'), 'movie');
   // "Kommer snart" rummer ogsaa film der allerede er ude; kun dem med premiere forude.
   if (list === 'upcoming') {
     const today = new Date().toISOString().slice(0, 10);

@@ -79,8 +79,11 @@ export function CinemaScreen({ session, onOpen, onTrailer, onOpenSettings }: Pro
         if (cancelled) return;
         setNowPlaying(now);
         setUpcoming(soon);
-      } catch {
-        if (!cancelled) setError('Biografens lister kunne ikke hentes lige nu. Prøv igen om lidt.');
+      } catch (cause) {
+        if (cancelled) return;
+        setError(`Biografens lister kunne ikke hentes: ${cause instanceof Error ? cause.message : 'ukendt fejl'}. Prøv igen om lidt.`);
+        setNowPlaying([]);
+        setUpcoming([]);
       }
     })();
     return () => {
@@ -138,7 +141,7 @@ export function CinemaScreen({ session, onOpen, onTrailer, onOpenSettings }: Pro
       {titles === null ? (
         <ActivityIndicator color={colors.accent} style={styles.spinner} />
       ) : titles.length === 0 ? (
-        <Text style={styles.emptyRow}>Ingen film lige nu.</Text>
+        <Text style={styles.emptyRow}>{error === null ? 'TMDB gav ingen film for Danmark lige nu.' : 'Kunne ikke hentes.'}</Text>
       ) : (
         <FlatList
           horizontal
