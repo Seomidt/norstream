@@ -12,12 +12,13 @@ const creds = { baseUrl: 'http://p', username: 'u', password: 'p' };
 let db: SqlDatabase;
 let sourceId: string;
 
-function panel(options: { seriesDown?: boolean } = {}): FetchLike {
+function panel(options: { seriesDown?: boolean; noMovies?: boolean } = {}): FetchLike {
   return vi.fn(async (url: string) => {
     const action = new URL(url).searchParams.get('action');
     const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body, text: async () => '' });
     if (action === 'get_vod_categories') return json([{ category_id: 1, category_name: 'DK | Film' }]);
     if (action === 'get_vod_streams') {
+      if (options.noMovies === true) return json([]);
       return json([
         { stream_id: 10, name: 'Druk', category_id: 1, container_extension: 'mkv', rating: '7.7' },
         { stream_id: 11, name: 'Heat', category_id: 1, container_extension: 'mp4' },
@@ -60,6 +61,15 @@ describe('syncVod', () => {
     const result = await syncVod(db, sourceId, creds, panel({ seriesDown: true }));
     expect(result.movies).toBe(2);
     expect(result.series).toBe(0);
+  });
+
+  // Et tomt filsvar under en travl stund maa ikke tromle et katalog der havde film.
+  it('beholder filmene naar panelet svarer med en tom liste', async () => {
+    await syncVod(db, sourceId, creds, panel());
+    expect((await listVodItems(db, { kind: 'movie' })).length).toBe(2);
+    const result = await syncVod(db, sourceId, creds, panel({ noMovies: true }));
+    expect(result.movies).toBe(2);
+    expect((await listVodItems(db, { kind: 'movie' })).map((i) => i.name)).toEqual(['Druk', 'Heat']);
   });
 });
 

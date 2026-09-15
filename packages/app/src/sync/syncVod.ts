@@ -2,7 +2,7 @@ import { XtreamClient } from '@norstream/core';
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
 import { getSetting, setSetting } from '../storage/settings.js';
 import type { SqlDatabase } from '../storage/types.js';
-import { replaceVodCategories, replaceVodItems } from '../storage/vod.js';
+import { countVodItems, replaceVodCategories, replaceVodItems } from '../storage/vod.js';
 
 /**
  * Henter kildens film- og serielister.
@@ -31,9 +31,19 @@ export async function syncVod(
     // samtidige kald var med til at faa det til at blokere adressen.
     const categories = await client.getVodCategories();
     const movies = await client.getVodStreams();
-    await replaceVodCategories(db, sourceId, 'movie', categories);
-    await replaceVodItems(db, sourceId, 'movie', movies);
-    result.movies = movies.length;
+    // Et tomt svar er ikke det samme som et panel uden film. Panelet svarer
+    // undertiden 200 med en tom liste naar det er travlt; skete det, tromlede
+    // et helt filkatalog vaek indtil naeste hentning. Er der film i forvejen,
+    // beholder vi dem og noterer det i stedet.
+    const had = await countVodItems(db, sourceId, 'movie');
+    if (movies.length === 0 && had > 0) {
+      result.movies = had;
+      errors.push('film: tomt svar fra panelet, beholdt de gamle');
+    } else {
+      if (categories.length > 0) await replaceVodCategories(db, sourceId, 'movie', categories);
+      await replaceVodItems(db, sourceId, 'movie', movies);
+      result.movies = movies.length;
+    }
   } catch (cause) {
     // Med vilje: se ovenfor.
     errors.push(`film: ${describeError(cause)}`);
@@ -42,9 +52,15 @@ export async function syncVod(
   try {
     const categories = await client.getSeriesCategories();
     const series = await client.getSeries();
-    await replaceVodCategories(db, sourceId, 'series', categories);
-    await replaceVodItems(db, sourceId, 'series', series);
-    result.series = series.length;
+    const had = await countVodItems(db, sourceId, 'series');
+    if (series.length === 0 && had > 0) {
+      result.series = had;
+      errors.push('serier: tomt svar fra panelet, beholdt de gamle');
+    } else {
+      if (categories.length > 0) await replaceVodCategories(db, sourceId, 'series', categories);
+      await replaceVodItems(db, sourceId, 'series', series);
+      result.series = series.length;
+    }
   } catch (cause) {
     // Med vilje.
     errors.push(`serier: ${describeError(cause)}`);

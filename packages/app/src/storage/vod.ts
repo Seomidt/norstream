@@ -587,6 +587,12 @@ export async function deleteVodForSource(db: SqlDatabase, sourceId: string): Pro
 }
 
 /** Hvor mange film og serier der ligger i databasen. Til indstillinger. */
+/** Antal film eller serier for én kilde. Til at afgoere om et tomt svar skal tromle kataloget. */
+export async function countVodItems(db: SqlDatabase, sourceId: string, kind: VodKind): Promise<number> {
+  const row = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM vod_items WHERE source_id = ? AND kind = ?', [sourceId, kind]);
+  return row?.n ?? 0;
+}
+
 export async function vodCounts(db: SqlDatabase): Promise<{ movies: number; series: number }> {
   const row = await db.getFirstAsync<{ movies: number; series: number }>(
     `SELECT SUM(CASE WHEN kind = 'movie' THEN 1 ELSE 0 END) AS movies,
