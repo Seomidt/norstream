@@ -85,6 +85,14 @@ describe('deriveCountry', () => {
     const country = deriveCountry('GERMANY SPORT');
     expect(country).toEqual({ code: 'DE', name: 'Tyskland', flag: '🇩🇪' });
   });
+
+  it('panelernes IS| er Israel, mens hele ordet Island er Island', () => {
+    expect(deriveCountry('IS| CELLCOM TV BOXES')?.code).toBe('IL');
+    expect(deriveCountry('IS| ISRAEL HD')?.code).toBe('IL');
+    expect(deriveCountry('IS| HEBREW SDAROT 24/7')?.code).toBe('IL');
+    expect(deriveCountry('ICELAND SPORT HD')?.code).toBe('IS');
+    expect(deriveCountry('ISLAND HD')?.code).toBe('IS');
+  });
 });
 
 describe('deriveCountryLoose', () => {
