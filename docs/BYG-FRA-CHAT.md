@@ -162,7 +162,7 @@ Installation:
 |---|---|---|
 | NorStream tv | 212 | https://github.com/Seomidt/norstream/actions/runs/34864832123 |
 | NorStream telefon | 213 | https://github.com/Seomidt/norstream/actions/runs/34864835223 |
-| NorRadio | 214 | https://github.com/Seomidt/norstream/actions/runs/34965214794 |
+| NorRadio | 215 | https://github.com/Seomidt/norstream/actions/runs/34966516688 |
 
 Åbne punkter, som en ny chat kan blive spurgt om: Android Auto ruller til
 toppen af listen få sekunder efter start (uafklaret; gearhead beder selv
