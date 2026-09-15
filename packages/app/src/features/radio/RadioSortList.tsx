@@ -152,14 +152,17 @@ export function RadioSortList({
                 dragging && styles.rowDragging,
                 { transform: [{ translateY: dragging ? translate : shift }] },
               ]}
-              {...responderFor(index).panHandlers}
             >
               <Text style={styles.position}>{(dragging ? drag.hover : index) + 1}</Text>
               <ChannelLogo uris={radioLogoUrls(item)} name={item.name} memoryKey={`rb:${item.id}`} size={40} />
               <Text style={styles.name} numberOfLines={1}>
                 {item.name}
               </Text>
-              <Text style={styles.handle}>☰</Text>
+              {/* Kun haandtaget starter et traek; resten af raekken lader
+                  listen rulle, saa man kan naa bunden. */}
+              <View style={styles.handle} {...responderFor(index).panHandlers}>
+                <Text style={styles.handleText}>☰</Text>
+              </View>
             </Animated.View>
           );
         })}
@@ -183,5 +186,12 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   rowDragging: { backgroundColor: colors.surfaceRaised, borderRadius: theme.radius, zIndex: 2, elevation: 4 },
   position: { width: 28, color: colors.textMuted, fontSize: 14, textAlign: 'center' },
   name: { flex: 1, color: colors.text, fontSize: 15, fontWeight: '600' },
-  handle: { color: colors.textMuted, fontSize: 22, paddingHorizontal: theme.spacing.sm },
+  handle: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    paddingHorizontal: theme.spacing.md,
+    marginRight: -theme.spacing.xs,
+  },
+  handleText: { color: colors.textMuted, fontSize: 26 },
 });
