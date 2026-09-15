@@ -121,6 +121,25 @@ export async function setRadioFavorite(db: SqlDatabase, stationId: string, favor
   ]);
 }
 
+/**
+ * Flytter en favorit én plads op (-1) eller ned (+1) i brugerens orden.
+ *
+ * Positionerne skrives om til 0,1,2 … efter flytningen, saa der ikke opstaar
+ * huller. Bytter bare med naboen; er der ingen nabo, sker intet.
+ */
+export async function moveRadioFavorite(db: SqlDatabase, stationId: string, direction: -1 | 1): Promise<void> {
+  const rows = await db.getAllAsync<{ station_id: string }>('SELECT station_id FROM radio_favorites ORDER BY position');
+  const ids = rows.map((row) => row.station_id);
+  const from = ids.indexOf(stationId);
+  if (from === -1) return;
+  const to = from + direction;
+  if (to < 0 || to >= ids.length) return;
+  [ids[from], ids[to]] = [ids[to]!, ids[from]!];
+  for (let position = 0; position < ids.length; position += 1) {
+    await db.runAsync('UPDATE radio_favorites SET position = ? WHERE station_id = ?', [position, ids[position]!]);
+  }
+}
+
 export async function listRadioFavoriteIds(db: SqlDatabase): Promise<Set<string>> {
   const rows = await db.getAllAsync<{ station_id: string }>('SELECT station_id FROM radio_favorites');
   return new Set(rows.map((row) => row.station_id));

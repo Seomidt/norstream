@@ -4,6 +4,7 @@ import {
   getRadioStation,
   listRadioFavorites,
   listRadioFavoriteIds,
+  moveRadioFavorite,
   listRadioStations,
   radioStationsFetchedMs,
   rememberRadioStation,
@@ -56,5 +57,17 @@ describe('radio-stationer', () => {
     expect((await listRadioFavorites(db)).map((s) => s.id)).toEqual(['a', 'z']);
     // Landets liste er ikke roert af den huskede.
     expect((await listRadioStations(db, 'NO')).map((s) => s.id)).toEqual(['z']);
+  });
+
+  it('flytter en favorit op og ned, og goer intet ved kanten', async () => {
+    await saveRadioStations(db, 'DK', [station('a', 'P3'), station('b', 'P4'), station('c', 'P5')]);
+    for (const id of ['a', 'b', 'c']) await setRadioFavorite(db, id, true);
+    expect((await listRadioFavorites(db)).map((s) => s.id)).toEqual(['a', 'b', 'c']);
+    await moveRadioFavorite(db, 'c', -1);
+    expect((await listRadioFavorites(db)).map((s) => s.id)).toEqual(['a', 'c', 'b']);
+    await moveRadioFavorite(db, 'a', -1);
+    expect((await listRadioFavorites(db)).map((s) => s.id)).toEqual(['a', 'c', 'b']);
+    await moveRadioFavorite(db, 'a', 1);
+    expect((await listRadioFavorites(db)).map((s) => s.id)).toEqual(['c', 'a', 'b']);
   });
 });

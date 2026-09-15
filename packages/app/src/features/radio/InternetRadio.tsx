@@ -9,6 +9,7 @@ import {
   listRadioFavorites,
   listRadioStations,
   radioStationsFetchedMs,
+  moveRadioFavorite,
   rememberRadioStation,
   saveRadioStations,
   setRadioFavorite,
@@ -115,6 +116,8 @@ export function InternetRadio({
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<RadioStation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Sorterer man sine favoritter (kun telefon): raekkerne faar pile i stedet for at spille. */
+  const [sortingMine, setSortingMine] = useState(false);
 
   backRef.current = (): boolean => {
     if (query.length > 0) {
@@ -128,6 +131,10 @@ export function InternetRadio({
       return true;
     }
     if (tab === 'mine') {
+      if (sortingMine) {
+        setSortingMine(false);
+        return true;
+      }
       setTab('countries');
       return true;
     }
@@ -260,6 +267,12 @@ export function InternetRadio({
     onFavouritesChanged?.();
   }
 
+  async function moveFavourite(station: RadioStation, direction: -1 | 1): Promise<void> {
+    await moveRadioFavorite(session.db, station.id, direction);
+    await loadFavourites();
+    onFavouritesChanged?.();
+  }
+
   function play(station: RadioStation, list: RadioStation[]): void {
     onSelect(
       toRadioChannel(station),
@@ -292,7 +305,7 @@ export function InternetRadio({
     return (
       <TvPressable
         style={styles.stationRow}
-        onPress={() => play(station, list)}
+        onPress={sortingMine ? undefined : () => play(station, list)}
         // Paa tv er et langt tryk paa OK favorit til/fra: stjernen som eget
         // trykpunkt inde i raekken kan ikke naas med fjernbetjeningen.
         onLongPress={
@@ -315,15 +328,26 @@ export function InternetRadio({
             {meta}
           </Text>
         </View>
-        <TvPressable
-          hitSlop={10}
-          focusable={!isTV}
-          onPress={() => {
-            void toggleFavourite(station);
-          }}
-        >
-          <Text style={favourite ? styles.starOn : styles.starOff}>{favourite ? '★' : '☆'}</Text>
-        </TvPressable>
+        {sortingMine ? (
+          <View style={styles.arrows}>
+            <Pressable hitSlop={10} onPress={() => void moveFavourite(station, -1)} disabled={list[0]?.id === station.id}>
+              <Text style={[styles.arrow, list[0]?.id === station.id && styles.arrowOff]}>▲</Text>
+            </Pressable>
+            <Pressable hitSlop={10} onPress={() => void moveFavourite(station, 1)} disabled={list[list.length - 1]?.id === station.id}>
+              <Text style={[styles.arrow, list[list.length - 1]?.id === station.id && styles.arrowOff]}>▼</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <TvPressable
+            hitSlop={10}
+            focusable={!isTV}
+            onPress={() => {
+              void toggleFavourite(station);
+            }}
+          >
+            <Text style={favourite ? styles.starOn : styles.starOff}>{favourite ? '★' : '☆'}</Text>
+          </TvPressable>
+        )}
       </TvPressable>
     );
   }
@@ -407,6 +431,16 @@ export function InternetRadio({
       <View style={styles.container}>
         {searchField}
         {tabs}
+        {!isTV && favourites.length > 1 && (
+          <View style={styles.sortBar}>
+            <Text style={styles.sortHint}>
+              {sortingMine ? 'Flyt med ▲ og ▼. Tryk Færdig når rækkefølgen passer.' : 'Rækkefølgen gælder også i bilen.'}
+            </Text>
+            <Pressable hitSlop={8} onPress={() => setSortingMine((value) => !value)}>
+              <Text style={styles.sortAction}>{sortingMine ? 'Færdig' : 'Sortér'}</Text>
+            </Pressable>
+          </View>
+        )}
         <RememberedList
           memoryKey="radio:mine"
           restoreSignal={restoreSignal}
@@ -515,6 +549,19 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   meta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   count: { color: colors.textMuted, fontSize: 13 },
   chevron: { color: colors.textMuted, fontSize: 22 },
+  arrows: { flexDirection: 'row', gap: theme.spacing.sm, paddingHorizontal: theme.spacing.xs },
+  arrow: { color: colors.accent, fontSize: 20, paddingHorizontal: theme.spacing.xs },
+  arrowOff: { color: colors.border },
+  sortBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    paddingBottom: theme.spacing.xs,
+  },
+  sortHint: { flex: 1, color: colors.textMuted, fontSize: 12 },
+  sortAction: { color: colors.accent, fontSize: 14, fontWeight: '700' },
   starOn: { color: colors.accent, fontSize: 24, paddingHorizontal: theme.spacing.xs },
   starOff: { color: colors.textMuted, fontSize: 24, paddingHorizontal: theme.spacing.xs },
   tabs: {
