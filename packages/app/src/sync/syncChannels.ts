@@ -1,4 +1,4 @@
-import { XtreamClient } from '@norstream/core';
+import { XtreamClient, deriveCountryLoose } from '@norstream/core';
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
 import { replaceCategories, replaceChannels } from '../storage/channels.js';
 import { setLastSyncMs } from '../storage/settings.js';
@@ -13,6 +13,7 @@ import type { SqlDatabase } from '../storage/types.js';
  */
 export async function syncChannels(
   db: SqlDatabase,
+  sourceId: string,
   creds: XtreamCredentials,
   fetchImpl: FetchLike,
   now: Date = new Date(),
@@ -22,9 +23,17 @@ export async function syncChannels(
   const categories = await client.getLiveCategories();
   const channels = await client.getLiveStreams();
 
-  await replaceCategories(db, categories);
-  await replaceChannels(db, channels);
-  await setLastSyncMs(db, now.getTime());
+  // Landet per kategori udledes her og foelger med ned paa hver kanal: det er
+  // den halvdel af noeglen ind i logo-registret som SQL ikke kan regne ud.
+  const countryByCategory = new Map<string, string>();
+  for (const category of categories) {
+    const country = deriveCountryLoose(category.name);
+    if (country !== null) countryByCategory.set(category.id, country.code);
+  }
+
+  await replaceCategories(db, sourceId, categories);
+  await replaceChannels(db, sourceId, channels, undefined, countryByCategory);
+  await setLastSyncMs(db, now.getTime(), sourceId);
 
   return { categories: categories.length, channels: channels.length };
 }

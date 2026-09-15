@@ -1,12 +1,33 @@
-import type { Category, Channel, XtreamCredentials } from '../models.js';
+import type {
+  Category,
+  Channel,
+  Episode,
+  Programme,
+  VodDetails,
+  VodItem,
+  XtreamCredentials,
+} from '../models.js';
 import { normaliseBaseUrl } from '../urls.js';
 import { truthyFlag } from './coerce.js';
 import { mapCategories, mapChannels } from './mapping.js';
+import { panelOffsetFromServerInfo } from './serverInfo.js';
+import { mapEpgListings } from './epgListings.js';
+import { mapEpisodes, mapVodDetails, mapVodItems } from './vodMapping.js';
 
 export interface FetchLikeResponse {
   ok: boolean;
   status: number;
   json(): Promise<unknown>;
+  /**
+   * Svarets krop som tekst.
+   *
+   * Paakraevet, og det er den vigtige del. Den var valgfri, og appens egen
+   * `fetch`-indpakning gav den ikke videre — saa hver eneste ting der laeser
+   * tekst frem for JSON fejlede stille paa telefonen: M3U-lister,
+   * XMLTV-oversigter og det aabne logo-register. Alle tre saa ud til bare
+   * "ikke at vaere hentet". Nu fanger oversaetteren den slags.
+   */
+  text(): Promise<string>;
 }
 
 export type FetchLike = (url: string) => Promise<FetchLikeResponse>;
@@ -41,19 +62,25 @@ export class XtreamClient {
     this.baseUrl = normaliseBaseUrl(creds.baseUrl);
   }
 
-  private endpoint(action?: string): string {
+  private endpoint(action?: string, params: Record<string, string> = {}): string {
     const query = [
       `username=${encodeURIComponent(this.creds.username)}`,
       `password=${encodeURIComponent(this.creds.password)}`,
     ];
     if (action) query.push(`action=${encodeURIComponent(action)}`);
+    for (const [key, value] of Object.entries(params)) {
+      query.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
+    }
     return `${this.baseUrl}/player_api.php?${query.join('&')}`;
   }
 
-  private async request(action?: string): Promise<unknown> {
+  private async request(
+    action?: string,
+    params: Record<string, string> = {},
+  ): Promise<unknown> {
     let response: FetchLikeResponse;
     try {
-      response = await this.fetchImpl(this.endpoint(action));
+      response = await this.fetchImpl(this.endpoint(action, params));
     } catch (cause) {
       throw new XtreamNetworkError(
         `Kunne ikke nå panelet: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -93,6 +120,83 @@ export class XtreamClient {
 
   async getLiveStreams(): Promise<Channel[]> {
     return mapChannels(await this.requestList('get_live_streams'));
+  }
+
+  /**
+   * Programoversigt for een kanal, slaaet op paa `stream_id`.
+   *
+   * Det er vejen uden om XMLTV-filen, som paa brugerens panel er 98 MB og
+   * aldrig naar frem inden for en rimelig timeout. Svaret her er faa kilobyte.
+   *
+   * Bruger `request`, ikke `requestList`: svaret er et objekt med
+   * `epg_listings`, ikke et bart array. `mapEpgListings` er tolerant over for
+   * begge former og over for beskadigede poster.
+   */
+  async getShortEpg(streamId: string, limit = 12): Promise<Programme[]> {
+    const body = await this.request('get_short_epg', {
+      stream_id: streamId,
+      limit: String(Math.max(1, Math.trunc(limit))),
+    });
+    return mapEpgListings(streamId, body);
+  }
+
+  /**
+   * Hele programtabellen for een kanal — ogsaa bagud i tid.
+   *
+   * `get_short_epg` giver kun de naeste faa programmer. Det er nok til at vise
+   * "nu og naeste", men ikke til arkivet: skal brugeren kunne starte gaars
+   * aftenudsendelse, skal guiden kunne *vise* den foerst, og de programmer
+   * findes kun her.
+   *
+   * Svaret er stoerre — typisk et par hundrede kilobyte for en kanal med en
+   * uges tabel — saa det hentes per kanal og kun naar der er brug for det,
+   * ikke for alle 22.142 kanaler.
+   */
+  async getFullEpg(streamId: string): Promise<Programme[]> {
+    const body = await this.request('get_simple_data_table', { stream_id: streamId });
+    return mapEpgListings(streamId, body);
+  }
+
+  /**
+   * Panelets offset fra UTC i minutter, eller `null` hvis panelet ikke oplyser
+   * nok til at regne det ud. Se `serverInfo.ts` for hvorfor `timezone`-strengen
+   * ikke bruges.
+   */
+  async getPanelOffsetMinutes(): Promise<number | null> {
+    return panelOffsetFromServerInfo(await this.request());
+  }
+
+  async getVodCategories(): Promise<Category[]> {
+    return mapCategories(await this.requestList('get_vod_categories'));
+  }
+
+  async getVodStreams(): Promise<VodItem[]> {
+    return mapVodItems(await this.requestList('get_vod_streams'), 'movie');
+  }
+
+  async getSeriesCategories(): Promise<Category[]> {
+    return mapCategories(await this.requestList('get_series_categories'));
+  }
+
+  async getSeries(): Promise<VodItem[]> {
+    return mapVodItems(await this.requestList('get_series'), 'series');
+  }
+
+  /**
+   * Handling, rolleliste og trailer for én film.
+   *
+   * Et opslag per titel, ikke per liste: `get_vod_streams` giver tusindvis
+   * af film paa ét kald, men kun navn og plakat. Resten koster et kald per
+   * film, og det kald sker foerst naar man aabner den.
+   */
+  async getVodInfo(vodId: string): Promise<VodDetails> {
+    return mapVodDetails(await this.request('get_vod_info', { vod_id: vodId }));
+  }
+
+  /** Det samme for en serie, plus dens afsnit. */
+  async getSeriesInfo(seriesId: string): Promise<{ details: VodDetails; episodes: Episode[] }> {
+    const body = await this.request('get_series_info', { series_id: seriesId });
+    return { details: mapVodDetails(body), episodes: mapEpisodes(body, seriesId) };
   }
 
   /**
