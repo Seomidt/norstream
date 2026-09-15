@@ -101,14 +101,6 @@ eller i bilen** før de næste builds. Regn med småting.
   filmen i panelet, og "Se trailer" (trailer-ruten med `itemKey: null`,
   Tilbage går til Hjem). Kræver TMDB-nøgle. Plakatkortet er fælles:
   `ui/TitleCard.tsx`.
-- **Sikkerhedskopi i skyen (WebDAV)** (`features/settings/webdav.ts`,
-  `storage/backupWriter.ts`): gem/gendan mod pCloud, Koofr, Nextcloud eller
-  en NAS — brugeren taster adresse, bruger og kode (kode i Keychain via
-  expo-secure-store, `norstream_webdav`). PUT/GET/MKCOL med Basic auth,
-  almindelig fetch (ikke panel-fetch). Google Drev kan ikke bruges: Google
-  tillader ikke login med kodeord fra en app (kræver OAuth + verificeret
-  projekt). Den ugentlige kopi kan gå til sky (`backup_folder_uri` =
-  `cloud`), USB (`usb`) eller en mappe; `writeWeeklyBackup` router.
 - **Sikkerhedskopi på USB** (tv): native-modulet `packages/app/modules/usb-storage`
   finder USB-drev der sidder i (`getExternalFilesDirs` + `StorageVolume`),
   og appen skriver/læser `norstream-sikkerhedskopi.json` i sin egen mappe

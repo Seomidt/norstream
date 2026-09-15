@@ -8,9 +8,6 @@ import { createBackup, parseBackup, restoreBackup, serialiseBackup } from '../..
 import { forgetLogoMisses, resetLogo } from '../../ui/logoCache.js';
 import { setPosterApiKey } from '../../ui/posterFill.js';
 import { USB_FOLDER, pickBackupFolder, readBackupFromUsb, readChosenBackupFile, saveBackupToChosenFolder, usbBackupFolder, writeBackupToFolder } from './backupFiles.js';
-import { getWebdavConfig, putBackup, getBackup, setWebdavConfig } from './webdav.js';
-import type { WebdavConfig } from './webdav.js';
-import { CLOUD_FOLDER, writeWeeklyBackup } from '../../storage/backupWriter.js';
 import { fetchBackupFromLink } from './backupLink.js';
 import { getAutoBackupState, runWeeklyBackup } from '../../storage/autoBackup.js';
 import type { AutoBackupState } from '../../storage/autoBackup.js';
@@ -157,9 +154,6 @@ export function SettingsScreen({
   const [backupBusy, setBackupBusy] = useState(false);
   /** USB-drevet der sidder i, hvis der er et. Slaas op naar siden laeses og foer hvert tryk. */
   const [usb, setUsb] = useState<{ uri: string; name: string } | null>(null);
-  /** Skyens adresse, bruger og kode (WebDAV). Kodeordet ligger i Keychain. */
-  const [cloud, setCloud] = useState<WebdavConfig>({ url: '', username: '', password: '' });
-  const [cloudSaved, setCloudSaved] = useState(false);
   /** Delelinket til filen, til Gendan fra link. Huskes, saa det kan hentes igen uden at taste. */
   const [backupLink, setBackupLinkState] = useState('');
   const changeBackupLink = (value: string): void => {
@@ -203,9 +197,6 @@ export function SettingsScreen({
     setAutoBackup(await getAutoBackupState(session.db));
     setBackupLinkState(await getBackupLink(session.db));
     setUsb(usbBackupFolder());
-    const savedCloud = await getWebdavConfig();
-    setCloudSaved(savedCloud !== null);
-    if (savedCloud !== null) setCloud(savedCloud);
     const errors: string[] = [];
     for (const access of session.sources) {
       const error = await getSetting(session.db, `last_vod_error:${access.source.id}`);
@@ -355,98 +346,6 @@ export function SettingsScreen({
     } finally {
       setBackupBusy(false);
     }
-  }
-
-  /** Gemmer skyens adresse og skriver en kopi med det samme, saa man ser om den virker. */
-  async function connectCloud(): Promise<void> {
-    const config: WebdavConfig = { url: cloud.url.trim(), username: cloud.username.trim(), password: cloud.password };
-    if (config.url.length === 0) {
-      setBackupMessage('Skriv skyens adresse først.');
-      return;
-    }
-    setBackupBusy(true);
-    setBackupMessage('Gemmer i skyen …');
-    try {
-      await putBackup(config, serialiseBackup(await createBackup(session.db)));
-      await setWebdavConfig(config);
-      setCloudSaved(true);
-      setBackupMessage('Sikkerhedskopien er gemt i skyen.');
-    } catch (cause) {
-      setBackupMessage(cause instanceof Error ? cause.message : 'Kunne ikke gemme i skyen.');
-    } finally {
-      setBackupBusy(false);
-    }
-  }
-
-  async function saveToCloud(): Promise<void> {
-    setBackupBusy(true);
-    try {
-      const config = await getWebdavConfig();
-      if (config === null) {
-        setBackupMessage('Skyen er ikke sat op endnu.');
-        return;
-      }
-      await putBackup(config, serialiseBackup(await createBackup(session.db)));
-      setBackupMessage('Sikkerhedskopien er gemt i skyen.');
-    } catch (cause) {
-      setBackupMessage(cause instanceof Error ? cause.message : 'Kunne ikke gemme i skyen.');
-    } finally {
-      setBackupBusy(false);
-    }
-  }
-
-  async function restoreFromCloud(): Promise<void> {
-    setBackupBusy(true);
-    try {
-      const config = await getWebdavConfig();
-      if (config === null) {
-        setBackupMessage('Skyen er ikke sat op endnu.');
-        return;
-      }
-      await restoreFromText(await getBackup(config));
-    } catch (cause) {
-      setBackupMessage(cause instanceof Error ? cause.message : 'Kunne ikke hente fra skyen.');
-    } finally {
-      setBackupBusy(false);
-    }
-  }
-
-  async function toggleCloudWeekly(on: boolean): Promise<void> {
-    setBackupBusy(true);
-    try {
-      if (!on) {
-        await setBackupFolderUri(session.db, null);
-        setAutoBackup(await getAutoBackupState(session.db));
-        setBackupMessage('Den automatiske sikkerhedskopi er slået fra.');
-        return;
-      }
-      await setBackupFolderUri(session.db, CLOUD_FOLDER);
-      const result = await runWeeklyBackup(session.db, writeWeeklyBackup, Date.now(), true);
-      setAutoBackup(await getAutoBackupState(session.db));
-      setBackupMessage(
-        result === 'written'
-          ? 'Sikkerhedskopien er gemt i skyen, og den fornys hver uge.'
-          : 'Der kunne ikke skrives til skyen. Tjek adressen og prøv igen.',
-      );
-    } finally {
-      setBackupBusy(false);
-    }
-  }
-
-  function disconnectCloud(): void {
-    setBackupBusy(true);
-    void (async () => {
-      try {
-        await setWebdavConfig(null);
-        if (autoBackup.folderUri === CLOUD_FOLDER) await setBackupFolderUri(session.db, null);
-        setCloud({ url: '', username: '', password: '' });
-        setCloudSaved(false);
-        setAutoBackup(await getAutoBackupState(session.db));
-        setBackupMessage('Skyen er koblet fra. Filen i skyen bliver.');
-      } finally {
-        setBackupBusy(false);
-      }
-    })();
   }
 
   /** Tv'ets anden vej: filen hentes fra et delelink (Drev, Dropbox, OneDrive) i stedet for en filvaelger. */
@@ -1020,88 +919,6 @@ export function SettingsScreen({
           </TvPressable>
         </>
       )}
-      <Text style={styles.sectionTitle}>Sikkerhedskopi i skyen</Text>
-      <Text style={styles.hint}>
-        Gem i en sky, der bruger WebDAV — pCloud, Koofr, Nextcloud eller en NAS. Google Drev kan ikke
-        bruges her, for Google tillader ikke login med kodeord fra en app. Opret en gratis konto, find
-        tjenestens WebDAV-adresse, og skriv adresse, bruger og kode. Kodeordet gemmes kun på enheden.
-        {cloudSaved ? ' Skyen er sat op.' : ''}
-      </Text>
-      <TvTextInput
-        style={styles.input}
-        value={cloud.url}
-        onChangeText={(value) => setCloud((current) => ({ ...current, url: value }))}
-        placeholder="WebDAV-adresse, fx https://webdav.koofr.net/dav/NorStream/"
-        autoCorrect={false}
-        autoCapitalize="none"
-        keyboardType="url"
-      />
-      <TvTextInput
-        style={styles.input}
-        value={cloud.username}
-        onChangeText={(value) => setCloud((current) => ({ ...current, username: value }))}
-        placeholder="Brugernavn"
-        autoCorrect={false}
-        autoCapitalize="none"
-      />
-      <TvTextInput
-        style={styles.input}
-        value={cloud.password}
-        onChangeText={(value) => setCloud((current) => ({ ...current, password: value }))}
-        placeholder="Kodeord (app-kode hvis tjenesten har det)"
-        autoCorrect={false}
-        autoCapitalize="none"
-        secureTextEntry
-      />
-      <TvPressable style={styles.row} disabled={backupBusy} onPress={() => void connectCloud()}>
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>{cloudSaved ? 'Gem i skyen nu' : 'Forbind og gem'}</Text>
-          <Text style={styles.rowHint}>Skriver norstream-sikkerhedskopi.json i mappen. Laver mappen hvis den mangler.</Text>
-        </View>
-        <Text style={styles.actionText}>{cloudSaved ? 'Gem' : 'Forbind'}</Text>
-      </TvPressable>
-      {cloudSaved && (
-        <>
-          <TvPressable style={styles.row} disabled={backupBusy} onPress={() => void toggleCloudWeekly(autoBackup.folderUri !== CLOUD_FOLDER)}>
-            <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>Automatisk hver uge i skyen</Text>
-              <Text style={styles.rowHint}>
-                {autoBackup.folderUri !== CLOUD_FOLDER
-                  ? 'Slå til, så fornys filen af sig selv.'
-                  : autoBackup.failed
-                    ? 'Skyen kunne ikke nås sidst. Den prøver igen ved næste start.'
-                    : autoBackup.lastMs === null
-                      ? 'Slået til. Første kopi skrives ved næste start.'
-                      : `Sidst gemt ${new Date(autoBackup.lastMs).toLocaleDateString('da-DK', { day: 'numeric', month: 'long' })}.`}
-              </Text>
-            </View>
-            <Switch
-              value={autoBackup.folderUri === CLOUD_FOLDER}
-              focusable={false}
-              disabled={backupBusy}
-              onValueChange={(value) => {
-                void toggleCloudWeekly(value);
-              }}
-              trackColor={{ true: colors.accent, false: colors.border }}
-            />
-          </TvPressable>
-          <TvPressable style={styles.row} disabled={backupBusy} onPress={() => void restoreFromCloud()}>
-            <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>Gendan fra skyen</Text>
-              <Text style={styles.rowHint}>Henter filen fra skyen og erstatter favoritter, grupper, egne logoer og skjulte lande.</Text>
-            </View>
-            <Text style={styles.actionText}>Gendan</Text>
-          </TvPressable>
-          <TvPressable style={styles.row} disabled={backupBusy} onPress={disconnectCloud}>
-            <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>Kobl skyen fra</Text>
-              <Text style={styles.rowHint}>Glemmer adresse og kode på denne enhed. Filen i skyen bliver.</Text>
-            </View>
-            <Text style={styles.actionText}>Fjern</Text>
-          </TvPressable>
-        </>
-      )}
-
       <TvTextInput
         style={styles.input}
         value={backupLink}
