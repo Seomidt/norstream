@@ -6,6 +6,8 @@ import { useStyles } from '../../ui/ThemeContext.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { TvTextInput } from '../../ui/TvTextInput.js';
 import { isTV } from '../../ui/tv.js';
+import { QrCode } from './QrCode.js';
+import { QrScanner } from './QrScanner.js';
 import { sendToTv, startReceiver, stopReceiver, subscribeReceived } from '../../../modules/local-backup/index.js';
 
 interface Props {
@@ -14,6 +16,9 @@ interface Props {
   /** Gendanner en modtaget fil (tv). */
   onReceived: (json: string) => Promise<void>;
 }
+
+/** Praefiks paa QR-teksten, saa scanneren ved at det er en NorStream-adresse. */
+const QR_PREFIX = 'NS';
 
 /** En firecifret kode, saa kun den rigtige telefon rammer tv'et. */
 function randomPin(): string {
@@ -87,7 +92,9 @@ function Receive({ onReceived, styles }: { onReceived: (json: string) => Promise
         </TvPressable>
       ) : state === 'waiting' && where !== null ? (
         <View style={styles.panel}>
-          <Text style={styles.panelLabel}>På telefonen: Send til tv</Text>
+          <Text style={styles.panelLabel}>På telefonen: Send til tv → Scan QR</Text>
+          <QrCode value={`${QR_PREFIX}:${where.ip}:${where.port}:${where.pin}`} size={240} />
+          <Text style={styles.panelLabel}>Eller tast selv</Text>
           <Text style={styles.panelBig}>{where.ip}:{where.port}</Text>
           <Text style={styles.panelLabel}>Kode</Text>
           <Text style={styles.panelBig}>{where.pin}</Text>
@@ -106,6 +113,32 @@ function Send({ buildBackup, styles }: { buildBackup: () => Promise<string>; sty
   const [pin, setPin] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+
+  const sendTo = async (ip: string, port: number, code: string): Promise<void> => {
+    setBusy(true);
+    setMessage('Sender …');
+    try {
+      await sendToTv(ip, port, code, await buildBackup());
+      setMessage('Sendt. Tv\u2019et gendanner nu.');
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : 'Kunne ikke sende.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onScanned = (value: string): void => {
+    setScanning(false);
+    const match = /^NS:(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5}):(\d{4})$/.exec(value.trim());
+    if (match === null) {
+      setMessage('Det var ikke en NorStream-kode. Prøv igen, eller tast adressen.');
+      return;
+    }
+    setAddress(`${match[1]}:${match[2]}`);
+    setPin(match[3]!);
+    void sendTo(match[1]!, Number(match[2]), match[3]!);
+  };
 
   const send = async (): Promise<void> => {
     const match = /^(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5})$/.exec(address.trim());
@@ -117,16 +150,7 @@ function Send({ buildBackup, styles }: { buildBackup: () => Promise<string>; sty
       setMessage('Koden er fire cifre, som tv’et viser.');
       return;
     }
-    setBusy(true);
-    setMessage('Sender …');
-    try {
-      await sendToTv(match[1]!, Number(match[2]), pin.trim(), await buildBackup());
-      setMessage('Sendt. Tv’et gendanner nu.');
-    } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : 'Kunne ikke sende.');
-    } finally {
-      setBusy(false);
-    }
+    await sendTo(match[1]!, Number(match[2]), pin.trim());
   };
 
   return (
@@ -134,8 +158,15 @@ function Send({ buildBackup, styles }: { buildBackup: () => Promise<string>; sty
       <Text style={styles.sectionTitle}>Send til tv</Text>
       <Text style={styles.hint}>
         Send sikkerhedskopien direkte til tv’et på jeres eget wi-fi. På tv’et: Indstillinger →
-        Hent fra telefonen → Modtag. Skriv så adressen og koden tv’et viser.
+        Hent fra telefonen → Modtag. Scan så QR-koden, eller tast adressen og koden.
       </Text>
+      <TvPressable style={styles.row} disabled={busy} onPress={() => setScanning(true)}>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Scan QR fra tv’et</Text>
+          <Text style={styles.rowHint}>Åbner kameraet. Ret det mod koden på tv’et, så sendes filen selv.</Text>
+        </View>
+        <Text style={styles.action}>Scan</Text>
+      </TvPressable>
       <TvTextInput
         style={styles.input}
         value={address}
@@ -162,6 +193,7 @@ function Send({ buildBackup, styles }: { buildBackup: () => Promise<string>; sty
         <Text style={styles.action}>Send</Text>
       </TvPressable>
       {message !== null && <Text style={styles.hint}>{message}</Text>}
+      {scanning && <QrScanner onScanned={onScanned} onClose={() => setScanning(false)} />}
     </>
   );
 }

@@ -101,6 +101,11 @@ eller i bilen** før de næste builds. Regn med småting.
   filmen i panelet, og "Se trailer" (trailer-ruten med `itemKey: null`,
   Tilbage går til Hjem). Kræver TMDB-nøgle. Plakatkortet er fælles:
   `ui/TitleCard.tsx`.
+- **QR til den direkte overførsel** (`features/settings/QrCode.tsx` med
+  qrcode-generator tegnet som Views, `QrScanner.tsx` med expo-camera):
+  tv'et viser en QR med `NS:<ip>:<port>:<pin>`, telefonen scanner den og
+  sender selv. Kamera-tilladelse via expo-camera-plugin i app.json. Tastning
+  bevaret som reserve.
 - **Direkte telefon → tv** (`features/settings/LocalTransfer.tsx`,
   native `packages/app/modules/local-backup`): tv'et starter en lille
   HTTP-server (Kotlin ServerSocket), viser sin ip:port og en firecifret
