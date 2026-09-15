@@ -36,7 +36,7 @@ import { LogoPickerScreen } from '../settings/LogoPickerScreen.js';
 import { Notice } from '../../ui/Notice.js';
 import { applyStreamFormatSetting, applyVideoSurfaceSetting } from '../player/format.js';
 import { runWeeklyBackup } from '../../storage/autoBackup.js';
-import { writeBackupToFolder } from '../settings/backupFiles.js';
+import { writeWeeklyBackup } from '../../storage/backupWriter.js';
 import { VodScreen } from '../vod/VodScreen.js';
 import type { VodLevel } from '../vod/VodScreen.js';
 import type { StoredVodItem } from '../../storage/vod.js';
@@ -240,11 +240,11 @@ export function HomeScreen({
       // Indstillinger har vaeret aabnet.
       applyStreamFormatSetting(format);
       applyVideoSurfaceSetting(surface);
-      // Den ugentlige sikkerhedskopi, naar en mappe (telefon) eller USB
-      // (tv) er valgt. Lidt efter start, saa den ikke staar i vejen for det
-      // foerste billede.
+      // Den ugentlige sikkerhedskopi, naar en mappe (telefon), USB (tv)
+      // eller en sky er valgt. Lidt efter start, saa den ikke staar i vejen
+      // for det foerste billede.
       setTimeout(() => {
-        void runWeeklyBackup(session.db, writeBackupToFolder);
+        void runWeeklyBackup(session.db, writeWeeklyBackup);
       }, 15_000);
     })();
     return () => {
