@@ -52,6 +52,7 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { TvTextInput } from '../../ui/TvTextInput.js';
+import { LocalTransfer } from './LocalTransfer.js';
 
 interface Props {
   session: AppSession;
@@ -941,6 +942,17 @@ export function SettingsScreen({
         <Text style={styles.actionText}>Hent</Text>
       </TvPressable>
       {backupMessage !== null && <Text style={styles.hint}>{backupMessage}</Text>}
+
+      <LocalTransfer
+        buildBackup={async () => serialiseBackup(await createBackup(session.db))}
+        onReceived={async (json) => {
+          try {
+            await restoreFromText(json);
+          } catch (cause) {
+            setBackupMessage(cause instanceof Error ? cause.message : 'Den modtagne fil kunne ikke læses.');
+          }
+        }}
+      />
 
       <Text style={styles.sectionTitle}>Skjulte lande</Text>
       {hidden.length === 0 ? (

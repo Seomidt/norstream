@@ -101,6 +101,14 @@ eller i bilen** før de næste builds. Regn med småting.
   filmen i panelet, og "Se trailer" (trailer-ruten med `itemKey: null`,
   Tilbage går til Hjem). Kræver TMDB-nøgle. Plakatkortet er fælles:
   `ui/TitleCard.tsx`.
+- **Direkte telefon → tv** (`features/settings/LocalTransfer.tsx`,
+  native `packages/app/modules/local-backup`): tv'et starter en lille
+  HTTP-server (Kotlin ServerSocket), viser sin ip:port og en firecifret
+  kode; telefonen POST'er filen med koden i `X-Norstream-Pin`. Kun lokalt
+  wi-fi, kun mens siden er åben; afsenderen bruger almindelig fetch (intet
+  native). Ingen sky, ingen konto, intet USB. Manifest-tilladelser
+  INTERNET/ACCESS_WIFI_STATE. (WebDAV-skyen blev bygget og rullet tilbage
+  igen — brugeren ville ikke have den; se git-historik.)
 - **Sikkerhedskopi på USB** (tv): native-modulet `packages/app/modules/usb-storage`
   finder USB-drev der sidder i (`getExternalFilesDirs` + `StorageVolume`),
   og appen skriver/læser `norstream-sikkerhedskopi.json` i sin egen mappe
