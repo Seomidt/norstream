@@ -424,7 +424,7 @@ export function InternetRadio({
         {!isTV && favourites.length > 1 && (
           <View style={styles.sortBar}>
             <Text style={styles.sortHint}>
-              {sortingMine ? 'Træk stationerne i ☰ til rækkefølgen passer.' : 'Rækkefølgen gælder også i bilen.'}
+              {sortingMine ? 'Tryk på en station for at tage den op, træk den så på plads, og slip.' : 'Rækkefølgen gælder også i bilen.'}
             </Text>
             <Pressable hitSlop={8} onPress={() => setSortingMine((value) => !value)}>
               <Text style={styles.sortAction}>{sortingMine ? 'Færdig' : 'Sortér'}</Text>

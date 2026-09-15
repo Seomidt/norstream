@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, PanResponder, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { PanResponder, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { RadioStation } from '../../sync/radioBrowser.js';
 import { radioLogoUrls } from '../../sync/radioBrowser.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
@@ -9,16 +9,25 @@ import { useStyles } from '../../ui/ThemeContext.js';
 
 const ROW_HEIGHT = 64;
 /** Saa taet paa kanten fingeren skal vaere foer listen ruller med. */
-const EDGE = 64;
-const EDGE_STEP = 10;
+const EDGE = 72;
+const EDGE_STEP = 12;
+
+/** Flyt element fra `from` til `to` i en ny kopi. */
+function moved<T>(list: readonly T[], from: number, to: number): T[] {
+  const next = [...list];
+  const [item] = next.splice(from, 1);
+  if (item !== undefined) next.splice(to, 0, item);
+  return next;
+}
 
 /**
- * Traek stationerne i den raekkefoelge man vil have dem.
+ * Markér en station, og træk den så hen hvor den skal ligge.
  *
- * Uden bibliotek: en PanResponder paa hele raekken, fast raekkehoejde, og
- * pladsen regnes ud af hvor langt fingeren er flyttet plus hvor meget
- * listen selv har rullet imens (den ruller med naar fingeren naar en kant).
- * Med mange favoritter er det hurtigere end pile, og bunden kan naas.
+ * Et tryk paa en raekke tager den op (den loeftes og lyser). Saa laegger et
+ * lag sig over listen og fanger fingeren: raekkerne rykker sig live mens man
+ * flytter, listen ruller med ved kanten, og et slip lægger stationen. Det er
+ * mere robust end at traekke direkte i en rulleliste paa Android, hvor listen
+ * og traekket sloges om fingeren.
  */
 export function RadioSortList({
   stations,
@@ -27,7 +36,6 @@ export function RadioSortList({
 }: {
   stations: RadioStation[];
   contentBottom: number;
-  /** Den nye raekkefoelge, naar en station er sluppet et nyt sted. */
   onReorder: (orderedIds: string[]) => void;
 }) {
   const styles = useStyles(makeStyles);
@@ -36,15 +44,19 @@ export function RadioSortList({
     setOrder(stations);
   }, [stations]);
 
-  const [drag, setDrag] = useState<{ index: number; hover: number } | null>(null);
-  const dragRef = useRef<{ index: number; hover: number; startScroll: number } | null>(null);
-  const translate = useRef(new Animated.Value(0)).current;
+  /** Den markerede stations id, eller null. */
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  /** Pladsen den svaever over mens man flytter. */
+  const [hover, setHover] = useState<number | null>(null);
+  const hoverRef = useRef<number | null>(null);
+  const pickedIndexRef = useRef<number>(-1);
+
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0);
-  const lastDy = useRef(0);
   const frame = useRef({ top: 0, height: 0 });
   const listRef = useRef<View>(null);
   const edgeTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastFingerY = useRef(0);
 
   const stopEdge = (): void => {
     if (edgeTimer.current !== null) clearInterval(edgeTimer.current);
@@ -52,21 +64,56 @@ export function RadioSortList({
   };
   useEffect(() => stopEdge, []);
 
-  const updateHover = (dy: number): void => {
-    const current = dragRef.current;
-    if (current === null) return;
-    const offset = dy + (scrollY.current - current.startScroll);
-    translate.setValue(offset);
-    const hover = Math.max(0, Math.min(order.length - 1, Math.round(current.index + offset / ROW_HEIGHT)));
-    if (hover !== current.hover) {
-      current.hover = hover;
-      setDrag({ index: current.index, hover });
+  // Den raekkefoelge der vises: den markerede flyttet til den plads den svaever over.
+  const shown = pickedId !== null && hover !== null && pickedIndexRef.current !== -1
+    ? moved(order, pickedIndexRef.current, hover)
+    : order;
+
+  const pick = (id: string): void => {
+    if (pickedId === id) {
+      setPickedId(null);
+      setHover(null);
+      hoverRef.current = null;
+      pickedIndexRef.current = -1;
+      stopEdge();
+      return;
+    }
+    const index = order.findIndex((entry) => entry.id === id);
+    if (index === -1) return;
+    pickedIndexRef.current = index;
+    hoverRef.current = index;
+    setPickedId(id);
+    setHover(index);
+  };
+
+  const drop = (): void => {
+    const from = pickedIndexRef.current;
+    const to = hoverRef.current;
+    stopEdge();
+    if (from !== -1 && to !== null && from !== to) {
+      const next = moved(order, from, to);
+      setOrder(next);
+      onReorder(next.map((entry) => entry.id));
+    }
+    setPickedId(null);
+    setHover(null);
+    hoverRef.current = null;
+    pickedIndexRef.current = -1;
+  };
+
+  const updateHover = (fingerPageY: number): void => {
+    lastFingerY.current = fingerPageY;
+    const listY = fingerPageY - frame.current.top + scrollY.current;
+    const next = Math.max(0, Math.min(order.length - 1, Math.floor(listY / ROW_HEIGHT)));
+    if (next !== hoverRef.current) {
+      hoverRef.current = next;
+      setHover(next);
     }
   };
 
-  const edgeScroll = (fingerY: number): void => {
+  const edgeScroll = (fingerPageY: number): void => {
     const { top, height } = frame.current;
-    const direction = fingerY < top + EDGE ? -1 : fingerY > top + height - EDGE ? 1 : 0;
+    const direction = fingerPageY < top + EDGE ? -1 : fingerPageY > top + height - EDGE ? 1 : 0;
     if (direction === 0) {
       stopEdge();
       return;
@@ -75,48 +122,27 @@ export function RadioSortList({
     edgeTimer.current = setInterval(() => {
       const max = Math.max(0, order.length * ROW_HEIGHT - height);
       const next = Math.max(0, Math.min(max, scrollY.current + direction * EDGE_STEP));
-      if (next === scrollY.current) return;
+      if (next === scrollY.current) {
+        return;
+      }
       scrollRef.current?.scrollTo({ y: next, animated: false });
       scrollY.current = next;
-      updateHover(lastDy.current);
+      updateHover(lastFingerY.current);
     }, 16);
   };
 
-  const finish = (): void => {
-    stopEdge();
-    const current = dragRef.current;
-    dragRef.current = null;
-    setDrag(null);
-    translate.setValue(0);
-    if (current === null || current.hover === current.index) return;
-    const moved = order[current.index];
-    if (moved === undefined) return;
-    const next = [...order];
-    next.splice(current.index, 1);
-    next.splice(current.hover, 0, moved);
-    setOrder(next);
-    onReorder(next.map((entry) => entry.id));
-  };
-
-  const responderFor = (index: number) =>
+  const dragOverlay = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
-      onPanResponderTerminationRequest: () => false,
-      onPanResponderGrant: () => {
-        dragRef.current = { index, hover: index, startScroll: scrollY.current };
-        lastDy.current = 0;
-        translate.setValue(0);
-        setDrag({ index, hover: index });
+      onPanResponderMove: (event) => {
+        updateHover(event.nativeEvent.pageY);
+        edgeScroll(event.nativeEvent.pageY);
       },
-      onPanResponderMove: (_event, gesture) => {
-        lastDy.current = gesture.dy;
-        updateHover(gesture.dy);
-        edgeScroll(gesture.moveY);
-      },
-      onPanResponderRelease: finish,
-      onPanResponderTerminate: finish,
-    });
+      onPanResponderRelease: () => drop(),
+      onPanResponderTerminate: () => drop(),
+    }),
+  ).current;
 
   return (
     <View
@@ -130,43 +156,28 @@ export function RadioSortList({
     >
       <ScrollView
         ref={scrollRef}
-        scrollEnabled={drag === null}
+        scrollEnabled={pickedId === null}
         scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: contentBottom }}
         onScroll={(event) => {
           scrollY.current = event.nativeEvent.contentOffset.y;
         }}
       >
-        {order.map((item, index) => {
-          const dragging = drag !== null && drag.index === index;
-          let shift = 0;
-          if (drag !== null && !dragging) {
-            if (drag.index < index && index <= drag.hover) shift = -ROW_HEIGHT;
-            else if (drag.hover <= index && index < drag.index) shift = ROW_HEIGHT;
-          }
+        {shown.map((item) => {
+          const picked = item.id === pickedId;
           return (
-            <Animated.View
-              key={item.id}
-              style={[
-                styles.row,
-                dragging && styles.rowDragging,
-                { transform: [{ translateY: dragging ? translate : shift }] },
-              ]}
-            >
-              <Text style={styles.position}>{(dragging ? drag.hover : index) + 1}</Text>
+            <Pressable key={item.id} style={[styles.row, picked && styles.rowPicked]} onPress={() => pick(item.id)}>
               <ChannelLogo uris={radioLogoUrls(item)} name={item.name} memoryKey={`rb:${item.id}`} size={40} />
-              <Text style={styles.name} numberOfLines={1}>
+              <Text style={[styles.name, picked && styles.namePicked]} numberOfLines={1}>
                 {item.name}
               </Text>
-              {/* Kun haandtaget starter et traek; resten af raekken lader
-                  listen rulle, saa man kan naa bunden. */}
-              <View style={styles.handle} {...responderFor(index).panHandlers}>
-                <Text style={styles.handleText}>☰</Text>
-              </View>
-            </Animated.View>
+              <Text style={styles.badge}>{picked ? 'Træk mig' : 'Flyt'}</Text>
+            </Pressable>
           );
         })}
       </ScrollView>
+      {/* Laget der fanger fingeren mens en station er markeret. */}
+      {pickedId !== null && <View style={StyleSheet.absoluteFill} {...dragOverlay.panHandlers} />}
     </View>
   );
 }
@@ -183,15 +194,8 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     borderBottomColor: colors.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  rowDragging: { backgroundColor: colors.surfaceRaised, borderRadius: theme.radius, zIndex: 2, elevation: 4 },
-  position: { width: 28, color: colors.textMuted, fontSize: 14, textAlign: 'center' },
+  rowPicked: { backgroundColor: colors.accent, borderRadius: theme.radius },
   name: { flex: 1, color: colors.text, fontSize: 15, fontWeight: '600' },
-  handle: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    alignSelf: 'stretch',
-    paddingHorizontal: theme.spacing.md,
-    marginRight: -theme.spacing.xs,
-  },
-  handleText: { color: colors.textMuted, fontSize: 26 },
+  namePicked: { color: '#ffffff' },
+  badge: { color: colors.textMuted, fontSize: 12, fontWeight: '700', paddingHorizontal: theme.spacing.sm },
 });
