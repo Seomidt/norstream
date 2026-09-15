@@ -9,8 +9,8 @@ import {
   listRadioFavorites,
   listRadioStations,
   radioStationsFetchedMs,
-  moveRadioFavorite,
   rememberRadioStation,
+  reorderRadioFavorites,
   saveRadioStations,
   setRadioFavorite,
 } from '../../storage/radio.js';
@@ -19,6 +19,7 @@ import { fetchRadioCountries, fetchRadioStations, radioFetch, radioLogoUrls, sea
 import type { RadioCountry, RadioStation } from '../../sync/radioBrowser.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { RememberedList } from '../../ui/RememberedList.js';
+import { RadioSortList } from './RadioSortList.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
@@ -267,8 +268,8 @@ export function InternetRadio({
     onFavouritesChanged?.();
   }
 
-  async function moveFavourite(station: RadioStation, direction: -1 | 1): Promise<void> {
-    await moveRadioFavorite(session.db, station.id, direction);
+  async function reorderFavourites(orderedIds: string[]): Promise<void> {
+    await reorderRadioFavorites(session.db, orderedIds);
     await loadFavourites();
     onFavouritesChanged?.();
   }
@@ -305,7 +306,7 @@ export function InternetRadio({
     return (
       <TvPressable
         style={styles.stationRow}
-        onPress={sortingMine ? undefined : () => play(station, list)}
+        onPress={() => play(station, list)}
         // Paa tv er et langt tryk paa OK favorit til/fra: stjernen som eget
         // trykpunkt inde i raekken kan ikke naas med fjernbetjeningen.
         onLongPress={
@@ -328,26 +329,15 @@ export function InternetRadio({
             {meta}
           </Text>
         </View>
-        {sortingMine ? (
-          <View style={styles.arrows}>
-            <Pressable hitSlop={10} onPress={() => void moveFavourite(station, -1)} disabled={list[0]?.id === station.id}>
-              <Text style={[styles.arrow, list[0]?.id === station.id && styles.arrowOff]}>▲</Text>
-            </Pressable>
-            <Pressable hitSlop={10} onPress={() => void moveFavourite(station, 1)} disabled={list[list.length - 1]?.id === station.id}>
-              <Text style={[styles.arrow, list[list.length - 1]?.id === station.id && styles.arrowOff]}>▼</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <TvPressable
-            hitSlop={10}
-            focusable={!isTV}
-            onPress={() => {
-              void toggleFavourite(station);
-            }}
-          >
-            <Text style={favourite ? styles.starOn : styles.starOff}>{favourite ? '★' : '☆'}</Text>
-          </TvPressable>
-        )}
+        <TvPressable
+          hitSlop={10}
+          focusable={!isTV}
+          onPress={() => {
+            void toggleFavourite(station);
+          }}
+        >
+          <Text style={favourite ? styles.starOn : styles.starOff}>{favourite ? '★' : '☆'}</Text>
+        </TvPressable>
       </TvPressable>
     );
   }
@@ -434,27 +424,31 @@ export function InternetRadio({
         {!isTV && favourites.length > 1 && (
           <View style={styles.sortBar}>
             <Text style={styles.sortHint}>
-              {sortingMine ? 'Flyt med ▲ og ▼. Tryk Færdig når rækkefølgen passer.' : 'Rækkefølgen gælder også i bilen.'}
+              {sortingMine ? 'Træk stationerne i ☰ til rækkefølgen passer.' : 'Rækkefølgen gælder også i bilen.'}
             </Text>
             <Pressable hitSlop={8} onPress={() => setSortingMine((value) => !value)}>
               <Text style={styles.sortAction}>{sortingMine ? 'Færdig' : 'Sortér'}</Text>
             </Pressable>
           </View>
         )}
-        <RememberedList
-          memoryKey="radio:mine"
-          restoreSignal={restoreSignal}
-          contentContainerStyle={listPadding}
-          data={favourites}
-          keyExtractor={(station) => station.id}
-          getItemLayout={stationLayout}
-          ListEmptyComponent={
-            <Text style={styles.empty}>
-              Ingen stationer endnu. Tryk på ☆ ud for en station under Lande eller i en søgning, så lander den her — og i bilen.
-            </Text>
-          }
-          renderItem={({ item }) => renderStation(item, favourites)}
-        />
+        {sortingMine ? (
+          <RadioSortList stations={favourites} contentBottom={contentBottom} onReorder={(ids) => void reorderFavourites(ids)} />
+        ) : (
+          <RememberedList
+            memoryKey="radio:mine"
+            restoreSignal={restoreSignal}
+            contentContainerStyle={listPadding}
+            data={favourites}
+            keyExtractor={(station) => station.id}
+            getItemLayout={stationLayout}
+            ListEmptyComponent={
+              <Text style={styles.empty}>
+                Ingen stationer endnu. Tryk på ☆ ud for en station under Lande eller i en søgning, så lander den her — og i bilen.
+              </Text>
+            }
+            renderItem={({ item }) => renderStation(item, favourites)}
+          />
+        )}
       </View>
     );
   }
@@ -549,9 +543,6 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   meta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   count: { color: colors.textMuted, fontSize: 13 },
   chevron: { color: colors.textMuted, fontSize: 22 },
-  arrows: { flexDirection: 'row', gap: theme.spacing.sm, paddingHorizontal: theme.spacing.xs },
-  arrow: { color: colors.accent, fontSize: 20, paddingHorizontal: theme.spacing.xs },
-  arrowOff: { color: colors.border },
   sortBar: {
     flexDirection: 'row',
     alignItems: 'center',
