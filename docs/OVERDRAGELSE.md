@@ -21,7 +21,7 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 **12. september 2026.** Appen kører på brugerens Google TV Streamer og
 telefon mod det rigtige panel, og brugerens ord er "nu er det hele
 efterhånden som det skal være". Nyeste builds: **tv 212, telefon 213,
-NorRadio 215** (GitHub Actions, `build-android.yml`); de rummer alt det
+NorRadio 216** (GitHub Actions, `build-android.yml`); de rummer alt det
 nye i afsnittet nedenfor, som ikke er prøvet på enhed endnu. Alt bygges via
 GitHub, aldrig EAS; se `docs/BYG-FRA-CHAT.md`.
 
