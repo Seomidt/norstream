@@ -160,8 +160,8 @@ Installation:
 
 | Hvad | Nummer | Link |
 |---|---|---|
-| NorStream tv | 212 | https://github.com/Seomidt/norstream/actions/runs/34864832123 |
-| NorStream telefon | 213 | https://github.com/Seomidt/norstream/actions/runs/34864835223 |
+| NorStream tv | 220 | https://github.com/Seomidt/norstream/actions/runs/34982212567 |
+| NorStream telefon | 221 | https://github.com/Seomidt/norstream/actions/runs/34982216143 |
 | NorRadio | 217 | https://github.com/Seomidt/norstream/actions/runs/34973136764 |
 
 Åbne punkter, som en ny chat kan blive spurgt om: Android Auto ruller til
