@@ -203,16 +203,22 @@ bygges fra arbejdsgrenen som altid.
 
 ## 10. Seneste referencebuilds (september 2026)
 
-| Hvad | Nummer | Link |
-|---|---|---|
-| NorStream tv | 234 | https://github.com/Seomidt/norstream/actions/runs/35201122207 |
-| NorStream telefon | 235 | https://github.com/Seomidt/norstream/actions/runs/35201124694 |
-| NorRadio | 217 | https://github.com/Seomidt/norstream/actions/runs/34973136764 |
+Den **udgivne** udgave (det tal boksen sammenligner med) er `versionCode`, ikke
+byg-kørslens løbenummer. Nyeste: **237** for NorStream tv og telefon; NorRadio
+er endnu på sin egen linje (byg 217, uden selv-opdatering).
 
-Build 234/235 er de første med selv-opdatering: `versionCode` 232, auto-tjek
-ved opstart på tv, og udgaven vises tydeligt øverst i Indstillinger →
-Opdatering. De udgives med `udgiv-apk.yml` (afsnit 9), så fremtidige builds
-kan hentes af en boks uden Play Store.
+Live udgivelser (opdateres i stedet for at blive slettet — de faste mærkater):
+
+| Mærkat | Link |
+|---|---|
+| `latest-norstream-tv` | https://github.com/Seomidt/norstream/releases/tag/latest-norstream-tv |
+| `latest-norstream` | https://github.com/Seomidt/norstream/releases/tag/latest-norstream |
+
+Version 237 samler: selv-opdatering (auto-tjek ved opstart på tv), sky-backup
+til Google Drev som eneste backup-vej (gem ugentligt, Gem nu, Hent fra Drev),
+"Kanaler uden logo" på tv med bredere logo-søgning, og en række tv-fokusrettelser
+(grupper, søgning, hele dagen, favorit-markering, felt-kædning). Se
+`docs/OVERDRAGELSE.md` øverst for det fulde overblik.
 
 Live udgivelser (opdateres i stedet for at blive slettet):
 

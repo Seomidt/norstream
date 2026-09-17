@@ -20,10 +20,70 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 **12. september 2026.** Appen kører på brugerens Google TV Streamer og
 telefon mod det rigtige panel, og brugerens ord er "nu er det hele
-efterhånden som det skal være". Nyeste builds: **tv 226, telefon 227,
-NorRadio 217** (GitHub Actions, `build-android.yml`); de rummer alt det
-nye i afsnittet nedenfor, som ikke er prøvet på enhed endnu. Alt bygges via
-GitHub, aldrig EAS; se `docs/BYG-FRA-CHAT.md`.
+efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
+`docs/BYG-FRA-CHAT.md`.
+
+### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
+
+Nyeste udgave: **versionCode 237** (tv og telefon), udgivet i skyen. Udgaver
+nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
+det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
+
+**Appen opdaterer sig selv, uden Play Store.**
+- `build-android.yml` (`motor: runner`) bygger APK'erne (uændret).
+- **`.github/workflows/udgiv-apk.yml`** ligger på **main** (merget via PR #3)
+  og lægger en færdig byg-kørsels APK op som en offentlig GitHub-udgivelse med
+  et fast mærkat: `latest-norstream` (telefon), `latest-norstream-tv` (tv),
+  `latest-norradio`. Udgivelsens note = versionsnummeret. Samme fil
+  (`--clobber`) hver gang, så der kun er én `.apk` per mærkat, og den gamle
+  bliver stående hvis et trin fejler.
+- Appen læser mærkatet (`features/settings/appUpdate.ts` +
+  `appUpdateParse.ts`), sammenligner med sit eget versionCode, henter APK'en
+  og starter Androids installation. **Tv tjekker selv ved hver opstart**
+  (`features/settings/autoUpdate.ts`, kaldt fra `App.tsx`); telefonen har
+  knappen i Indstillinger → Opdatering, hvor udgaven også vises stort.
+- **Sådan udgiver en ny chat en opdatering:** hæv versionCode i `app.json`,
+  push, start `build-android.yml` (GitHub-værktøjet, `motor: runner`, `tv`
+  true/false), notér byg-kørslens run-id, og start `udgiv-apk.yml` på **main**
+  med `{run_id, variant: norstream|norstream-tv|norradio, version: <versionCode>}`.
+  Fuld opskrift i `docs/BYG-FRA-CHAT.md` afsnit 9.
+- **Hvorfor to workflows:** en *ændret* `build-android.yml` bliver sat i
+  "afventer godkendelse" (action_required) når den startes med
+  workflow_dispatch, så udgiv-trinnet måtte ligge i sin egen fil på main.
+  Sessionens egne pushes udløser ikke selv workflows; kør dem med
+  GitHub-værktøjet (workflow_dispatch). Telefon-uploaden af den ~100 MB store
+  APK kan tage flere minutter — vent på at udgiv-kørslen er `completed`.
+
+**Sikkerhedskopi: kun Google Drev nu.**
+- De gamle veje (mappe, USB, Gendan fra link, direkte telefon↔tv) er **fjernet**
+  efter brugerens ønske. Kun **"Gem i skyen (Google Drev)"** står tilbage i
+  Indstillinger (`features/settings/CloudBackup.tsx`).
+- Login er OAuth-**enhedsflowet** (`features/settings/googleDrive.ts` +
+  `googleDriveParse.ts`): tv'et viser en kode, brugeren godkender på
+  google.com/device på telefonen. Det kræver et Google Cloud OAuth-login af
+  typen **"TV and Limited Input devices"** (client_id + client_secret skrives i
+  felterne; scope `drive.file`; appen skal sættes til "In production" så
+  refresh-tokenet ikke udløber efter 7 dage). **Client-id/secret er IKKE
+  brugerens mail/kode** — det er koder fra Google Cloud. Nøglerne er brugerens
+  egne og ligger ikke i repoet.
+- `storage/cloudBackup.ts` kører den ugentlige kopi ved opstart (kaldt fra
+  `HomeScreen`); UI har "Gem nu" og **"Hent fra Drev"** (til en ny boks: log
+  ind, hent, alt er tilbage). Samme fil opdateres (fil-id huskes). Tokens
+  holdes bevidst UDE af selve kopien (ikke i `SETTING_KEYS` i `storage/backup.ts`).
+  Backuppen rummer grupper, favoritter, egne logoer, skjulte lande,
+  indstillinger — ikke panel-kodeord.
+
+**Tv-rettelser i samme runde (alle i `ANDROID-TV.md`-ånd):**
+- Grupper: navnet kan skrives (første række slap fokus til feltet).
+- Søgning i Kanaler: tastaturet lukker ikke midt i ordet (listen greb fokus).
+- "Hele dagen" (kanalens dags-epg): kan rulles (manglede `keepInMiddle`).
+- Markér favorit i Kanaler: fokus bliver hvor man er (sprang før til toppen;
+  første række bad om fokus fast — nu kun én puls ved indgang).
+- "Kanaler uden logo" er nu også på tv (Indstillinger → Kanallogoer).
+- Logo-søgningen er bredere: Wikidata falder tilbage til ethvert opslag med et
+  P154-logo, og vælgeren viser op til fem bud (`sync/logoSearch.ts`).
+- To tekstfelter kædes med "næste" på tastaturet (`TvTextInput` videresender
+  nu sin ref; pil-ned mellem felter er upålidelig på tv).
 
 ### Det der er på plads
 
