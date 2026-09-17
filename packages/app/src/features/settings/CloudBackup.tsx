@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import type { AppSession } from '../../session.js';
 import {
   clearGoogleDrive,
@@ -54,6 +54,10 @@ export function CloudBackup({ session, onRestore }: Props) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const polling = useRef(false);
+  // Pil-ned mellem to tekstfelter er upaalidelig paa tv (den sprang
+  // hemmelighed-feltet over). "Naeste" paa tastaturet flytter i stedet fokus
+  // hertil, og "go" i hemmelighed-feltet logger ind.
+  const secretRef = useRef<TextInput>(null);
 
   const reload = useCallback(async (): Promise<void> => {
     const [cfg, last] = await Promise.all([getGoogleDriveConfig(db), getGoogleDriveLastMs(db)]);
@@ -247,8 +251,12 @@ export function CloudBackup({ session, onRestore }: Props) {
             placeholderTextColor={colors.textMuted}
             autoCorrect={false}
             autoCapitalize="none"
+            returnKeyType="next"
+            blurOnSubmit={false}
+            onSubmitEditing={() => secretRef.current?.focus()}
           />
           <TvTextInput
+            ref={secretRef}
             style={styles.input}
             value={clientSecret}
             onChangeText={setClientSecret}
@@ -256,6 +264,8 @@ export function CloudBackup({ session, onRestore }: Props) {
             placeholderTextColor={colors.textMuted}
             autoCorrect={false}
             autoCapitalize="none"
+            returnKeyType="go"
+            onSubmitEditing={() => void login()}
           />
           <TvPressable style={[styles.row, styles.accentRow]} onPress={() => void login()}>
             <Text style={styles.rowTitle}>Log ind på Google Drev</Text>
