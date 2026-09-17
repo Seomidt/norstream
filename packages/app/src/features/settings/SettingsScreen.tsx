@@ -53,6 +53,7 @@ import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { TvTextInput } from '../../ui/TvTextInput.js';
 import { LocalTransfer } from './LocalTransfer.js';
+import { CloudBackup } from './CloudBackup.js';
 import { checkForUpdate, currentVersionCode, downloadAndInstall } from './appUpdate.js';
 import type { UpdateInfo } from './appUpdate.js';
 
@@ -1024,6 +1025,8 @@ export function SettingsScreen({
           }
         }}
       />
+
+      <CloudBackup session={session} />
 
       <Text style={styles.sectionTitle}>Skjulte lande</Text>
       {hidden.length === 0 ? (

@@ -36,6 +36,8 @@ import { LogoPickerScreen } from '../settings/LogoPickerScreen.js';
 import { Notice } from '../../ui/Notice.js';
 import { applyStreamFormatSetting, applyVideoSurfaceSetting } from '../player/format.js';
 import { runWeeklyBackup } from '../../storage/autoBackup.js';
+import { runWeeklyCloudBackup } from '../../storage/cloudBackup.js';
+import { saveBackupToDrive } from '../settings/googleDrive.js';
 import { writeBackupToFolder } from '../settings/backupFiles.js';
 import { VodScreen } from '../vod/VodScreen.js';
 import type { VodLevel } from '../vod/VodScreen.js';
@@ -245,6 +247,8 @@ export function HomeScreen({
       // foerste billede.
       setTimeout(() => {
         void runWeeklyBackup(session.db, writeBackupToFolder);
+        // Samme ugentlige kopi til Google Drev, naar man er logget ind.
+        void runWeeklyCloudBackup(session.db, (config, json) => saveBackupToDrive(config, json));
       }, 15_000);
     })();
     return () => {
