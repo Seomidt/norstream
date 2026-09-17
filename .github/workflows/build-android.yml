@@ -65,9 +65,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # gh release skal kunne oprette og opdatere udgivelser til opdatering-i-appen.
-    permissions:
-      contents: write
     # Tokenet laeses paa jobniveau, saa alle trin ser det samme.
     #
     # Faldback-kaeden findes fordi et forkert secret-navn ellers giver praecis
