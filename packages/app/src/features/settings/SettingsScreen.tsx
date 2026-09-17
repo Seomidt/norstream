@@ -978,15 +978,27 @@ export function SettingsScreen({
       {backupMessage !== null && <Text style={styles.hint}>{backupMessage}</Text>}
 
       <Text style={styles.sectionTitle}>Opdatering</Text>
+      <View style={styles.row}>
+        <View style={styles.rowText}>
+          <Text style={styles.versionValue}>Udgave {currentVersionCode()}</Text>
+          <Text style={styles.rowHint}>
+            {isTV
+              ? 'Det er den udgave, boksen kører nu. Den henter selv en nyere ved opstart.'
+              : 'Det er den udgave, du kører nu.'}
+          </Text>
+        </View>
+      </View>
       <Text style={styles.hint}>
-        Appen kommer ikke fra Play Store, så den opdaterer ikke af sig selv. Søg her efter en nyere
-        udgave og installér den — også på en boks i en anden by. Første gang skal enheden tillade
-        “installér ukendte apps” for NorStream.
+        Appen kommer ikke fra Play Store.{' '}
+        {isTV
+          ? 'Boksen ser selv efter en nyere udgave, når den starter — du kan også søge her.'
+          : 'Søg her efter en nyere udgave og installér den — også på en boks i en anden by.'}{' '}
+        Første gang skal enheden tillade “installér ukendte apps” for NorStream.
       </Text>
       <TvPressable style={styles.row} disabled={updateBusy} onPress={() => void lookForUpdate()}>
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>Søg efter opdatering</Text>
-          <Text style={styles.rowHint}>Nuværende udgave: {currentVersionCode()}.</Text>
+          <Text style={styles.rowHint}>Se om der er en nyere udgave end {currentVersionCode()}.</Text>
         </View>
         <Text style={styles.actionText}>Søg</Text>
       </TvPressable>
@@ -1117,6 +1129,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     marginBottom: theme.spacing.sm,
   },
   rowText: { flex: 1, marginRight: theme.spacing.md },
+  versionValue: { color: colors.text, fontSize: 22, fontWeight: '700' },
   rowTitle: { flex: 1, color: colors.text, fontSize: 15 },
   rowHint: { color: colors.textMuted, fontSize: 13, marginTop: 2, lineHeight: 18 },
   hint: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
