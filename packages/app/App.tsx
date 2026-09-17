@@ -27,6 +27,7 @@ import { CanvasContext, TV_SAFE_MARGIN, TV_SCALE, isTV } from './src/ui/tv.js';
 import { startTvKeyTracking } from './src/ui/tvKeys.js';
 import { TvPressable } from './src/ui/TvPressable.js';
 import { ReminderBanner } from './src/features/reminders/ReminderBanner.js';
+import { maybeAutoUpdate } from './src/features/settings/autoUpdate.js';
 
 type Route =
   | { name: 'loading' }
@@ -97,6 +98,10 @@ function AppInner() {
       setThemePreference({ mode, ...(placeKey === null ? {} : { placeKey }) });
       setSession(created);
       setRoute(created.sources.length === 0 ? { name: 'onboarding' } : { name: 'home' });
+      // Se stille efter en nyere udgave og installér den paa en tv-boks selv.
+      // Uden om appens tilstand og uden at blokere: opstarten maa ikke vente
+      // paa netvaerket, og et mislykket opslag maa ikke naa route'n.
+      void maybeAutoUpdate();
     }
 
     boot().catch(() => {
