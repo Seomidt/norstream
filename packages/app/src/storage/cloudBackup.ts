@@ -1,30 +1,23 @@
 import { createBackup, serialiseBackup } from './backup.js';
-import {
-  getGoogleDriveConfig,
-  getGoogleDriveLastMs,
-  setGoogleDriveFileId,
-  setGoogleDriveLastMs,
-} from './settings.js';
-import type { GoogleDriveConfig } from './settings.js';
+import { getSkyConfig, getSkyLastMs, setSkyLastMs } from './settings.js';
 import { WEEKLY_BACKUP_MS } from './autoBackup.js';
 import type { SqlDatabase } from './types.js';
 
 /**
- * Den ugentlige sikkerhedskopi til Google Drev.
+ * Den ugentlige sikkerhedskopi til skyen.
  *
  * Selve uploaden er en funktion udefra (samme greb som autoBackup.ts), saa
- * logikken kan testes uden netvaerk, og saa filen ikke bygger paa
- * feature-laget herinde. Den samme fil opdateres hver gang; fil-id’et
- * huskes.
+ * logikken kan testes uden netvaerk, og filen ikke bygger paa feature-laget
+ * herinde. Uploaden faar kodeordet og kopien; krypteringen sker i skyen.
  */
-export type CloudUploader = (config: GoogleDriveConfig, json: string) => Promise<{ fileId: string }>;
+export type CloudUploader = (code: string, json: string) => Promise<void>;
 
-export type CloudBackupResult = 'off' | 'not-due' | 'written' | 'reauth' | 'failed';
+export type CloudBackupResult = 'off' | 'not-due' | 'written' | 'failed';
 
 /**
- * Skriver kopien til Drev naar den er slaaet til og der er gaaet en uge —
- * eller altid med `force` ("Gem nu"). 'reauth' betyder at loginet er udloebet
- * og skal fornyes; 'failed' er en midlertidig fejl der proeves igen.
+ * Skriver kopien til skyen naar den er slaaet til og der er gaaet en uge —
+ * eller altid med `force` ("Gem nu"). 'off' naar der ikke er valgt et
+ * kodeord; 'failed' er en midlertidig fejl der proeves igen.
  */
 export async function runWeeklyCloudBackup(
   db: SqlDatabase,
@@ -32,21 +25,16 @@ export async function runWeeklyCloudBackup(
   now = Date.now(),
   force = false,
 ): Promise<CloudBackupResult> {
-  const config = await getGoogleDriveConfig(db);
-  if (!config.enabled || config.refreshToken === null || config.clientId === '' || config.clientSecret === '') {
-    return 'off';
-  }
-  const lastMs = await getGoogleDriveLastMs(db);
+  const config = await getSkyConfig(db);
+  if (!config.enabled || config.code === '') return 'off';
+  const lastMs = await getSkyLastMs(db);
   if (!force && lastMs !== null && now - lastMs < WEEKLY_BACKUP_MS) return 'not-due';
-  let fileId: string;
   try {
     const json = serialiseBackup(await createBackup(db, now));
-    ({ fileId } = await upload(config, json));
-  } catch (cause) {
-    if (cause instanceof Error && cause.message === 'reauth') return 'reauth';
+    await upload(config.code, json);
+  } catch {
     return 'failed';
   }
-  await setGoogleDriveFileId(db, fileId);
-  await setGoogleDriveLastMs(db, now);
+  await setSkyLastMs(db, now);
   return 'written';
 }

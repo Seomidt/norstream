@@ -1,17 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import type { AppSession } from '../../session.js';
-import {
-  clearGoogleDrive,
-  getGoogleDriveConfig,
-  getGoogleDriveLastMs,
-  setGoogleDriveClient,
-  setGoogleDriveEnabled,
-  setGoogleDriveRefreshToken,
-} from '../../storage/settings.js';
-import type { GoogleDriveConfig } from '../../storage/settings.js';
+import { clearSky, getSkyConfig, getSkyLastMs, setSkyCode, setSkyEnabled } from '../../storage/settings.js';
+import type { SkyBackupConfig } from '../../storage/settings.js';
 import { runWeeklyCloudBackup } from '../../storage/cloudBackup.js';
-import { requestDeviceCode, pollToken, saveBackupToDrive, restoreBackupFromDrive } from './googleDrive.js';
+import { loadFromCloud, saveToCloud, MIN_CODE_LENGTH } from './cloudSync.js';
 import { theme } from '../../ui/theme.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { useStyles, useTheme } from '../../ui/ThemeContext.js';
@@ -20,11 +13,9 @@ import { TvTextInput } from '../../ui/TvTextInput.js';
 
 interface Props {
   session: AppSession;
-  /** Gendanner en hentet kopi (samme vej som Gendan fra link og USB). */
+  /** Gendanner en hentet kopi (samme vej som Gendan fra link). */
   onRestore: (json: string) => Promise<void>;
 }
-
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 function whenText(ms: number | null): string {
   if (ms === null) return 'Endnu ikke gemt.';
@@ -34,144 +25,80 @@ function whenText(ms: number | null): string {
 }
 
 /**
- * Gem sikkerhedskopien i Google Drev — ogsaa fra tv, hvor der ingen browser er.
+ * Gem sikkerhedskopien i skyen — ogsaa fra tv, uden login.
  *
- * Login er OAuth-enhedsflowet: tv'et viser en kode, brugeren godkender paa
- * telefonen paa google.com/device, og tv'et venter paa svaret. Derefter
- * lgger appen kopien op selv, hver uge og paa "Gem nu". `drive.file` betyder
- * at appen kun kan se sine egne filer, ikke resten af Drevet.
+ * Brugeren vaelger ét kodeord. Kopien af grupper, favoritter og indstillinger
+ * lgges krypteret op i skyen (kodeordet er noeglen; adressen ligger aldrig i
+ * klartekst). Samme kodeord paa en ny boks henter den samme kopi ned igen.
+ * Kun ét tekstfelt — ingen enhedskode, ingen Google, og ingen upaalidelig
+ * pil-ned mellem felter paa tv.
  */
 export function CloudBackup({ session, onRestore }: Props) {
   const styles = useStyles(makeStyles);
   const { colors } = useTheme();
   const db = session.db;
-  const [config, setConfig] = useState<GoogleDriveConfig | null>(null);
+  const [config, setConfig] = useState<SkyBackupConfig | null>(null);
   const [lastMs, setLastMs] = useState<number | null>(null);
-  const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
-  const [userCode, setUserCode] = useState<string | null>(null);
-  const [verifyUrl, setVerifyUrl] = useState('https://www.google.com/device');
+  const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const polling = useRef(false);
-  // Pil-ned mellem to tekstfelter er upaalidelig paa tv (den sprang
-  // hemmelighed-feltet over). "Naeste" paa tastaturet flytter i stedet fokus
-  // hertil, og "go" i hemmelighed-feltet logger ind.
-  const secretRef = useRef<TextInput>(null);
 
   const reload = useCallback(async (): Promise<void> => {
-    const [cfg, last] = await Promise.all([getGoogleDriveConfig(db), getGoogleDriveLastMs(db)]);
+    const [cfg, last] = await Promise.all([getSkyConfig(db), getSkyLastMs(db)]);
     setConfig(cfg);
     setLastMs(last);
-    setClientId((current) => (current.length === 0 ? cfg.clientId : current));
-    setClientSecret((current) => (current.length === 0 ? cfg.clientSecret : current));
+    setCode((current) => (current.length === 0 ? cfg.code : current));
   }, [db]);
 
   useEffect(() => {
     void reload();
-    return () => {
-      polling.current = false;
-    };
   }, [reload]);
 
-  async function login(): Promise<void> {
-    if (busy) return;
-    const cid = clientId.trim();
-    const csec = clientSecret.trim();
-    if (cid.length === 0 || csec.length === 0) {
-      setMessage('Skriv både klient-id og klient-hemmelighed først.');
-      return;
+  function checkedCode(): string | null {
+    const trimmed = code.trim();
+    if (trimmed.length < MIN_CODE_LENGTH) {
+      setMessage(`Vælg et kodeord på mindst ${MIN_CODE_LENGTH} tegn først.`);
+      return null;
     }
-    await setGoogleDriveClient(db, cid, csec);
-    setBusy(true);
-    setMessage('Henter en kode fra Google …');
-    let device;
-    try {
-      device = await requestDeviceCode(cid);
-    } catch (cause) {
-      setBusy(false);
-      setMessage(cause instanceof Error ? cause.message : 'Kunne ikke starte login.');
-      return;
-    }
-    setUserCode(device.userCode);
-    setVerifyUrl(device.verificationUrl);
-    setMessage(null);
-    let intervalMs = device.intervalSeconds * 1000;
-    const deadline = Date.now() + device.expiresInSeconds * 1000;
-    polling.current = true;
-    while (polling.current && Date.now() < deadline) {
-      await sleep(intervalMs);
-      if (!polling.current) return;
-      const poll = await pollToken(cid, csec, device.deviceCode);
-      if (poll.status === 'ok') {
-        polling.current = false;
-        setUserCode(null);
-        if (poll.refreshToken !== null) await setGoogleDriveRefreshToken(db, poll.refreshToken);
-        await reload();
-        setBusy(false);
-        setMessage('Forbundet. Gemmer den første kopi …');
-        await saveNow();
-        return;
-      }
-      if (poll.status === 'slow_down') {
-        intervalMs += 5000;
-        continue;
-      }
-      if (poll.status === 'pending') continue;
-      polling.current = false;
-      setUserCode(null);
-      setBusy(false);
-      setMessage(poll.status === 'expired' ? 'Koden udløb. Prøv igen.' : 'Login blev afvist på telefonen.');
-      return;
-    }
-    if (polling.current) {
-      polling.current = false;
-      setUserCode(null);
-      setBusy(false);
-      setMessage('Koden udløb, før den blev godkendt. Prøv igen.');
-    }
-  }
-
-  function cancelLogin(): void {
-    polling.current = false;
-    setUserCode(null);
-    setBusy(false);
-    setMessage(null);
+    return trimmed;
   }
 
   async function saveNow(): Promise<void> {
+    if (busy) return;
+    const trimmed = checkedCode();
+    if (trimmed === null) return;
     setBusy(true);
-    setMessage('Gemmer på Google Drev …');
-    const result = await runWeeklyCloudBackup(db, (cfg, json) => saveBackupToDrive(cfg, json), Date.now(), true);
+    setMessage('Gemmer i skyen …');
+    await setSkyCode(db, trimmed);
+    const result = await runWeeklyCloudBackup(db, (c, json) => saveToCloud(c, json), Date.now(), true);
     await reload();
     setBusy(false);
     setMessage(
       result === 'written'
-        ? 'Gemt på Google Drev.'
-        : result === 'reauth'
-          ? 'Login er udløbet. Log ind igen.'
-          : result === 'off'
-            ? 'Log ind først.'
-            : 'Kunne ikke gemme lige nu. Prøv igen.',
+        ? 'Gemt i skyen. Skriv det samme kodeord på en ny boks for at hente alt ned.'
+        : 'Kunne ikke gemme lige nu. Er der forbindelse? Prøv igen.',
     );
   }
 
   async function restore(): Promise<void> {
+    if (busy) return;
+    const trimmed = checkedCode();
+    if (trimmed === null) return;
     setBusy(true);
-    setMessage('Henter fra Google Drev …');
+    setMessage('Henter fra skyen …');
     try {
-      const cfg = await getGoogleDriveConfig(db);
-      const json = await restoreBackupFromDrive(cfg);
+      const json = await loadFromCloud(trimmed);
       await onRestore(json);
-      setMessage('Hentet fra Drev. Grupper og favoritter er gendannet.');
+      await setSkyCode(db, trimmed);
+      setMessage('Hentet fra skyen. Grupper, favoritter og alt er gendannet.');
     } catch (cause) {
       const msg = cause instanceof Error ? cause.message : '';
       setMessage(
-        msg === 'reauth'
-          ? 'Login er udløbet. Log ind igen.'
-          : msg === 'notfound'
-            ? 'Der ligger ingen kopi på Drevet endnu. Tryk "Gem nu" på den gamle boks først.'
-            : 'Kunne ikke hente fra Drev. Prøv igen.',
+        msg === 'notfound'
+          ? 'Der ligger ingen kopi under det kodeord. Tjek at det er skrevet præcis som på den anden boks — eller tryk "Gem nu" på den gamle boks først.'
+          : msg === 'network'
+            ? 'Ingen forbindelse til skyen. Prøv igen.'
+            : 'Kunne ikke hente lige nu. Prøv igen.',
       );
     } finally {
       setBusy(false);
@@ -181,26 +108,26 @@ export function CloudBackup({ session, onRestore }: Props) {
 
   async function toggleWeekly(): Promise<void> {
     if (config === null) return;
-    await setGoogleDriveEnabled(db, !config.enabled);
+    await setSkyEnabled(db, !config.enabled);
     await reload();
   }
 
-  async function logout(): Promise<void> {
-    cancelLogin();
-    await clearGoogleDrive(db);
+  async function forget(): Promise<void> {
+    await clearSky(db);
+    setCode('');
     await reload();
-    setMessage('Logget ud af Google Drev.');
+    setMessage('Kodeordet er glemt på denne boks. Kopien i skyen er der stadig.');
   }
 
-  const connected = config !== null && config.refreshToken !== null;
+  const connected = config !== null && config.code !== '';
 
   return (
     <View>
-      <Text style={styles.sectionTitle}>Gem i skyen (Google Drev)</Text>
+      <Text style={styles.sectionTitle}>Gem i skyen</Text>
 
       {connected ? (
         <>
-          <Text style={styles.hint}>Forbundet til Google Drev. {whenText(lastMs)}</Text>
+          <Text style={styles.hint}>Kopien gemmes i skyen med dit kodeord. {whenText(lastMs)}</Text>
           <TvPressable style={styles.row} onPress={() => void toggleWeekly()}>
             <View style={styles.rowText}>
               <Text style={styles.rowTitle}>Gem automatisk hver uge</Text>
@@ -218,58 +145,43 @@ export function CloudBackup({ session, onRestore }: Props) {
           </TvPressable>
           <TvPressable style={styles.row} onPress={() => void restore()}>
             <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>Hent fra Drev</Text>
+              <Text style={styles.rowTitle}>Hent fra skyen</Text>
               <Text style={styles.rowHint}>På en ny boks: henter kopien ned og gendanner grupper, favoritter og alt.</Text>
             </View>
             <Text style={styles.actionText}>Hent</Text>
           </TvPressable>
-          <TvPressable style={styles.row} onPress={() => void logout()}>
-            <Text style={styles.rowTitle}>Log ud af Google Drev</Text>
+          <TvPressable style={styles.row} onPress={() => void forget()}>
+            <Text style={styles.rowTitle}>Glem kodeord på denne boks</Text>
           </TvPressable>
         </>
-      ) : userCode !== null ? (
-        <View style={styles.codeBox}>
-          <Text style={styles.hint}>Gå til {verifyUrl} på din telefon eller computer, og skriv koden:</Text>
-          <Text style={styles.code}>{userCode}</Text>
-          <Text style={styles.hint}>Vælg din Google-konto og sig ja. Så er tv'et forbundet.</Text>
-          <TvPressable style={styles.row} onPress={cancelLogin}>
-            <Text style={styles.rowTitle}>Annullér</Text>
-          </TvPressable>
-        </View>
       ) : (
         <>
           <Text style={styles.hint}>
-            Så ligger en kopi af grupper, favoritter og indstillinger på dit eget Google Drev — også fra tv'et. Du
-            logger ind én gang med en kode. Det kræver et Google-login til appen (klient-id og
-            klient-hemmelighed); fremgangsmåden står i vejledningen.
+            Vælg et kodeord, du kan huske. Så gemmes en kopi af grupper, favoritter og indstillinger krypteret i
+            skyen — også fra tv'et, uden login. Skriv det <Text style={styles.bold}>samme kodeord</Text> på en ny boks
+            og tryk "Hent" for at få det hele ned igen.
           </Text>
           <TvTextInput
             style={styles.input}
-            value={clientId}
-            onChangeText={setClientId}
-            placeholder="Klient-id"
+            value={code}
+            onChangeText={setCode}
+            placeholder="Kodeord (dit eget, mindst 4 tegn)"
             placeholderTextColor={colors.textMuted}
             autoCorrect={false}
             autoCapitalize="none"
-            returnKeyType="next"
-            blurOnSubmit={false}
-            onSubmitEditing={() => secretRef.current?.focus()}
+            returnKeyType="done"
+            onSubmitEditing={() => void saveNow()}
           />
-          <TvTextInput
-            ref={secretRef}
-            style={styles.input}
-            value={clientSecret}
-            onChangeText={setClientSecret}
-            placeholder="Klient-hemmelighed"
-            placeholderTextColor={colors.textMuted}
-            autoCorrect={false}
-            autoCapitalize="none"
-            returnKeyType="go"
-            onSubmitEditing={() => void login()}
-          />
-          <TvPressable style={[styles.row, styles.accentRow]} onPress={() => void login()}>
-            <Text style={styles.rowTitle}>Log ind på Google Drev</Text>
-            <Text style={styles.actionText}>Log ind</Text>
+          <TvPressable style={[styles.row, styles.accentRow]} onPress={() => void saveNow()}>
+            <Text style={styles.rowTitle}>Gem i skyen</Text>
+            <Text style={styles.actionText}>Gem</Text>
+          </TvPressable>
+          <TvPressable style={styles.row} onPress={() => void restore()}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Hent fra skyen</Text>
+              <Text style={styles.rowHint}>Ny boks? Skriv kodeordet ovenfor og hent alt ned.</Text>
+            </View>
+            <Text style={styles.actionText}>Hent</Text>
           </TvPressable>
         </>
       )}
@@ -290,6 +202,7 @@ const makeStyles = (colors: ThemeColors) =>
       marginBottom: theme.spacing.sm,
     },
     hint: { color: colors.textMuted, fontSize: 14, lineHeight: 20, marginBottom: theme.spacing.sm },
+    bold: { color: colors.text, fontWeight: '700' },
     row: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -313,21 +226,6 @@ const makeStyles = (colors: ThemeColors) =>
       padding: theme.spacing.sm + 2,
       marginBottom: theme.spacing.sm,
       fontSize: 15,
-    },
-    codeBox: {
-      backgroundColor: colors.surface,
-      borderRadius: theme.radius,
-      padding: theme.spacing.md,
-      marginBottom: theme.spacing.sm,
-    },
-    code: {
-      color: colors.accent,
-      fontSize: 34,
-      fontWeight: '800',
-      letterSpacing: 4,
-      textAlign: 'center',
-      marginVertical: theme.spacing.sm,
-      fontVariant: ['tabular-nums'],
     },
     message: { color: colors.accent, fontSize: 13, marginBottom: theme.spacing.sm, lineHeight: 18 },
   });

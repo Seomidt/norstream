@@ -204,7 +204,7 @@ bygges fra arbejdsgrenen som altid.
 ## 10. Seneste referencebuilds (september 2026)
 
 Den **udgivne** udgave (det tal boksen sammenligner med) er `versionCode`, ikke
-byg-kørslens løbenummer. Nyeste: **237** for NorStream tv og telefon; NorRadio
+byg-kørslens løbenummer. Nyeste: **238** for NorStream tv og telefon; NorRadio
 er endnu på sin egen linje (byg 217, uden selv-opdatering).
 
 Live udgivelser (opdateres i stedet for at blive slettet — de faste mærkater):
@@ -214,8 +214,10 @@ Live udgivelser (opdateres i stedet for at blive slettet — de faste mærkater)
 | `latest-norstream-tv` | https://github.com/Seomidt/norstream/releases/tag/latest-norstream-tv |
 | `latest-norstream` | https://github.com/Seomidt/norstream/releases/tag/latest-norstream |
 
-Version 237 samler: selv-opdatering (auto-tjek ved opstart på tv), sky-backup
-til Google Drev som eneste backup-vej (gem ugentligt, Gem nu, Hent fra Drev),
+Version 238 skifter sky-backup fra Google Drev til **kodeord-baseret sky-backup**
+(Supabase edge-funktion `sky`, ingen login, ingen Google — vælg et kodeord, gem
+ugentligt/Gem nu, Hent på ny boks med samme kodeord; kopien krypteres med
+kodeordet). Fra version 237: selv-opdatering (auto-tjek ved opstart på tv),
 "Kanaler uden logo" på tv med bredere logo-søgning, og en række tv-fokusrettelser
 (grupper, søgning, hele dagen, favorit-markering, felt-kædning). Se
 `docs/OVERDRAGELSE.md` øverst for det fulde overblik.

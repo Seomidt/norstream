@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 237** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 238** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -54,24 +54,44 @@ det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
   GitHub-værktøjet (workflow_dispatch). Telefon-uploaden af den ~100 MB store
   APK kan tage flere minutter — vent på at udgiv-kørslen er `completed`.
 
-**Sikkerhedskopi: kun Google Drev nu.**
-- De gamle veje (mappe, USB, Gendan fra link, direkte telefon↔tv) er **fjernet**
-  efter brugerens ønske. Kun **"Gem i skyen (Google Drev)"** står tilbage i
-  Indstillinger (`features/settings/CloudBackup.tsx`).
-- Login er OAuth-**enhedsflowet** (`features/settings/googleDrive.ts` +
-  `googleDriveParse.ts`): tv'et viser en kode, brugeren godkender på
-  google.com/device på telefonen. Det kræver et Google Cloud OAuth-login af
-  typen **"TV and Limited Input devices"** (client_id + client_secret skrives i
-  felterne; scope `drive.file`; appen skal sættes til "In production" så
-  refresh-tokenet ikke udløber efter 7 dage). **Client-id/secret er IKKE
-  brugerens mail/kode** — det er koder fra Google Cloud. Nøglerne er brugerens
-  egne og ligger ikke i repoet.
-- `storage/cloudBackup.ts` kører den ugentlige kopi ved opstart (kaldt fra
-  `HomeScreen`); UI har "Gem nu" og **"Hent fra Drev"** (til en ny boks: log
-  ind, hent, alt er tilbage). Samme fil opdateres (fil-id huskes). Tokens
-  holdes bevidst UDE af selve kopien (ikke i `SETTING_KEYS` i `storage/backup.ts`).
-  Backuppen rummer grupper, favoritter, egne logoer, skjulte lande,
-  indstillinger — ikke panel-kodeord.
+**Sikkerhedskopi: sky med kodeord (INGEN Google, INGEN login).**
+- Google Drev-vejen er **fjernet** (den krævede at brugeren selv udgav en
+  OAuth-samtykkeskærm i Google Cloud Console — det kunne han ikke få til at
+  virke, og "Publish app" var grået ud). De endnu ældre veje (mappe, USB,
+  Gendan fra link, direkte telefon↔tv) blev fjernet før det. Nu står kun
+  **"Gem i skyen"** tilbage i Indstillinger (`features/settings/CloudBackup.tsx`).
+- **Sådan virker det:** brugeren vælger ét **kodeord**. Appen sender kopien +
+  kodeordet til en lille **Supabase edge-funktion** (`sky`) i brugerens eget
+  projekt (**"Seomidt's Project"**, ref `usewnyvdxxfgvwaefvmq`). Funktionen
+  **krypterer** kopien med en nøgle udledt af kodeordet (PBKDF2 + AES-GCM) og
+  gemmer den under en **hash af kodeordet**. Samme kodeord på en ny boks →
+  "Hent" → alt er tilbage. **Ingen login, ingen enhedskode, ingen Google.**
+- **Hvor tingene ligger:**
+  - App-klient: `features/settings/cloudSync.ts` (`saveToCloud`,
+    `loadFromCloud`) — to `fetch`-kald mod
+    `https://usewnyvdxxfgvwaefvmq.supabase.co/functions/v1/sky`. URL + den
+    **offentlige** publishable-nøgle står som konstanter i filen (de må ligge i
+    appen; de kan ikke læse databasen).
+  - Sky: edge-funktionen `sky` + tabellen `public.sky_backup`. Tabellen har
+    **RLS til og ingen policies** + grants trukket fra `anon`/`authenticated`,
+    så **kun funktionen (service_role) kan røre den**. Al krypto er standard
+    WebCrypto i Deno — ingen afhængigheder. (Deploy sker via Supabase-værktøjet;
+    kildekoden til funktionen står i denne overdragelse-runde.)
+  - `storage/settings.ts`: `sky_code`, `sky_enabled`, `sky_last_ms` +
+    `getSkyConfig/setSkyCode/setSkyEnabled/…`. Kodeordet er bevidst **UDE af
+    `SETTING_KEYS`** i `storage/backup.ts` (det er krypteringsnøglen; må aldrig
+    havne inde i selve kopien).
+  - `storage/cloudBackup.ts` kører den ugentlige kopi ved opstart (kaldt fra
+    `HomeScreen`); UI har "Gem nu" og "Hent fra skyen".
+- **Sikkerhed:** panelets adresse ligger aldrig i klartekst i databasen (den
+  krypteres med kodeordet). Det er strengt bedre end den gamle Google Drev-vej,
+  der gemte kopien i **klartekst** på Drevet. Forkert kodeord → "ingen kopi"
+  (både forkert hash-opslag og forkert dekryptering). Backuppen rummer grupper,
+  favoritter, egne logoer, skjulte lande, indstillinger — panel-adgangskoden
+  ligger i Keychain og er ikke med.
+- **Vigtigt for brugeren:** kodeordet er det eneste, der kan låse kopien op.
+  Glemmer han det, kan kopien ikke hentes (det er meningen). Skriv **præcis**
+  det samme kodeord på den nye boks.
 
 **Tv-rettelser i samme runde (alle i `ANDROID-TV.md`-ånd):**
 - Grupper: navnet kan skrives (første række slap fokus til feltet).

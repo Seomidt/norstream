@@ -36,7 +36,7 @@ import { LogoPickerScreen } from '../settings/LogoPickerScreen.js';
 import { Notice } from '../../ui/Notice.js';
 import { applyStreamFormatSetting, applyVideoSurfaceSetting } from '../player/format.js';
 import { runWeeklyCloudBackup } from '../../storage/cloudBackup.js';
-import { saveBackupToDrive } from '../settings/googleDrive.js';
+import { saveToCloud } from '../settings/cloudSync.js';
 import { VodScreen } from '../vod/VodScreen.js';
 import type { VodLevel } from '../vod/VodScreen.js';
 import type { StoredVodItem } from '../../storage/vod.js';
@@ -244,8 +244,8 @@ export function HomeScreen({
       // (tv) er valgt. Lidt efter start, saa den ikke staar i vejen for det
       // foerste billede.
       setTimeout(() => {
-        // Ugentlig sikkerhedskopi til Google Drev, naar man er logget ind.
-        void runWeeklyCloudBackup(session.db, (config, json) => saveBackupToDrive(config, json));
+        // Ugentlig sikkerhedskopi til skyen, naar der er valgt et kodeord.
+        void runWeeklyCloudBackup(session.db, (code, json) => saveToCloud(code, json));
       }, 15_000);
     })();
     return () => {

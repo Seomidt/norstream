@@ -20,14 +20,12 @@ const KEY_BACKUP_FOLDER = 'backup_folder_uri';
 const KEY_BACKUP_LAST = 'backup_auto_last_ms';
 const KEY_BACKUP_FAILED = 'backup_auto_failed';
 const KEY_BACKUP_LINK = 'backup_link';
-// Google Drev-sikkerhedskopi. Bevidst UDE af SETTING_KEYS (backup.ts): et
-// refresh-token maa aldrig ende inde i den kopi der lgges i skyen.
-const KEY_GDRIVE_CLIENT_ID = 'gdrive_client_id';
-const KEY_GDRIVE_CLIENT_SECRET = 'gdrive_client_secret';
-const KEY_GDRIVE_REFRESH = 'gdrive_refresh_token';
-const KEY_GDRIVE_FILE_ID = 'gdrive_file_id';
-const KEY_GDRIVE_ENABLED = 'gdrive_backup_enabled';
-const KEY_GDRIVE_LAST = 'gdrive_backup_last_ms';
+// Sky-backup med kodeord. Bevidst UDE af SETTING_KEYS (backup.ts): kodeordet
+// er selve krypteringsnoeglen og maa aldrig ende inde i den kopi der lgges i
+// skyen.
+const KEY_SKY_CODE = 'sky_code';
+const KEY_SKY_ENABLED = 'sky_enabled';
+const KEY_SKY_LAST = 'sky_last_ms';
 
 export async function getSetting(
   db: SqlDatabase,
@@ -493,68 +491,43 @@ export async function setBackupLink(db: SqlDatabase, link: string): Promise<void
   await setSetting(db, KEY_BACKUP_LINK, link.trim());
 }
 
-/** Alt om Google Drev-kopien, samlet. Tomme felter er null. */
-export interface GoogleDriveConfig {
-  clientId: string;
-  clientSecret: string;
-  /** Sat naar man er logget ind. */
-  refreshToken: string | null;
-  /** Fil-id’et fra sidste upload, saa den samme fil opdateres. */
-  fileId: string | null;
-  /** Om den ugentlige kopi til Drev er slaaet til. */
+/**
+ * Alt om sky-kopien, samlet. `code` er brugerens kodeord (tom naar der ikke er
+ * valgt et), `enabled` om den ugentlige kopi koerer.
+ */
+export interface SkyBackupConfig {
+  code: string;
   enabled: boolean;
 }
 
-export async function getGoogleDriveConfig(db: SqlDatabase): Promise<GoogleDriveConfig> {
-  const [clientId, clientSecret, refreshToken, fileId, enabled] = await Promise.all([
-    getSetting(db, KEY_GDRIVE_CLIENT_ID),
-    getSetting(db, KEY_GDRIVE_CLIENT_SECRET),
-    getSetting(db, KEY_GDRIVE_REFRESH),
-    getSetting(db, KEY_GDRIVE_FILE_ID),
-    getSetting(db, KEY_GDRIVE_ENABLED),
-  ]);
-  return {
-    clientId: clientId ?? '',
-    clientSecret: clientSecret ?? '',
-    refreshToken: refreshToken !== null && refreshToken.length > 0 ? refreshToken : null,
-    fileId: fileId !== null && fileId.length > 0 ? fileId : null,
-    enabled: enabled === '1',
-  };
+export async function getSkyConfig(db: SqlDatabase): Promise<SkyBackupConfig> {
+  const [code, enabled] = await Promise.all([getSetting(db, KEY_SKY_CODE), getSetting(db, KEY_SKY_ENABLED)]);
+  return { code: (code ?? '').trim(), enabled: enabled === '1' };
 }
 
-export async function setGoogleDriveClient(db: SqlDatabase, clientId: string, clientSecret: string): Promise<void> {
-  await setSetting(db, KEY_GDRIVE_CLIENT_ID, clientId.trim());
-  await setSetting(db, KEY_GDRIVE_CLIENT_SECRET, clientSecret.trim());
+/** Vaelger (eller aendrer) kodeordet og slaar den ugentlige kopi til. */
+export async function setSkyCode(db: SqlDatabase, code: string): Promise<void> {
+  await setSetting(db, KEY_SKY_CODE, code.trim());
+  await setSetting(db, KEY_SKY_ENABLED, '1');
 }
 
-/** Gemmer refresh-tokenet efter login og slaar den ugentlige kopi til. */
-export async function setGoogleDriveRefreshToken(db: SqlDatabase, refreshToken: string): Promise<void> {
-  await setSetting(db, KEY_GDRIVE_REFRESH, refreshToken);
-  await setSetting(db, KEY_GDRIVE_ENABLED, '1');
+export async function setSkyEnabled(db: SqlDatabase, on: boolean): Promise<void> {
+  await setSetting(db, KEY_SKY_ENABLED, on ? '1' : '0');
 }
 
-export async function setGoogleDriveFileId(db: SqlDatabase, fileId: string): Promise<void> {
-  await setSetting(db, KEY_GDRIVE_FILE_ID, fileId);
-}
-
-export async function setGoogleDriveEnabled(db: SqlDatabase, on: boolean): Promise<void> {
-  await setSetting(db, KEY_GDRIVE_ENABLED, on ? '1' : '0');
-}
-
-export async function getGoogleDriveLastMs(db: SqlDatabase): Promise<number | null> {
-  const value = await getSetting(db, KEY_GDRIVE_LAST);
+export async function getSkyLastMs(db: SqlDatabase): Promise<number | null> {
+  const value = await getSetting(db, KEY_SKY_LAST);
   if (value === null) return null;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-export async function setGoogleDriveLastMs(db: SqlDatabase, ms: number): Promise<void> {
-  await setSetting(db, KEY_GDRIVE_LAST, String(Math.trunc(ms)));
+export async function setSkyLastMs(db: SqlDatabase, ms: number): Promise<void> {
+  await setSetting(db, KEY_SKY_LAST, String(Math.trunc(ms)));
 }
 
-/** Log ud: glem token, fil-id og klient-hemmelighed; behold klient-id’et i feltet. */
-export async function clearGoogleDrive(db: SqlDatabase): Promise<void> {
-  await setSetting(db, KEY_GDRIVE_REFRESH, '');
-  await setSetting(db, KEY_GDRIVE_FILE_ID, '');
-  await setSetting(db, KEY_GDRIVE_ENABLED, '0');
+/** Glem kodeordet og slaa den ugentlige kopi fra. */
+export async function clearSky(db: SqlDatabase): Promise<void> {
+  await setSetting(db, KEY_SKY_CODE, '');
+  await setSetting(db, KEY_SKY_ENABLED, '0');
 }
