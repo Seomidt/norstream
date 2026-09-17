@@ -214,6 +214,13 @@ ved opstart på tv, og udgaven vises tydeligt øverst i Indstillinger →
 Opdatering. De udgives med `udgiv-apk.yml` (afsnit 9), så fremtidige builds
 kan hentes af en boks uden Play Store.
 
+Live udgivelser (opdateres i stedet for at blive slettet):
+
+| Maerkat | Udgave | Link |
+|---|---|---|
+| `latest-norstream-tv` | v232 | https://github.com/Seomidt/norstream/releases/tag/latest-norstream-tv |
+| `latest-norstream` | v232 | https://github.com/Seomidt/norstream/releases/tag/latest-norstream |
+
 Åbne punkter, som en ny chat kan blive spurgt om: Android Auto ruller til
 toppen af listen få sekunder efter start (uafklaret; gearhead beder selv
 om `getChildren` igen), Google Play-udgivelse (AAB + signering) og
