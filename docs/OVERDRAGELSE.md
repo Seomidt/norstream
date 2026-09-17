@@ -135,6 +135,17 @@ eller i bilen** før de næste builds. Regn med småting.
   til streams (`streamSource` i afspiller, preview og film). Kun http.
   Hvis brugerens problem på dansk Wi-Fi er DNS-blokering, kan det gøre
   VPN'en overflødig — kør forbindelsestjekket for at se det.
+- **Opdater appen af sig selv** (så en boks i en anden by kan opdateres
+  uden Play Store): tv'et ser efter en nyere udgave ved hver opstart og
+  starter installationen selv (`features/settings/autoUpdate.ts`, kaldt fra
+  `App.tsx`; telefonen beholder den frivillige knap). Udgivelsen sker med
+  workflowet `.github/workflows/udgiv-apk.yml`, som ligger på `main` og
+  lægger en færdig byg-kørsels APK op med et fast mærkat
+  (`latest-norstream`, `latest-norstream-tv`, `latest-norradio`). Appen
+  sammenligner `versionCode` med udgivelsens note. **Hæv
+  `expo.android.versionCode` i `app.json` før hvert build.** Hele fremgangs­-
+  måden står i `docs/BYG-FRA-CHAT.md` afsnit 9. Byg-opskriften er med vilje
+  ikke rørt: en ændret byg-fil bliver sat i "afventer godkendelse".
 
 ### Åbne punkter
 

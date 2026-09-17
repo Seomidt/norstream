@@ -156,13 +156,62 @@ Installation:
 | Node 20 deprecation-advarsler | gamle actions | Opdateret til setup-java@v5, cache@v5, upload-artifact@v6 |
 | `maal` hænger | et `fetch` uden timeout mod en stream | AbortController med timeout på alle kald |
 
-## 9. Seneste referencebuilds (september 2026)
+## 9. Udgiv en opdatering appen henter selv
+
+Fra september 2026 kan en boks i en anden by opdatere sig selv. To dele:
+
+- **Appen** (kun tv) ser efter en nyere udgave ved hver opstart og starter
+  installationen selv — `src/features/settings/autoUpdate.ts`, kaldt fra
+  `App.tsx`. Telefonen beholder den frivillige knap i Indstillinger.
+- **Udgivelsen** sker med `.github/workflows/udgiv-apk.yml`, som ligger på
+  `main`. Den rører **ikke** byg-opskriften (en ændret byg-fil bliver sat i
+  "afventer godkendelse", når den startes), men tager en færdig byg-kørsel,
+  henter dens APK-artefakt og lægger den op som en offentlig udgivelse med et
+  fast mærkat.
+
+Appen sammenligner sit `versionCode` med udgivelsens note (et tal). Derfor:
+
+1. **Hæv `versionCode`** i `packages/app/app.json`
+   (`expo.android.versionCode`) før du bygger — ellers kan boksen ikke se, at
+   der er en ny udgave. Det samme tal bruges som `version` i trin 3.
+2. **Byg** som i afsnit 3 (`motor: runner`). Notér kørslens `id` (run_id) og
+   hvilken variant det var.
+3. **Udgiv** ved at starte udgiv-workflowet — det ligger på `main`, så det
+   kører uden godkendelse:
+
+   ```
+   mcp__github__actions_run_trigger
+     method: run_workflow
+     owner: Seomidt
+     repo: norstream
+     workflow_id: udgiv-apk.yml
+     ref: main
+     inputs: {"run_id":"<byg-kørslens id>","variant":"norstream-tv","version":"<versionCode>"}
+   ```
+
+   `variant` er `norstream`, `norstream-tv` eller `norradio`. Mærkaterne
+   bliver `latest-norstream`, `latest-norstream-tv`, `latest-norradio`, og
+   appen læser netop det mærkat, der passer til sin udgave.
+
+Første gang skal boksen have en udgave *med* autoUpdate installeret én gang
+(via knappen i Indstillinger → Opdatering). Derefter er alt automatisk.
+Androids egen "Installér?"-skærm kan ingen app springe over — det ene tryk
+bliver, men resten sker af sig selv.
+
+Kun `udgiv-apk.yml` behøver at ligge på `main`; byg-opskriften og app-koden
+bygges fra arbejdsgrenen som altid.
+
+## 10. Seneste referencebuilds (september 2026)
 
 | Hvad | Nummer | Link |
 |---|---|---|
-| NorStream tv | 226 | https://github.com/Seomidt/norstream/actions/runs/35002475935 |
-| NorStream telefon | 227 | https://github.com/Seomidt/norstream/actions/runs/35002478539 |
+| NorStream tv | 232 | https://github.com/Seomidt/norstream/actions/runs/35200229276 |
+| NorStream telefon | 233 | https://github.com/Seomidt/norstream/actions/runs/35200231594 |
 | NorRadio | 217 | https://github.com/Seomidt/norstream/actions/runs/34973136764 |
+
+Build 232/233 er de første med selv-opdatering: `versionCode` 232 og
+auto-tjek ved opstart på tv. De udgives med `udgiv-apk.yml` (afsnit 9), så
+fremtidige builds kan hentes af en boks uden Play Store.
 
 Åbne punkter, som en ny chat kan blive spurgt om: Android Auto ruller til
 toppen af listen få sekunder efter start (uafklaret; gearhead beder selv
