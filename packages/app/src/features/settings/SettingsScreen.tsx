@@ -543,21 +543,22 @@ export function SettingsScreen({
         <Text style={styles.hint}>Sidste hentning af film og serier fejlede. {vodErrors.join(' · ')}</Text>
       )}
 
-      {/* Ikke paa tv: logoer vaelges ikke fra sofaen, og noeglerne tastes paa telefonen. */}
-      {!isTV && (
-        <>
       <Text style={styles.sectionTitle}>Kanallogoer</Text>
       <TvPressable style={styles.row} onPress={onOpenLogos}>
         <View style={styles.rowText}>
           <Text style={styles.rowTitle}>Kanaler uden logo</Text>
           <Text style={styles.rowHint}>
-            Logoerne hentes selv, én gang, og gemmes på telefonen. Dem arkiverne ikke kender, kan
-            appen søge efter på nettet, alle på én gang — eller du vælger selv. Du kan også holde
-            fingeren på en kanal i listerne.
+            {isTV
+              ? 'Kanalerne som arkiverne ikke har et logo til. Lad appen søge dem alle på nettet på én gang, eller vælg selv på den enkelte kanal.'
+              : 'Logoerne hentes selv, én gang, og gemmes på telefonen. Dem arkiverne ikke kender, kan appen søge efter på nettet, alle på én gang — eller du vælger selv. Du kan også holde fingeren på en kanal i listerne.'}
           </Text>
         </View>
         <Text style={styles.actionText}>Åbn</Text>
       </TvPressable>
+      {/* Google-noeglerne tastes paa telefonen; paa tv soeges der kun i
+          Wikidata, som ikke kraever en noegle. */}
+      {!isTV && (
+        <>
       <Text style={styles.hint}>
         Søgningen bruger Wikidata, som er gratis og uden nøgle. Vil du også have Googles
         billedsøgning med, laves en nøgle og en søgemaskine (cx) i Google Cloud Console under

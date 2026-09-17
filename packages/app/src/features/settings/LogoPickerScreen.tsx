@@ -30,6 +30,7 @@ import { theme } from '../../ui/theme.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { isTV } from '../../ui/tv.js';
 
 interface Props {
   session: AppSession;
@@ -155,7 +156,7 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
 
   return (
     <View style={styles.container}>
-      <TvPressable style={styles.crumb} onPress={onBack} hitSlop={8}>
+      <TvPressable style={styles.crumb} focusable={!isTV} onPress={onBack} hitSlop={8}>
         <Text style={styles.crumbBack}>‹</Text>
         <Text style={styles.crumbLabel} numberOfLines={1}>
           Vælg logo
@@ -232,8 +233,10 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
               indstillingerne, søges der også der.
             </Text>
             <TvPressable
+              // Ikke `disabled`: en deaktiveret knap kan ikke have fokus paa
+              // tv, saa fokus ville forsvinde. searchWeb() staar selv af, mens
+              // den koerer.
               style={[styles.button, webBusy && styles.buttonDisabled]}
-              disabled={webBusy}
               onPress={() => {
                 void searchWeb();
               }}
@@ -279,9 +282,10 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
               inputMode="url"
             />
             <TvPressable
+              // Ikke `disabled` (fokus forsvinder paa tv): tjek i onPress i stedet.
               style={[styles.button, manual.trim().length === 0 && styles.buttonDisabled]}
-              disabled={manual.trim().length === 0}
               onPress={() => {
+                if (manual.trim().length === 0) return;
                 void choose(manual);
               }}
             >

@@ -11,6 +11,8 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { autoSearchLogos } from './logoAutoSearch.js';
 import type { AutoSearchHandle, AutoSearchProgress } from './logoAutoSearch.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { keepInMiddle, useTvListTail } from '../../ui/tvScroll.js';
+import { isTV } from '../../ui/tv.js';
 
 interface Props {
   session: AppSession;
@@ -35,6 +37,8 @@ const SEARCH_DEBOUNCE_MS = 200;
 export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
+  const tail = useTvListTail();
+  const listRef = useRef<FlatList<ChannelWithoutLogo>>(null);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<ChannelWithoutLogo[] | null>(null);
@@ -97,7 +101,7 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
 
   return (
     <View style={styles.container}>
-      <TvPressable style={styles.crumb} onPress={onBack} hitSlop={8}>
+      <TvPressable style={styles.crumb} focusable={!isTV} onPress={onBack} hitSlop={8}>
         <Text style={styles.crumbBack}>‹</Text>
         <Text style={styles.crumbLabel}>Kanaler uden logo</Text>
       </TvPressable>
@@ -108,6 +112,9 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
       {progress === null ? (
         <TvPressable
           style={styles.button}
+          // Paa tv lander fjernbetjeningen paa den primaere handling naar
+          // skaermen aabner, saa man ikke skal lede efter et startpunkt.
+          hasTVPreferredFocus={isTV}
           onPress={() => {
             void searchAll();
           }}
@@ -151,15 +158,22 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
         autoCapitalize="none"
       />
       <FlatList
+        ref={listRef}
         data={rows ?? []}
         keyExtractor={(row) => row.id}
+        contentContainerStyle={tail}
+        onScrollToIndexFailed={() => undefined}
         ListEmptyComponent={
           <Text style={styles.hint}>
             {rows === null ? 'Tæller …' : 'Ingen — alle kanaler har et logo fra et arkiv eller dit eget valg.'}
           </Text>
         }
-        renderItem={({ item }) => (
-          <TvPressable style={styles.row} onPress={() => onPick(item.id)}>
+        renderItem={({ item, index }) => (
+          <TvPressable
+            style={styles.row}
+            onFocus={isTV ? () => keepInMiddle(listRef.current, index) : undefined}
+            onPress={() => onPick(item.id)}
+          >
             <Text style={styles.star}>{item.isFavorite ? '★' : ' '}</Text>
             <Text style={styles.name} numberOfLines={1}>
               {item.name}
