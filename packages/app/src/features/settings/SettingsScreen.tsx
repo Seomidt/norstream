@@ -53,6 +53,8 @@ import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { TvTextInput } from '../../ui/TvTextInput.js';
 import { LocalTransfer } from './LocalTransfer.js';
+import { checkForUpdate, currentVersionCode, downloadAndInstall } from './appUpdate.js';
+import type { UpdateInfo } from './appUpdate.js';
 
 interface Props {
   session: AppSession;
@@ -161,6 +163,10 @@ export function SettingsScreen({
     setBackupLinkState(value);
     void setBackupLink(session.db, value);
   };
+  /** Opdatering: hvad opslaget fandt, og en status-linje. */
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   /** Den automatiske ugentlige kopi: mappe, sidste skrivning, om den fejlede. */
   const [autoBackup, setAutoBackup] = useState<AutoBackupState>({ folderUri: null, lastMs: null, failed: false });
   const [providersOpen, setProvidersOpen] = useState(false);
@@ -242,6 +248,34 @@ export function SettingsScreen({
       : [...chosenProviders, provider];
     setChosenProviders(next);
     await setHomeProviders(session.db, next);
+  }
+
+  async function lookForUpdate(): Promise<void> {
+    setUpdateBusy(true);
+    setUpdateMessage('Søger …');
+    try {
+      const found = await checkForUpdate();
+      setUpdate(found);
+      setUpdateMessage(found.available ? null : 'Du har den nyeste udgave.');
+    } catch (cause) {
+      setUpdateMessage(cause instanceof Error ? cause.message : 'Kunne ikke søge efter opdatering.');
+    } finally {
+      setUpdateBusy(false);
+    }
+  }
+
+  async function installUpdate(): Promise<void> {
+    if (update === null) return;
+    setUpdateBusy(true);
+    setUpdateMessage('Henter …');
+    try {
+      await downloadAndInstall(update.url);
+      setUpdateMessage('Følg installationen på skærmen.');
+    } catch (cause) {
+      setUpdateMessage(cause instanceof Error ? cause.message : 'Kunne ikke installere.');
+    } finally {
+      setUpdateBusy(false);
+    }
   }
 
   async function saveBackup(): Promise<void> {
@@ -942,6 +976,30 @@ export function SettingsScreen({
         <Text style={styles.actionText}>Hent</Text>
       </TvPressable>
       {backupMessage !== null && <Text style={styles.hint}>{backupMessage}</Text>}
+
+      <Text style={styles.sectionTitle}>Opdatering</Text>
+      <Text style={styles.hint}>
+        Appen kommer ikke fra Play Store, så den opdaterer ikke af sig selv. Søg her efter en nyere
+        udgave og installér den — også på en boks i en anden by. Første gang skal enheden tillade
+        “installér ukendte apps” for NorStream.
+      </Text>
+      <TvPressable style={styles.row} disabled={updateBusy} onPress={() => void lookForUpdate()}>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Søg efter opdatering</Text>
+          <Text style={styles.rowHint}>Nuværende udgave: {currentVersionCode()}.</Text>
+        </View>
+        <Text style={styles.actionText}>Søg</Text>
+      </TvPressable>
+      {update !== null && update.available && (
+        <TvPressable style={styles.row} disabled={updateBusy} onPress={() => void installUpdate()}>
+          <View style={styles.rowText}>
+            <Text style={styles.rowTitle}>Hent og installér udgave {update.versionCode}</Text>
+            <Text style={styles.rowHint}>Henter APK’en og starter installationen.</Text>
+          </View>
+          <Text style={styles.actionText}>Hent</Text>
+        </TvPressable>
+      )}
+      {updateMessage !== null && <Text style={styles.hint}>{updateMessage}</Text>}
 
       <LocalTransfer
         buildBackup={async () => serialiseBackup(await createBackup(session.db))}
