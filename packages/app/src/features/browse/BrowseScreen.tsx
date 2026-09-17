@@ -223,8 +223,12 @@ export function BrowseScreen({
           previewEnabled={previewEnabled}
           previewHandle={previewHandle}
           onLongPress={onPickLogo}
-          focusFirst
-          focusFirstSignal={focusFirstSignal}
+          // Ikke mens man soeger: aabner man tastaturet med OK paa feltet,
+          // taeller det som et "valg", og listen greb saa fokus paa den
+          // foerste kanal, saa snart det foerste resultat kom — tastaturet
+          // lukkede midt i et ord. Foerst naar man selv trykker pil ned.
+          focusFirst={!searching}
+          focusFirstSignal={searching ? 0 : focusFirstSignal}
         />
       </View>
     );

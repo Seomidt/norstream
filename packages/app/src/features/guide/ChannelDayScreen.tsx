@@ -12,6 +12,7 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
 import type { CellState } from './layout.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { keepInMiddle, useTvListTail } from '../../ui/tvScroll.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
 import { isTV } from '../../ui/tv.js';
 import { addReminder, hasReminder, removeReminder } from '../../storage/reminders.js';
@@ -42,6 +43,7 @@ const MAX_DAYS_BACK = 7;
 export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay, onRestart }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
+  const tail = useTvListTail();
   const daysBack = Math.min(MAX_DAYS_BACK, Math.max(0, channel.archiveDays));
   const [dayDelta, setDayDelta] = useState(0);
   const [programmes, setProgrammes] = useState<Programme[] | null>(null);
@@ -178,6 +180,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
           ref={listRef}
           data={programmes}
           keyExtractor={(item) => String(item.start.getTime())}
+          contentContainerStyle={tail}
           initialNumToRender={Math.max(20, liveIndex + 10)}
           onScrollToIndexFailed={(info) => {
             setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, animated: false, viewPosition: 0 }), 300);
@@ -194,6 +197,11 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
               <TvPressable
                 style={[styles.row, state === 'live' && styles.rowLive]}
                 hasTVPreferredFocus={isTV && index === liveIndex}
+                // Uden dette ruller listen ikke: Android holder kun raekken
+                // inden for listens egne kanter, men listen er hoejere end
+                // laerredet, saa den fokuserede raekke roeg uden for skaermen
+                // og pilene saa ud til ikke at virke. Hold den i midten.
+                onFocus={isTV ? () => keepInMiddle(listRef.current, index) : undefined}
                 onPress={() => openSheet(item)}
               >
                 <Text style={styles.time}>{clock(item.start)}</Text>

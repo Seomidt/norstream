@@ -296,7 +296,12 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
         renderItem={({ item, index }) => (
           // Ingen knapper inde i raekken (Googles listeregel): flyt op/ned
           // ligger paa gruppens egen side.
-          <TvPressable style={styles.groupRow} hasTVPreferredFocus={isTV && index === 0} onPress={() => setOpen(item)}>
+          //
+          // Ikke mens man opretter: "+ Ny gruppe" bytter knappen ud med
+          // navnefeltet, og naar den knap forsvandt, gav Android fokus til den
+          // foerste raekke her frem for til feltet — saa kunne man ikke skrive
+          // navnet. Slip raekkens fortrukne fokus mens feltet er fremme.
+          <TvPressable style={styles.groupRow} hasTVPreferredFocus={isTV && index === 0 && !creating} onPress={() => setOpen(item)}>
             <Text style={styles.groupName} numberOfLines={1}>
               {item.name}
             </Text>
