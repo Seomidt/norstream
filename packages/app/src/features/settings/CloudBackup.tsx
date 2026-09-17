@@ -11,7 +11,7 @@ import {
 } from '../../storage/settings.js';
 import type { GoogleDriveConfig } from '../../storage/settings.js';
 import { runWeeklyCloudBackup } from '../../storage/cloudBackup.js';
-import { requestDeviceCode, pollToken, saveBackupToDrive } from './googleDrive.js';
+import { requestDeviceCode, pollToken, saveBackupToDrive, restoreBackupFromDrive } from './googleDrive.js';
 import { theme } from '../../ui/theme.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { useStyles, useTheme } from '../../ui/ThemeContext.js';
@@ -20,6 +20,8 @@ import { TvTextInput } from '../../ui/TvTextInput.js';
 
 interface Props {
   session: AppSession;
+  /** Gendanner en hentet kopi (samme vej som Gendan fra link og USB). */
+  onRestore: (json: string) => Promise<void>;
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -39,7 +41,7 @@ function whenText(ms: number | null): string {
  * lgger appen kopien op selv, hver uge og paa "Gem nu". `drive.file` betyder
  * at appen kun kan se sine egne filer, ikke resten af Drevet.
  */
-export function CloudBackup({ session }: Props) {
+export function CloudBackup({ session, onRestore }: Props) {
   const styles = useStyles(makeStyles);
   const { colors } = useTheme();
   const db = session.db;
@@ -150,6 +152,29 @@ export function CloudBackup({ session }: Props) {
     );
   }
 
+  async function restore(): Promise<void> {
+    setBusy(true);
+    setMessage('Henter fra Google Drev …');
+    try {
+      const cfg = await getGoogleDriveConfig(db);
+      const json = await restoreBackupFromDrive(cfg);
+      await onRestore(json);
+      setMessage('Hentet fra Drev. Grupper og favoritter er gendannet.');
+    } catch (cause) {
+      const msg = cause instanceof Error ? cause.message : '';
+      setMessage(
+        msg === 'reauth'
+          ? 'Login er udløbet. Log ind igen.'
+          : msg === 'notfound'
+            ? 'Der ligger ingen kopi på Drevet endnu. Tryk "Gem nu" på den gamle boks først.'
+            : 'Kunne ikke hente fra Drev. Prøv igen.',
+      );
+    } finally {
+      setBusy(false);
+      await reload();
+    }
+  }
+
   async function toggleWeekly(): Promise<void> {
     if (config === null) return;
     await setGoogleDriveEnabled(db, !config.enabled);
@@ -186,6 +211,13 @@ export function CloudBackup({ session }: Props) {
               <Text style={styles.rowTitle}>Gem nu</Text>
             </View>
             <Text style={styles.actionText}>Gem</Text>
+          </TvPressable>
+          <TvPressable style={styles.row} onPress={() => void restore()}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Hent fra Drev</Text>
+              <Text style={styles.rowHint}>På en ny boks: henter kopien ned og gendanner grupper, favoritter og alt.</Text>
+            </View>
+            <Text style={styles.actionText}>Hent</Text>
           </TvPressable>
           <TvPressable style={styles.row} onPress={() => void logout()}>
             <Text style={styles.rowTitle}>Log ud af Google Drev</Text>

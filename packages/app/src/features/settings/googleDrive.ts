@@ -3,6 +3,7 @@ import {
   MULTIPART_BOUNDARY,
   parseDeviceCode,
   parseFileId,
+  parseFirstFileId,
   parseRefreshedToken,
   parseTokenPoll,
 } from './googleDriveParse.js';
@@ -21,6 +22,7 @@ const DEVICE_CODE_URL = 'https://oauth2.googleapis.com/device/code';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
 const UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files';
+const FILES_URL = 'https://www.googleapis.com/drive/v3/files';
 
 /** Filens navn paa Drev. Den samme hver gang, saa den opdateres frem for at hobe sig op. */
 export const DRIVE_BACKUP_NAME = 'norstream-sikkerhedskopi.json';
@@ -141,4 +143,33 @@ export async function saveBackupToDrive(
   const accessToken = await refreshAccessToken(config.clientId, config.clientSecret, config.refreshToken, fetchImpl);
   const fileId = await uploadBackup(accessToken, config.fileId, json, fetchImpl);
   return { fileId };
+}
+
+/** Finder appens kopi paa Drev igen (efter navn); null naar der ingen er. */
+export async function findBackupFileId(accessToken: string, fetchImpl: Fetch = fetch): Promise<string | null> {
+  const query = `name = '${DRIVE_BACKUP_NAME}' and trashed = false`;
+  const url = `${FILES_URL}?q=${encodeURIComponent(query)}&spaces=drive&fields=files(id)&orderBy=modifiedTime desc`;
+  const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (response.status === 401) throw new Error('reauth');
+  if (!response.ok) throw new Error(`Drev svarede HTTP ${response.status}.`);
+  return parseFirstFileId(await response.json().catch(() => ({})));
+}
+
+/**
+ * Henter kopien ned fra Drev og gendanner den — det en ny boks skal bruge.
+ * Kaster 'reauth' naar login skal fornyes, og 'notfound' naar der ingen kopi
+ * ligger endnu.
+ */
+export async function restoreBackupFromDrive(config: GoogleDriveConfig, fetchImpl: Fetch = fetch): Promise<string> {
+  if (config.refreshToken === null) throw new Error('reauth');
+  const accessToken = await refreshAccessToken(config.clientId, config.clientSecret, config.refreshToken, fetchImpl);
+  const fileId = config.fileId ?? (await findBackupFileId(accessToken, fetchImpl));
+  if (fileId === null) throw new Error('notfound');
+  const response = await fetchImpl(`${FILES_URL}/${fileId}?alt=media`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (response.status === 401) throw new Error('reauth');
+  if (response.status === 404) throw new Error('notfound');
+  if (!response.ok) throw new Error(`Drev svarede HTTP ${response.status}.`);
+  return response.text();
 }

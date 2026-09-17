@@ -3,6 +3,7 @@ import {
   createMultipartBody,
   parseDeviceCode,
   parseFileId,
+  parseFirstFileId,
   parseRefreshedToken,
   parseTokenPoll,
 } from './googleDriveParse.js';
@@ -60,6 +61,16 @@ describe('parseFileId', () => {
   });
   it('throws when there is no id', () => {
     expect(() => parseFileId({})).toThrow();
+  });
+});
+
+describe('parseFirstFileId', () => {
+  it('returns the first file id', () => {
+    expect(parseFirstFileId({ files: [{ id: 'a' }, { id: 'b' }] })).toBe('a');
+  });
+  it('returns null when there are no files', () => {
+    expect(parseFirstFileId({ files: [] })).toBeNull();
+    expect(parseFirstFileId({})).toBeNull();
   });
 });
 

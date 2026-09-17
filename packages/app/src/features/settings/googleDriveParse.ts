@@ -80,6 +80,17 @@ export function parseRefreshedToken(json: unknown): string {
   return accessToken;
 }
 
+/** Foerste fil-id i et files.list-svar, eller null naar der ingen er. */
+export function parseFirstFileId(json: unknown): string | null {
+  const files = (json as { files?: unknown }).files;
+  if (!Array.isArray(files)) return null;
+  for (const entry of files) {
+    const id = (entry as { id?: unknown }).id;
+    if (typeof id === 'string' && id.length > 0) return id;
+  }
+  return null;
+}
+
 /** Fil-id’et ud af et upload-svar; kaster hvis det mangler. */
 export function parseFileId(json: unknown): string {
   const o = json as Record<string, unknown>;

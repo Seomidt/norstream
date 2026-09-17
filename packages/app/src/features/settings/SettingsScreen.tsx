@@ -1026,7 +1026,12 @@ export function SettingsScreen({
         }}
       />
 
-      <CloudBackup session={session} />
+      <CloudBackup
+        session={session}
+        onRestore={async (json) => {
+          await restoreFromText(json);
+        }}
+      />
 
       <Text style={styles.sectionTitle}>Skjulte lande</Text>
       {hidden.length === 0 ? (
