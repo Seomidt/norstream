@@ -5,7 +5,8 @@ name: Udgiv APK
 # Hvorfor en selvstaendig fil: byg-opskriften maa ikke aendres — en aendret
 # workflow-fil bliver sat i "afventer godkendelse" naar den startes. Den her
 # ligger paa main, saa den kan startes frit, og henter blot artefakten fra en
-# byg-koersel der allerede er faerdig.
+# byg-koersel der allerede er faerdig (motor: runner, som lgger APK'en op med
+# actions/upload-artifact).
 #
 # Startes med tre felter:
 #   run_id   koerslen ("Byg Android-APK") hvis APK skal udgives
@@ -57,22 +58,27 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           case "${{ inputs.variant }}" in
-            norradio)     tag=latest-norradio;     navn="NorRadio";;
-            norstream-tv) tag=latest-norstream-tv; navn="NorStream TV";;
-            *)            tag=latest-norstream;    navn="NorStream";;
+            norradio)     tag=latest-norradio;     navn="NorRadio";     fil=NorRadio.apk;;
+            norstream-tv) tag=latest-norstream-tv; navn="NorStream TV"; fil=NorStream-TV.apk;;
+            *)            tag=latest-norstream;    navn="NorStream";    fil=NorStream.apk;;
           esac
           apk=$(find apk -name '*.apk' | head -n1)
           if [ -z "$apk" ]; then echo "::error::ingen APK i artefakten"; exit 1; fi
-          fil="${navn// /-}-${{ inputs.version }}.apk"
           cp "$apk" "$fil"
-          # Fast maerkat: slet den gamle udgivelse + maerkat (findes den ikke,
-          # er det fint), saa "seneste" altid peger paa den nyeste fil.
-          gh release delete "$tag" --yes --cleanup-tag --repo "$GITHUB_REPOSITORY" 2>/dev/null || true
-          # Nummeret som note: appen laeser det som versionCode at sammenligne.
-          gh release create "$tag" "$fil" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "$navn (v${{ inputs.version }})" \
-            --notes "${{ inputs.version }}"
+          titel="$navn (v${{ inputs.version }})"
+          # Slet ALDRIG den gamle udgivelse foerst: fejler et trin nedenfor,
+          # skal boksene stadig kunne hente fra det faste maerkat. Findes
+          # udgivelsen ikke endnu, laves den tom; ellers roeres den ikke her.
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$titel" --notes "${{ inputs.version }}"
+          fi
+          # Fast filnavn + --clobber: der er altid praecis én .apk paa udgivelsen,
+          # saa appen ikke kan komme til at vaelge en gammel fil. Lykkes uploaden
+          # ikke, bliver den gamle fil staaende.
+          gh release upload "$tag" "$fil" --clobber --repo "$GITHUB_REPOSITORY"
+          # Til sidst: noten (tallet appen sammenligner) og titlen. Foerst her,
+          # naar den nye fil ligger der, peger "seneste" paa den nye udgave.
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "$titel" --notes "${{ inputs.version }}"
           {
             echo "### Udgivet"
             echo ""
