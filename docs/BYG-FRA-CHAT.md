@@ -205,13 +205,14 @@ bygges fra arbejdsgrenen som altid.
 
 | Hvad | Nummer | Link |
 |---|---|---|
-| NorStream tv | 232 | https://github.com/Seomidt/norstream/actions/runs/35200229276 |
-| NorStream telefon | 233 | https://github.com/Seomidt/norstream/actions/runs/35200231594 |
+| NorStream tv | 234 | https://github.com/Seomidt/norstream/actions/runs/35201122207 |
+| NorStream telefon | 235 | https://github.com/Seomidt/norstream/actions/runs/35201124694 |
 | NorRadio | 217 | https://github.com/Seomidt/norstream/actions/runs/34973136764 |
 
-Build 232/233 er de første med selv-opdatering: `versionCode` 232 og
-auto-tjek ved opstart på tv. De udgives med `udgiv-apk.yml` (afsnit 9), så
-fremtidige builds kan hentes af en boks uden Play Store.
+Build 234/235 er de første med selv-opdatering: `versionCode` 232, auto-tjek
+ved opstart på tv, og udgaven vises tydeligt øverst i Indstillinger →
+Opdatering. De udgives med `udgiv-apk.yml` (afsnit 9), så fremtidige builds
+kan hentes af en boks uden Play Store.
 
 Åbne punkter, som en ny chat kan blive spurgt om: Android Auto ruller til
 toppen af listen få sekunder efter start (uafklaret; gearhead beder selv
