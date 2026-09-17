@@ -246,28 +246,6 @@ jobs:
       - run: npm ci
         if: inputs.motor != 'probe' && inputs.motor != 'youtube' && inputs.motor != 'maal'
 
-      # Versionsnummeret er koerslens nummer, saa hver APK er nyere end den
-      # forrige. Uden det staar de alle til versionCode 1, og "Soeg efter
-      # opdatering" i appen kan ikke se at der er en nyere. Skrives ind i
-      # app.json foer prebuild, som er der versionCode lander i manifestet.
-      - name: Saet versionsnummer fra koerslen
-        if: inputs.motor == 'runner'
-        working-directory: packages/${{ inputs.app || 'app' }}
-        run: |
-          node -e '
-            const fs = require("fs");
-            const p = "app.json";
-            const d = JSON.parse(fs.readFileSync(p, "utf8"));
-            const run = Number(process.env.RUN_NUMBER);
-            d.expo.android = d.expo.android || {};
-            d.expo.android.versionCode = run;
-            d.expo.version = "1.0." + run;
-            fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
-            console.log("versionCode =", run);
-          '
-        env:
-          RUN_NUMBER: ${{ github.run_number }}
-
       # Samme porte som CI. Et build af kode der ikke kan bestaa sine egne
       # tests er spildt byggetid.
       - name: Typecheck og tests
@@ -356,34 +334,6 @@ jobs:
           name: ${{ inputs.app == 'radio' && 'norradio' || 'norstream' }}${{ inputs.tv && '-tv' || '' }}-apk
           path: packages/${{ inputs.app || 'app' }}/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
-
-      # Laegger APK'en som en offentlig udgivelse med et fast maerkat per
-      # udgave (tv/telefon/radio) og koerslens nummer som versionsnummer.
-      # Appens "Soeg efter opdatering" laeser maerkatet: er nummeret hoejere
-      # end det installerede, hentes filen herfra. Repoet er offentligt, saa
-      # APK'en kan hentes uden login.
-      - name: Udgiv til opdatering-i-appen
-        if: inputs.motor == 'runner'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_NUMBER: ${{ github.run_number }}
-        run: |
-          if [ "${{ inputs.app }}" = "radio" ]; then
-            TAG="latest-norradio"; ASSET="norradio.apk"
-          elif [ "${{ inputs.tv }}" = "true" ]; then
-            TAG="latest-norstream-tv"; ASSET="norstream-tv.apk"
-          else
-            TAG="latest-norstream"; ASSET="norstream.apk"
-          fi
-          APK="packages/${{ inputs.app || 'app' }}/android/app/build/outputs/apk/release/app-release.apk"
-          cp "$APK" "$ASSET"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$ASSET" --clobber
-            gh release edit "$TAG" --notes "$RUN_NUMBER"
-          else
-            gh release create "$TAG" "$ASSET" --title "$TAG" --notes "$RUN_NUMBER"
-          fi
-          echo "Udgivet $TAG (version $RUN_NUMBER)."
 
       - name: Hvor ligger APK'en (runner)
         if: inputs.motor == 'runner'
