@@ -4,14 +4,9 @@ import { deriveCountry } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { vodCounts } from '../../storage/vod.js';
 import { countRadioChannels } from '../../storage/channels.js';
-import { createBackup, parseBackup, restoreBackup, serialiseBackup } from '../../storage/backup.js';
+import { parseBackup, restoreBackup } from '../../storage/backup.js';
 import { forgetLogoMisses, resetLogo } from '../../ui/logoCache.js';
 import { setPosterApiKey } from '../../ui/posterFill.js';
-import { USB_FOLDER, pickBackupFolder, readBackupFromUsb, readChosenBackupFile, saveBackupToChosenFolder, usbBackupFolder, writeBackupToFolder } from './backupFiles.js';
-import { fetchBackupFromLink } from './backupLink.js';
-import { getAutoBackupState, runWeeklyBackup } from '../../storage/autoBackup.js';
-import type { AutoBackupState } from '../../storage/autoBackup.js';
-import { getBackupLink, setBackupFolderUri, setBackupLink } from '../../storage/settings.js';
 import { listHiddenCountries, unhideCountry } from '../../storage/countries.js';
 import { OTHER_COUNTRY_KEY } from '../../storage/countries.js';
 import { clearSourceCredentials } from '../../storage/credentials.js';
@@ -52,7 +47,6 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { TvTextInput } from '../../ui/TvTextInput.js';
-import { LocalTransfer } from './LocalTransfer.js';
 import { CloudBackup } from './CloudBackup.js';
 import { checkForUpdate, currentVersionCode, downloadAndInstall } from './appUpdate.js';
 import type { UpdateInfo } from './appUpdate.js';
@@ -155,21 +149,10 @@ export function SettingsScreen({
   const [providerSearch, setProviderSearch] = useState('');
   /** Hvad sidste sikkerhedskopiering eller gendannelse endte med. */
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
-  const [backupBusy, setBackupBusy] = useState(false);
-  /** USB-drevet der sidder i, hvis der er et. Slaas op naar siden laeses og foer hvert tryk. */
-  const [usb, setUsb] = useState<{ uri: string; name: string } | null>(null);
-  /** Delelinket til filen, til Gendan fra link. Huskes, saa det kan hentes igen uden at taste. */
-  const [backupLink, setBackupLinkState] = useState('');
-  const changeBackupLink = (value: string): void => {
-    setBackupLinkState(value);
-    void setBackupLink(session.db, value);
-  };
   /** Opdatering: hvad opslaget fandt, og en status-linje. */
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
-  /** Den automatiske ugentlige kopi: mappe, sidste skrivning, om den fejlede. */
-  const [autoBackup, setAutoBackup] = useState<AutoBackupState>({ folderUri: null, lastMs: null, failed: false });
   const [providersOpen, setProvidersOpen] = useState(false);
   const [videoSurface, setVideoSurfaceState] = useState<VideoSurface>('surface');
   const [themeMode, setThemeModeState] = useState<ThemeMode>(themePreference().mode);
@@ -202,9 +185,6 @@ export function SettingsScreen({
     applyVideoSurfaceSetting(surface);
     setThemePlaceState((await getThemePlace(session.db)) ?? themePreference().placeKey);
     setRadio(await countRadioChannels(session.db));
-    setAutoBackup(await getAutoBackupState(session.db));
-    setBackupLinkState(await getBackupLink(session.db));
-    setUsb(usbBackupFolder());
     const errors: string[] = [];
     for (const access of session.sources) {
       const error = await getSetting(session.db, `last_vod_error:${access.source.id}`);
@@ -276,124 +256,6 @@ export function SettingsScreen({
       setUpdateMessage(cause instanceof Error ? cause.message : 'Kunne ikke installere.');
     } finally {
       setUpdateBusy(false);
-    }
-  }
-
-  async function saveBackup(): Promise<void> {
-    setBackupBusy(true);
-    try {
-      const json = serialiseBackup(await createBackup(session.db));
-      const saved = await saveBackupToChosenFolder(json);
-      setBackupMessage(saved ? 'Sikkerhedskopien er gemt i den valgte mappe.' : null);
-    } catch {
-      setBackupMessage('Sikkerhedskopien kunne ikke gemmes.');
-    } finally {
-      setBackupBusy(false);
-    }
-  }
-
-  /**
-   * Slaar den ugentlige kopi til ved at vaelge mappen én gang og skrive
-   * med det samme; fra igen ved at glemme mappen. Filen i mappen bliver.
-   */
-  async function toggleAutoBackup(on: boolean): Promise<void> {
-    setBackupBusy(true);
-    try {
-      if (!on) {
-        await setBackupFolderUri(session.db, null);
-        setAutoBackup(await getAutoBackupState(session.db));
-        setBackupMessage('Den automatiske sikkerhedskopi er slået fra.');
-        return;
-      }
-      const folderUri = await pickBackupFolder();
-      if (folderUri === null) return;
-      await setBackupFolderUri(session.db, folderUri);
-      const result = await runWeeklyBackup(session.db, writeBackupToFolder, Date.now(), true);
-      setAutoBackup(await getAutoBackupState(session.db));
-      setBackupMessage(
-        result === 'written'
-          ? 'Sikkerhedskopien er gemt, og den fornys hver uge i den valgte mappe.'
-          : 'Der kunne ikke skrives i mappen. Prøv en anden.',
-      );
-    } finally {
-      setBackupBusy(false);
-    }
-  }
-
-  async function restoreFromFile(): Promise<void> {
-    setBackupBusy(true);
-    try {
-      const text = await readChosenBackupFile();
-      if (text === null) return;
-      await restoreFromText(text);
-    } catch (cause) {
-      setBackupMessage(cause instanceof Error ? cause.message : 'Filen kunne ikke læses.');
-    } finally {
-      setBackupBusy(false);
-    }
-  }
-
-  /** Tv'ets foerste vej: filen paa USB-drevet, uden Drev og uden link. */
-  async function saveToUsb(): Promise<void> {
-    setBackupBusy(true);
-    try {
-      const found = usbBackupFolder();
-      setUsb(found);
-      await writeBackupToFolder(USB_FOLDER, serialiseBackup(await createBackup(session.db)));
-      setBackupMessage(`Sikkerhedskopien er gemt på ${found?.name ?? 'USB-drevet'}.`);
-    } catch (cause) {
-      setBackupMessage(cause instanceof Error ? cause.message : 'Kopien kunne ikke skrives til USB-drevet.');
-    } finally {
-      setBackupBusy(false);
-    }
-  }
-
-  async function restoreFromUsb(): Promise<void> {
-    setBackupBusy(true);
-    try {
-      setUsb(usbBackupFolder());
-      await restoreFromText(await readBackupFromUsb());
-    } catch (cause) {
-      setBackupMessage(cause instanceof Error ? cause.message : 'Kopien på USB-drevet kunne ikke læses.');
-    } finally {
-      setBackupBusy(false);
-    }
-  }
-
-  /** Ugentlig kopi paa USB: skriver med det samme, og igen hver uge ved start naar drevet sidder i. */
-  async function toggleUsbWeekly(on: boolean): Promise<void> {
-    setBackupBusy(true);
-    try {
-      if (!on) {
-        await setBackupFolderUri(session.db, null);
-        setAutoBackup(await getAutoBackupState(session.db));
-        setBackupMessage('Den automatiske sikkerhedskopi er slået fra.');
-        return;
-      }
-      setUsb(usbBackupFolder());
-      await setBackupFolderUri(session.db, USB_FOLDER);
-      const result = await runWeeklyBackup(session.db, writeBackupToFolder, Date.now(), true);
-      setAutoBackup(await getAutoBackupState(session.db));
-      setBackupMessage(
-        result === 'written'
-          ? 'Sikkerhedskopien er gemt på USB-drevet, og den fornys hver uge når drevet sidder i.'
-          : 'Der kunne ikke skrives til USB-drevet. Sidder det i? Den prøver igen ved næste start.',
-      );
-    } finally {
-      setBackupBusy(false);
-    }
-  }
-
-  /** Tv'ets anden vej: filen hentes fra et delelink (Drev, Dropbox, OneDrive) i stedet for en filvaelger. */
-  async function restoreFromLink(): Promise<void> {
-    setBackupBusy(true);
-    setBackupMessage('Henter filen …');
-    try {
-      await restoreFromText(await fetchBackupFromLink(backupLink));
-    } catch (cause) {
-      setBackupMessage(cause instanceof Error ? cause.message : 'Filen kunne ikke hentes.');
-    } finally {
-      setBackupBusy(false);
     }
   }
 
@@ -846,138 +708,8 @@ export function SettingsScreen({
         til, og opret en API-nøgle under Legitimationsoplysninger. Den gemmes kun på telefonen.
       </Text>
 
-      <Text style={styles.sectionTitle}>Sikkerhedskopi</Text>
-      <Text style={styles.hint}>
-        Favoritter i din rækkefølge, egne logoer, skjulte lande, undertekster og de andre valg,
-        min liste og hvor langt film er set. Ikke adgangskoder: dem taster du igen. Gem filen
-        et sted du kan nå fra en ny telefon, og gendan efter du er logget ind på panelet.
-      </Text>
-      <TvPressable style={styles.row} disabled={backupBusy} onPress={() => void saveBackup()}>
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Gem sikkerhedskopi</Text>
-          <Text style={styles.rowHint}>Vælg en mappe. Filen hedder norstream-sikkerhedskopi.json.</Text>
-        </View>
-        <Text style={styles.actionText}>Gem</Text>
-      </TvPressable>
-      <TvPressable style={styles.row} disabled={backupBusy} onPress={() => void restoreFromFile()}>
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Gendan fra fil</Text>
-          <Text style={styles.rowHint}>
-            Erstatter favoritter, egne logoer og skjulte lande med dem i filen.
-          </Text>
-        </View>
-        <Text style={styles.actionText}>Vælg fil</Text>
-      </TvPressable>
-      <TvPressable style={styles.row} disabled={backupBusy} onPress={() => void toggleAutoBackup(autoBackup.folderUri === null)}>
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Automatisk sikkerhedskopi hver uge</Text>
-          <Text style={styles.rowHint}>
-            {autoBackup.folderUri === null
-              ? 'Vælg en mappe én gang, så fornys filen der af sig selv.'
-              : autoBackup.failed
-                ? 'Mappen kunne ikke nås sidst. Slå fra og til igen for at vælge en ny.'
-                : autoBackup.lastMs === null
-                  ? 'Slået til. Første kopi skrives ved næste start.'
-                  : `Sidst gemt ${new Date(autoBackup.lastMs).toLocaleDateString('da-DK', { day: 'numeric', month: 'long' })}.`}
-          </Text>
-        </View>
-        <Switch
-          value={autoBackup.folderUri !== null}
-          focusable={false}
-          disabled={backupBusy}
-          onValueChange={(value) => {
-            void toggleAutoBackup(value);
-          }}
-          trackColor={{ true: colors.accent, false: colors.border }}
-        />
-      </TvPressable>
         </>
       )}
-      {isTV && (
-        <>
-          <Text style={styles.sectionTitle}>Sikkerhedskopi</Text>
-          <Text style={styles.hint}>
-            Favoritter i din rækkefølge, grupper, egne logoer, skjulte lande og indstillinger. Ikke
-            adgangskoder. Nemmest med et USB-drev i en hub med strøm igennem: kopien ligger på drevet,
-            og på en ny boks er det log ind, sæt drevet i, Gendan fra USB. Ellers hentes den fra et
-            link til filen i Google Drev, Dropbox eller OneDrive (delt med "Alle med linket");
-            Google TV-appen på telefonen kan skrive linket.
-          </Text>
-        </>
-      )}
-      {(isTV || usb !== null) && (
-        <>
-          <View style={styles.row}>
-            <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>USB-drev</Text>
-              <Text style={styles.rowHint}>
-                {usb === null
-                  ? 'Intet USB-drev fundet. Sæt det i en hub med strøm igennem, og åbn Indstillinger igen.'
-                  : `${usb.name} sidder i. Filen ligger i Android/data/dk.seomidt.norstream/files på drevet.`}
-              </Text>
-            </View>
-          </View>
-          <TvPressable style={styles.row} disabled={backupBusy || usb === null} onPress={() => void saveToUsb()}>
-            <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>Gem på USB nu</Text>
-              <Text style={styles.rowHint}>Skriver norstream-sikkerhedskopi.json på drevet.</Text>
-            </View>
-            <Text style={styles.actionText}>Gem</Text>
-          </TvPressable>
-          <TvPressable style={styles.row} disabled={backupBusy} onPress={() => void toggleUsbWeekly(autoBackup.folderUri !== USB_FOLDER)}>
-            <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>Automatisk hver uge på USB</Text>
-              <Text style={styles.rowHint}>
-                {autoBackup.folderUri !== USB_FOLDER
-                  ? 'Lad drevet sidde i, så fornys filen af sig selv.'
-                  : autoBackup.failed
-                    ? 'Drevet sad ikke i sidst. Den prøver igen ved næste start.'
-                    : autoBackup.lastMs === null
-                      ? 'Slået til. Første kopi skrives ved næste start.'
-                      : `Sidst gemt ${new Date(autoBackup.lastMs).toLocaleDateString('da-DK', { day: 'numeric', month: 'long' })}.`}
-              </Text>
-            </View>
-            <Switch
-              value={autoBackup.folderUri === USB_FOLDER}
-              focusable={false}
-              disabled={backupBusy}
-              onValueChange={(value) => {
-                void toggleUsbWeekly(value);
-              }}
-              trackColor={{ true: colors.accent, false: colors.border }}
-            />
-          </TvPressable>
-          <TvPressable style={styles.row} disabled={backupBusy || usb === null} onPress={() => void restoreFromUsb()}>
-            <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>Gendan fra USB</Text>
-              <Text style={styles.rowHint}>Læser filen på drevet og erstatter favoritter, grupper, egne logoer og skjulte lande.</Text>
-            </View>
-            <Text style={styles.actionText}>Gendan</Text>
-          </TvPressable>
-        </>
-      )}
-      <TvTextInput
-        style={styles.input}
-        value={backupLink}
-        onChangeText={changeBackupLink}
-        placeholder="Link til norstream-sikkerhedskopi.json"
-        autoCorrect={false}
-        autoCapitalize="none"
-        keyboardType="url"
-        returnKeyType="go"
-        onSubmitEditing={() => void restoreFromLink()}
-      />
-      <TvPressable style={styles.row} disabled={backupBusy || backupLink.trim().length === 0} onPress={() => void restoreFromLink()}>
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Gendan fra link</Text>
-          <Text style={styles.rowHint}>
-            Henter filen fra linket og erstatter favoritter, grupper, egne logoer og skjulte lande. Linket
-            huskes, så du bare trykker Hent næste gang filen er fornyet.
-          </Text>
-        </View>
-        <Text style={styles.actionText}>Hent</Text>
-      </TvPressable>
-      {backupMessage !== null && <Text style={styles.hint}>{backupMessage}</Text>}
 
       <Text style={styles.sectionTitle}>Opdatering</Text>
       <View style={styles.row}>
@@ -1014,17 +746,6 @@ export function SettingsScreen({
         </TvPressable>
       )}
       {updateMessage !== null && <Text style={styles.hint}>{updateMessage}</Text>}
-
-      <LocalTransfer
-        buildBackup={async () => serialiseBackup(await createBackup(session.db))}
-        onReceived={async (json) => {
-          try {
-            await restoreFromText(json);
-          } catch (cause) {
-            setBackupMessage(cause instanceof Error ? cause.message : 'Den modtagne fil kunne ikke læses.');
-          }
-        }}
-      />
 
       <CloudBackup
         session={session}
