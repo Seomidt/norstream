@@ -1,0 +1,87 @@
+name: Udgiv APK
+# Laegger en FAERDIG APK op som en offentlig GitHub-udgivelse, saa appen kan
+# hente den. Roerer ikke byg-opskriften (build-android.yml) overhovedet.
+#
+# Hvorfor en selvstaendig fil: byg-opskriften maa ikke aendres — en aendret
+# workflow-fil bliver sat i "afventer godkendelse" naar den startes. Den her
+# ligger paa main, saa den kan startes frit, og henter blot artefakten fra en
+# byg-koersel der allerede er faerdig (motor: runner, som lgger APK'en op med
+# actions/upload-artifact).
+#
+# Startes med tre felter:
+#   run_id   koerslen ("Byg Android-APK") hvis APK skal udgives
+#   variant  norstream | norstream-tv | norradio (artefaktens navn uden -apk)
+#   version  tallet appen sammenligner (skal svare til APK'ens versionCode)
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Koerslen med APK-artefakten (Byg Android-APK)'
+        required: true
+        type: string
+      variant:
+        description: 'norstream | norstream-tv | norradio'
+        required: true
+        default: norstream
+        type: choice
+        options: [norstream, norstream-tv, norradio]
+      version:
+        description: 'versionCode — tallet appen sammenligner med sit eget'
+        required: true
+        type: string
+
+jobs:
+  udgiv:
+    runs-on: ubuntu-latest
+    # actions:read for at hente artefakten fra en anden koersel; contents:write
+    # for at lave udgivelsen. Intet andet.
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Tjek at version er et tal
+        run: |
+          case "${{ inputs.version }}" in
+            ''|*[!0-9]*) echo "::error::version skal vaere et helt tal"; exit 1;;
+          esac
+
+      - name: Hent APK-artefakten fra byg-koerslen
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.variant }}-apk
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: apk
+
+      - name: Udgiv med fast maerkat
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          case "${{ inputs.variant }}" in
+            norradio)     tag=latest-norradio;     navn="NorRadio";     fil=NorRadio.apk;;
+            norstream-tv) tag=latest-norstream-tv; navn="NorStream TV"; fil=NorStream-TV.apk;;
+            *)            tag=latest-norstream;    navn="NorStream";    fil=NorStream.apk;;
+          esac
+          apk=$(find apk -name '*.apk' | head -n1)
+          if [ -z "$apk" ]; then echo "::error::ingen APK i artefakten"; exit 1; fi
+          cp "$apk" "$fil"
+          titel="$navn (v${{ inputs.version }})"
+          # Slet ALDRIG den gamle udgivelse foerst: fejler et trin nedenfor,
+          # skal boksene stadig kunne hente fra det faste maerkat. Findes
+          # udgivelsen ikke endnu, laves den tom; ellers roeres den ikke her.
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "$titel" --notes "${{ inputs.version }}"
+          fi
+          # Fast filnavn + --clobber: der er altid praecis én .apk paa udgivelsen,
+          # saa appen ikke kan komme til at vaelge en gammel fil. Lykkes uploaden
+          # ikke, bliver den gamle fil staaende.
+          gh release upload "$tag" "$fil" --clobber --repo "$GITHUB_REPOSITORY"
+          # Til sidst: noten (tallet appen sammenligner) og titlen. Foerst her,
+          # naar den nye fil ligger der, peger "seneste" paa den nye udgave.
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --title "$titel" --notes "${{ inputs.version }}"
+          {
+            echo "### Udgivet"
+            echo ""
+            echo "Maerkat \`$tag\` peger nu paa **$fil** (versionCode ${{ inputs.version }})."
+            echo "Appen henter den selv under Indstillinger -> Opdatering."
+          } >> "$GITHUB_STEP_SUMMARY"
