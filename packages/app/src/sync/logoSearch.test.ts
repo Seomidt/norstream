@@ -75,13 +75,14 @@ const SEARCH_DA = {
 };
 
 describe('findWikidataLogo', () => {
-  it('soeger paa sproget, sorterer ikke-kanaler fra og tager logoet fra P154', async () => {
+  it('soeger paa sproget, foretraekker en kanal og tager logoet fra P154', async () => {
     const fetchImpl = fakeFetch([
       [/wbsearchentities.*language=da/, SEARCH_DA],
       [
-        /wbgetentities.*ids=Q2%7CQ3|wbgetentities.*ids=Q2\|Q3/,
+        /wbgetentities/,
         {
           entities: {
+            Q1: { claims: {} },
             Q2: { claims: { P154: [{ rank: 'normal', mainsnak: { datavalue: { value: 'TV 2 Fri logo.svg' } } }] } },
             Q3: { claims: {} },
           },
@@ -96,8 +97,17 @@ describe('findWikidataLogo', () => {
     });
     expect(fetchImpl.calls).toHaveLength(2);
     expect(fetchImpl.calls[0]).toContain('search=TV%202%20Fri');
-    // Q1 er en fodboldspiller og bedes der ikke om.
-    expect(fetchImpl.calls[1]).not.toContain('Q1');
+  });
+
+  it('tager ogsaa et opslag hvis beskrivelse ikke ligner en kanal, naar det har et logo', async () => {
+    // Bredere: en kanal med en tynd/fremmed beskrivelse blev foer smidt vaek.
+    const fetchImpl = fakeFetch([
+      [/wbsearchentities/, { search: [{ id: 'Q7', label: 'MinFlix', description: 'streamingtjeneste' }] }],
+      [/wbgetentities/, { entities: { Q7: { claims: { P154: [{ mainsnak: { datavalue: { value: 'MinFlix.png' } } }] } } } }],
+    ]);
+    const found = await findWikidataLogo(fetchImpl, 'MinFlix', 'da');
+    expect(found?.url).toContain('MinFlix.png?width=400');
+    expect(found?.label).toBe('MinFlix');
   });
 
   it('proever engelsk naar det egne sprog intet giver', async () => {

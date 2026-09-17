@@ -132,7 +132,7 @@ export function wikidataLanguageFor(country: string): string {
  */
 export function looksLikeChannel(description: string | undefined | null): boolean {
   if (description === undefined || description === null) return false;
-  return /\b(tv|television|televisi|fernseh|fjernsyn|channel|kanal|chaîne|cadena|canal|canale|radio|broadcast|station|sender|zender)/iu.test(
+  return /\b(tv|television|televisi|télévisi|fernseh|fjernsyn|channel|kanal|kanaal|chaîne|cadena|canal|canale|radio|broadcast|network|nettverk|station|sender|zender)/iu.test(
     description,
   );
 }
@@ -236,21 +236,30 @@ async function logoClaims(fetchImpl: LogoSearchFetch, ids: string[]): Promise<Ma
 }
 
 /**
- * Wikidata: soeg paa navnet i kanalens eget sprog, saa paa engelsk; behold
- * de opslag der lyder som en kanal; tag det foerste der har et logo.
+ * Wikidata: soeg paa navnet i kanalens eget sprog, saa paa engelsk, og saml
+ * alle opslag der har et logo (P154).
+ *
+ * Bredere end foer: foer blev et opslag smidt vaek med det samme, hvis
+ * beskrivelsen ikke ligefrem sagde "tv-kanal" — men mange kanaler har en
+ * tynd eller fremmedsproget beskrivelse, og saa fandt den intet. Nu hentes
+ * logoet for hvert opslag, og de der ligner en kanal, staar foerst; resten
+ * kommer bagefter (et P154-logo hoerer til et maerke, saa navnet passer
+ * sjaeldent paa noget helt andet). Vaelgeren viser dem alle; den
+ * automatiske soegning tager den foerste.
  */
-export async function findWikidataLogo(
+export async function findWikidataLogos(
   fetchImpl: LogoSearchFetch,
   name: string,
   language: string,
-): Promise<LogoCandidate | null> {
-  if (name.trim().length === 0) return null;
+  max = 5,
+): Promise<LogoCandidate[]> {
+  if (name.trim().length === 0) return [];
   const languages = language === 'en' ? ['en'] : [language, 'en'];
   const seen = new Set<string>();
+  const described: LogoCandidate[] = [];
+  const others: LogoCandidate[] = [];
   for (const lang of languages) {
-    const hits = (await searchEntities(fetchImpl, name, lang)).filter(
-      (hit) => looksLikeChannel(hit.description) && !seen.has(hit.id),
-    );
+    const hits = (await searchEntities(fetchImpl, name, lang)).filter((hit) => !seen.has(hit.id));
     if (hits.length === 0) continue;
     for (const hit of hits) seen.add(hit.id);
     const files = await logoClaims(
@@ -259,17 +268,30 @@ export async function findWikidataLogo(
     );
     for (const hit of hits) {
       const file = files.get(hit.id);
-      if (file !== undefined) {
-        return {
-          url: commonsFileUrl(file),
-          fallbackUrl: isVectorFile(file) ? null : commonsFileUrl(file, null),
-          label: hit.label,
-          source: 'wikidata',
-        };
-      }
+      if (file === undefined) continue;
+      const candidate: LogoCandidate = {
+        url: commonsFileUrl(file),
+        fallbackUrl: isVectorFile(file) ? null : commonsFileUrl(file, null),
+        label: hit.label,
+        source: 'wikidata',
+      };
+      (looksLikeChannel(hit.description) ? described : others).push(candidate);
     }
+    // Nok til det der skal bruges? Saa spring det naeste sprog over. Den
+    // automatiske soegning (max 1) stopper derfor efter kanalens eget sprog
+    // og laver ikke et ekstra engelsk opslag per kanal.
+    if (described.length + others.length >= max) break;
   }
-  return null;
+  return [...described, ...others].slice(0, max);
+}
+
+/** Det bedste Wikidata-bud, til den automatiske soegning. */
+export async function findWikidataLogo(
+  fetchImpl: LogoSearchFetch,
+  name: string,
+  language: string,
+): Promise<LogoCandidate | null> {
+  return (await findWikidataLogos(fetchImpl, name, language, 1))[0] ?? null;
 }
 
 /** Billedtyper telefonen kan tegne. SVG og GIF er ude. */
@@ -312,8 +334,7 @@ export async function findLogoCandidates(
   const name = searchNameFor(options.name);
   if (name.length === 0) return [];
   const candidates: LogoCandidate[] = [];
-  const fromWikidata = await findWikidataLogo(fetchImpl, name, wikidataLanguageFor(options.country));
-  if (fromWikidata !== null) candidates.push(fromWikidata);
+  candidates.push(...(await findWikidataLogos(fetchImpl, name, wikidataLanguageFor(options.country), 5)));
   if (options.google !== undefined && options.google !== null) {
     candidates.push(...(await findGoogleLogos(fetchImpl, options.google, name)));
   }
