@@ -117,11 +117,19 @@ export function ChannelList({
     const frame = requestAnimationFrame(() => setEnterFocus(false));
     return () => cancelAnimationFrame(frame);
   }, [enterFocus]);
-  // Regnet ud én gang, naar listen kommer frem. Blev det regnet ud ved
-  // hver tegning, bad den foerste raekke om fokus igen efter ethvert
-  // OK-tryk — ogsaa det lange tryk der goer en kanal til favorit, og saa
-  // sprang listen til toppen.
-  const focusFirstAtMount = useRef(isTV && focusFirst && cameBySelect()).current;
+  // Kom man ind med OK, beder den foerste raekke om fokus i ÉN tegning og
+  // slipper saa (som menu-signalet nedenfor). Blev den ved med at bede (fast
+  // true), greb den fokus igen ved hver ny tegning af listen — ogsaa den der
+  // sker naar et langt tryk paa OK goer en kanal til favorit — og saa sprang
+  // listen til toppen hver gang. Nu bliver fokus, hvor man er.
+  const [firstDraw, setFirstDraw] = useState(() => isTV && focusFirst && cameBySelect());
+  useEffect(() => {
+    if (!firstDraw) return;
+    const frame = requestAnimationFrame(() => setFirstDraw(false));
+    return () => cancelAnimationFrame(frame);
+    // Kun ved montering: pulsen maa ikke gentages naar listen tegnes om.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /**
    * Uret: kanalen kan startes forfra. Kraever baade at udbyderen siger den
@@ -305,7 +313,7 @@ export function ChannelList({
         renderItem={({ item, index }) => (
           <TvPressable
             style={styles.row}
-            hasTVPreferredFocus={index === 0 && (focusFirstAtMount || enterFocus)}
+            hasTVPreferredFocus={index === 0 && (firstDraw || enterFocus)}
             onPress={() => {
               void open(item);
             }}
