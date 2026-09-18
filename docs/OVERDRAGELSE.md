@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 250** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 251** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,22 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Guiden springer ikke til toppen vandret + Favoritter under Guide (v251).**
+To ting oven på v250. (1) Brugeren: "når jeg scroller hen på den udsendelse der
+er live, springer den også til toppen." Samme rod som det lodrette: gitterets
+`autoFocus` sender fokus til øverste række, hver gang den fokuserede celle
+**afmonteres**. Cellerne var kodet på indhold (`gap-<tid>` / `p-<start>`), så
+når et hul blev til en udsendelse (data lander) eller vinduet flyttede sig, fik
+cellen en ny nøgle → React afmonterede den fokuserede celle → fokus tabt → top.
+Fix i `GuideRow` (`GuideScreen.tsx`): React-nøglen er nu **pladsen** i rækken
+(`cell-${index}`), ikke indholdet. Så opdateres samme celle på stedet, og fokus
+bliver siddende gennem både data-landing og vindues-skift. layout.ts's egne
+`cell.key` (brugt af genopretnings-logikken til at finde samme udsendelse) er
+uændrede. (2) **Favoritter flyttet op under Guide** i menuen
+(`home/HomeScreen.tsx` `TABS`): de to hører sammen (guiden viser netop
+favoritterne), så man kan springe mellem dem uden at gå forbi Film/Radio/
+Kanaler.
 
 **Guiden springer til toppen — den RIGTIGE årsag (v250).** v248 (baggrunds-
 hentning af EPG) ramte ikke: brugeren meldte "når jeg kører ca. 18 kanaler ned

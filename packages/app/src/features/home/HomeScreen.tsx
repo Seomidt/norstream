@@ -84,14 +84,15 @@ export type Tab = 'home' | 'favorites' | 'browse' | 'guide' | 'vod' | 'radio' | 
 const RAIL_KEYS = new Set(['left', 'longLeft', 'up', 'longUp', 'down', 'longDown']);
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
-  // Det man bruger hver dag oeverst; Kanaler og Favoritter er mest
-  // opsaetning (hvad guiden viser) og staar derfor nede ved Indstillinger.
+  // Det man bruger hver dag oeverst. Favoritter staar lige under Guide —
+  // de to hoerer sammen (guiden viser netop favoritterne), saa man kan
+  // springe mellem dem. Kanaler er mest opsaetning og staar laengere nede.
   { id: 'home', label: 'Hjem', icon: '⌂' },
   { id: 'guide', label: 'Guide', icon: '▦' },
+  { id: 'favorites', label: 'Favoritter', icon: '★' },
   { id: 'vod', label: 'Film', icon: '▶' },
   { id: 'radio', label: 'Radio', icon: '♪' },
   { id: 'browse', label: 'Kanaler', icon: '☰' },
-  { id: 'favorites', label: 'Favoritter', icon: '★' },
   { id: 'settings', label: 'Indstil.', icon: '⚙' },
 ];
 

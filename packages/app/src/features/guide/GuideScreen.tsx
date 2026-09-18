@@ -1118,7 +1118,15 @@ const GuideRow = memo(function GuideRow({
           const action = guideAction(cell, channel, hasDialect);
           return (
             <TvPressable
-              key={cell.key}
+              // Noeglen er PLADSEN i raekken, ikke indholdet. Ellers: naar et
+              // hul bliver til en udsendelse (data lander), eller vinduet
+              // flytter sig, faar cellen en ny indholdsnoegle (gap-… -> p-…),
+              // React afmonterer den fokuserede celle, fokus mistes, og
+              // gitterets autoFocus kaster det til oeverste raekke ("springer
+              // til toppen naar man scroller hen til det der sendes nu").
+              // Med pladsen som noegle opdateres samme celle paa stedet, og
+              // fokus bliver siddende.
+              key={`cell-${index}`}
               hasTVPreferredFocus={index === targetIndex || cell.key === recoverKey}
               style={[
                 styles.cell,
