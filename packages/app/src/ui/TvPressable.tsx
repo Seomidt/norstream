@@ -11,6 +11,12 @@ import { forgetPressable, notePressed, registerPressable } from './refocus.js';
 interface Props extends Omit<PressableProps, 'children'> {
   style?: StyleProp<ViewStyle>;
   children?: ReactNode;
+  /**
+   * Fokus uden opskalering. Til tidslinjens celler, der ligger taet: en
+   * skaleret celle vokser ud over naboen og laver rod. Rammen viser stadig
+   * fokus, den fylder bare ikke mere plads.
+   */
+  flat?: boolean;
 }
 
 /**
@@ -20,7 +26,7 @@ interface Props extends Omit<PressableProps, 'children'> {
  * hvad et tryk rammer. Paa telefonen er den en almindelig Pressable, uden
  * ekstra stil, saa det samme kort kan bruges begge steder.
  */
-export const TvPressable = forwardRef<ViewType, Props>(function TvPressable({ style, onFocus, onBlur, onPress, onLongPress, hasTVPreferredFocus, disabled, children, ...rest }, ref) {
+export const TvPressable = forwardRef<ViewType, Props>(function TvPressable({ style, onFocus, onBlur, onPress, onLongPress, hasTVPreferredFocus, disabled, flat, children, ...rest }, ref) {
   const [focused, setFocused] = useState(false);
   const styles = useStyles(makeStyles);
   /**
@@ -81,7 +87,7 @@ export const TvPressable = forwardRef<ViewType, Props>(function TvPressable({ st
               onLongPress?.(event);
             }
       }
-      style={[style, blocked && styles.blocked, isTV && focused && styles.focused]}
+      style={[style, blocked && styles.blocked, isTV && focused && (flat === true ? styles.focusedFlat : styles.focused)]}
       onFocus={(event) => {
         setFocused(true);
         onFocus?.(event);
@@ -118,6 +124,15 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     borderRadius: theme.radius,
     // Googles fokusskalering: 1,025 til 1,1; knapper 1,1. 1,05 passer til raekker og kort.
     transform: [{ scale: 1.05 }],
+  },
+  // Fokus uden opskalering: til celler der ligger taet (tidslinjen), hvor en
+  // skaleret celle ville vokse ud over naboen.
+  focusedFlat: {
+    outlineColor: colors.focusRing,
+    outlineWidth: 3,
+    outlineOffset: -1,
+    outlineStyle: 'solid',
+    borderRadius: theme.radius,
   },
   ring: {
     position: 'absolute',

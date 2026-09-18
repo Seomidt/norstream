@@ -244,12 +244,21 @@ const TimelineRow = memo(function TimelineRow({
 
   const cells = useMemo(() => {
     const out: { key: string; left: number; width: number; programme: Programme; state: CellState }[] = [];
-    for (const p of programmes) {
+    const spanEndMs = spanStartMs + spanMinutes * 60_000;
+    // Klip overlap vaek: to udsendelser der overlapper (eller en dublet) maa
+    // ikke stable sig oven paa hinanden ("samme udsendelse 2 gange og roder").
+    // Sorter efter start og lad hver celle begynde hvor den forrige slap.
+    const sorted = [...programmes].sort((a, b) => a.start.getTime() - b.start.getTime());
+    let cursorMs = spanStartMs;
+    for (const p of sorted) {
       const start = p.start.getTime();
       const stop = p.stop.getTime();
-      if (stop <= spanStartMs || start >= spanStartMs + spanMinutes * 60_000) continue;
-      const leftMin = Math.max(0, (start - spanStartMs) / 60_000);
-      const rightMin = Math.min(spanMinutes, (stop - spanStartMs) / 60_000);
+      if (stop <= spanStartMs || start >= spanEndMs) continue;
+      const fromMs = Math.max(start, cursorMs);
+      const toMs = Math.min(stop, spanEndMs);
+      if (toMs <= fromMs) continue; // helt daekket af en foregaaende
+      const leftMin = (fromMs - spanStartMs) / 60_000;
+      const rightMin = (toMs - spanStartMs) / 60_000;
       out.push({
         key: `p-${start}`,
         left: leftMin * PX_PER_MIN,
@@ -257,6 +266,7 @@ const TimelineRow = memo(function TimelineRow({
         programme: p,
         state: stateOf(p, now),
       });
+      cursorMs = toMs;
     }
     return out;
   }, [programmes, spanStartMs, spanMinutes, now]);
@@ -297,6 +307,7 @@ const TimelineRow = memo(function TimelineRow({
             {cells.map((cell) => (
               <TvPressable
                 key={cell.key}
+                flat
                 hasTVPreferredFocus={isFirst && focusLive && cell.key === liveKey}
                 style={[
                   styles.cell,
