@@ -140,6 +140,10 @@ CREATE TABLE IF NOT EXISTS favorite_exclusions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_channels_category ON channels (category_id);
+-- Baade kategori-listen (WHERE category_id ORDER BY sort_order) og
+-- countriesFromChannels' vindue (PARTITION BY category_id ORDER BY sort_order)
+-- rammer denne, saa de 22.000 kanaler ikke sorteres i en temp-tabel hver gang.
+CREATE INDEX IF NOT EXISTS idx_channels_cat_order ON channels (category_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_channels_epg      ON channels (epg_channel_id);
 
 CREATE TABLE IF NOT EXISTS programmes (
@@ -318,6 +322,10 @@ CREATE TABLE IF NOT EXISTS vod_items (
 );
 CREATE INDEX IF NOT EXISTS idx_vod_items_category ON vod_items (category_id);
 CREATE INDEX IF NOT EXISTS idx_vod_items_kind     ON vod_items (kind, sort_order);
+-- "Nyeste film/serier" paa forsiden: WHERE kind ORDER BY added_ms DESC LIMIT.
+-- Uden denne sorteres hele kind-partitionen (tusinder) hver gang; med den er
+-- det et omvendt indeks-scan der stopper ved LIMIT.
+CREATE INDEX IF NOT EXISTS idx_vod_items_newest   ON vod_items (kind, added_ms);
 
 CREATE TABLE IF NOT EXISTS vod_details (
   item_key     TEXT PRIMARY KEY,

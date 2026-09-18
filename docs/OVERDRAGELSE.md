@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 244** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 245** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,20 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**To manglende SQLite-indeks (v245).** Efter en ren hastigheds-audit af hele
+appen: to hotte forespørgsler sorterede hele tabellen i en temp-tabel, fordi
+der manglede et indeks. Tilføjet i `storage/schema.ts` (begge `IF NOT EXISTS`,
+så de laves automatisk ved næste opstart — ingen version-bump, ingen migrering):
+- `idx_vod_items_newest (kind, added_ms)` — "Nyeste film/serier" på forsiden
+  (`vod.ts` `ORDER BY added_ms DESC LIMIT`) sorterede før tusinder hver gang.
+- `idx_channels_cat_order (category_id, sort_order)` — både kategori-listen
+  (`channels.ts`) og `countriesFromChannels`-vinduet over alle 22k kanaler.
+Auditten bekræftede resten er sund (EPG/logo-cache, radio-indeks, programmes-
+indeks). **Bevidst udeladt** (medium værdi, større risiko på forsiden): fuld
+memoisering af FrontScreen-hylderne, `getItemLayout` på Kanaler (kræver
+verificeret fast rækkehøjde), dedup af kategori-opslag ved land-skift (indekset
+ovenfor dækker det meste), og batch af "nu"-titler på forsiden.
 
 **Kanaler føles hurtig igen (v244).** Bruger meldte at Kanaler var tung på tv
 og "læste alt to gange". To ting i `features/channels/ChannelList.tsx`:
