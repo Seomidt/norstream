@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 263** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 264** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,8 +51,32 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
+**Guide iteration 6: Tablo-udseende oven på den lodrette liste — 30-min
+kolonner (v264).** it.5's lodrette liste virkede endelig (bruger: "det virker
+det hele nu faktisk" — op/ned + OK åbner programmet), men: den grå live-bjælke
+fyldte for meget, det var svært at se hvor i tiden man var når man kørte tilbage,
+og det kørte "lidt i slowmotion". Bruger ville også have Tablos look "delt op i
+kolonner af 30 minutter". Så `TimelineGrid.tsx` beholder **den lodrette liste og
+hele-række-fokus** (den navigation der virker) og lægger Tablo-UDSEENDET ovenpå:
+- **Tv-guide-gitter:** kanaler som rækker, tiden i **3 kolonner à 30 min**.
+  Udsendelserne fylder deres rigtige tid i vinduet (`layoutRow`), med et
+  **tidshoved** (18:00 · 18:30 · 19:00) så man altid kan se hvor i tiden man er —
+  det løser "svært at finde ud af når jeg kører tilbage".
+- **Navigationen urørt:** hele rækken er ét trykpunkt, op/ned er almindelig
+  listenavigation, OK åbner den relevante udsendelse (live hvis nu er i vinduet,
+  ellers den første i vinduet — markeret med accent-kant).
+- **Pil venstre/højre = ±30 min** (én kolonne) som tastetryk (`useTVEventHandler`,
+  ikke fokusflytning), hele gitteret glider med. Forskydningen deles med
+  telefonen (`offsetMinutes` fra GuideScreen), så hardware-Tilbage stiller
+  vinduet på nu.
+- **Ingen slowmotion:** programdata hentes ÉN gang (`listProgrammes` for spanet),
+  og vinduet forskydes kun lokalt (ren `layoutRow`-regning) — ingen ny hentning
+  per tryk. Cachen tegnes straks; `ensureEpg`/`ensureFullEpg` fylder på bagefter.
+- **Den grå bjælke væk:** live er nu en slank rød venstrekant på cellen + en rød
+  NU-linje i vinduet, ikke en stor grå flade.
+
 **Guide iteration 5: HELT som favoritterne — lodret liste, tekst + tid, rød
-linje (v263).** it.4 (boksene) fejlede paa boksen: ingen blok viste "● NU"
+linje (v263, look udvidet i it.6).** it.4 (boksene) fejlede paa boksen: ingen blok viste "● NU"
 (live-data var ikke hentet), EPG'en kom "først efter et halvt minut", boksene
 "så tossede ud", og ned-tasten "fisede op til grupperne". Bruger: "hvad med at
 lave det helt uden bokse så det bare er tekst og tid som står og stadig den røde

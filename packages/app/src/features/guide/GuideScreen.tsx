@@ -643,6 +643,11 @@ export function GuideScreen({
     pinnedPreview.current = channel;
     setPreviewChannel(channel);
   }, []);
+  // Tv-guiden (TimelineGrid) skruer paa den samme tidsforskydning som telefonen,
+  // saa hardware-Tilbage (backRef ovenfor) stadig stiller vinduet paa nu.
+  const stepGuideTime = useCallback((deltaMin: number): void => {
+    setOffsetMinutes((value) => Math.min(DRAG_MAX_MINUTES, Math.max(DRAG_MIN_MINUTES, value + deltaMin)));
+  }, []);
   const onMeasureCells = useCallback((width: number): void => {
     gridWidth.current = width;
     setCellsWidth((current) => (current === width ? current : width));
@@ -854,6 +859,8 @@ export function GuideScreen({
           now={now}
           hasDialectFor={hasDialectFor}
           onFocusChannel={onPreviewRow}
+          offsetMinutes={offsetMinutes}
+          onStepTime={stepGuideTime}
           onOpen={(channel, programme, state) =>
             setSheet({
               channel,

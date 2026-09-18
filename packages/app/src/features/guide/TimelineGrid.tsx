@@ -1,46 +1,51 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, StyleSheet, Text, TVFocusGuideView, View, useTVEventHandler } from 'react-native';
-import { XtreamAuthError } from '@norstream/core';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
-import { getNowNext } from '../../storage/programmes.js';
-import { ensureEpg } from '../../sync/epgCache.js';
+import { listProgrammes } from '../../storage/programmes.js';
+import { ensureEpg, ensureFullEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { keepInMiddle } from '../../ui/tvScroll.js';
-import { DRAG_MAX_MINUTES, DRAG_MIN_MINUTES, stateOf } from './layout.js';
-import type { CellState } from './layout.js';
+import { guideAction, layoutRow } from './layout.js';
+import type { CellState, GuideCell } from './layout.js';
 
 /**
- * Guiden paa tv: en lodret liste — ligesom favoritterne, som brugeren siger
- * "virker super godt ogsaa med at koere op og ned".
+ * Guiden paa tv: en tv-guide som Tablos/Googles — kanaler som raekker, tiden i
+ * kolonner af en halv time.
  *
- * En raekke per kanal. Ingen kasser og intet vandret gitter: bare kanalen og
- * hvad den sender paa det valgte tidspunkt — klokkeslaet og titel som ren
- * tekst. Op/ned er derfor helt almindelig listenavigation (den kan
- * fjernbetjeningen finde ud af), og den kanal der sender NU har en roed kant i
- * venstre side — "den roede linje".
+ * Navigationen er den fra favoritlisten, som endelig virker: en LODRET liste,
+ * hvor HELE raekken er ét trykpunkt. Op/ned er derfor almindelig
+ * listenavigation (kan fjernbetjeningen finde ud af), og OK aabner programmet.
+ * Oven paa den paalidelige navigation ligger Tablo-UDSEENDET: hver raekke viser
+ * ~3 halvtimes-kolonner, hvor udsendelserne fylder deres rigtige tid.
  *
- * Tid vaelges med pil venstre/hoejre. Det flytter IKKE fokus (raekkerne er ét
- * trykpunkt hver, og der er intet fokuserbart til siderne — TVFocusGuideView
- * fanger fokus): et venstre/hoejre-tryk skruer bare paa tidsmarkoeren, og hele
- * listen viser hvad kanalerne sender paa det nye tidspunkt. Derfor ryger man
- * heller ikke laengere "ud i menuen" naar man gaar tilbage i tiden.
+ * Tiden vaelges med pil venstre/hoejre — som et TASTETRYK (useTVEventHandler),
+ * ikke en fokusflytning: der er intet fokuserbart til siderne, saa listen kan
+ * ikke "fise ud i menuen". Hvert tryk skubber vinduet en halv time, og HELE
+ * gitteret glider med. Fordi programdata hentes ÉN gang og vinduet blot
+ * forskydes lokalt (ren layout-regning), foeles det ikke laengere som
+ * slowmotion, og der er ingen ny hentning per tryk.
  *
- * Hurtigt fordi den — som favoritterne — kun laeser NU/naeste fra den lokale
- * cache foerst (ét indekseret opslag per kanal) og henter fra panelet bagefter.
- * Det gamle gitter hentede HELE programtabellen for ALLE kanaler foer det kunne
- * tegne, og det var derfor EPG'en "foerst kom efter et halvt minut".
+ * Forskydningen deles med telefonen (`offsetMinutes` fra GuideScreen), saa
+ * hardware-Tilbage stiller vinduet tilbage paa nu.
  */
 
-const ROW_HEIGHT = 64;
-const CHANNEL_COL = 150;
-/** Skridt i minutter pr. tryk paa pil venstre/hoejre. */
-const STEP_MIN = 30;
+/** Vinduets bredde og kolonner. 3 kolonner a 30 min = 90 min synligt. */
+const COL_MIN = 30;
+const COLS = 3;
+const WINDOW_MIN = COL_MIN * COLS;
+const ROW_HEIGHT = 62;
+const CHANNEL_COL = 128;
+const HEADER_HEIGHT = 26;
+/** Hvor langt tilbage/frem der hentes programdata til striben. */
+const SPAN_BACK_MIN = 6 * 60;
+const SPAN_FWD_MIN = 24 * 60;
+const HALF_HOUR_MS = COL_MIN * 60_000;
 
 interface Props {
   session: AppSession;
@@ -51,13 +56,12 @@ interface Props {
   onFocusChannel: (channel: StoredChannel) => void;
   /** Aabner programbladet (eller kanalen paa et hul). */
   onOpen: (channel: StoredChannel, programme: Programme | null, state: CellState) => void;
+  /** Delt tidsforskydning i minutter (0 = nu). Deles med telefon-guiden. */
+  offsetMinutes: number;
+  /** Skru paa tiden (pil venstre/hoejre). Klemmes i GuideScreen. */
+  onStepTime: (deltaMin: number) => void;
   /** Pil hoejre fra menuen: den foerste raekke faar fokus. */
   focusFirstSignal: number;
-}
-
-interface Entry {
-  programme: Programme | null;
-  state: CellState;
 }
 
 export function TimelineGrid({
@@ -67,79 +71,69 @@ export function TimelineGrid({
   hasDialectFor,
   onFocusChannel,
   onOpen,
+  offsetMinutes,
+  onStepTime,
   focusFirstSignal,
 }: Props) {
   const styles = useStyles(makeStyles);
 
-  // Tidsmarkoeren: hvor mange minutter fra nu listen viser. 0 = nu.
-  const [offsetMin, setOffsetMin] = useState(0);
+  // Vinduet: forankret til den halve time, saa kolonnerne staar paa 18:00/18:30
+  // og ikke paa et skaevt minuttal. Forskydningen laegges oven paa.
   const nowMs = now.getTime();
-  const cursorMs = nowMs + offsetMin * 60_000;
+  const anchorMs = Math.floor(nowMs / HALF_HOUR_MS) * HALF_HOUR_MS;
+  const windowStartMs = anchorMs + offsetMinutes * 60_000;
+  const windowEndMs = windowStartMs + WINDOW_MIN * 60_000;
 
-  // Pil venstre/hoejre skruer paa tiden. Det er et tastetryk, ikke en
-  // fokusflytning — saa listen kan ikke "fise ud i menuen".
+  // Pil venstre/hoejre skruer paa tiden — ét tastetryk, ikke en fokusflytning.
   useTVEventHandler((event) => {
     if (event.eventType !== 'right' && event.eventType !== 'left') return;
     // Android sender baade ned (0) og op (1); tael kun det ene, ellers to skridt.
     if (event.eventKeyAction !== undefined && Number(event.eventKeyAction) === 0) return;
-    setOffsetMin((value) => {
-      const next = value + (event.eventType === 'right' ? STEP_MIN : -STEP_MIN);
-      return Math.min(DRAG_MAX_MINUTES, Math.max(DRAG_MIN_MINUTES, next));
-    });
+    onStepTime(event.eventType === 'right' ? COL_MIN : -COL_MIN);
   });
 
-  // Kanal -> hvad den sender paa markoertidspunktet. Cachen foerst (hurtigt),
-  // panelet bagefter. Annulleringspolet saa kun det nyeste opslag skriver.
-  const [entries, setEntries] = useState<Record<string, Entry>>({});
-  const runId = useRef(0);
+  // Programdata for HELE spanet, hentet én gang. Vinduet forskydes derefter kun
+  // lokalt (layoutRow), saa der ikke hentes ved hvert tidsskridt.
+  const spanStartMs = anchorMs - SPAN_BACK_MIN * 60_000;
+  const spanEndMs = anchorMs + SPAN_FWD_MIN * 60_000;
+  const [progMap, setProgMap] = useState<Record<string, Programme[]>>({});
+  const draw = useCallback(async () => {
+    if (channels.length === 0) return;
+    const from = new Date(spanStartMs);
+    const to = new Date(spanEndMs);
+    const found = await Promise.all(channels.map((c) => listProgrammes(session.db, c.id, from, to)));
+    const map: Record<string, Programme[]> = {};
+    channels.forEach((c, i) => {
+      map[c.id] = found[i] ?? [];
+    });
+    setProgMap(map);
+  }, [channels, session.db, spanStartMs, spanEndMs]);
 
-  const draw = useCallback(
-    async (list: StoredChannel[], at: number): Promise<boolean> => {
-      if (list.length === 0) return false;
-      const id = runId.current + 1;
-      runId.current = id;
-      const when = new Date(at);
-      const found = await Promise.all(list.map((c) => getNowNext(session.db, c.id, when)));
-      if (runId.current !== id) return false;
-      const map: Record<string, Entry> = {};
-      list.forEach((c, i) => {
-        // getNowNext giver den igangvaerende; er der hul, den kommende.
-        const programme = found[i]?.now ?? found[i]?.next ?? null;
-        map[c.id] = { programme, state: programme ? stateOf(programme, now) : 'gap' };
-      });
-      setEntries(map);
-      return true;
-    },
-    [session.db, now],
-  );
-
-  // Tegn fra cachen med det samme, hver gang tiden eller listen skifter.
+  // Cachen foerst (hurtigt), saa nu/naeste fra panelet, saa den fulde tabel i
+  // baggrunden. Guiden staar aldrig tom mens der hentes.
   useEffect(() => {
-    void draw(channels, cursorMs);
-  }, [draw, channels, cursorMs]);
-
-  // Hent NU/naeste fra panelet for hele favoritlisten (den er kort), og tegn
-  // igen. Kun naar listen skifter — ikke ved hvert tidsskridt, saa panelet ikke
-  // spammes naar man bladrer i tid.
+    void draw();
+  }, [draw]);
   useEffect(() => {
     if (channels.length === 0) return;
     let cancelled = false;
     void (async () => {
       try {
         await ensureEpg(session.db, session.credsBySource, session.fetchImpl, channels.map((c) => c.id));
+        if (!cancelled) void draw();
+        await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, channels);
       } catch {
         // Auth-/netfejl: det cachen har, staar.
       }
-      if (!cancelled) void draw(channels, nowMs + offsetMin * 60_000);
+      if (!cancelled) void draw();
     })();
     return () => {
       cancelled = true;
     };
-    // Kun ved listeskift; tidsmarkoeren laeses frisk inde i effekten.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channels, session]);
 
-  // Rul listen saa den raekke fokus staar paa altid er synlig (som favoritterne).
+  // Rul listen saa den fokuserede raekke er synlig (som favoritterne).
   const listRef = useRef<FlatList<StoredChannel>>(null);
   const onRowFocus = useCallback(
     (channel: StoredChannel, index: number) => {
@@ -150,7 +144,6 @@ export function TimelineGrid({
   );
 
   // Fokuser foerste raekke naar guiden aabnes / menuen sender fokus ind.
-  // Ét-skuds puls, ellers river den fokus tilbage ved hver tegning.
   const [focusPulse, setFocusPulse] = useState(true);
   const seenSignal = useRef(focusFirstSignal);
   useEffect(() => {
@@ -166,35 +159,42 @@ export function TimelineGrid({
 
   const renderItem = useCallback(
     ({ item, index }: { item: StoredChannel; index: number }) => (
-      <GuideListRow
+      <ChannelRow
         channel={item}
-        entry={entries[item.id] ?? EMPTY_ENTRY}
-        index={index}
+        programmes={progMap[item.id] ?? EMPTY}
+        windowStartMs={windowStartMs}
+        windowEndMs={windowEndMs}
+        nowMs={nowMs}
         hasDialect={hasDialectFor(item)}
+        index={index}
         focusPulse={index === 0 && focusPulse}
         onFocusRow={onRowFocus}
         onOpen={onOpen}
       />
     ),
-    [entries, hasDialectFor, focusPulse, onRowFocus, onOpen],
+    [progMap, windowStartMs, windowEndMs, nowMs, hasDialectFor, focusPulse, onRowFocus, onOpen],
   );
 
   return (
     <View style={styles.root}>
-      {/* Tidslinjens overskrift: hvad klokken er paa markoeren, og at man
-          skruer paa tiden med pil venstre/hoejre. */}
+      {/* Tidshovedet: kolonnernes klokkeslaet, saa man altid kan se hvor i tiden
+          man er (ogsaa naar man koerer tilbage). Dagen staar med, naar vinduet
+          ikke er i dag. */}
       <View style={styles.header}>
-        <Text style={styles.headerTime}>
-          {offsetMin === 0 ? '● NU' : clock(new Date(cursorMs))}
-          {offsetMin !== 0 && !sameDay(new Date(cursorMs), now) ? ` · ${dayName(new Date(cursorMs))}` : ''}
-        </Text>
-        <Text style={styles.headerHint} numberOfLines={1}>
-          ‹ pil for tidligere · senere ›
-        </Text>
+        <View style={styles.headerChannel}>
+          <Text style={styles.headerDay} numberOfLines={1}>
+            {sameDay(new Date(windowStartMs), now) ? (offsetMinutes === 0 ? '● NU' : 'I dag') : dayName(new Date(windowStartMs))}
+          </Text>
+        </View>
+        {Array.from({ length: COLS }, (_, i) => (
+          <Text key={i} style={styles.headerCol} numberOfLines={1}>
+            {clock(new Date(windowStartMs + i * HALF_HOUR_MS))}
+          </Text>
+        ))}
       </View>
-      {/* Fang fokus til siderne: pil venstre/hoejre skruer paa tiden (haandteret
-          som tastetryk ovenfor) og maa ikke slippe ud i menuen. Op fra oeverste
-          raekke naar stadig gruppe-chipsene; ned er almindelig listenavigation. */}
+      {/* Fang fokus til siderne: pil venstre/hoejre skruer paa tiden (ovenfor) og
+          maa ikke slippe ud i menuen. Op fra oeverste raekke naar gruppe-chipsene;
+          ned er almindelig listenavigation. */}
       <TVFocusGuideView style={styles.list} trapFocusLeft trapFocusRight>
         <FlatList
           ref={listRef}
@@ -214,36 +214,54 @@ export function TimelineGrid({
   );
 }
 
-const EMPTY_ENTRY: Entry = { programme: null, state: 'gap' };
+const EMPTY: Programme[] = [];
 
-const GuideListRow = memo(function GuideListRow({
+const ChannelRow = memo(function ChannelRow({
   channel,
-  entry,
-  index,
+  programmes,
+  windowStartMs,
+  windowEndMs,
+  nowMs,
   hasDialect,
+  index,
   focusPulse,
   onFocusRow,
   onOpen,
 }: {
   channel: StoredChannel;
-  entry: Entry;
-  index: number;
+  programmes: readonly Programme[];
+  windowStartMs: number;
+  windowEndMs: number;
+  nowMs: number;
   hasDialect: boolean;
+  index: number;
   focusPulse: boolean;
   onFocusRow: (channel: StoredChannel, index: number) => void;
   onOpen: (channel: StoredChannel, programme: Programme | null, state: CellState) => void;
 }) {
   const styles = useStyles(makeStyles);
-  const live = entry.state === 'live';
+  const cells = useMemo(
+    () => layoutRow(programmes, new Date(windowStartMs), new Date(windowEndMs), new Date(nowMs)),
+    [programmes, windowStartMs, windowEndMs, nowMs],
+  );
+  // OK / previewet knytter sig til én udsendelse: den der sender nu hvis nu er i
+  // vinduet, ellers den foerste rigtige udsendelse i vinduet.
+  const primary = useMemo(
+    () => cells.find((c) => c.state === 'live') ?? cells.find((c) => c.programme !== null) ?? null,
+    [cells],
+  );
+  // Roed nu-linje: kun naar nu er inde i vinduet.
+  const nowRatio = nowMs >= windowStartMs && nowMs < windowEndMs ? (nowMs - windowStartMs) / (windowEndMs - windowStartMs) : null;
+
   return (
     <TvPressable
-      style={[styles.row, live && styles.rowLive]}
+      style={styles.row}
       hasTVPreferredFocus={focusPulse}
       onFocus={() => onFocusRow(channel, index)}
-      onPress={() => onOpen(channel, entry.programme, entry.state)}
+      onPress={() => onOpen(channel, primary?.programme ?? null, primary?.state ?? 'gap')}
     >
       <View style={styles.channelCell}>
-        <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={30} />
+        <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={28} />
         <View style={styles.channelText}>
           <Text style={styles.channelName} numberOfLines={2}>
             {channel.name}
@@ -251,21 +269,38 @@ const GuideListRow = memo(function GuideListRow({
           {hasDialect && channel.hasArchive && <Text style={styles.badge}>⏱</Text>}
         </View>
       </View>
-      <View style={styles.progCell}>
-        {entry.programme === null ? (
-          <Text style={styles.progMuted} numberOfLines={1}>
-            Ingen programoversigt
-          </Text>
-        ) : (
-          <>
-            <Text style={[styles.progTime, live && styles.progTimeLive]} numberOfLines={1}>
-              {live ? '● NU' : clock(entry.programme.start)}
-            </Text>
-            <Text style={[styles.progTitle, entry.state === 'past' && styles.progPast]} numberOfLines={2}>
-              {entry.programme.title}
-            </Text>
-          </>
-        )}
+      <View style={styles.strip}>
+        {cells.map((cell, i) => (
+          <View
+            key={`${cell.key}-${i}`}
+            style={[
+              styles.cell,
+              { flexGrow: cell.weight, flexShrink: cell.weight, flexBasis: 0 },
+              cell.state === 'live' && styles.cellLive,
+              cell.state === 'past' && styles.cellPast,
+              cell === primary && styles.cellPrimary,
+            ]}
+          >
+            {cell.programme !== null && cell.weight >= 8 && (
+              <>
+                <Text style={styles.cellTime} numberOfLines={1}>
+                  {cell.clippedStart ? '‹ ' : ''}
+                  {clock(cell.programme.start)}
+                  {guideAction(cell, channel, hasDialect) === 'restart' ? ' ▶' : ''}
+                </Text>
+                <Text style={styles.cellTitle} numberOfLines={2}>
+                  {cell.programme.title}
+                </Text>
+              </>
+            )}
+            {cell.programme === null && cell.weight >= 20 && (
+              <Text style={styles.cellMuted} numberOfLines={1}>
+                Ingen oversigt
+              </Text>
+            )}
+          </View>
+        ))}
+        {nowRatio !== null && <View pointerEvents="none" style={[styles.nowLine, { left: `${nowRatio * 100}%` }]} />}
       </View>
     </TvPressable>
   );
@@ -287,31 +322,33 @@ function sameDay(a: Date, b: Date): boolean {
 const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   list: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: theme.spacing.sm, paddingVertical: theme.spacing.xs },
-  headerTime: { color: colors.danger, fontSize: 14, fontWeight: '700' },
-  headerHint: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: ROW_HEIGHT,
-    paddingHorizontal: theme.spacing.sm,
-    borderBottomColor: colors.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    // Venstre kant er gennemsigtig paa alle andre end den live; saa hopper
-    // raekken ikke i bredden naar den bliver live.
-    borderLeftColor: 'transparent',
-    borderLeftWidth: 3,
-  },
-  // "Den roede linje": den kanal der sender nu har en roed venstrekant.
-  rowLive: { borderLeftColor: colors.danger, backgroundColor: colors.surfaceRaised ?? colors.surface },
-  channelCell: { width: CHANNEL_COL, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  header: { flexDirection: 'row', height: HEADER_HEIGHT, alignItems: 'center', borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
+  headerChannel: { width: CHANNEL_COL, justifyContent: 'center' },
+  headerDay: { color: colors.danger, fontSize: 12, fontWeight: '700', paddingLeft: 6 },
+  headerCol: { flex: 1, color: colors.textMuted, fontSize: 12, fontWeight: '600', paddingLeft: 4 },
+  row: { flexDirection: 'row', height: ROW_HEIGHT, alignItems: 'stretch' },
+  channelCell: { width: CHANNEL_COL, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 6, borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
   channelText: { flex: 1 },
-  channelName: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  channelName: { color: colors.text, fontSize: 13, fontWeight: '600' },
   badge: { color: colors.accent, fontSize: 12 },
-  progCell: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: theme.spacing.sm },
-  progTime: { color: colors.textMuted, fontSize: 14, fontWeight: '700', width: 54 },
-  progTimeLive: { color: colors.danger, width: 54 },
-  progTitle: { flex: 1, color: colors.text, fontSize: 15 },
-  progPast: { color: colors.textMuted },
-  progMuted: { color: colors.textMuted, fontSize: 14, fontStyle: 'italic' },
+  strip: { flex: 1, flexDirection: 'row', borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
+  cell: {
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    marginVertical: 3,
+    marginRight: 2,
+    borderRadius: theme.radius,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
+  },
+  // Live: slim roed venstrekant (ikke en stor graa flade), saa "den roede linje"
+  // er tydelig uden at fylde.
+  cellLive: { borderLeftColor: colors.danger, borderLeftWidth: 3 },
+  cellPast: { opacity: 0.5 },
+  // Den udsendelse OK aabner: accent-kant hele vejen rundt.
+  cellPrimary: { borderWidth: 1, borderColor: colors.accent },
+  cellTime: { color: colors.textMuted, fontSize: 11, fontWeight: '700', marginBottom: 1 },
+  cellTitle: { color: colors.text, fontSize: 12 },
+  cellMuted: { color: colors.textMuted, fontSize: 11, fontStyle: 'italic' },
+  nowLine: { position: 'absolute', top: 0, bottom: 0, width: 2, backgroundColor: colors.danger },
 });
