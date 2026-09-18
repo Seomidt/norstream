@@ -18,7 +18,11 @@ import type { SqlDatabase } from './types.js';
  * brugernavn. Findes kilden ikke (endnu), springes dens ting over og
  * taelles.
  */
-export const BACKUP_VERSION = 1;
+// Version 2 tilfoejede `password` paa kilderne, saa en ny boks kan logge paa
+// panelet af sig selv ud fra en sky-kopi. Kodeordet kommer kun med naar
+// kopien lgges KRYPTERET i skyen (loadCreds gives med) — aldrig i en kopi
+// der kan ende i klartekst.
+export const BACKUP_VERSION = 2;
 
 export interface Backup {
   app: 'norstream';
@@ -31,6 +35,8 @@ export interface Backup {
     url: string;
     username: string | null;
     xmltvUrl: string | null;
+    /** Panel-kodeordet, kun med i en krypteret sky-kopi. */
+    password?: string;
   }>;
   favorites: Array<{ channelId: string; sourceCategoryId: string | null; position: number | null }>;
   /** Grupperne oven paa favoritterne, med deres kanaler. Mangler i aeldre kopier. */
@@ -61,7 +67,18 @@ const SETTING_KEYS = [
 /** Indstillinger per kilde: noeglen ender paa kildens id. */
 const SCOPED_SETTING_PREFIXES = ['timeshift_dialect:', 'panel_offset_minutes:'];
 
-export async function createBackup(db: SqlDatabase, now = Date.now()): Promise<Backup> {
+/**
+ * Henter panel-kodeordet for en kilde, saa en krypteret sky-kopi kan tage det
+ * med. Gives kun med af sky-vejen; de rene tests kalder uden, saa
+ * `storage/backup.ts` ikke traekker Keychain (react-native) med sig.
+ */
+export type CredentialLoader = (sourceId: string) => Promise<{ password: string } | null>;
+
+export async function createBackup(
+  db: SqlDatabase,
+  now = Date.now(),
+  loadCreds?: CredentialLoader,
+): Promise<Backup> {
   const sources = await db.getAllAsync<{
     id: string;
     kind: string;
@@ -108,18 +125,26 @@ export async function createBackup(db: SqlDatabase, now = Date.now()): Promise<B
   const members = await db.getAllAsync<{ group_id: string; channel_id: string }>(
     'SELECT group_id, channel_id FROM favorite_group_members',
   );
+  const backupSources = await Promise.all(
+    sources.map(async (row) => {
+      const base = {
+        id: row.id,
+        kind: row.kind,
+        name: row.name,
+        url: row.url,
+        username: row.username,
+        xmltvUrl: row.xmltv_url,
+      };
+      if (loadCreds === undefined) return base;
+      const creds = await loadCreds(row.id);
+      return creds !== null && creds.password.length > 0 ? { ...base, password: creds.password } : base;
+    }),
+  );
   return {
     app: 'norstream',
     version: BACKUP_VERSION,
     exportedMs: now,
-    sources: sources.map((row) => ({
-      id: row.id,
-      kind: row.kind,
-      name: row.name,
-      url: row.url,
-      username: row.username,
-      xmltvUrl: row.xmltv_url,
-    })),
+    sources: backupSources,
     favorites: favorites.map((row) => ({
       channelId: row.channel_id,
       sourceCategoryId: row.source_category_id,

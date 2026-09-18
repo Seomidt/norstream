@@ -36,6 +36,7 @@ import { LogoPickerScreen } from '../settings/LogoPickerScreen.js';
 import { Notice } from '../../ui/Notice.js';
 import { applyStreamFormatSetting, applyVideoSurfaceSetting } from '../player/format.js';
 import { runWeeklyCloudBackup } from '../../storage/cloudBackup.js';
+import { loadSourceCredentials } from '../../storage/credentials.js';
 import { saveToCloud } from '../settings/cloudSync.js';
 import { VodScreen } from '../vod/VodScreen.js';
 import type { VodLevel } from '../vod/VodScreen.js';
@@ -245,7 +246,13 @@ export function HomeScreen({
       // foerste billede.
       setTimeout(() => {
         // Ugentlig sikkerhedskopi til skyen, naar der er valgt et kodeord.
-        void runWeeklyCloudBackup(session.db, (code, json) => saveToCloud(code, json));
+        void runWeeklyCloudBackup(
+          session.db,
+          (code, json) => saveToCloud(code, json),
+          Date.now(),
+          false,
+          (id) => loadSourceCredentials(id),
+        );
       }, 15_000);
     })();
     return () => {

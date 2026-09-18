@@ -4,6 +4,7 @@ import type { AppSession } from '../../session.js';
 import { clearSky, getSkyConfig, getSkyLastMs, setSkyCode, setSkyEnabled } from '../../storage/settings.js';
 import type { SkyBackupConfig } from '../../storage/settings.js';
 import { runWeeklyCloudBackup } from '../../storage/cloudBackup.js';
+import { loadSourceCredentials } from '../../storage/credentials.js';
 import { loadFromCloud, saveToCloud, MIN_CODE_LENGTH } from './cloudSync.js';
 import { theme } from '../../ui/theme.js';
 import type { ThemeColors } from '../../ui/theme.js';
@@ -70,7 +71,13 @@ export function CloudBackup({ session, onRestore }: Props) {
     setBusy(true);
     setMessage('Gemmer i skyen …');
     await setSkyCode(db, trimmed);
-    const result = await runWeeklyCloudBackup(db, (c, json) => saveToCloud(c, json), Date.now(), true);
+    const result = await runWeeklyCloudBackup(
+      db,
+      (c, json) => saveToCloud(c, json),
+      Date.now(),
+      true,
+      (id) => loadSourceCredentials(id),
+    );
     await reload();
     setBusy(false);
     setMessage(

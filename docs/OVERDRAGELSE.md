@@ -25,9 +25,19 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 238** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 239** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
+
+**Ny boks = kun ét kodeord (v239).** På login-skærmen er der nu en tredje fane
+**"Sky-kopi"**: skriv kodeordet → appen henter kopien, logger selv på panelet
+og henter grupper, favoritter og alt. Muligt fordi sky-kopien nu (krypteret)
+også rummer **panel-kodeordet** (backup-skema v2, `password` på kilderne, kun
+med når `loadCreds` gives med til `createBackup` — altså kun i den krypterede
+sky-kopi, aldrig i en kopi der kan ende i klartekst). Onboarding genbruger
+`connectXtream`/`connectM3u` (login + kanalhentning) og kører derefter
+`restoreBackup`. Se `features/onboarding/OnboardingScreen.tsx` →
+`restoreFromSky`.
 
 **Appen opdaterer sig selv, uden Play Store.**
 - `build-android.yml` (`motor: runner`) bygger APK'erne (uændret).
@@ -83,12 +93,16 @@ det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
     havne inde i selve kopien).
   - `storage/cloudBackup.ts` kører den ugentlige kopi ved opstart (kaldt fra
     `HomeScreen`); UI har "Gem nu" og "Hent fra skyen".
-- **Sikkerhed:** panelets adresse ligger aldrig i klartekst i databasen (den
-  krypteres med kodeordet). Det er strengt bedre end den gamle Google Drev-vej,
-  der gemte kopien i **klartekst** på Drevet. Forkert kodeord → "ingen kopi"
-  (både forkert hash-opslag og forkert dekryptering). Backuppen rummer grupper,
-  favoritter, egne logoer, skjulte lande, indstillinger — panel-adgangskoden
-  ligger i Keychain og er ikke med.
+- **Sikkerhed:** panelets adresse **og kodeord** ligger aldrig i klartekst i
+  databasen (alt krypteres med brugerens kodeord, AES-GCM, nøglen gemmes
+  aldrig). Det er derfor forsvarligt at tage panel-kodeordet med i den
+  **krypterede** sky-kopi (så en ny boks kan logge på selv) — modsat den gamle
+  Google Drev-vej, der gemte kopien i **klartekst** på Drevet og derfor ikke
+  måtte have kodeord med. Forkert kodeord → "ingen kopi" (både forkert
+  hash-opslag og forkert dekryptering). Backuppen rummer grupper, favoritter,
+  egne logoer, skjulte lande, indstillinger og panelet (adresse + brugernavn +
+  kodeord). CLAUDE.md-reglen "ingen credentials i commits, logs eller chat"
+  gælder stadig — kodeordet ligger kun i brugerens egen krypterede sky-kopi.
 - **Vigtigt for brugeren:** kodeordet er det eneste, der kan låse kopien op.
   Glemmer han det, kan kopien ikke hentes (det er meningen). Skriv **præcis**
   det samme kodeord på den nye boks.

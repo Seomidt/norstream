@@ -11,7 +11,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createFetchImpl } from '../../net/fetchImpl.js';
 import { openDatabase } from '../../storage/db.js';
+import { parseBackup, restoreBackup } from '../../storage/backup.js';
+import { setSkyCode } from '../../storage/settings.js';
 import { connectM3u, connectXtream } from '../../sources/connect.js';
+import { loadFromCloud, MIN_CODE_LENGTH } from '../settings/cloudSync.js';
 import { Aurora } from '../../ui/Aurora.js';
 import { Logo } from '../../ui/Logo.js';
 import { theme } from '../../ui/theme.js';
@@ -30,7 +33,7 @@ interface Props {
   notice?: string;
 }
 
-type Kind = 'xtream' | 'm3u';
+type Kind = 'xtream' | 'm3u' | 'sky';
 
 /**
  * Foerste skaerm: forbind til en udbyder.
@@ -49,10 +52,82 @@ export function OnboardingScreen({ onDone, notice }: Props) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [xmltvUrl, setXmltvUrl] = useState('');
+  const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isPanel = kind === 'xtream';
+  const isSky = kind === 'sky';
+
+  /**
+   * Ny boks: hent alt fra sky-kopien med kodeordet.
+   *
+   * Kopien indeholder panelet (adresse, brugernavn og kodeord), saa vi kan
+   * logge paa af os selv — genbruger connectXtream/connectM3u, som ogsaa
+   * henter kanalerne. Bagefter lgger restoreBackup grupper, favoritter og alt
+   * det andet oven paa. Saa er der intet at taste ud over kodeordet.
+   */
+  async function restoreFromSky(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const db = await openDatabase();
+      const fetchImpl = createFetchImpl();
+      let json: string;
+      try {
+        json = await loadFromCloud(code.trim());
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : '';
+        setError(
+          message === 'notfound'
+            ? 'Der ligger ingen kopi under det kodeord. Tjek at det er skrevet præcis som på den anden boks.'
+            : 'Kunne ikke hente fra skyen. Er der forbindelse? Prøv igen.',
+        );
+        return;
+      }
+      let backup;
+      try {
+        backup = parseBackup(json);
+      } catch {
+        setError('Kopien kunne ikke læses.');
+        return;
+      }
+      // Genskab kilderne foerst, saa favoritter kan haenge paa dem.
+      let connected = false;
+      for (const source of backup.sources) {
+        if (source.kind === 'm3u') {
+          const result = await connectM3u(db, fetchImpl, {
+            url: source.url,
+            xmltvUrl: source.xmltvUrl ?? undefined,
+            name: source.name,
+          });
+          if (result.ok) connected = true;
+        } else if (typeof source.password === 'string' && source.password.length > 0) {
+          const result = await connectXtream(db, fetchImpl, {
+            url: source.url,
+            username: source.username ?? '',
+            password: source.password,
+            xmltvUrl: source.xmltvUrl ?? undefined,
+            name: source.name,
+          });
+          if (result.ok) connected = true;
+        }
+      }
+      await restoreBackup(db, backup);
+      await setSkyCode(db, code.trim());
+      if (!connected) {
+        setError(
+          'Kopien blev hentet, men panelet kunne ikke logge ind automatisk. Log ind på panelet ovenfor — dine grupper og favoritter er gemt og kommer med.',
+        );
+        return;
+      }
+      onDone();
+    } catch {
+      setError('Noget gik galt på denne enhed. Prøv igen.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function connect(): Promise<void> {
     setBusy(true);
@@ -83,13 +158,15 @@ export function OnboardingScreen({ onDone, notice }: Props) {
     }
   }
 
-  const canSubmit = isPanel
-    ? baseUrl.trim().length > 0 && username.trim().length > 0 && password.length > 0
-    : baseUrl.trim().length > 0;
+  const canSubmit = isSky
+    ? code.trim().length >= MIN_CODE_LENGTH
+    : isPanel
+      ? baseUrl.trim().length > 0 && username.trim().length > 0 && password.length > 0
+      : baseUrl.trim().length > 0;
 
-  /** OK i et felt: forbind, naar alt er udfyldt. Paa tv slipper man for at finde knappen. */
+  /** OK i et felt: forbind/hent, naar alt er udfyldt. Paa tv slipper man for at finde knappen. */
   const submitFromField = (): void => {
-    if (canSubmit && !busy) void connect();
+    if (canSubmit && !busy) void (isSky ? restoreFromSky() : connect());
   };
   const inputStyle = [styles.input, isTV && styles.inputTv];
 
@@ -115,7 +192,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
             <Logo size={isTV ? 64 : 88} />
             <Text style={[styles.title, isTV && styles.titleTv]}>NorStream</Text>
             <Text style={styles.subtitle}>
-              {isPanel ? 'Forbind til dit panel' : 'Hent din M3U-liste'}
+              {isSky ? 'Hent alt fra en sky-kopi' : isPanel ? 'Forbind til dit panel' : 'Hent din M3U-liste'}
             </Text>
             {notice !== undefined && <Text style={styles.notice}>{notice}</Text>}
           </View>
@@ -134,74 +211,105 @@ export function OnboardingScreen({ onDone, notice }: Props) {
               <KindTab
                 label="M3U-liste"
                 hint="En adresse"
-                active={!isPanel}
+                active={kind === 'm3u'}
                 onPress={() => setKind('m3u')}
+              />
+              <KindTab
+                label="Sky-kopi"
+                hint="Kodeord"
+                active={isSky}
+                onPress={() => setKind('sky')}
               />
             </View>
 
-            <TvTextInput
-              style={inputStyle}
-              onSubmitEditing={submitFromField}
-              returnKeyType="go"
-              blurOnSubmit={false}
-              placeholder={isPanel ? 'http://panel.example:8080' : 'http://.../liste.m3u'}
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-              inputMode="url"
-              value={baseUrl}
-              onChangeText={setBaseUrl}
-            />
-
-            {isPanel && (
+            {isSky ? (
               <>
                 <TvTextInput
                   style={inputStyle}
-              onSubmitEditing={submitFromField}
-              returnKeyType="go"
-              blurOnSubmit={false}
-                  placeholder="Brugernavn"
+                  onSubmitEditing={submitFromField}
+                  returnKeyType="go"
+                  blurOnSubmit={false}
+                  placeholder="Dit kodeord"
                   placeholderTextColor={colors.textMuted}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  value={username}
-                  onChangeText={setUsername}
+                  value={code}
+                  onChangeText={setCode}
                 />
+                {!isTV && (
+                  <Text style={styles.hint}>
+                    Har du gemt i skyen på en anden boks? Skriv det samme kodeord her, så henter appen panelet,
+                    grupperne, favoritterne og det hele — uden at logge ind.
+                  </Text>
+                )}
+              </>
+            ) : (
+              <>
                 <TvTextInput
                   style={inputStyle}
-              onSubmitEditing={submitFromField}
-              returnKeyType="go"
-              blurOnSubmit={false}
-                  placeholder="Adgangskode"
+                  onSubmitEditing={submitFromField}
+                  returnKeyType="go"
+                  blurOnSubmit={false}
+                  placeholder={isPanel ? 'http://panel.example:8080' : 'http://.../liste.m3u'}
                   placeholderTextColor={colors.textMuted}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  secureTextEntry
-                  value={password}
-                  onChangeText={setPassword}
+                  inputMode="url"
+                  value={baseUrl}
+                  onChangeText={setBaseUrl}
                 />
-              </>
-            )}
 
-            <TvTextInput
-              style={inputStyle}
-              onSubmitEditing={submitFromField}
-              returnKeyType="go"
-              blurOnSubmit={false}
-              placeholder="XMLTV-adresse (valgfri)"
-              placeholderTextColor={colors.textMuted}
-              autoCapitalize="none"
-              autoCorrect={false}
-              inputMode="url"
-              value={xmltvUrl}
-              onChangeText={setXmltvUrl}
-            />
-            {!isTV && (
-            <Text style={styles.hint}>
-              {isPanel
-                ? 'Panelet leverer selv programoversigt. En XMLTV-adresse fylder hullerne for de kanaler panelet ikke har data til.'
-                : 'En M3U-liste rummer ingen programoversigt. Uden en XMLTV-adresse står guiden tom for kanalerne herfra.'}
-            </Text>
+                {isPanel && (
+                  <>
+                    <TvTextInput
+                      style={inputStyle}
+                      onSubmitEditing={submitFromField}
+                      returnKeyType="go"
+                      blurOnSubmit={false}
+                      placeholder="Brugernavn"
+                      placeholderTextColor={colors.textMuted}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      value={username}
+                      onChangeText={setUsername}
+                    />
+                    <TvTextInput
+                      style={inputStyle}
+                      onSubmitEditing={submitFromField}
+                      returnKeyType="go"
+                      blurOnSubmit={false}
+                      placeholder="Adgangskode"
+                      placeholderTextColor={colors.textMuted}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      secureTextEntry
+                      value={password}
+                      onChangeText={setPassword}
+                    />
+                  </>
+                )}
+
+                <TvTextInput
+                  style={inputStyle}
+                  onSubmitEditing={submitFromField}
+                  returnKeyType="go"
+                  blurOnSubmit={false}
+                  placeholder="XMLTV-adresse (valgfri)"
+                  placeholderTextColor={colors.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  inputMode="url"
+                  value={xmltvUrl}
+                  onChangeText={setXmltvUrl}
+                />
+                {!isTV && (
+                  <Text style={styles.hint}>
+                    {isPanel
+                      ? 'Panelet leverer selv programoversigt. En XMLTV-adresse fylder hullerne for de kanaler panelet ikke har data til.'
+                      : 'En M3U-liste rummer ingen programoversigt. Uden en XMLTV-adresse står guiden tom for kanalerne herfra.'}
+                  </Text>
+                )}
+              </>
             )}
 
             {error !== null && <Text style={styles.error}>{error}</Text>}
@@ -210,13 +318,13 @@ export function OnboardingScreen({ onDone, notice }: Props) {
               style={[styles.button, (!canSubmit || busy) && styles.buttonDisabled]}
               disabled={!canSubmit || busy}
               onPress={() => {
-                void connect();
+                void (isSky ? restoreFromSky() : connect());
               }}
             >
               {busy ? (
                 <ActivityIndicator color={colors.text} />
               ) : (
-                <Text style={styles.buttonText}>{isPanel ? 'Forbind' : 'Hent listen'}</Text>
+                <Text style={styles.buttonText}>{isSky ? 'Hent fra skyen' : isPanel ? 'Forbind' : 'Hent listen'}</Text>
               )}
             </TvPressable>
           </View>

@@ -1,4 +1,5 @@
 import { createBackup, serialiseBackup } from './backup.js';
+import type { CredentialLoader } from './backup.js';
 import { getSkyConfig, getSkyLastMs, setSkyLastMs } from './settings.js';
 import { WEEKLY_BACKUP_MS } from './autoBackup.js';
 import type { SqlDatabase } from './types.js';
@@ -24,13 +25,14 @@ export async function runWeeklyCloudBackup(
   upload: CloudUploader,
   now = Date.now(),
   force = false,
+  loadCreds?: CredentialLoader,
 ): Promise<CloudBackupResult> {
   const config = await getSkyConfig(db);
   if (!config.enabled || config.code === '') return 'off';
   const lastMs = await getSkyLastMs(db);
   if (!force && lastMs !== null && now - lastMs < WEEKLY_BACKUP_MS) return 'not-due';
   try {
-    const json = serialiseBackup(await createBackup(db, now));
+    const json = serialiseBackup(await createBackup(db, now, loadCreds));
     await upload(config.code, json);
   } catch {
     return 'failed';

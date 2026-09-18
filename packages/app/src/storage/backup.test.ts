@@ -54,6 +54,20 @@ describe('createBackup', () => {
     const backup = await createBackup(old.db, 1000);
     expect(parseBackup(serialiseBackup(backup))).toEqual(backup);
   });
+
+  it('tager panel-kodeordet med naar en henter det (til den krypterede sky-kopi)', async () => {
+    const backup = await createBackup(old.db, 1000, async (id) =>
+      id === old.sourceId ? { password: 'hemmelig123' } : null,
+    );
+    expect(backup.sources[0].password).toBe('hemmelig123');
+    // Og det overlever en tur gennem tekst.
+    expect(parseBackup(serialiseBackup(backup)).sources[0].password).toBe('hemmelig123');
+  });
+
+  it('tager ikke kodeord med uden en henter (den lokale/ukrypterede vej)', async () => {
+    const backup = await createBackup(old.db, 1000);
+    expect(backup.sources[0].password).toBeUndefined();
+  });
 });
 
 describe('parseBackup', () => {
