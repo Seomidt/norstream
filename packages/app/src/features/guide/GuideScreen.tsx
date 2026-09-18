@@ -1068,6 +1068,17 @@ const GuideRow = memo(function GuideRow({
    */
   const focusedIndex = useRef<number | null>(null);
   const [recoverKey, setRecoverKey] = useState<string | null>(null);
+  /**
+   * Live-cellen i raekken (den der sender nu) som fokus-maal.
+   *
+   * Naar fjernbetjeningen kommer ind i raekken oppefra/nedefra, omdirigerer
+   * TVFocusGuideView fokus hertil — saa ned/op rammer det der sender nu, ikke
+   * en nabocelle. Androids egen mekanik (UIFocusGuide), som IKKE kaemper mod
+   * fokus som en JS-omdirigering ville. En tilbagevendende ref-funktion saettes
+   * paa den celle hvis state er 'live'; flytter live sig (tiden gaar, data
+   * lander), peger maalet paa den nye.
+   */
+  const [liveNode, setLiveNode] = useState<View | null>(null);
   const previousCells = useRef(cells);
   useLayoutEffect(() => {
     const before = previousCells.current;
@@ -1110,14 +1121,17 @@ const GuideRow = memo(function GuideRow({
           {hasDialect && channel.hasArchive && <Text style={styles.channelBadges}>⏱</Text>}
         </View>
       </TvPressable>
-      <View
+      <TVFocusGuideView
         style={styles.cells}
         onLayout={(event) => onMeasureCells(event.nativeEvent.layout.width)}
+        // Kommer fokus ind i raekken (op/ned), sendes det til live-cellen.
+        destinations={isTV && liveNode !== null ? [liveNode] : undefined}
       >
         {cells.map((cell, index) => {
           const action = guideAction(cell, channel, hasDialect);
           return (
             <TvPressable
+              ref={isTV && cell.state === 'live' ? setLiveNode : undefined}
               // Noeglen er PLADSEN i raekken, ikke indholdet. Ellers: naar et
               // hul bliver til en udsendelse (data lander), eller vinduet
               // flytter sig, faar cellen en ny indholdsnoegle (gap-… -> p-…),
@@ -1171,7 +1185,7 @@ const GuideRow = memo(function GuideRow({
             </TvPressable>
           );
         })}
-      </View>
+      </TVFocusGuideView>
     </View>
   );
 });

@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 254** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 255** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,25 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Guide: ned/op rammer live-cellen — native forsøg (v255, EKSPERIMENTELT).**
+Efter v253's tilbagerulning (nedenfor) et NYT forsøg med den rigtige mekanik,
+denne gang uden JS-fokus-kamp: Androids egen `TVFocusGuideView destinations`
+(UIFocusGuide). Hver kanal-rækkes celler er nu pakket i en `TVFocusGuideView`,
+hvis `destinations` peger på rækkens **live-celle** (den hvis `state === 'live'`).
+Kommer fokus ind i rækken oppefra/nedefra, omdirigerer Android selv til
+live-cellen — så ned/op rammer det der sender nu, uanset at cellerne er
+proportionale med varigheden (forskellig bredde). Ref-plumbing: `TvPressable`
+er nu `forwardRef` (videregiver ref til den indre `Pressable`); live-cellen får
+en tilbagevendende ref via `setLiveNode`, og `GuideRow` sætter
+`destinations={[liveNode]}`. Baggrund (bruger viste Google/Xumos guide): dér er
+cellerne ENS brede piller med luft imellem, så kolonnerne flugter og op/ned
+rammer geometrisk rent; vores er en tidslinje, så vi bruger UIFocusGuide til at
+opnå det samme funktionelt. **Skal afprøves på boks** — virker det ikke rent,
+rul tilbage til 254 (`git checkout e6a8aa0 -- GuideScreen.tsx` + behold
+TvPressable-forwardRef, den er harmløs). **Åbent, større skridt:** Googles
+*udseende* (ens-brede piller, den fokuserede bliver lang) er en egentlig
+layout-ombygning af `layoutRow`/`GuideRow` — ikke gjort endnu.
 
 **v253 rullet tilbage (v254).** v253's "bevar tidspunktet ved lodret
 kanalskift" gjorde det VÆRRE: brugeren meldte "det er blevet værre med at holde

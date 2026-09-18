@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { ReactNode } from 'react';
-import type { PressableProps, StyleProp, ViewStyle } from 'react-native';
+import type { PressableProps, StyleProp, View as ViewType, ViewStyle } from 'react-native';
 import { theme } from './theme.js';
 import type { ThemeColors } from './theme.js';
 import { useStyles } from './ThemeContext.js';
@@ -20,7 +20,7 @@ interface Props extends Omit<PressableProps, 'children'> {
  * hvad et tryk rammer. Paa telefonen er den en almindelig Pressable, uden
  * ekstra stil, saa det samme kort kan bruges begge steder.
  */
-export function TvPressable({ style, onFocus, onBlur, onPress, onLongPress, hasTVPreferredFocus, disabled, children, ...rest }: Props) {
+export const TvPressable = forwardRef<ViewType, Props>(function TvPressable({ style, onFocus, onBlur, onPress, onLongPress, hasTVPreferredFocus, disabled, children, ...rest }, ref) {
   const [focused, setFocused] = useState(false);
   const styles = useStyles(makeStyles);
   /**
@@ -57,6 +57,7 @@ export function TvPressable({ style, onFocus, onBlur, onPress, onLongPress, hasT
   return (
     <Pressable
       {...rest}
+      ref={ref}
       disabled={nativeDisabled}
       hasTVPreferredFocus={hasTVPreferredFocus === true || forced}
       onPress={
@@ -97,7 +98,7 @@ export function TvPressable({ style, onFocus, onBlur, onPress, onLongPress, hasT
       {isTV && focused && <View pointerEvents="none" style={styles.ring} />}
     </Pressable>
   );
-}
+});
 
 const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   // Tv: en spaerret knap er stadig fokuserbar (ellers ryger fokus ud i
