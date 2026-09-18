@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 261** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 262** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,33 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**Guide-tidslinje iteration 3: op/ned rammer live, listen følger fokus (v261).**
+**Guide-tidslinje iteration 4: ens blokke som favoritterne (v262).** Bruger:
+"måske vi skal lave lidt som i favoritter, hvor blokke med live er ens nedad og
+blokke til højre/venstre har samme størrelse og bliver større når jeg klikker på
+den — favoritter virker super godt også med at køre op og ned." Så
+`TimelineGrid.tsx` er skiftet fra **tidsproportionale celler** (bredde =
+varighed) til **ens-brede, indeks-baserede blokke** — den model der gør op/ned
+robust:
+- **Ens blokke, live forankret nedad.** Hver blok er lige bred (`BLOCK_W`),
+  uanset udsendelsens længde. Den der sender NU står i samme lodrette kolonne i
+  ALLE rækker (forankret ved `ANCHOR_X`). Derfor lander man ved op/ned fra en
+  live-blok på nabokanalens live-blok — blokken lige nedenunder ligger på
+  nøjagtig samme sted. Det kunne det tidsproportionale gitter ikke: der havde
+  hver celle sin egen bredde/placering, så "cellen nedenunder" tit var naboen.
+  Ingen `TVFocusGuideView destinations`-omdirigering mere — den kæmpede mod
+  Androids fokus; nu flugter kolonnerne bare geometrisk.
+- **Glider bloedt i tid.** Alle rækker deler én `scrollX` (kolonne × `SLOT`).
+  Går man til siden, glider HELE fladen med (`Animated`, native), og
+  live-kolonnen bliver ved med at flugte. Lander op/ned på samme kolonne, glider
+  den slet ikke (`colRef`-vagt), så det står helt stille lodret.
+- **Fokuseret blok vokser** som favoritrækkerne (`TvPressable`s normale
+  fokus-skalering 1,05 — ikke `flat`), og live-blokken har accent-kant + "● NU".
+- Beholdt fra it.3: listen følger fokus lodret (`scrollToIndex viewPosition:0.5`
+  + `paddingBottom`), tom kanal springes ikke over (fokuserbart felt), og
+  `trapFocusLeft/Right` så tid-til-siden ikke slipper ud i menuen. Telefon urørt
+  (drag-modellen står stadig på `!isTV`, sikkerhedsnettet fra v257).
+
+**Guide-tidslinje iteration 3: op/ned rammer live, listen følger fokus (v261, afløst af it.4).**
 (v260 blev aldrig udgivet — foldet ind her.) To ting oven på it.2 (+ it.2's
 overlap-klip og fokus-uden-skalering, se nedenfor):
 - **Op/ned rammer live-cellen.** Bruger: "op/ned skal ramme den der er live ved

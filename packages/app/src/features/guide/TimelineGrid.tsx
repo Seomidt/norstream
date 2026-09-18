@@ -14,30 +14,36 @@ import { stateOf } from './layout.js';
 import type { CellState } from './layout.js';
 
 /**
- * Guiden som EN sammenhaengende, glidende tidslinje (som Googles/Xumos).
+ * Guiden som ens blokke, ligesom favoritlisten — den model der "virker super
+ * godt ogsaa med at koere op og ned".
  *
- * Kanaler lodret, tid vandret. Cellerne sidder paa deres RIGTIGE klokkeslaet
- * (bredde = varighed i minutter gange faste pixels), saa cellen lige nedenunder
- * er den samme tid — op/ned rammer derfor rent, uden det gamle spring. Vandret
- * flyttes tiden ikke i faste vinduer; markoeren glider mellem udsendelser, og
- * hele fladen ruller BLOEDT med (Animated translateX), saa det ikke hopper.
+ * Kanaler lodret, udsendelser vandret. Hver blok er lige BRED (uanset hvor
+ * lang udsendelsen er), og den der sender NU staar i samme lodrette kolonne i
+ * ALLE raekker (forankringen). Derfor: gaar man op/ned fra en live-blok, lander
+ * man paa nabokanalens live-blok — rent, hver gang, fordi blokken lige nedenunder
+ * ligger paa NOEJAGTIG samme sted. Det var det gamle tidslinjegitter ikke: der
+ * sad cellerne paa deres klokkeslaet med hver sin bredde, saa "cellen nedenunder"
+ * tit var naboen og ikke det der sender nu.
  *
- * Én delt `scrollX` for alle raekker: naar en celle faar fokus, glider fladen,
- * saa cellen staar ved et fast punkt til venstre. Fordi alle raekker deler
- * samme scrollX og cellerne staar paa tid, flugter kolonnerne — og den roede
- * nu-linje glider med.
+ * Vandret deler alle raekker én forskydning (`scrollX` = kolonner gange
+ * blokbredde). Gaar man til siden, glider HELE fladen bloedt med i tid (som
+ * Googles/Xumos guide), og live-blokkene bliver ved med at flugte i deres
+ * kolonne. Den blok der har fokus vokser lidt (samme fokus som favoritraekkerne).
  */
 
-/** Pixels per minut. Mindre = mindre celler, mere tid synligt. 1 time = 168 px. */
-const PX_PER_MIN = 2.8;
-/** Hvor langt tilbage/frem tidslinjen raekker fra den runde time. */
-const SPAN_BACK_MIN = 120;
-const SPAN_FWD_MIN = 20 * 60;
-const ROW_HEIGHT = 52;
+/** Fast blokbredde. Alle udsendelser er lige brede — det er det der faar kolonnerne til at flugte. */
+const BLOCK_W = 150;
+/** Luft mellem blokke. Stor nok til at en fokuseret (skaleret) blok ikke rammer naboen. */
+const GAP = 10;
+const SLOT = BLOCK_W + GAP;
+const ROW_HEIGHT = 66;
 const CHANNEL_COL = 112;
-const HEADER_HEIGHT = 30;
-/** Hvor cellen der faar fokus lander (px fra tidslinjens venstre kant). */
-const ANCHOR = 40;
+const HEADER_HEIGHT = 26;
+/** Hvor live-/fokus-kolonnen lander, maalt fra stribens venstre kant. */
+const ANCHOR_X = 10;
+/** Hvor langt tilbage/frem der hentes programdata. Bagud lidt, frem en lang dag. */
+const SPAN_BACK_MIN = 6 * 60;
+const SPAN_FWD_MIN = 24 * 60;
 
 interface Props {
   session: AppSession;
@@ -63,19 +69,14 @@ export function TimelineGrid({
 }: Props) {
   const styles = useStyles(makeStyles);
 
-  // Tidslinjens start er den runde time minus lidt fortid, saa timerne staar
-  // paent i hovedet. Bucket paa timen, saa den ikke regnes om hvert minut.
-  const hourBucket = Math.floor(now.getTime() / 3_600_000);
+  const nowMs = now.getTime();
+  const hourBucket = Math.floor(nowMs / 3_600_000);
   const spanStartMs = useMemo(() => hourBucket * 3_600_000 - SPAN_BACK_MIN * 60_000, [hourBucket]);
-  const spanMinutes = SPAN_BACK_MIN + SPAN_FWD_MIN;
-  const spanWidth = spanMinutes * PX_PER_MIN;
-  const spanEndMs = spanStartMs + spanMinutes * 60_000;
-  const nowX = ((now.getTime() - spanStartMs) / 60_000) * PX_PER_MIN;
+  const spanEndMs = spanStartMs + (SPAN_BACK_MIN + SPAN_FWD_MIN) * 60_000;
 
   const [progMap, setProgMap] = useState<Record<string, Programme[]>>({});
-  // Fyld programdata for HELE spanet (ikke pr. vindue): saa forsvinder intet
-  // naar man glider frem og tilbage. Foerst det der ligger i den lokale
-  // database, saa en baggrundshentning der fylder resten paa.
+  // Fyld programdata for hele spanet paa én gang, saa intet forsvinder naar man
+  // glider frem og tilbage. Foerst det lokale, saa en baggrundshentning ovenpaa.
   const load = useCallback(async () => {
     if (channels.length === 0) return;
     const from = new Date(spanStartMs);
@@ -106,35 +107,23 @@ export function TimelineGrid({
     };
   }, [channels, session, load]);
 
-  // Delt vandret rul. Native driver: translateX koerer paa GPU, glat.
+  // Delt vandret forskydning i pixels (kolonner * SLOT). Native driver: glat.
   const scrollX = useRef(new Animated.Value(0)).current;
-  const [stripWidth, setStripWidth] = useState(0);
-  const maxScroll = Math.max(0, spanWidth - stripWidth);
-  const maxScrollRef = useRef(maxScroll);
-  maxScrollRef.current = maxScroll;
-
-  const glideTo = useCallback(
-    (left: number) => {
-      const target = Math.min(Math.max(0, left - ANCHOR), maxScrollRef.current);
-      Animated.timing(scrollX, { toValue: target, duration: 150, useNativeDriver: true }).start();
+  // Hvilken kolonne (talt fra live=0) fladen staar paa nu. Undgaar at glide igen
+  // naar op/ned lander paa samme kolonne — saa staar den helt stille lodret.
+  const colRef = useRef(0);
+  const glideToCol = useCallback(
+    (col: number) => {
+      if (col === colRef.current) return;
+      colRef.current = col;
+      Animated.timing(scrollX, { toValue: col * SLOT, duration: 150, useNativeDriver: true }).start();
     },
     [scrollX],
   );
 
-  // Foerste gang (og naar bredden kendes): stil tidslinjen saa NU staar til
-  // venstre, uden animation.
-  const didInit = useRef(false);
-  useEffect(() => {
-    if (didInit.current || stripWidth === 0) return;
-    didInit.current = true;
-    const target = Math.min(Math.max(0, nowX - ANCHOR), maxScroll);
-    scrollX.setValue(target);
-  }, [stripWidth, nowX, maxScroll, scrollX]);
-
   const listRef = useRef<FlatList<StoredChannel>>(null);
-  // Lodret: rul listen saa den raekke fjernbetjeningen staar paa altid er
-  // synlig — ellers blev den nederste raekke skaaret af, og man kunne ikke se
-  // at der var flere kanaler under.
+  // Lodret: rul listen saa den raekke fokus staar paa altid er synlig — ellers
+  // blev den nederste raekke skaaret af ("kan ikke se hvad der sker i bunden").
   const scrollToChannel = useCallback(
     (channel: StoredChannel) => {
       const idx = channels.findIndex((c) => c.id === channel.id);
@@ -147,24 +136,26 @@ export function TimelineGrid({
     },
     [channels],
   );
-  const handleChannelFocus = useCallback(
+  const onBlockFocus = useCallback(
+    (channel: StoredChannel, col: number) => {
+      onFocusChannel(channel);
+      scrollToChannel(channel);
+      glideToCol(col);
+    },
+    [onFocusChannel, scrollToChannel, glideToCol],
+  );
+  // Tom kanal (ingen EPG): fokus paa kanalen, men roer ikke tiden.
+  const onChannelFocus = useCallback(
     (channel: StoredChannel) => {
       onFocusChannel(channel);
       scrollToChannel(channel);
     },
     [onFocusChannel, scrollToChannel],
   );
-  const onCellFocus = useCallback(
-    (channel: StoredChannel, left: number) => {
-      handleChannelFocus(channel);
-      glideTo(left);
-    },
-    [handleChannelFocus, glideTo],
-  );
 
-  // Fokuser live-cellen paa foerste raekke naar guiden aabnes, og igen naar
-  // menuen sender fokus ind (focusFirstSignal). Ét-skuds puls: hasTVPreferredFocus
-  // maa ikke staa fast true, ellers river den fokus tilbage ved hver tegning.
+  // Fokuser live-blokken paa foerste raekke naar guiden aabnes, og igen naar
+  // menuen sender fokus ind. Ét-skuds puls, ellers river den fokus tilbage ved
+  // hver tegning.
   const [focusPulse, setFocusPulse] = useState(true);
   const seenSignal = useRef(focusFirstSignal);
   useEffect(() => {
@@ -180,43 +171,34 @@ export function TimelineGrid({
 
   const renderItem = useCallback(
     ({ item }: { item: StoredChannel }) => (
-      <TimelineRow
+      <ChannelStrip
         channel={item}
         programmes={progMap[item.id] ?? EMPTY}
-        spanStartMs={spanStartMs}
-        spanMinutes={spanMinutes}
-        nowMs={now.getTime()}
+        nowMs={nowMs}
         scrollX={scrollX}
         hasDialect={hasDialectFor(item)}
-        onCellFocus={onCellFocus}
-        onChannelFocus={handleChannelFocus}
+        onBlockFocus={onBlockFocus}
+        onChannelFocus={onChannelFocus}
         onOpen={onOpen}
         focusLive={focusPulse}
         isFirst={channels[0]?.id === item.id}
       />
     ),
-    [progMap, spanStartMs, spanMinutes, now, scrollX, hasDialectFor, onCellFocus, handleChannelFocus, onOpen, focusPulse, channels],
+    [progMap, nowMs, scrollX, hasDialectFor, onBlockFocus, onChannelFocus, onOpen, focusPulse, channels],
   );
 
   return (
     <View style={styles.root}>
-      {/* Tidshoved: timerne, glider med fladen. */}
+      {/* Slank hoved: en paamindelse om at man kan gaa i tid til begge sider. */}
       <View style={styles.header}>
         <View style={styles.headerSpacer} />
-        <View style={styles.headerStrip} onLayout={(e) => setStripWidth(e.nativeEvent.layout.width)}>
-          <Animated.View style={{ width: spanWidth, height: HEADER_HEIGHT, transform: [{ translateX: Animated.multiply(scrollX, -1) }] }}>
-            {hourMarks(spanStartMs, spanMinutes).map((mark) => (
-              <Text key={mark.ms} style={[styles.hourLabel, { left: mark.x }]}>
-                {mark.label}
-              </Text>
-            ))}
-            <Animated.View style={[styles.nowLine, { left: nowX }]} pointerEvents="none" />
-          </Animated.View>
-        </View>
+        <Text style={styles.headerHint} numberOfLines={1}>
+          ‹ tidligere   ·   NU sender i den markerede kolonne   ·   senere ›
+        </Text>
       </View>
-      {/* Fang fokus til side: pil venstre/hoejre ruller i tiden og maa ikke
-          slippe ud i menuen ("koerer pludselig ud til menuen naar jeg gaar
-          tilbage i tiden"). Menuen naas ved at gaa op til gruppe-chipsene. */}
+      {/* Fang fokus til side: pil venstre/hoejre glider i tiden og maa ikke
+          slippe ud i menuen ("koerer pludselig ud til menuen"). Menuen naas ved
+          at gaa op til gruppe-chipsene. */}
       <TVFocusGuideView style={styles.list} trapFocusLeft trapFocusRight>
         <FlatList
           ref={listRef}
@@ -229,8 +211,6 @@ export function TimelineGrid({
           maxToRenderPerBatch={Math.max(12, channels.length)}
           getItemLayout={(_, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
           onScrollToIndexFailed={() => undefined}
-          // Luft under sidste raekke, saa den kan rulles op til midten og de
-          // nederste kanaler bliver synlige.
           contentContainerStyle={{ paddingBottom: ROW_HEIGHT * 4 }}
         />
       </TVFocusGuideView>
@@ -238,75 +218,78 @@ export function TimelineGrid({
   );
 }
 
-interface RowProps {
+interface Block {
+  key: string;
+  /** Kolonne talt fra live (0 = sender nu, negativ = tidligere, positiv = senere). */
+  col: number;
+  programme: Programme;
+  state: CellState;
+}
+
+interface StripProps {
   channel: StoredChannel;
   programmes: readonly Programme[];
-  spanStartMs: number;
-  spanMinutes: number;
   nowMs: number;
   scrollX: Animated.Value;
   hasDialect: boolean;
-  onCellFocus: (channel: StoredChannel, left: number) => void;
-  /** Fokus paa en kanal uden at flytte tidslinjen (til tomme kanaler). */
+  onBlockFocus: (channel: StoredChannel, col: number) => void;
   onChannelFocus: (channel: StoredChannel) => void;
   onOpen: (channel: StoredChannel, programme: Programme | null, state: CellState) => void;
   focusLive: boolean;
   isFirst: boolean;
 }
 
-const TimelineRow = memo(function TimelineRow({
+const ChannelStrip = memo(function ChannelStrip({
   channel,
   programmes,
-  spanStartMs,
-  spanMinutes,
   nowMs,
   scrollX,
   hasDialect,
-  onCellFocus,
+  onBlockFocus,
   onChannelFocus,
   onOpen,
   focusLive,
   isFirst,
-}: RowProps) {
+}: StripProps) {
   const styles = useStyles(makeStyles);
-  const spanWidth = spanMinutes * PX_PER_MIN;
   const now = useMemo(() => new Date(nowMs), [nowMs]);
 
-  const cells = useMemo(() => {
-    const out: { key: string; left: number; width: number; programme: Programme; state: CellState }[] = [];
-    const spanEndMs = spanStartMs + spanMinutes * 60_000;
-    // Klip overlap vaek: to udsendelser der overlapper (eller en dublet) maa
-    // ikke stable sig oven paa hinanden ("samme udsendelse 2 gange og roder").
-    // Sorter efter start og lad hver celle begynde hvor den forrige slap.
+  // Ordnede, ikke-overlappende udsendelser + hvilken der sender nu.
+  const { blocks, liveCol } = useMemo(() => {
     const sorted = [...programmes].sort((a, b) => a.start.getTime() - b.start.getTime());
-    let cursorMs = spanStartMs;
+    // Klip dubletter/overlap vaek: to der overlapper maa ikke staa som "samme
+    // udsendelse 2 gange". Behold den foerste, spring dem der starter foer den
+    // forrige sluttede.
+    const kept: Programme[] = [];
+    let lastStop = -Infinity;
     for (const p of sorted) {
-      const start = p.start.getTime();
-      const stop = p.stop.getTime();
-      if (stop <= spanStartMs || start >= spanEndMs) continue;
-      const fromMs = Math.max(start, cursorMs);
-      const toMs = Math.min(stop, spanEndMs);
-      if (toMs <= fromMs) continue; // helt daekket af en foregaaende
-      const leftMin = (fromMs - spanStartMs) / 60_000;
-      const rightMin = (toMs - spanStartMs) / 60_000;
-      out.push({
-        key: `p-${start}`,
-        left: leftMin * PX_PER_MIN,
-        width: Math.max(2, (rightMin - leftMin) * PX_PER_MIN),
-        programme: p,
-        state: stateOf(p, now),
-      });
-      cursorMs = toMs;
+      if (p.start.getTime() < lastStop) continue;
+      kept.push(p);
+      lastStop = p.stop.getTime();
     }
-    return out;
-  }, [programmes, spanStartMs, spanMinutes, now]);
+    // Forankringen: den der sender nu. Er der hul netop nu, tag den foerste der
+    // ikke er slut endnu (den kommende), saa der altid staar noget i live-kolonnen.
+    let anchor = kept.findIndex((p) => stateOf(p, now) === 'live');
+    if (anchor < 0) anchor = kept.findIndex((p) => p.stop.getTime() > nowMs);
+    if (anchor < 0) anchor = kept.length - 1;
+    const out: Block[] = kept.map((p, i) => ({
+      key: `p-${p.start.getTime()}`,
+      col: i - anchor,
+      programme: p,
+      state: stateOf(p, now),
+    }));
+    return { blocks: out, liveCol: 0 };
+  }, [programmes, now, nowMs]);
 
-  // Den celle der sender nu — maal for pil-ind fra menuen OG for lodret skift:
-  // kommer fokus ind i raekken op/ned, sender TVFocusGuideView det til
-  // live-cellen, saa man altid lander paa det der sender nu (den roede linje),
-  // ikke en nabocelle.
-  const liveKey = cells.find((c) => c.state === 'live')?.key ?? null;
-  const [liveNode, setLiveNode] = useState<View | null>(null);
+  // Raekkens faste forskydning: stil dens live-blok (col 0) ved ANCHOR_X. Alle
+  // raekker deler `scrollX`, saa live-kolonnen flugter lodret paa tvaers af dem.
+  // (Selve blokkene sidder paa positive left; forankringen ligger i transformen,
+  // saa negative kolonner ikke klippes af Android.)
+  const anchorIndex = blocks.length > 0 ? -blocks[0]!.col : 0; // = anchor fra oven
+  const base = useMemo(() => new Animated.Value(ANCHOR_X - anchorIndex * SLOT), [anchorIndex]);
+  const translateX = useMemo(() => Animated.subtract(base, scrollX), [base, scrollX]);
+
+  const liveKey = blocks.find((b) => b.col === liveCol)?.key ?? null;
 
   return (
     <View style={styles.row}>
@@ -320,50 +303,43 @@ const TimelineRow = memo(function TimelineRow({
         </View>
       </View>
       <View style={styles.strip}>
-        {cells.length === 0 ? (
+        {blocks.length === 0 ? (
           // En kanal helt uden EPG maa ikke springes over. Feltet ligger UDEN
           // for den glidende flade og fylder det synlige, saa fjernbetjeningen
           // altid kan lande paa kanalen (og starte den).
           <TvPressable
-            style={styles.emptyCell}
+            style={styles.emptyBlock}
+            flat
             onFocus={() => onChannelFocus(channel)}
             onPress={() => onOpen(channel, null, 'gap')}
           >
-            <Text style={styles.cellMuted} numberOfLines={1}>
+            <Text style={styles.blockMuted} numberOfLines={1}>
               Ingen programoversigt — tryk for at se kanalen
             </Text>
           </TvPressable>
         ) : (
-          <Animated.View style={{ width: spanWidth, height: ROW_HEIGHT, transform: [{ translateX: Animated.multiply(scrollX, -1) }] }}>
-            {/* Svag baggrund hele vejen, saa huller mellem udsendelser ikke
-                staar som sorte felter — cellerne ligger ovenpaa. */}
-            <View style={[styles.stripFill, { width: spanWidth }]} pointerEvents="none" />
-            <TVFocusGuideView
-              style={{ width: spanWidth, height: ROW_HEIGHT }}
-              destinations={liveNode !== null ? [liveNode] : undefined}
-            >
-              {cells.map((cell) => (
-                <TvPressable
-                  key={cell.key}
-                  flat
-                  ref={cell.key === liveKey ? setLiveNode : undefined}
-                  hasTVPreferredFocus={isFirst && focusLive && cell.key === liveKey}
-                  style={[
-                    styles.cell,
-                    { left: cell.left, width: cell.width },
-                    cell.state === 'live' && styles.cellLive,
-                    cell.state === 'past' && styles.cellPast,
-                  ]}
-                  onFocus={() => onCellFocus(channel, cell.left)}
-                  onPress={() => onOpen(channel, cell.programme, cell.state)}
-                >
-                  <Text style={styles.cellText} numberOfLines={2}>
-                    {cell.programme.title}
-                  </Text>
-                </TvPressable>
-              ))}
-            </TVFocusGuideView>
-            <View style={[styles.nowLineRow, { left: Math.max(0, ((nowMs - spanStartMs) / 60_000) * PX_PER_MIN) }]} pointerEvents="none" />
+          <Animated.View style={[styles.track, { transform: [{ translateX }] }]}>
+            {blocks.map((b, i) => (
+              <TvPressable
+                key={b.key}
+                hasTVPreferredFocus={isFirst && focusLive && b.key === liveKey}
+                style={[
+                  styles.block,
+                  { left: i * SLOT },
+                  b.state === 'live' && styles.blockLive,
+                  b.state === 'past' && styles.blockPast,
+                ]}
+                onFocus={() => onBlockFocus(channel, b.col)}
+                onPress={() => onOpen(channel, b.programme, b.state)}
+              >
+                <Text style={styles.blockTime} numberOfLines={1}>
+                  {b.state === 'live' ? '● NU' : clock(b.programme.start)}
+                </Text>
+                <Text style={styles.blockText} numberOfLines={2}>
+                  {b.programme.title}
+                </Text>
+              </TvPressable>
+            ))}
           </Animated.View>
         )}
       </View>
@@ -373,26 +349,17 @@ const TimelineRow = memo(function TimelineRow({
 
 const EMPTY: Programme[] = [];
 
-/** Timemaerker i spanet, til tidshovedet. */
-function hourMarks(spanStartMs: number, spanMinutes: number): { ms: number; x: number; label: string }[] {
-  const out: { ms: number; x: number; label: string }[] = [];
-  const firstHour = Math.ceil(spanStartMs / 3_600_000) * 3_600_000;
-  for (let ms = firstHour; ms < spanStartMs + spanMinutes * 60_000; ms += 3_600_000) {
-    const x = ((ms - spanStartMs) / 60_000) * PX_PER_MIN;
-    const d = new Date(ms);
-    out.push({ ms, x, label: `${String(d.getHours()).padStart(2, '0')}:00` });
-  }
-  return out;
+/** Klokkeslaet som HH:MM. */
+function clock(d: Date): string {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
 const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   list: { flex: 1 },
-  header: { flexDirection: 'row', height: HEADER_HEIGHT },
+  header: { flexDirection: 'row', height: HEADER_HEIGHT, alignItems: 'center' },
   headerSpacer: { width: CHANNEL_COL },
-  headerStrip: { flex: 1, overflow: 'hidden' },
-  hourLabel: { position: 'absolute', top: 6, color: colors.textMuted, fontSize: 13, fontWeight: '600' },
-  nowLine: { position: 'absolute', top: 0, bottom: 0, width: 2, backgroundColor: colors.danger },
+  headerHint: { flex: 1, color: colors.textMuted, fontSize: 12, fontWeight: '600' },
   row: { flexDirection: 'row', height: ROW_HEIGHT },
   channelCell: {
     width: CHANNEL_COL,
@@ -407,29 +374,29 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   channelText: { flex: 1 },
   channelName: { color: colors.text, fontSize: 12, fontWeight: '600' },
   badge: { color: colors.accent, fontSize: 12 },
-  strip: { flex: 1, overflow: 'hidden' },
-  // Svag baggrund bag cellerne, saa huller ikke staar som sorte felter.
-  stripFill: { position: 'absolute', top: 3, bottom: 3, left: 0, backgroundColor: colors.surface, opacity: 0.28, borderRadius: theme.radius },
-  cell: {
+  strip: { flex: 1, overflow: 'hidden', justifyContent: 'center' },
+  track: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 },
+  block: {
     position: 'absolute',
-    top: 3,
-    bottom: 3,
-    marginRight: 2,
+    top: 4,
+    bottom: 4,
+    width: BLOCK_W,
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     borderRadius: theme.radius,
     backgroundColor: colors.surface,
   },
-  // Den kanal der sender nu: lysere, saa den skiller sig ud i kolonnen.
-  cellLive: { backgroundColor: colors.surfaceRaised ?? colors.surface, borderWidth: 1, borderColor: colors.accent },
-  cellPast: { opacity: 0.55 },
-  cellText: { color: colors.text, fontSize: 12 },
-  cellMuted: { color: colors.textMuted, fontSize: 12 },
-  emptyCell: {
+  // Den kanal der sender nu: lysere med accent-ramme, saa live-kolonnen er tydelig.
+  blockLive: { backgroundColor: colors.surfaceRaised ?? colors.surface, borderWidth: 1, borderColor: colors.accent },
+  blockPast: { opacity: 0.5 },
+  blockTime: { color: colors.textMuted, fontSize: 11, fontWeight: '600', marginBottom: 2 },
+  blockText: { color: colors.text, fontSize: 13 },
+  blockMuted: { color: colors.textMuted, fontSize: 12 },
+  emptyBlock: {
     position: 'absolute',
-    top: 3,
-    bottom: 3,
-    left: 8,
+    top: 4,
+    bottom: 4,
+    left: ANCHOR_X,
     right: 8,
     justifyContent: 'center',
     paddingHorizontal: 10,
@@ -437,5 +404,4 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.surface,
     opacity: 0.6,
   },
-  nowLineRow: { position: 'absolute', top: 0, bottom: 0, width: 2, backgroundColor: colors.danger },
 });
