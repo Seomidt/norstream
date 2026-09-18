@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 247** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 248** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,23 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Guiden springer ikke længere til toppen (v248).** Bruger: "når jeg når
+halvvejs ned i guiden springer den pludselig til toppen." Årsag: en række
+længere nede stod tom (dens programdata var ikke hentet endnu), og landede
+dataene mens fjernbetjeningen stod på den, skiftede cellen fra "Ingen
+programdata" til rigtige udsendelses-celler — den fokuserede celle forsvandt,
+og gitterets `autoFocus` faldt tilbage til øverste række. Fix i
+`features/guide/GuideScreen.tsx`: en ny baggrunds-effekt henter **alle**
+favoritters fulde programdata så snart listen er læst (`ensureFullEpg` over
+hele `channels`), så cellerne er fyldt inden man ruller ned til dem — så sker
+det skift-under-fokus ikke. `ensureFullEpg` springer selv de friske kanaler
+over (freshness-gated), så det koster kun det der mangler, og det blokerer ikke
+de synlige hentninger. Kun én gang per liste (`prefetchedList`-ref). Samme
+rettelse hjælper også på "svær at blive stående på det kanal sender nu", fordi
+"nu"-cellen nu er der på forhånd. **Åbent punkt:** hjælper det ikke helt, er
+næste skridt at se på selve gitterets `autoFocus`-adfærd direkte (fastholde
+fokus på række-indeks i stedet for celle-identitet).
 
 **Logo-søgning kun til favoritter (v247).** "Kanaler uden logo" hed før og
 søgte over ALLE kanaler (op til 2000). Nu er skærmen "Favoritter uden logo" og

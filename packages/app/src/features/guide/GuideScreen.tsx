@@ -545,6 +545,39 @@ export function GuideScreen({
     scheduleLoadRef.current();
   }, [channels, windowStartMs, windowEndMs]);
 
+  // Fyld ALLE favoritters programdata i baggrunden, naar listen er laest.
+  //
+  // Ellers staar en raekke laengere nede tom, til man ruller til den — og naar
+  // dens data saa lander mens fjernbetjeningen staar paa den, skifter cellen
+  // fra "Ingen programdata" til udsendelser, den fokuserede celle forsvinder,
+  // og fokus faldt til oeverste raekke ("springer til toppen"). Er dataene der
+  // paa forhaand, sker det skift ikke under fokus. ensureFullEpg springer selv
+  // de friske kanaler over, saa det koster kun det der mangler, og det
+  // blokerer ikke de synlige hentninger. Kun én gang per liste.
+  const prefetchedList = useRef<StoredChannel[] | null>(null);
+  useEffect(() => {
+    if (channels.length === 0 || prefetchedList.current === channels) return;
+    prefetchedList.current = channels;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, channels);
+      } catch {
+        // Auth-/netfejl haandteres af de synlige hentninger.
+      }
+      if (cancelled) return;
+      void drawFromCacheRef.current(
+        visibleChannels.current,
+        new Date(windowRef.current.start),
+        new Date(windowRef.current.end),
+        true,
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [channels, session]);
+
   /**
    * Traekket i gitteret.
    *
