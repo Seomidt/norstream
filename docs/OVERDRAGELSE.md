@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 245** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 246** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,15 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**"Dine kanaler nu" skjules når man har grupper (v246).** Forsidens
+favorit-række ("Dine kanaler nu", alle favoritter) var en dublet af
+gruppe-rækkerne for en bruger der organiserer i grupper. Nu vises den kun når
+brugeren **ikke** har nogen grupper (`features/home/FrontScreen.tsx`: ny
+`hasGroups`-state fra `listFavoriteGroups`, og `if (!hasGroups) rows.push({
+kind: 'favourites' })`). Baseret på OM der er grupper, ikke om de sender noget
+lige nu, så rækken ikke blinker frem. Sletter man alle grupper, kommer den
+igen som forsidens nu-overblik.
 
 **To manglende SQLite-indeks (v245).** Efter en ren hastigheds-audit af hele
 appen: to hotte forespørgsler sorterede hele tabellen i en temp-tabel, fordi

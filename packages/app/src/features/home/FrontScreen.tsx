@@ -131,6 +131,11 @@ export function FrontScreen({
   const [recent, setRecent] = useState<FavouriteNow[]>([]);
   const [archive, setArchive] = useState<ArchiveProgress[]>([]);
   const [groupsNow, setGroupsNow] = useState<Array<{ group: FavoriteGroup; entries: FavouriteNow[] }>>([]);
+  // Har brugeren grupper, er "Dine kanaler nu" (alle favoritter) bare en
+  // dublet af gruppe-raekkerne, saa den skjules. Uden grupper staar den som
+  // forsidens nu-overblik. Baseret paa OM der er grupper — ikke om de sender
+  // noget lige nu — saa raekken ikke blinker frem naar en gruppe er tom.
+  const [hasGroups, setHasGroups] = useState(false);
   const [followed, setFollowed] = useState<FollowedSeries[]>([]);
   const [inProgress, setInProgress] = useState<StoredVodItem[]>([]);
   const [newest, setNewest] = useState<StoredVodItem[]>([]);
@@ -202,6 +207,7 @@ export function FrontScreen({
         entries: await withNow(await listChannels(session.db, { favouritesOnly: true, groupId: group.id, limit: FAVOURITES_LIMIT })),
       })),
     );
+    setHasGroups(groups.length > 0);
     setGroupsNow(perGroup.filter((entry) => entry.entries.length > 0));
 
     // Bagefter: det panelet har, for de kanaler cachen ikke daekker. Cachen
@@ -305,7 +311,9 @@ export function FrontScreen({
   if (hasContinue) rows.push({ kind: 'continue' });
   if (archive.length > 0) rows.push({ kind: 'archive' });
   if (recent.length > 0) rows.push({ kind: 'recent' });
-  rows.push({ kind: 'favourites' });
+  // "Dine kanaler nu" kun naar der IKKE er grupper — ellers er gruppe-raekkerne
+  // det samme overblik, bare opdelt som brugeren selv har valgt.
+  if (!hasGroups) rows.push({ kind: 'favourites' });
   for (const entry of groupsNow) rows.push({ kind: 'group', group: entry.group });
   if (followed.some((entry) => entry.episodes > entry.seenEpisodes)) rows.push({ kind: 'followed' });
   // Kortet om noeglen kun paa telefonen, og kortet "vaelg tjenester" slet
