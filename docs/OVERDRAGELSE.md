@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 253** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 254** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,24 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**Lodret kanalskift i guiden bevarer tidspunktet (v253).** Bruger: "når jeg
+**v253 rullet tilbage (v254).** v253's "bevar tidspunktet ved lodret
+kanalskift" gjorde det VÆRRE: brugeren meldte "det er blevet værre med at holde
+den røde linje, og jeg kan ikke få lov at køre over på mange af dem der kører
+live nu — så springer den vildt rundt." Årsag: omdirigeringen i `onCellFocus`
+(setFocusTarget ved hvert lodret skift der ikke ramte markør-tiden) kæmpede mod
+Androids egen fokus-flytning og skabte en løkke der sprang rundt og spærrede
+for at lande på live-cellen. `GuideScreen.tsx` er rullet tilbage til v252-
+tilstanden (`git checkout deb0b74 -- GuideScreen.tsx`) — v250 (alle rækker på
+tv) og v251 (celle-nøgle på pladsen + Favoritter under Guide) er bevaret. Den
+oprindelige gene (ved den røde linje rammer ned/op tit nabocellen) er tilbage,
+men det er en LILLE gene mod en app der springer vildt rundt. **Lære:** denne
+form for fokus-styring skal afprøves på en rigtig boks før udgivelse; en
+`setFocusTarget` der fyrer på hvert fokus-skift kapløber med Androids TV-fokus.
+Et fremtidigt forsøg bør i stedet lade Androids `nextFocusDown`/`nextFocusUp`
+pege eksplicit, ELLER kun gribe ind på et bevidst tastetryk (ikke i onFocus),
+og testes på boksen.
+
+**Lodret kanalskift i guiden bevarer tidspunktet (v253 — rullet tilbage, se ovenfor).** Bruger: "når jeg
 kører ned ad i guiden og står ved den røde live-linje, springer den tit ved
 siden af, og man skal flytte den hen på det der sender nu." Årsag: ned/op i
 gitteret lod Android vælge cellen i den næste række rent geometrisk — og fordi

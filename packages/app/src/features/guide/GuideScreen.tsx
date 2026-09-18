@@ -146,36 +146,9 @@ export function GuideScreen({
   const focusedCell = useRef<{ channelId: string; index: number; count: number; key: string } | null>(null);
   /** Udsendelsen fjernbetjeningen staar paa: soejlen til hoejre beskriver den. */
   const [focusedProgramme, setFocusedProgramme] = useState<Programme | null>(null);
-  const focusedProgrammeRef = useRef<Programme | null>(null);
-  // Programdata og kanalliste til raadighed synkront i fokus-haandteringen.
-  const rowsRef = useRef(rows);
-  rowsRef.current = rows;
-  /**
-   * Markoerens tidspunkt — den "soejle" i guiden man bladrer i.
-   *
-   * Sat naar man gaar til venstre/hoejre (pil-tasterne nedenfor). Ved lodret
-   * kanalskift bevares det: lander Android geometrisk paa en celle der ikke
-   * daekker tidspunktet, flyttes fokus til den udsendelse i den nye raekke der
-   * goer. Staar man ved den roede linje (det der sender nu), er tidspunktet
-   * "nu", saa ned/op rammer naeste kanals nu-udsendelse i stedet for
-   * nabocellen. Starter paa nu.
-   */
-  const cursorTimeRef = useRef<number>(Date.now());
   const onCellFocus = useCallback((channelId: string, index: number, count: number, key: string, programme: Programme | null) => {
-    const prev = focusedCell.current;
     focusedCell.current = { channelId, index, count, key };
-    focusedProgrammeRef.current = programme;
     setFocusedProgramme(programme);
-    // Lodret kanalskift (ny raekke): bevar tidspunktet. Daekker den celle
-    // Android landede paa ikke markoerens tid, flyt til den udsendelse i den
-    // nye raekke der goer.
-    if (!isTV || prev === null || prev.channelId === channelId) return;
-    const cur = cursorTimeRef.current;
-    if (programme !== null && programme.start.getTime() <= cur && cur < programme.stop.getTime()) return;
-    const target = (rowsRef.current[channelId] ?? []).find(
-      (p) => p.start.getTime() <= cur && cur < p.stop.getTime(),
-    );
-    if (target !== undefined) setFocusTarget({ channelId, key: `p-${target.start.getTime()}` });
   }, []);
   // Uden dette huskede gitteret den sidste celle efter en tur i menuen, og
   // pil hoejre fra menuen ind i guiden bladrede en time frem med det samme.
@@ -200,9 +173,6 @@ export function GuideScreen({
     if (!isTV || focusFirstSignal === signalAtMount.current) return;
     const first = channels[0];
     if (first === undefined) return;
-    // Ind i guiden igen: markoeren staar ved nu, saa lodret skift foelger den
-    // roede linje fra start.
-    cursorTimeRef.current = Date.now();
     setFocusTarget({ channelId: first.id, key: '' });
     // Kun signalet skal udloese det; kanalerne laeses naar det kommer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -213,17 +183,6 @@ export function GuideScreen({
     if (event.eventKeyAction !== undefined && Number(event.eventKeyAction) === 0) return;
     const cell = focusedCell.current;
     if (cell === null) return;
-    // Vandret flytning saetter markoerens tid: staar man paa det der sender nu,
-    // er tiden "nu" (saa lodret skift foelger den roede linje); ellers midt i
-    // den udsendelse man staar paa. Det er den tid lodret skift bevarer.
-    const fp = focusedProgrammeRef.current;
-    const nowMs = Date.now();
-    cursorTimeRef.current =
-      fp !== null && fp.start.getTime() <= nowMs && nowMs < fp.stop.getTime()
-        ? nowMs
-        : fp !== null
-          ? Math.round((fp.start.getTime() + fp.stop.getTime()) / 2)
-          : nowMs;
     // Pil hoejre paa den sidste udsendelse: en time frem. Pil venstre paa
     // den foerste: en time tilbage, saa man kan lede efter noget der har
     // vaeret uden at vide hvilken kanal. Gitteret holder paa fokus til begge
