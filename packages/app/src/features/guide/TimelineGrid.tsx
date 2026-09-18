@@ -28,16 +28,16 @@ import type { CellState } from './layout.js';
  * nu-linje glider med.
  */
 
-/** Pixels per minut. 1 time = 300 px. Afgoer hvor "zoomet" tidslinjen er. */
-const PX_PER_MIN = 5;
+/** Pixels per minut. Mindre = mindre celler, mere tid synligt. 1 time = 168 px. */
+const PX_PER_MIN = 2.8;
 /** Hvor langt tilbage/frem tidslinjen raekker fra den runde time. */
 const SPAN_BACK_MIN = 120;
 const SPAN_FWD_MIN = 20 * 60;
-const ROW_HEIGHT = 64;
+const ROW_HEIGHT = 52;
 const CHANNEL_COL = 112;
 const HEADER_HEIGHT = 30;
 /** Hvor cellen der faar fokus lander (px fra tidslinjens venstre kant). */
-const ANCHOR = 48;
+const ANCHOR = 40;
 
 interface Props {
   session: AppSession;
@@ -168,12 +168,13 @@ export function TimelineGrid({
         scrollX={scrollX}
         hasDialect={hasDialectFor(item)}
         onCellFocus={onCellFocus}
+        onChannelFocus={onFocusChannel}
         onOpen={onOpen}
         focusLive={focusPulse}
         isFirst={channels[0]?.id === item.id}
       />
     ),
-    [progMap, spanStartMs, spanMinutes, now, scrollX, hasDialectFor, onCellFocus, onOpen, focusPulse, channels],
+    [progMap, spanStartMs, spanMinutes, now, scrollX, hasDialectFor, onCellFocus, onFocusChannel, onOpen, focusPulse, channels],
   );
 
   return (
@@ -216,6 +217,8 @@ interface RowProps {
   scrollX: Animated.Value;
   hasDialect: boolean;
   onCellFocus: (channel: StoredChannel, left: number) => void;
+  /** Fokus paa en kanal uden at flytte tidslinjen (til tomme kanaler). */
+  onChannelFocus: (channel: StoredChannel) => void;
   onOpen: (channel: StoredChannel, programme: Programme | null, state: CellState) => void;
   focusLive: boolean;
   isFirst: boolean;
@@ -230,6 +233,7 @@ const TimelineRow = memo(function TimelineRow({
   scrollX,
   hasDialect,
   onCellFocus,
+  onChannelFocus,
   onOpen,
   focusLive,
   isFirst,
@@ -258,7 +262,6 @@ const TimelineRow = memo(function TimelineRow({
   }, [programmes, spanStartMs, spanMinutes, now]);
 
   // Den celle der sender nu — maal for pil-ind fra menuen.
-  const liveLeft = cells.find((c) => c.state === 'live')?.left ?? Math.max(0, ((nowMs - spanStartMs) / 60_000) * PX_PER_MIN);
   const liveKey = cells.find((c) => c.state === 'live')?.key ?? null;
 
   return (
@@ -273,19 +276,25 @@ const TimelineRow = memo(function TimelineRow({
         </View>
       </View>
       <View style={styles.strip}>
-        <Animated.View style={{ width: spanWidth, height: ROW_HEIGHT, transform: [{ translateX: Animated.multiply(scrollX, -1) }] }}>
-          {cells.length === 0 ? (
-            <TvPressable
-              style={[styles.cell, { left: liveLeft, width: 240 }]}
-              onFocus={() => onCellFocus(channel, liveLeft)}
-              onPress={() => onOpen(channel, null, 'gap')}
-            >
-              <Text style={styles.cellMuted} numberOfLines={1}>
-                Ingen programdata
-              </Text>
-            </TvPressable>
-          ) : (
-            cells.map((cell) => (
+        {cells.length === 0 ? (
+          // En kanal helt uden EPG maa ikke springes over. Feltet ligger UDEN
+          // for den glidende flade og fylder det synlige, saa fjernbetjeningen
+          // altid kan lande paa kanalen (og starte den).
+          <TvPressable
+            style={styles.emptyCell}
+            onFocus={() => onChannelFocus(channel)}
+            onPress={() => onOpen(channel, null, 'gap')}
+          >
+            <Text style={styles.cellMuted} numberOfLines={1}>
+              Ingen programoversigt — tryk for at se kanalen
+            </Text>
+          </TvPressable>
+        ) : (
+          <Animated.View style={{ width: spanWidth, height: ROW_HEIGHT, transform: [{ translateX: Animated.multiply(scrollX, -1) }] }}>
+            {/* Svag baggrund hele vejen, saa huller mellem udsendelser ikke
+                staar som sorte felter — cellerne ligger ovenpaa. */}
+            <View style={[styles.stripFill, { width: spanWidth }]} pointerEvents="none" />
+            {cells.map((cell) => (
               <TvPressable
                 key={cell.key}
                 hasTVPreferredFocus={isFirst && focusLive && cell.key === liveKey}
@@ -302,10 +311,10 @@ const TimelineRow = memo(function TimelineRow({
                   {cell.programme.title}
                 </Text>
               </TvPressable>
-            ))
-          )}
-          <View style={[styles.nowLineRow, { left: Math.max(0, ((nowMs - spanStartMs) / 60_000) * PX_PER_MIN) }]} pointerEvents="none" />
-        </Animated.View>
+            ))}
+            <View style={[styles.nowLineRow, { left: Math.max(0, ((nowMs - spanStartMs) / 60_000) * PX_PER_MIN) }]} pointerEvents="none" />
+          </Animated.View>
+        )}
       </View>
     </View>
   );
@@ -347,19 +356,34 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   channelName: { color: colors.text, fontSize: 12, fontWeight: '600' },
   badge: { color: colors.accent, fontSize: 12 },
   strip: { flex: 1, overflow: 'hidden' },
+  // Svag baggrund bag cellerne, saa huller ikke staar som sorte felter.
+  stripFill: { position: 'absolute', top: 3, bottom: 3, left: 0, backgroundColor: colors.surface, opacity: 0.28, borderRadius: theme.radius },
   cell: {
     position: 'absolute',
-    top: 2,
-    bottom: 2,
-    marginRight: 3,
+    top: 3,
+    bottom: 3,
+    marginRight: 2,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    borderRadius: theme.radius,
+    backgroundColor: colors.surface,
+  },
+  // Den kanal der sender nu: lysere, saa den skiller sig ud i kolonnen.
+  cellLive: { backgroundColor: colors.surfaceRaised ?? colors.surface, borderWidth: 1, borderColor: colors.accent },
+  cellPast: { opacity: 0.55 },
+  cellText: { color: colors.text, fontSize: 12 },
+  cellMuted: { color: colors.textMuted, fontSize: 12 },
+  emptyCell: {
+    position: 'absolute',
+    top: 3,
+    bottom: 3,
+    left: 8,
+    right: 8,
     justifyContent: 'center',
     paddingHorizontal: 10,
     borderRadius: theme.radius,
     backgroundColor: colors.surface,
+    opacity: 0.6,
   },
-  cellLive: { backgroundColor: colors.surfaceRaised ?? colors.surface },
-  cellPast: { opacity: 0.65 },
-  cellText: { color: colors.text, fontSize: 13 },
-  cellMuted: { color: colors.textMuted, fontSize: 13 },
   nowLineRow: { position: 'absolute', top: 0, bottom: 0, width: 2, backgroundColor: colors.danger },
 });

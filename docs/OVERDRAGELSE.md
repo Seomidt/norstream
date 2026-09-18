@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 259** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 260** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,26 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Guide-tidslinje iteration 2: mindre celler, ingen tomme spring (v260).**
+Bruger efter v258: "man kommer hen til den live kanal nu, men springer lidt
+rundt; cellerne er meget store med mange sorte rammer; gør som Google hvor de er
+mindre og ens; en kanal helt uden EPG springes over." Ændringer i
+`TimelineGrid.tsx`:
+- **Mindre celler:** `PX_PER_MIN` 5 → 2,8 (1 time = 168 px), `ROW_HEIGHT` 64 →
+  52, mindre skrift/padding. Meget mere tid synligt, cellerne føles ikke kæmpe.
+- **Færre "sorte rammer":** en svag baggrund (`stripFill`) ligger bag cellerne
+  hele vejen, så huller mellem udsendelser ikke står som sorte felter.
+- **Kanal uden EPG springes ikke over:** før havde en tom række ingen
+  fokuserbar celle → op/ned sprang forbi den. Nu ligger et fokuserbart felt
+  UDEN for den glidende flade og fylder det synlige (`emptyCell`), så man altid
+  kan lande på kanalen og starte den (ny `onChannelFocus`-callback, der ikke
+  glider tidslinjen).
+- **Live skiller sig ud:** nu-cellen har en accent-kant.
+**Stadig åbne (iteration 3):** den fokuserede celle skal "blive større/bredere"
+som Googles (Xumo-pillerne), det lille "springer lidt rundt" ved lodret skift,
+og evt. helt ens-brede piller frem for tidsproportionale. Bruger: "tror vi er
+tæt på."
 
 **Afspiller på tv: bjælken gemmer sig igen — uden at miste knapperne (v259).**
 Bruger efter v256: "nu er knapper fremme hele tiden i bunden." v256 gjorde
