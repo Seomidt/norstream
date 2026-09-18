@@ -31,6 +31,7 @@ import { isTV, useCanvasSize } from '../../ui/tv.js';
 import { MiniPreview } from '../preview/MiniPreview.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
+import { TimelineGrid } from './TimelineGrid.js';
 import { ChannelDayScreen } from './ChannelDayScreen.js';
 import { NowNextBox } from './NowNextBox.js';
 import { guideTopLayout, sidePreviewFraction } from './nowNext.js';
@@ -846,6 +847,34 @@ export function GuideScreen({
           })}
         </View>
       )}
+      {isTV && (
+        <TimelineGrid
+          session={session}
+          channels={channels}
+          now={now}
+          hasDialectFor={hasDialectFor}
+          onFocusChannel={onPreviewRow}
+          onOpen={(channel, programme, state) =>
+            setSheet({
+              channel,
+              cell:
+                programme === null
+                  ? CHANNEL_CELL
+                  : {
+                      key: `p-${programme.start.getTime()}`,
+                      programme,
+                      state,
+                      weight: 0,
+                      clippedStart: false,
+                      clippedEnd: false,
+                    },
+            })
+          }
+          focusFirstSignal={focusFirstSignal}
+        />
+      )}
+      {!isTV && (
+      <>
       <View style={styles.timeHeader}>
         <View style={styles.timeSpacer}>
           {/* Paa tv staar dagen her, naar vinduet ikke er i dag. */}
@@ -927,6 +956,8 @@ export function GuideScreen({
         />
         </TVFocusGuideView>
       </View>
+      </>
+      )}
     </TVFocusGuideView>
   );
 

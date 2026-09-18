@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 257** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 258** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,33 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Guide på tv bygget om til en glidende tidslinje (v258, ITERATION 1).** Bruger
+valgte den fulde ombygning (som Google/Xumo): "når jeg skifter i timer springer
+det hele voldsomt; Googles kører i en glidende bevægelse." Ny komponent
+`features/guide/TimelineGrid.tsx` erstatter det gamle vindue-gitter PÅ TV
+(telefon urørt — dér er drag-modellen fin til fingre). Model:
+- Cellerne sidder på deres **rigtige klokkeslæt**: bredde = varighed i minutter
+  × faste pixels (`PX_PER_MIN`). Så cellen lige nedenunder er samme tid →
+  op/ned rammer rent (løser også det gamle lodrette spring).
+- **Én delt `scrollX`** (Animated, native driver) for alle rækker. Når en celle
+  får fokus, glider hele fladen blødt (`Animated.timing` 240 ms), så cellen
+  står ved et fast punkt (`ANCHOR`) til venstre. Ingen faste 60-min-spring —
+  det er den "glidende bevægelse" brugeren efterspurgte.
+- Rød **nu-linje** ligger på tid og glider med. Tidshoved med timer glider med.
+- Programdata for **hele spanet** (`SPAN_BACK`/`SPAN_FWD`) lægges i `progMap`
+  (lokal DB via `listProgrammes` + `ensureFullEpg` i baggrunden) — intet
+  forsvinder når man glider frem/tilbage.
+- Fokus: cellerne er fokuserbare `TvPressable`; første rækkes live-celle får en
+  ÉT-SKUDS `hasTVPreferredFocus`-puls (ikke statisk — det river ellers fokus
+  tilbage). Kanalkolonnen til venstre står fast; kun tidslinjen glider.
+Wiret i `GuideScreen` bag `{isTV && <TimelineGrid …/>}`; det gamle vindue-gitter
++ dagsknapper kører kun på `!isTV`. Preview-søjlen, programbladet og gruppe-chips
+er genbrugt uændret. **EKSPERIMENTELT — iteration 1, skal afprøves på boks.**
+Sikkerhedsnet: 257 (`git`), og det gamle gitter ligger stadig i filen bag
+`!isTV`. Kendte åbne punkter til næste iteration: den fokuserede celle "bliver
+lang" som Googles (ikke gjort), huller mellem udsendelser, og finjustering af
+`PX_PER_MIN`/`ANCHOR`/`SPAN`.
 
 **Guide: programdata forsvandt når man gik frem/tilbage i tiden (v257).**
 Bruger: "når jeg klikker tilbage i tiden og frem igen er alt også væk." Årsag i
