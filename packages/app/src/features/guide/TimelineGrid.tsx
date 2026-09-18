@@ -270,36 +270,61 @@ const ChannelRow = memo(function ChannelRow({
         </View>
       </View>
       <View style={styles.strip}>
-        {cells.map((cell, i) => (
-          <View
-            key={`${cell.key}-${i}`}
-            style={[
-              styles.cell,
-              { flexGrow: cell.weight, flexShrink: cell.weight, flexBasis: 0 },
-              cell.state === 'live' && styles.cellLive,
-              cell.state === 'past' && styles.cellPast,
-              cell === primary && styles.cellPrimary,
-            ]}
-          >
-            {cell.programme !== null && cell.weight >= 8 && (
-              <>
-                <Text style={styles.cellTime} numberOfLines={1}>
-                  {cell.clippedStart ? '‹ ' : ''}
-                  {clock(cell.programme.start)}
-                  {guideAction(cell, channel, hasDialect) === 'restart' ? ' ▶' : ''}
+        {cells.map((cell, i) => {
+          // Live-forloeb: hvor langt udsendelsen er naaet (Tablos blaa streg).
+          const livePct =
+            cell.state === 'live' && cell.programme
+              ? Math.max(
+                  4,
+                  Math.min(
+                    100,
+                    ((nowMs - cell.programme.start.getTime()) /
+                      (cell.programme.stop.getTime() - cell.programme.start.getTime())) *
+                      100,
+                  ),
+                )
+              : 0;
+          return (
+            <View
+              key={`${cell.key}-${i}`}
+              style={[
+                styles.cell,
+                { flexGrow: cell.weight, flexShrink: cell.weight, flexBasis: 0 },
+                cell.state === 'past' && styles.cellPast,
+              ]}
+            >
+              {cell.programme !== null && cell.weight >= 8 && (
+                <>
+                  <Text style={styles.cellTime} numberOfLines={1}>
+                    {cell.clippedStart ? '‹ ' : ''}
+                    {clock(cell.programme.start)}
+                    {guideAction(cell, channel, hasDialect) === 'restart' ? ' ▶' : ''}
+                  </Text>
+                  <Text style={styles.cellTitle} numberOfLines={2}>
+                    {cell.programme.title}
+                  </Text>
+                </>
+              )}
+              {cell.programme === null && cell.weight >= 20 && (
+                <Text style={styles.cellMuted} numberOfLines={1}>
+                  Ingen oversigt
                 </Text>
-                <Text style={styles.cellTitle} numberOfLines={2}>
-                  {cell.programme.title}
-                </Text>
-              </>
-            )}
-            {cell.programme === null && cell.weight >= 20 && (
-              <Text style={styles.cellMuted} numberOfLines={1}>
-                Ingen oversigt
-              </Text>
-            )}
-          </View>
-        ))}
+              )}
+              {/* Live: tynd blaa streg under, fyldt saa langt udsendelsen er naaet. */}
+              {cell.state === 'live' && (
+                <View style={styles.progWrap} pointerEvents="none">
+                  <View style={styles.progTrack} />
+                  <View style={[styles.progFill, { width: `${livePct}%` }]} />
+                </View>
+              )}
+              {/* Ikke-live, men det OK aabner (naar man bladrer frem uden noget live
+                  i vinduet): en enkel blaa streg under, saa man kan se hvad OK rammer. */}
+              {cell.state !== 'live' && cell === primary && cell.programme !== null && (
+                <View style={styles.okUnderline} pointerEvents="none" />
+              )}
+            </View>
+          );
+        })}
         {nowRatio !== null && <View pointerEvents="none" style={[styles.nowLine, { left: `${nowRatio * 100}%` }]} />}
       </View>
     </TvPressable>
@@ -341,12 +366,14 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.surface,
     overflow: 'hidden',
   },
-  // Live: slim roed venstrekant (ikke en stor graa flade), saa "den roede linje"
-  // er tydelig uden at fylde.
-  cellLive: { borderLeftColor: colors.danger, borderLeftWidth: 3 },
   cellPast: { opacity: 0.5 },
-  // Den udsendelse OK aabner: accent-kant hele vejen rundt.
-  cellPrimary: { borderWidth: 1, borderColor: colors.accent },
+  // Live-forloeb: en tynd blaa streg under, fyldt saa langt udsendelsen er
+  // naaet (som Tablos). Svag blaa baggrund + massiv blaa fyld ovenpaa.
+  progWrap: { position: 'absolute', left: 8, right: 8, bottom: 4, height: 3 },
+  progTrack: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, borderRadius: 2, backgroundColor: colors.accent, opacity: 0.22 },
+  progFill: { position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: 2, backgroundColor: colors.accent },
+  // Det OK aabner naar man bladrer frem uden noget live i vinduet: enkel blaa streg.
+  okUnderline: { position: 'absolute', left: 8, right: 8, bottom: 4, height: 3, borderRadius: 2, backgroundColor: colors.accent, opacity: 0.7 },
   cellTime: { color: colors.textMuted, fontSize: 11, fontWeight: '700', marginBottom: 1 },
   cellTitle: { color: colors.text, fontSize: 12 },
   cellMuted: { color: colors.textMuted, fontSize: 11, fontStyle: 'italic' },

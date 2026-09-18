@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 264** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 265** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,16 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Guide iteration 7: live vist med blå forløbs-streg (v265).** Bruger efter
+it.6 ("nu tror jeg vi er ved at være der"): den live-udsendelse skal ikke være
+rammet ind, men have en tynd blå streg under — og efter et mockup (variant B):
+stregen skal vise **hvor langt** udsendelsen er nået, som Tablos. I
+`TimelineGrid.tsx`: live-cellen har ikke længere accent-ramme; i stedet en tynd
+blå streg i bunden — en svag blå bane (`colors.accent` 22 %) med en massiv blå
+fyld ovenpå, bredde = forløbet `(nu − start) / (varighed)`. Den udsendelse OK
+åbner når man bladrer frem uden noget live i vinduet, får en enkel blå streg
+(`okUnderline`). Rød NU-linje i vinduet beholdt. Ellers uændret fra it.6.
 
 **Guide iteration 6: Tablo-udseende oven på den lodrette liste — 30-min
 kolonner (v264).** it.5's lodrette liste virkede endelig (bruger: "det virker
