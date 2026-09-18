@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, FlatList, StyleSheet, Text, View } from 'react-native';
+import { Animated, FlatList, StyleSheet, Text, TVFocusGuideView, View } from 'react-native';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
@@ -131,12 +131,35 @@ export function TimelineGrid({
     scrollX.setValue(target);
   }, [stripWidth, nowX, maxScroll, scrollX]);
 
+  const listRef = useRef<FlatList<StoredChannel>>(null);
+  // Lodret: rul listen saa den raekke fjernbetjeningen staar paa altid er
+  // synlig — ellers blev den nederste raekke skaaret af, og man kunne ikke se
+  // at der var flere kanaler under.
+  const scrollToChannel = useCallback(
+    (channel: StoredChannel) => {
+      const idx = channels.findIndex((c) => c.id === channel.id);
+      if (idx < 0) return;
+      try {
+        listRef.current?.scrollToIndex({ index: idx, viewPosition: 0.5, animated: true });
+      } catch {
+        // Maalet er ikke tegnet endnu; onScrollToIndexFailed haandterer det.
+      }
+    },
+    [channels],
+  );
+  const handleChannelFocus = useCallback(
+    (channel: StoredChannel) => {
+      onFocusChannel(channel);
+      scrollToChannel(channel);
+    },
+    [onFocusChannel, scrollToChannel],
+  );
   const onCellFocus = useCallback(
     (channel: StoredChannel, left: number) => {
-      onFocusChannel(channel);
+      handleChannelFocus(channel);
       glideTo(left);
     },
-    [onFocusChannel, glideTo],
+    [handleChannelFocus, glideTo],
   );
 
   // Fokuser live-cellen paa foerste raekke naar guiden aabnes, og igen naar
@@ -155,8 +178,6 @@ export function TimelineGrid({
     return () => cancelAnimationFrame(f);
   }, [focusPulse]);
 
-  const listRef = useRef<FlatList<StoredChannel>>(null);
-
   const renderItem = useCallback(
     ({ item }: { item: StoredChannel }) => (
       <TimelineRow
@@ -168,13 +189,13 @@ export function TimelineGrid({
         scrollX={scrollX}
         hasDialect={hasDialectFor(item)}
         onCellFocus={onCellFocus}
-        onChannelFocus={onFocusChannel}
+        onChannelFocus={handleChannelFocus}
         onOpen={onOpen}
         focusLive={focusPulse}
         isFirst={channels[0]?.id === item.id}
       />
     ),
-    [progMap, spanStartMs, spanMinutes, now, scrollX, hasDialectFor, onCellFocus, onFocusChannel, onOpen, focusPulse, channels],
+    [progMap, spanStartMs, spanMinutes, now, scrollX, hasDialectFor, onCellFocus, handleChannelFocus, onOpen, focusPulse, channels],
   );
 
   return (
@@ -203,6 +224,10 @@ export function TimelineGrid({
         windowSize={Math.max(11, channels.length + 2)}
         maxToRenderPerBatch={Math.max(12, channels.length)}
         getItemLayout={(_, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
+        onScrollToIndexFailed={() => undefined}
+        // Luft under sidste raekke, saa den kan rulles op til midten og de
+        // nederste kanaler bliver synlige.
+        contentContainerStyle={{ paddingBottom: ROW_HEIGHT * 4 }}
       />
     </View>
   );
@@ -271,8 +296,12 @@ const TimelineRow = memo(function TimelineRow({
     return out;
   }, [programmes, spanStartMs, spanMinutes, now]);
 
-  // Den celle der sender nu — maal for pil-ind fra menuen.
+  // Den celle der sender nu — maal for pil-ind fra menuen OG for lodret skift:
+  // kommer fokus ind i raekken op/ned, sender TVFocusGuideView det til
+  // live-cellen, saa man altid lander paa det der sender nu (den roede linje),
+  // ikke en nabocelle.
   const liveKey = cells.find((c) => c.state === 'live')?.key ?? null;
+  const [liveNode, setLiveNode] = useState<View | null>(null);
 
   return (
     <View style={styles.row}>
@@ -304,25 +333,31 @@ const TimelineRow = memo(function TimelineRow({
             {/* Svag baggrund hele vejen, saa huller mellem udsendelser ikke
                 staar som sorte felter — cellerne ligger ovenpaa. */}
             <View style={[styles.stripFill, { width: spanWidth }]} pointerEvents="none" />
-            {cells.map((cell) => (
-              <TvPressable
-                key={cell.key}
-                flat
-                hasTVPreferredFocus={isFirst && focusLive && cell.key === liveKey}
-                style={[
-                  styles.cell,
-                  { left: cell.left, width: cell.width },
-                  cell.state === 'live' && styles.cellLive,
-                  cell.state === 'past' && styles.cellPast,
-                ]}
-                onFocus={() => onCellFocus(channel, cell.left)}
-                onPress={() => onOpen(channel, cell.programme, cell.state)}
-              >
-                <Text style={styles.cellText} numberOfLines={2}>
-                  {cell.programme.title}
-                </Text>
-              </TvPressable>
-            ))}
+            <TVFocusGuideView
+              style={{ width: spanWidth, height: ROW_HEIGHT }}
+              destinations={liveNode !== null ? [liveNode] : undefined}
+            >
+              {cells.map((cell) => (
+                <TvPressable
+                  key={cell.key}
+                  flat
+                  ref={cell.key === liveKey ? setLiveNode : undefined}
+                  hasTVPreferredFocus={isFirst && focusLive && cell.key === liveKey}
+                  style={[
+                    styles.cell,
+                    { left: cell.left, width: cell.width },
+                    cell.state === 'live' && styles.cellLive,
+                    cell.state === 'past' && styles.cellPast,
+                  ]}
+                  onFocus={() => onCellFocus(channel, cell.left)}
+                  onPress={() => onOpen(channel, cell.programme, cell.state)}
+                >
+                  <Text style={styles.cellText} numberOfLines={2}>
+                    {cell.programme.title}
+                  </Text>
+                </TvPressable>
+              ))}
+            </TVFocusGuideView>
             <View style={[styles.nowLineRow, { left: Math.max(0, ((nowMs - spanStartMs) / 60_000) * PX_PER_MIN) }]} pointerEvents="none" />
           </Animated.View>
         )}

@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 260** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 261** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,26 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**Guide-tidslinje iteration 2: mindre celler, ingen tomme spring (v260).**
+**Guide-tidslinje iteration 3: op/ned rammer live, listen følger fokus (v261).**
+(v260 blev aldrig udgivet — foldet ind her.) To ting oven på it.2 (+ it.2's
+overlap-klip og fokus-uden-skalering, se nedenfor):
+- **Op/ned rammer live-cellen.** Bruger: "op/ned skal ramme den der er live ved
+  den røde linje; tit lander jeg ved siden af, men preview/beskrivelse viser den
+  rigtige." Fokus landede på rette RÆKKE men forkert CELLE (geometrisk nabo).
+  Nu er hver rækkes celler pakket i en `TVFocusGuideView` hvis `destinations`
+  peger på live-cellen (`TvPressable` `forwardRef` → `setLiveNode`). Kommer
+  fokus ind i rækken op/ned, sender Android det til live-cellen. Native, kæmper
+  ikke mod fokus (samme mekanik som v255).
+- **Listen følger fokus lodret.** Bruger: "kan ikke se hvad der sker i bunden;
+  der er flere kanaler." FlatList rullede ikke ned til den fokuserede række, så
+  den blev skåret af. Nu `scrollToIndex({viewPosition:0.5})` ved kanal-fokus +
+  `paddingBottom` under sidste række, så den fokuserede kanal altid centreres og
+  man kan se rækkerne under.
+- Også foldet ind fra it.2: overlap/dublet-klip (samme udsendelse 2×) og
+  `TvPressable` `flat` (fokus uden opskalering, så cellen ikke vokser ud over
+  naboen).
+
+**Guide-tidslinje iteration 2: mindre celler, ingen tomme spring (v260, ej udgivet).**
 Bruger efter v258: "man kommer hen til den live kanal nu, men springer lidt
 rundt; cellerne er meget store med mange sorte rammer; gør som Google hvor de er
 mindre og ens; en kanal helt uden EPG springes over." Ændringer i
