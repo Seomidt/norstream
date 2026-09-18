@@ -261,7 +261,7 @@ export function SettingsScreen({
 
   async function restoreFromText(text: string): Promise<void> {
     {
-      const result = await restoreBackup(session.db, parseBackup(text));
+      const result = await restoreBackup(session.db, parseBackup(text), { matchByName: true });
       // De valgte logoer hentes om, saa filen paa telefonen er den valgte.
       for (const key of result.overrideKeys) await resetLogo(key);
       await forgetLogoMisses();

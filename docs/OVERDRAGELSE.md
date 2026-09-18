@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 239** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 240** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -38,6 +38,25 @@ sky-kopi, aldrig i en kopi der kan ende i klartekst). Onboarding genbruger
 `connectXtream`/`connectM3u` (login + kanalhentning) og kører derefter
 `restoreBackup`. Se `features/onboarding/OnboardingScreen.tsx` →
 `restoreFromSky`.
+
+**1:1 kopi også til en ANDEN fil (v240).** Backup-skema **v3** gemmer nu
+`channelNames` (navnet på hver kanal favoritter/grupper/logoer peger på).
+`restoreBackup(db, backup, { matchByName: true })` finder de samme kanaler igen
+på **navn** (`normaliseChannelName`) når panelet er et andet og id'erne ikke
+passer — så favoritter, grupper og egne logoer følger med til et nyt panel med
+samme kanaler. Begge gendan-veje (onboarding "Sky-kopi" og Indstillinger →
+"Hent fra skyen") sender `matchByName: true`. Samme panel bruger stadig
+id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
+ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
+Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
+fil).
+
+**YouTube-trailer og bot-tjek (v240).** YouTube er begyndt at spærre den
+indlejrede afspiller i webvisninger ("Log ind for at bekræfte, at du ikke er en
+bot"). `TrailerScreen` sætter nu en rigtig Chrome-`userAgent` +
+`thirdPartyCookiesEnabled`/`sharedCookiesEnabled` for at ramme tjekket
+sjældnere. Det er **ikke** en garanti — tjekket sidder også på YouTubes side —
+og "Åbn i YouTube" (åbner YouTube-appen) er stadig den sikre vej.
 
 **Appen opdaterer sig selv, uden Play Store.**
 - `build-android.yml` (`motor: runner`) bygger APK'erne (uændret).

@@ -78,6 +78,20 @@ type Source =
  */
 const EMBED_ORIGIN = 'https://norstream.app';
 
+/**
+ * En rigtig Chrome-browser-streng, ikke webvisningens egen.
+ *
+ * YouTube er begyndt at spaerre den indlejrede afspiller i webvisninger med
+ * "Log ind for at bekraefte, at du ikke er en bot". En webvisnings egen
+ * User-Agent (";wv") er noget af det de kigger efter. Med en almindelig
+ * Chrome-streng behandles indlejringen som en browser, og sammen med
+ * tredjeparts-cookies (saa YouTube maa saette sine egne) rammer bot-tjekket
+ * sjaeldnere. Det er ikke en garanti — tjekket sidder ogsaa paa YouTubes side
+ * — men "Aabn i YouTube" er der stadig som sikker vej.
+ */
+const BROWSER_USER_AGENT =
+  'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36';
+
 export function TrailerScreen({ session, trailerId, title, year, kind, onBack }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
@@ -222,6 +236,9 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             source={webSource}
             originWhitelist={['*']}
             style={styles.web}
+            userAgent={BROWSER_USER_AGENT}
+            thirdPartyCookiesEnabled
+            sharedCookiesEnabled
             allowsFullscreenVideo
             allowsInlineMediaPlayback
             mediaPlaybackRequiresUserAction={false}

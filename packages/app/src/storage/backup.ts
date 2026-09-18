@@ -1,3 +1,4 @@
+import { normaliseChannelName } from '@norstream/core';
 import type { SqlDatabase } from './types.js';
 
 /**
@@ -22,7 +23,12 @@ import type { SqlDatabase } from './types.js';
 // panelet af sig selv ud fra en sky-kopi. Kodeordet kommer kun med naar
 // kopien lgges KRYPTERET i skyen (loadCreds gives med) — aldrig i en kopi
 // der kan ende i klartekst.
-export const BACKUP_VERSION = 2;
+//
+// Version 3 tilfoejede `channelNames`: navnet paa hver kanal favoritter,
+// grupper og egne logoer peger paa. Saa kan en gendannelse paa et ANDET
+// panel finde de samme kanaler igen paa navn (normaliseChannelName), naar
+// id'erne ikke passer — en 1:1 kopi ogsaa til en anden fil.
+export const BACKUP_VERSION = 3;
 
 export interface Backup {
   app: 'norstream';
@@ -47,6 +53,12 @@ export interface Backup {
   settings: Record<string, string>;
   watchlist: Array<{ itemKey: string; addedMs: number }>;
   progress: Array<{ itemKey: string; positionS: number; durationS: number | null; updatedMs: number }>;
+  /**
+   * Navnet paa hver kanal favoritter, grupper og egne logoer peger paa
+   * (noegle = kanalens sammensatte id). Bruges til at finde de samme kanaler
+   * igen paa et andet panel, hvor id'erne er nogle andre.
+   */
+  channelNames?: Record<string, string>;
 }
 
 /** Indstillinger der er brugerens valg, ikke appens bogholderi om hentetider. */
@@ -125,6 +137,23 @@ export async function createBackup(
   const members = await db.getAllAsync<{ group_id: string; channel_id: string }>(
     'SELECT group_id, channel_id FROM favorite_group_members',
   );
+  // Navnet paa hver kanal favoritter, grupper og logoer peger paa, saa en
+  // gendannelse paa et andet panel kan finde dem igen paa navn.
+  const referencedKeys = new Set<string>();
+  for (const row of favorites) referencedKeys.add(row.channel_id);
+  for (const row of members) referencedKeys.add(row.channel_id);
+  for (const row of overrides) referencedKeys.add(row.channel_key);
+  const channelNames: Record<string, string> = {};
+  if (referencedKeys.size > 0) {
+    const keys = Array.from(referencedKeys);
+    const placeholders = keys.map(() => '?').join(',');
+    const nameRows = await db.getAllAsync<{ id: string; name: string }>(
+      `SELECT id, name FROM channels WHERE id IN (${placeholders})`,
+      keys,
+    );
+    for (const nameRow of nameRows) channelNames[nameRow.id] = nameRow.name;
+  }
+
   const backupSources = await Promise.all(
     sources.map(async (row) => {
       const base = {
@@ -170,6 +199,7 @@ export async function createBackup(
       durationS: row.duration_s,
       updatedMs: row.updated_ms,
     })),
+    channelNames,
   };
 }
 
@@ -209,6 +239,10 @@ export function parseBackup(text: string): Backup {
       typeof candidate.settings === 'object' && candidate.settings !== null ? candidate.settings : {},
     watchlist: Array.isArray(candidate.watchlist) ? candidate.watchlist : [],
     progress: Array.isArray(candidate.progress) ? candidate.progress : [],
+    channelNames:
+      typeof candidate.channelNames === 'object' && candidate.channelNames !== null
+        ? (candidate.channelNames as Record<string, string>)
+        : {},
   };
 }
 
@@ -230,7 +264,21 @@ export interface RestoreResult {
  * **erstattes** — en gendannelse skal give det kopien viser, ikke en
  * blanding. "Min liste" og fremdrift laegges oveni; der er intet at miste.
  */
-export async function restoreBackup(db: SqlDatabase, backup: Backup): Promise<RestoreResult> {
+export interface RestoreOptions {
+  /**
+   * Find de samme kanaler igen paa **navn** naar panelet er et andet (id'erne
+   * passer ikke). Saa foelger favoritter, grupper og egne logoer med til en
+   * anden fil — en 1:1 kopi. Uden den springes det der hoerer til et ukendt
+   * panel bare over (som foer).
+   */
+  matchByName?: boolean;
+}
+
+export async function restoreBackup(
+  db: SqlDatabase,
+  backup: Backup,
+  options: RestoreOptions = {},
+): Promise<RestoreResult> {
   const current = await db.getAllAsync<{ id: string; url: string; username: string | null }>(
     'SELECT id, url, username FROM sources',
   );
@@ -247,11 +295,36 @@ export async function restoreBackup(db: SqlDatabase, backup: Backup): Promise<Re
   // ikke stod i kopien (eller staar der uden match) beholder deres egne.
   for (const source of current) if (!idMap.has(source.id)) idMap.set(source.id, source.id);
 
+  // Navn -> kanal-noegle for boksens egne kanaler, til at finde de samme
+  // kanaler igen paa et andet panel. Foerste kanal med et givet normaliseret
+  // navn vinder.
+  let nameMap: Map<string, string> | null = null;
+  if (options.matchByName === true) {
+    nameMap = new Map();
+    const channels = await db.getAllAsync<{ id: string; name: string }>('SELECT id, name FROM channels');
+    for (const channel of channels) {
+      const key = normaliseChannelName(channel.name);
+      if (key.length > 0 && !nameMap.has(key)) nameMap.set(key, channel.id);
+    }
+  }
+  const backupNames = backup.channelNames ?? {};
+
+  /** Kun kilde-id'et byttes (kategorier kan ikke matches paa navn). */
   const remap = (key: string): string | null => {
     const separator = key.indexOf(':');
     if (separator === -1) return null;
     const target = idMap.get(key.slice(0, separator));
     return target === undefined ? null : `${target}${key.slice(separator)}`;
+  };
+
+  /** Som `remap`, men falder tilbage til at finde kanalen paa navn (anden fil). */
+  const remapChannel = (key: string): string | null => {
+    const byId = remap(key);
+    if (byId !== null) return byId;
+    if (nameMap === null) return null;
+    const name = backupNames[key];
+    if (name === undefined) return null;
+    return nameMap.get(normaliseChannelName(name)) ?? null;
   };
 
   const result: RestoreResult = {
@@ -269,7 +342,7 @@ export async function restoreBackup(db: SqlDatabase, backup: Backup): Promise<Re
   await db.runAsync('DELETE FROM favorite_exclusions');
   let position = 0;
   for (const favorite of backup.favorites) {
-    const channelId = remap(favorite.channelId);
+    const channelId = remapChannel(favorite.channelId);
     if (channelId === null) continue;
     const categoryId =
       favorite.sourceCategoryId === null ? null : remap(favorite.sourceCategoryId);
@@ -290,7 +363,7 @@ export async function restoreBackup(db: SqlDatabase, backup: Backup): Promise<Re
       typeof group.position === 'number' ? group.position : 0,
     ]);
     for (const raw of Array.isArray(group.channelIds) ? group.channelIds : []) {
-      const channelId = typeof raw === 'string' ? remap(raw) : null;
+      const channelId = typeof raw === 'string' ? remapChannel(raw) : null;
       if (channelId === null) continue;
       await db.runAsync('INSERT OR IGNORE INTO favorite_group_members (group_id, channel_id) VALUES (?, ?)', [group.id, channelId]);
     }
@@ -307,7 +380,7 @@ export async function restoreBackup(db: SqlDatabase, backup: Backup): Promise<Re
 
   await db.runAsync('DELETE FROM logo_overrides');
   for (const override of backup.logoOverrides) {
-    const channelKey = remap(override.channelKey);
+    const channelKey = remapChannel(override.channelKey);
     if (channelKey === null || typeof override.url !== 'string') continue;
     await db.runAsync('INSERT OR REPLACE INTO logo_overrides (channel_key, url) VALUES (?, ?)', [
       channelKey,

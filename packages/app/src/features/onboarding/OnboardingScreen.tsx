@@ -113,7 +113,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
           if (result.ok) connected = true;
         }
       }
-      await restoreBackup(db, backup);
+      await restoreBackup(db, backup, { matchByName: true });
       await setSkyCode(db, code.trim());
       if (!connected) {
         setError(

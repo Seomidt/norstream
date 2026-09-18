@@ -68,6 +68,12 @@ describe('createBackup', () => {
     const backup = await createBackup(old.db, 1000);
     expect(backup.sources[0].password).toBeUndefined();
   });
+
+  it('gemmer kanalnavne for favoritter og logo (til match paa et andet panel)', async () => {
+    const backup = await createBackup(old.db, 1000);
+    expect(backup.channelNames?.[`${old.sourceId}:10`]).toBe('DNK| DR1 HD');
+    expect(backup.channelNames?.[`${old.sourceId}:12`]).toBe('DNK| TV 2 HD');
+  });
 });
 
 describe('parseBackup', () => {
@@ -130,6 +136,37 @@ describe('restoreBackup', () => {
     // Det der ikke hoerer til en kilde, kommer med alligevel.
     expect(result.hiddenCountries).toBe(1);
     expect(result.settings).toBe(1);
+  });
+
+  it('finder favoritter og logo igen paa et ANDET panel via kanalnavn (1:1 kopi)', async () => {
+    const backup = await createBackup(old.db);
+    // Et helt andet panel — anden adresse og bruger — og andre kanal-id'er,
+    // men samme kanalnavne. Uden navne-match ville intet af det haenge paa.
+    const fresh = createTestDatabase();
+    await migrate(fresh);
+    const freshId = (await addSource(fresh, { kind: 'xtream', name: 'Andet', url: 'http://andet.example', username: 'bruger2' })).id;
+    await replaceCategories(fresh, freshId, [{ id: '99', name: 'ALT' }]);
+    await replaceChannels(fresh, freshId, [
+      { id: 'aa', name: 'DR1', number: 1, logoUrl: null, categoryId: '99', epgChannelId: null, hasArchive: false, archiveDays: 0 },
+      { id: 'bb', name: 'TV 2', number: 2, logoUrl: null, categoryId: '99', epgChannelId: null, hasArchive: false, archiveDays: 0 },
+    ]);
+
+    const result = await restoreBackup(fresh, backup, { matchByName: true });
+
+    // Favoritterne (DR1 og TV 2) fandt de nye kanaler paa navn — nye id'er.
+    const favourites = (await listChannels(fresh, { favouritesOnly: true })).map((c) => c.id).sort();
+    expect(favourites).toEqual([`${freshId}:aa`, `${freshId}:bb`].sort());
+    expect(result.favorites).toBe(2);
+    // Det egne TV 2-logo fulgte med til den nye TV 2-kanal.
+    const override = await fresh.getFirstAsync<{ channel_key: string }>('SELECT channel_key FROM logo_overrides');
+    expect(override?.channel_key).toBe(`${freshId}:bb`);
+  });
+
+  it('matcher IKKE paa navn uden matchByName (uaendret adfaerd)', async () => {
+    const backup = await createBackup(old.db);
+    const fresh = await installation('http://andet.example', 'bruger2');
+    const result = await restoreBackup(fresh.db, backup);
+    expect(result.favorites).toBe(0);
   });
 
   it('erstatter favoritterne frem for at blande', async () => {
