@@ -116,7 +116,7 @@ export function TimelineGrid({
   const glideTo = useCallback(
     (left: number) => {
       const target = Math.min(Math.max(0, left - ANCHOR), maxScrollRef.current);
-      Animated.timing(scrollX, { toValue: target, duration: 240, useNativeDriver: true }).start();
+      Animated.timing(scrollX, { toValue: target, duration: 150, useNativeDriver: true }).start();
     },
     [scrollX],
   );
@@ -214,21 +214,26 @@ export function TimelineGrid({
           </Animated.View>
         </View>
       </View>
-      <FlatList
-        ref={listRef}
-        data={channels}
-        keyExtractor={(c) => c.id}
-        renderItem={renderItem}
-        removeClippedSubviews={false}
-        initialNumToRender={Math.max(12, channels.length)}
-        windowSize={Math.max(11, channels.length + 2)}
-        maxToRenderPerBatch={Math.max(12, channels.length)}
-        getItemLayout={(_, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
-        onScrollToIndexFailed={() => undefined}
-        // Luft under sidste raekke, saa den kan rulles op til midten og de
-        // nederste kanaler bliver synlige.
-        contentContainerStyle={{ paddingBottom: ROW_HEIGHT * 4 }}
-      />
+      {/* Fang fokus til side: pil venstre/hoejre ruller i tiden og maa ikke
+          slippe ud i menuen ("koerer pludselig ud til menuen naar jeg gaar
+          tilbage i tiden"). Menuen naas ved at gaa op til gruppe-chipsene. */}
+      <TVFocusGuideView style={styles.list} trapFocusLeft trapFocusRight>
+        <FlatList
+          ref={listRef}
+          data={channels}
+          keyExtractor={(c) => c.id}
+          renderItem={renderItem}
+          removeClippedSubviews={false}
+          initialNumToRender={Math.max(12, channels.length)}
+          windowSize={Math.max(11, channels.length + 2)}
+          maxToRenderPerBatch={Math.max(12, channels.length)}
+          getItemLayout={(_, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
+          onScrollToIndexFailed={() => undefined}
+          // Luft under sidste raekke, saa den kan rulles op til midten og de
+          // nederste kanaler bliver synlige.
+          contentContainerStyle={{ paddingBottom: ROW_HEIGHT * 4 }}
+        />
+      </TVFocusGuideView>
     </View>
   );
 }
@@ -382,6 +387,7 @@ function hourMarks(spanStartMs: number, spanMinutes: number): { ms: number; x: n
 
 const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
+  list: { flex: 1 },
   header: { flexDirection: 'row', height: HEADER_HEIGHT },
   headerSpacer: { width: CHANNEL_COL },
   headerStrip: { flex: 1, overflow: 'hidden' },
