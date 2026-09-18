@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 249** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 250** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,23 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Guiden springer til toppen — den RIGTIGE årsag (v250).** v248 (baggrunds-
+hentning af EPG) ramte ikke: brugeren meldte "når jeg kører ca. 18 kanaler ned
+i guiden springer den til toppen igen." Det tal er nøglen. Gitterets FlatList
+havde `initialNumToRender={16}` og `windowSize={5}` — altså **virtualisering**:
+ruller man forbi de første ~16 rækker, afmonterer/genbruger FlatList rækker
+uden for vinduet. På tv betyder det, at den række fjernbetjeningen står på, kan
+blive revet ned under en — fokus mistes, og `autoFocus` på gitterets
+TVFocusGuideView kaster det tilbage til øverste række. Det var ikke tomme
+celler (v248), det var virtualiseringen. Fix i `features/guide/GuideScreen.tsx`:
+på tv tegnes **alle** favorit-rækker fra start og holdes i live
+(`initialNumToRender`/`windowSize`/`maxToRenderPerBatch` sat til
+`channels.length` på tv; uændret på telefon, hvor der ingen fokus er at miste).
+Guiden viser kun favoritterne, og rækkerne har fast højde + `getItemLayout`, så
+det er billigt. Nu forsvinder den fokuserede række aldrig, og springet er væk.
+`removeClippedSubviews={false}` (fra v241) var nødvendig men ikke nok alene:
+den stopper klipning af monterede views, ikke selve virtualiseringen.
 
 **"Forfra" bliver ikke til sort skærm midt i udsendelsen (v249).** Bruger:
 "far var ved at se en udsendelse på dansk TV 2 forfra, men den stoppede inden

@@ -905,17 +905,21 @@ export function GuideScreen({
             index,
           })}
           contentContainerStyle={{ paddingBottom: Math.max(ROW_HEIGHT, gridHeight - ROW_HEIGHT) }}
-          // Faa skaermfulde i live ad gangen. Standarden holder ti skaermfulde
-          // tegnet over og under, og paa en stor skaerm er det hundredvis af
-          // raekker der skal med i hver omtegning.
-          windowSize={5}
-          maxToRenderPerBatch={8}
-          initialNumToRender={16}
+          // Paa tv tegnes ALLE favorit-raekker fra start og holdes i live.
+          // Ellers virtualiserer FlatList: naar man ruller forbi de foerste
+          // ~16 raekker, afmonteres/genbruges raekker uden for vinduet — og
+          // forsvinder den raekke fjernbetjeningen staar paa, ryger fokus, og
+          // autoFocus kaster det til oeverste raekke ("springer til toppen ca.
+          // 18 kanaler nede"). Guiden viser kun favoritterne, saa det er faa,
+          // lette raekker (fast hoejde + getItemLayout). Paa telefon er
+          // virtualiseringen fin — dér er der ingen fokus at miste.
+          windowSize={isTV ? Math.max(11, channels.length + 2) : 5}
+          maxToRenderPerBatch={isTV ? Math.max(16, channels.length) : 8}
+          initialNumToRender={isTV ? Math.max(16, channels.length) : 16}
           // Aldrig afmontere en raekke fjernbetjeningen kan staa paa: paa
           // Android afmonterer FlatList som standard raekker der klippes ved
           // kanten, og forsvinder den fokuserede raekke, ryger fokus ud i
-          // menuen. Guiden viser kun favoritterne, saa der er faa raekker at
-          // holde i live.
+          // menuen.
           removeClippedSubviews={false}
           renderItem={renderRow}
         />
