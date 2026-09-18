@@ -385,14 +385,17 @@ export function GuideScreen({
    * raekker over der allerede staar tegnet for vinduet; kun en hentning
    * fra panelet tvinger dem laest igen.
    */
-  const drawnFor = useRef(new Map<string, string>());
   const drawFromCache = useCallback(
-    async (visible: readonly StoredChannel[], from: Date, to: Date, force = false): Promise<boolean> => {
+    async (visible: readonly StoredChannel[], from: Date, to: Date, _force = false): Promise<boolean> => {
       if (visible.length === 0) return false;
-      const windowKey = `${from.getTime()}-${to.getTime()}`;
-      const wanted = force ? [...visible] : visible.filter((channel) => drawnFor.current.get(channel.id) !== windowKey);
-      if (wanted.length === 0) return true;
-      const found = await Promise.all(wanted.map((channel) => listProgrammes(session.db, channel.id, from, to)));
+      // Altid genindlaes de synlige kanaler for DETTE vindue fra den lokale
+      // database. Foer sprang den kanaler over der "allerede var tegnet" for
+      // vinduet (drawnFor), men rows holder kun ét vindues programmer ad
+      // gangen og bliver overskrevet naar man ruller til et andet tidspunkt.
+      // Kom man saa tilbage til nu, troede den at nu-vinduet var tegnet og
+      // genindlaeste ikke — cellerne stod tomme ("naar jeg gaar tilbage og
+      // frem er alt vaek"). listProgrammes er en hurtig indekseret opslag.
+      const found = await Promise.all(visible.map((channel) => listProgrammes(session.db, channel.id, from, to)));
       if (
         currentWindow.current.from !== from.getTime() ||
         currentWindow.current.to !== to.getTime()
@@ -400,9 +403,8 @@ export function GuideScreen({
         return false;
       }
       const loaded: Record<string, Programme[]> = {};
-      wanted.forEach((channel, index) => {
+      visible.forEach((channel, index) => {
         loaded[channel.id] = found[index] ?? [];
-        drawnFor.current.set(channel.id, windowKey);
       });
       setRows((previous) => ({ ...previous, ...loaded }));
       return true;

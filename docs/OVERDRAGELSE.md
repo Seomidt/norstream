@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 256** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 257** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,18 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Guide: programdata forsvandt når man gik frem/tilbage i tiden (v257).**
+Bruger: "når jeg klikker tilbage i tiden og frem igen er alt også væk." Årsag i
+`GuideScreen.tsx` `drawFromCache`: den sprang kanaler over der "allerede var
+tegnet" for et vindue (`drawnFor`-map), men `rows` holder kun ÉT vindues
+programmer ad gangen og bliver overskrevet når man ruller til et andet
+tidspunkt. Kom man tilbage til nu-vinduet, troede den det var tegnet og
+genindlæste ikke — cellerne stod tomme. Fix: `drawnFor`-optimeringen fjernet;
+de synlige kanaler genindlæses altid fra den lokale database for det aktuelle
+vindue (`listProgrammes` er en hurtig indekseret opslag). **Bemærk:** dette er
+en lappe på det gamle vindue-model; den rigtige kur er tidslinje-ombygningen
+nedenfor (bruger valgte den) — data ligger så for hele spanet, ikke pr. vindue.
 
 **Afspiller på tv: knapbjælken bliver stående og ligger i bunden (v256).**
 Bruger: "jeg kan slet ikke komme hen til [de andre knapper]." Årsag:
