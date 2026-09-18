@@ -855,7 +855,12 @@ export function GuideScreen({
             ]}
           />
         )}
-        <TVFocusGuideView style={styles.grid} trapFocusRight={isTV} trapFocusLeft={isTV}>
+        {/* autoFocus: forsvinder den celle fjernbetjeningen staar paa (raekken
+            faar data, eller vinduet flytter sig), traekker gitteret selv fokus
+            tilbage til en celle herinde i stedet for at lade Android sende det
+            ud i menuen til venstre. Sammen med trap'ene til side og op er
+            gitteret nu lukket om fokus. */}
+        <TVFocusGuideView style={styles.grid} trapFocusRight={isTV} trapFocusLeft={isTV} autoFocus={isTV}>
         <FlatList
           data={channels}
           keyExtractor={(item) => item.id}
@@ -873,6 +878,12 @@ export function GuideScreen({
           windowSize={5}
           maxToRenderPerBatch={8}
           initialNumToRender={16}
+          // Aldrig afmontere en raekke fjernbetjeningen kan staa paa: paa
+          // Android afmonterer FlatList som standard raekker der klippes ved
+          // kanten, og forsvinder den fokuserede raekke, ryger fokus ud i
+          // menuen. Guiden viser kun favoritterne, saa der er faa raekker at
+          // holde i live.
+          removeClippedSubviews={false}
           renderItem={renderRow}
         />
         </TVFocusGuideView>

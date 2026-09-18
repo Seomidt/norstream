@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 240** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 241** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,17 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Guide-fokus holder nu fast (v241).** I guiden kunne fokus springe **ud i
+menuen til venstre**, når den celle fjernbetjeningen stod på blev skiftet ud
+(rækken fik programdata, eller 2-timers-vinduet flyttede sig). To rettelser i
+`GuideScreen.tsx`: gitterets indre `TVFocusGuideView` har nu `autoFocus`
+(trækker fokus tilbage i gitteret i stedet for ud i menuen), og `FlatList` har
+`removeClippedSubviews={false}` (så en række fjernbetjeningen står på aldrig
+afmonteres ved kanten). De gamle værn (`recoverKey`, `focusTarget`, trap
+left/right/up) er bevaret. Gennemgået for andre fælder: intet `disabled` på
+tv-fokusérbare knapper, logoet er `focusable={!isTV}`, `hasTVPreferredFocus` er
+dynamisk (aldrig statisk sand).
 
 **YouTube-trailer og bot-tjek (v240).** YouTube er begyndt at spærre den
 indlejrede afspiller i webvisninger ("Log ind for at bekræfte, at du ikke er en
