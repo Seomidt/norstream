@@ -187,7 +187,18 @@ export function PlayerScreen({
    * app.json (forgrundstjeneste paa Android). Tv goer det ikke: et
    * billede uden skaerm er bare panelets ene forbindelse brugt paa ingenting.
    */
-  const isRadio = /radio/i.test(channel.name) || isRadioKey(channel.id);
+  // Radio-behandling (skjult video, baggrundslyd, radio-UI) er for AEGTE
+  // radio: en internetradio-station (isRadioKey), eller en panel-kanal hvis
+  // navn ligner radio OG som viser sig ikke at have billede. Foer var alene
+  // navnet nok — saa en video-kanal med "radio" i navnet (fx en musik-tv-
+  // kanal) fik radio-UI'et, videoen blev skjult, og i fuld skaerm stod den
+  // sort selv om previewet (uden radio-grenen) viste billede. hasVideo
+  // afgoeres naar streamen melder sine spor; indtil da vises billedet.
+  const nameLooksRadio = /radio/i.test(channel.name);
+  const definiteRadio = isRadioKey(channel.id);
+  const [hasVideo, setHasVideo] = useState<boolean | null>(null);
+  useEffect(() => setHasVideo(null), [channel.id]);
+  const isRadio = definiteRadio || (nameLooksRadio && hasVideo === false);
   // Sang og cover, kun for internetradio (stationens egen Icecast-adresse):
   // panelets radiokanaler gaar gennem panelet og sender ingen titel.
   const nowPlaying = useRadioNowPlaying(isRadioKey(channel.id) ? channel.streamUrl : null, channel.name, isRadio && radioState === 'playing');
@@ -340,6 +351,10 @@ export function PlayerScreen({
     };
     const subscription = player.addListener('videoTrackChange', ({ videoTrack }: { videoTrack: { mimeType: string | null; size: { width: number; height: number }; isSupported: boolean; frameRate?: number | null } | null }) => {
       setVideoInfo(describe(videoTrack));
+      // Meldte streamen et billedspor, er det ikke radio (uanset navn). Kun
+      // opgradering til "har billede": et forbigaaende null under opstart maa
+      // ikke faa en video-kanal til at skifte til radio-UI.
+      if (videoTrack !== null) setHasVideo(true);
     });
     return () => subscription.remove();
   }, [player]);
@@ -472,6 +487,16 @@ export function PlayerScreen({
             );
           } catch {
             setAudioState('Spiller');
+          }
+          try {
+            // Radio-afgoerelse: er streamen klar helt uden billedspor, er det
+            // lyd alene (en aegte radiokanal). Har den billede, er det video —
+            // ogsaa selv om navnet indeholder "radio". setHasVideo(true) fra
+            // videoTrackChange nedgraderes aldrig.
+            const hasVideoTrack = player.availableVideoTracks.length > 0 || player.videoTrack !== null;
+            setHasVideo((prev) => (prev === true ? true : hasVideoTrack));
+          } catch {
+            // Afspilleren er vaek.
           }
           setRadioState('playing');
           // Sporene kan vaere meldt foer lytteren kom paa. Laeses her igen.

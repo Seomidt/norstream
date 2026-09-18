@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 251** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 252** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,20 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Video-kanal med "radio" i navnet stod sort i fuld skærm (v252).** Bruger:
+"en enkelt kanal virker i preview, men i fuld skærm kommer den ikke frem —
+helt sort, også hvis jeg åbner direkte." Årsag: `PlayerScreen` afgjorde radio
+alene på navnet — `isRadio = /radio/i.test(channel.name) || isRadioKey(id)`. En
+video-kanal med "radio" i navnet (fx en musik-tv-kanal) fik dermed radio-grenen
+(linje ~713), som **skjuler** videoen (`hiddenVideo`) og viser radio-UI'et — så
+i fuld skærm stod den sort, mens previewet (uden radio-grenen, samme adresse)
+viste billedet fint. Fix: radio-behandling gælder nu kun ægte radio — en
+internetradio-station (`isRadioKey`), ELLER en navne-match **der viser sig ikke
+at have et billedspor**. `hasVideo` afgøres når streamen melder sine spor
+(`videoTrackChange` → har billede; ved `readyToPlay` uden noget billedspor →
+lyd alene). Indtil da vises billedet. Så en video-kanal med "radio" i navnet
+viser billede; en ægte lyd-kun panelradio får stadig baggrundslyd + radio-UI.
 
 **Guiden springer ikke til toppen vandret + Favoritter under Guide (v251).**
 To ting oven på v250. (1) Brugeren: "når jeg scroller hen på den udsendelse der
