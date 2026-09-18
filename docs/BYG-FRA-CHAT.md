@@ -204,7 +204,7 @@ bygges fra arbejdsgrenen som altid.
 ## 10. Seneste referencebuilds (september 2026)
 
 Den **udgivne** udgave (det tal boksen sammenligner med) er `versionCode`, ikke
-byg-kørslens løbenummer. Nyeste: **262** for NorStream tv og telefon; NorRadio
+byg-kørslens løbenummer. Nyeste: **263** for NorStream tv og telefon; NorRadio
 er endnu på sin egen linje (byg 217, uden selv-opdatering).
 
 Live udgivelser (opdateres i stedet for at blive slettet — de faste mærkater):

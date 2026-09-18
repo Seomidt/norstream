@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 262** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 263** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,36 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**Guide-tidslinje iteration 4: ens blokke som favoritterne (v262).** Bruger:
+**Guide iteration 5: HELT som favoritterne — lodret liste, tekst + tid, rød
+linje (v263).** it.4 (boksene) fejlede paa boksen: ingen blok viste "● NU"
+(live-data var ikke hentet), EPG'en kom "først efter et halvt minut", boksene
+"så tossede ud", og ned-tasten "fisede op til grupperne". Bruger: "hvad med at
+lave det helt uden bokse så det bare er tekst og tid som står og stadig den røde
+linje?" Det var det rigtige. `TimelineGrid.tsx` er nu en **lodret liste som
+favoritlisten** (`ChannelList`), som brugeren gentagne gange siger virker super
+godt op/ned:
+- **Én række per kanal, ingen kasser, intet vandret gitter.** Bare logo + navn,
+  og hvad kanalen sender på markørtidspunktet: klokkeslæt + titel som ren tekst.
+  Op/ned er derfor almindelig listenavigation — det fjerner "ned fiser op til
+  grupperne" helt (det kom af det vandrette fokus-gitter).
+- **Den røde linje = live-rækkens venstrekant.** Den kanal der sender NU har en
+  rød venstrekant + "● NU" (transparent kant på alle andre, så rækken ikke
+  hopper i bredden når den bliver live).
+- **Tid vælges med pil venstre/højre** — håndteret som *tastetryk*
+  (`useTVEventHandler`), IKKE en fokusflytning: rækkerne er ét trykpunkt hver,
+  intet fokuserbart til siderne, `TVFocusGuideView trapFocusLeft/Right`. Så et
+  venstre/højre-tryk skruer bare på tidsmarkøren (±30 min), hele listen viser
+  hvad kanalerne sender på det nye tidspunkt, og man ryger aldrig "ud i menuen".
+  Op fra øverste række når stadig gruppe-chipsene.
+- **Hurtig som favoritterne:** kun NU/næste fra den lokale cache først (ét
+  indekseret `getNowNext` per kanal), panelet (`ensureEpg`) bagefter. Det gamle
+  gitter hentede HELE programtabellen for ALLE kanaler (`ensureFullEpg`) før det
+  kunne tegne — derfor "et halvt minut".
+- Listen følger fokus (`keepInMiddle`), fokuseret række vokser som
+  favoritrækkerne (`TvPressable`). OK åbner programbladet (se/​start forfra/hele
+  dagen). Telefon urørt (vindue-modellen på `!isTV`, sikkerhedsnet).
+
+**Guide-tidslinje iteration 4: ens blokke som favoritterne (v262, afløst af it.5).** Bruger:
 "måske vi skal lave lidt som i favoritter, hvor blokke med live er ens nedad og
 blokke til højre/venstre har samme størrelse og bliver større når jeg klikker på
 den — favoritter virker super godt også med at køre op og ned." Så
