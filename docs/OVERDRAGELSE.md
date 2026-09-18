@@ -64,7 +64,10 @@ en tilbagevendende ref via `setLiveNode`, og `GuideRow` sætter
 `destinations={[liveNode]}`. Baggrund (bruger viste Google/Xumos guide): dér er
 cellerne ENS brede piller med luft imellem, så kolonnerne flugter og op/ned
 rammer geometrisk rent; vores er en tidslinje, så vi bruger UIFocusGuide til at
-opnå det samme funktionelt. **Skal afprøves på boks** — virker det ikke rent,
+opnå det samme funktionelt. Desuden: **`‹` foran den klippede venstre-celle**
+(som Googles guide) — begyndte en udsendelse før vinduets venstre kant
+(`cells[0].clippedStart`), vises et `‹` foran titlen, så man kan se der er
+mere/tidligere den vej. **Skal afprøves på boks** — virker det ikke rent,
 rul tilbage til 254 (`git checkout e6a8aa0 -- GuideScreen.tsx` + behold
 TvPressable-forwardRef, den er harmløs). **Åbent, større skridt:** Googles
 *udseende* (ens-brede piller, den fokuserede bliver lang) er en egentlig

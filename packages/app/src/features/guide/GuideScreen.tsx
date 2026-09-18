@@ -1179,6 +1179,7 @@ const GuideRow = memo(function GuideRow({
                 style={[styles.cellText, cell.programme === null && styles.cellTextMuted]}
                 numberOfLines={2}
               >
+                {index === 0 && cell.clippedStart && cell.programme !== null ? '‹ ' : ''}
                 {action === 'restart' ? '▶ ' : ''}
                 {cell.programme?.title ?? (cell.weight >= 30 ? 'Ingen programdata' : '')}
               </Text>
