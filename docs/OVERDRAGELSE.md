@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 243** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 244** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,20 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Kanaler føles hurtig igen (v244).** Bruger meldte at Kanaler var tung på tv
+og "læste alt to gange". To ting i `features/channels/ChannelList.tsx`:
+- **Rækken er nu `memo`'et** (`ChannelRow`), og `renderItem` er `useCallback`
+  der **bevidst IKKE afhænger af `previewChannel`**. Før tegnede hele den
+  synlige liste sig om ved hvert D-pad-tryk (fokus → `setPreviewChannel` →
+  forælder tegnes om → inline `renderItem` → alle rækker, inkl. logoer). Nu
+  tegnes kun de rækker om hvis nu-titel/ur/fokus-puls skifter. Tilbagekaldene
+  (`handleOpen` via `shownRef`, `handleFocusRow`, `handleToggleFavorite`) er
+  stabile.
+- **Dobbelt-load fjernet:** første-skærm-effekten afhang af `dialects`, som
+  lander lige efter monteringen — så den hentede alle nu-titler forfra én gang
+  til ("læser alt to gange"). Nu `[channels, restartOnly]`.
+- `shown`/`restartable` er `useMemo` (filtrene løb før ved hver tegning).
 
 **Fuld audit-runde (v243).** Efter en read-only gennemgang af hele
 kodebasen (fokus/hastighed/caching): tre lister mere satte

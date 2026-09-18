@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  Pressable,
   RefreshControl,
   StyleSheet,
   Text,
@@ -148,14 +147,26 @@ export function ChannelList({
       cancelled = true;
     };
   }, [session.db]);
-  const canRestart = (channel: StoredChannel): boolean =>
-    channel.hasArchive && dialects.has(channel.sourceId);
-  const shown = restartOnly && allowRestartFilter ? channels.filter(canRestart) : channels;
-  const restartable = channels.filter(canRestart).length;
+  const canRestart = useCallback(
+    (channel: StoredChannel): boolean => channel.hasArchive && dialects.has(channel.sourceId),
+    [dialects],
+  );
+  // Memoiseret: filteret loeber over hele kategoriens kanaler, og uden det kaerte
+  // det ved HVER tegning — og listen tegnes ved hvert D-pad-tryk.
+  const shown = useMemo(
+    () => (restartOnly && allowRestartFilter ? channels.filter(canRestart) : channels),
+    [channels, restartOnly, allowRestartFilter, canRestart],
+  );
+  const restartable = useMemo(() => channels.filter(canRestart).length, [channels, canRestart]);
 
   function toggleRestartOnly(): void {
     setRestartFilterEnabled(!restartOnly);
   }
+
+  // Naboerne til afspilleren laeses fra en ref, saa "aabn" kan vaere en stabil
+  // funktion (ellers tegnes hver raekke om naar listen skifter).
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
 
   // Annulleringspolet: kun det nyeste opslag maa skrive til state. Uden det
   // kan to overlappende koersler skrive resultater i den forkerte raekkefoelge.
@@ -226,23 +237,62 @@ export function ChannelList({
     if (first.length === 0) return;
     setPreviewChannel(first[0] ?? null);
     void loadVisibleRef.current(first.map((channel) => channel.id));
-    // `shown` afhaenger kun af kanalerne og filteret.
+    // IKKE `dialects` som afhaengighed: den lander et oejeblik efter
+    // monteringen, og var den med, hentede listen alle nu-titler forfra én
+    // gang til lige efter — "som om den laeser alt to gange". Slaar filteret
+    // til og dialekterne aendrer `shown`, henter onViewableItemsChanged de
+    // synlige raekker.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channels, restartOnly, dialects]);
+  }, [channels, restartOnly]);
 
-  async function open(channel: StoredChannel): Promise<void> {
-    // Panelet har én forbindelse: previewet skal have sluppet den, foer
-    // afspilleren beder om sin. Ellers afvises den stream brugeren bad om.
-    //
-    // Fejler frigivelsen, aabner vi alligevel: et tryk der ikke goer noget er
-    // vaerre end en stream der maaske skal proeve igen.
-    try {
-      await previewHandle.current?.release();
-    } catch {
-      // Med vilje.
-    }
-    onSelect(channel, shown);
-  }
+  // Stabile tilbagekald: raekken er memoiseret, saa den kun tegnes om naar
+  // dens egne data skifter — ikke naar previewet skifter ved hvert D-pad-tryk.
+  const handleOpen = useCallback(
+    async (channel: StoredChannel): Promise<void> => {
+      // Panelet har én forbindelse: previewet skal have sluppet den, foer
+      // afspilleren beder om sin. Ellers afvises den stream brugeren bad om.
+      // Fejler frigivelsen, aabner vi alligevel.
+      try {
+        await previewHandle.current?.release();
+      } catch {
+        // Med vilje.
+      }
+      onSelect(channel, shownRef.current);
+    },
+    [previewHandle, onSelect],
+  );
+  const handleFocusRow = useCallback((channel: StoredChannel, index: number): void => {
+    // Previewet foelger den raekke fjernbetjeningen staar paa. Det maa IKKE
+    // tegne hele listen om — derfor er raekken memoiseret og renderItem
+    // afhaenger ikke af previewChannel.
+    setPreviewChannel(channel);
+    keepInMiddle(listRef.current, index);
+  }, []);
+  const handleToggleFavorite = useCallback(
+    (channel: StoredChannel): void => onToggleFavorite(channel),
+    [onToggleFavorite],
+  );
+
+  // renderItem afhaenger BEVIDST ikke af previewChannel: saa naar previewet
+  // skifter (ved hvert D-pad-tryk), tegnes listen ikke om. Raekken er
+  // memoiseret, saa kun de raekker hvis nu-titel, ur eller fokus-puls skifter
+  // tegnes igen naar nowTitles/dialekter lander.
+  const renderItem = useCallback(
+    ({ item, index }: { item: StoredChannel; index: number }) => (
+      <ChannelRow
+        item={item}
+        index={index}
+        restart={canRestart(item)}
+        nowTitle={nowTitles[item.id] ?? 'Ingen programdata'}
+        focusPulse={index === 0 && (firstDraw || enterFocus)}
+        onOpen={handleOpen}
+        onToggleFavorite={handleToggleFavorite}
+        onFocusRow={handleFocusRow}
+        onLongPressRow={onLongPress}
+      />
+    ),
+    [canRestart, nowTitles, firstDraw, enterFocus, handleOpen, handleToggleFavorite, handleFocusRow, onLongPress],
+  );
 
   if (loading) {
     return (
@@ -259,7 +309,7 @@ export function ChannelList({
       enabled={previewEnabled}
       handle={previewHandle}
       onOpen={(channel) => {
-        void open(channel);
+        void handleOpen(channel);
       }}
     />
   );
@@ -314,47 +364,7 @@ export function ChannelList({
           )
         }
         ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
-        renderItem={({ item, index }) => (
-          <TvPressable
-            style={styles.row}
-            hasTVPreferredFocus={index === 0 && (firstDraw || enterFocus)}
-            onPress={() => {
-              void open(item);
-            }}
-            // Paa tv er et langt tryk paa OK favorit til/fra: stjernen som
-            // eget trykpunkt inde i raekken var ikke til at ramme med
-            // fjernbetjeningen. Logovalget (langt tryk paa telefonen) er
-            // ikke noget man goer fra sofaen.
-            onLongPress={
-              isTV ? () => onToggleFavorite(item) : onLongPress === undefined ? undefined : () => onLongPress(item)
-            }
-            delayLongPress={400}
-            // Paa tv foelger previewet den raekke fjernbetjeningen staar paa,
-            // ikke den oeverste synlige: det er dén man kigger paa.
-            onFocus={
-              isTV
-                ? () => {
-                    setPreviewChannel(item);
-                    keepInMiddle(listRef.current, index);
-                  }
-                : undefined
-            }
-          >
-            <ChannelLogo uris={item.logoUrls} name={item.name} memoryKey={item.id} />
-            <View style={styles.rowText}>
-              <Text style={styles.channelName} numberOfLines={1}>
-                {canRestart(item) ? <Text style={styles.restartMark}>⏱ </Text> : null}
-                {item.name}
-              </Text>
-              <Text style={styles.nowTitle} numberOfLines={1}>
-                {nowTitles[item.id] ?? 'Ingen programdata'}
-              </Text>
-            </View>
-            <TvPressable hitSlop={12} focusable={!isTV} onPress={() => onToggleFavorite(item)}>
-              <Text style={item.isFavorite ? styles.starOn : styles.starOff}>★</Text>
-            </TvPressable>
-          </TvPressable>
-        )}
+        renderItem={renderItem}
       />
       </View>
       {sideBySide && (previewEnabled || sidePanel !== undefined) && (
@@ -366,6 +376,68 @@ export function ChannelList({
     </View>
   );
 }
+
+/**
+ * Én kanalraekke, memoiseret.
+ *
+ * Uden memo tegnede hele den synlige liste sig om ved hvert D-pad-tryk (fordi
+ * previewet skifter og foraelderen tegnes om). Nu sammenlignes props, og en
+ * raekke tegnes kun om naar dens egne data skifter — kanalen, uret, nu-titlen
+ * eller fokus-pulsen. Tilbagekaldene er stabile (useCallback i foraelderen),
+ * saa de tricker ikke sammenligningen.
+ */
+const ChannelRow = memo(function ChannelRow({
+  item,
+  index,
+  restart,
+  nowTitle,
+  focusPulse,
+  onOpen,
+  onToggleFavorite,
+  onFocusRow,
+  onLongPressRow,
+}: {
+  item: StoredChannel;
+  index: number;
+  restart: boolean;
+  nowTitle: string;
+  focusPulse: boolean;
+  onOpen: (channel: StoredChannel) => void;
+  onToggleFavorite: (channel: StoredChannel) => void;
+  onFocusRow: (channel: StoredChannel, index: number) => void;
+  onLongPressRow?: (channel: StoredChannel) => void;
+}) {
+  const styles = useStyles(makeStyles);
+  return (
+    <TvPressable
+      style={styles.row}
+      hasTVPreferredFocus={focusPulse}
+      onPress={() => onOpen(item)}
+      // Paa tv er et langt tryk paa OK favorit til/fra: stjernen som eget
+      // trykpunkt inde i raekken var ikke til at ramme med fjernbetjeningen.
+      onLongPress={
+        isTV ? () => onToggleFavorite(item) : onLongPressRow === undefined ? undefined : () => onLongPressRow(item)
+      }
+      delayLongPress={400}
+      // Paa tv foelger previewet den raekke fjernbetjeningen staar paa.
+      onFocus={isTV ? () => onFocusRow(item, index) : undefined}
+    >
+      <ChannelLogo uris={item.logoUrls} name={item.name} memoryKey={item.id} />
+      <View style={styles.rowText}>
+        <Text style={styles.channelName} numberOfLines={1}>
+          {restart ? <Text style={styles.restartMark}>⏱ </Text> : null}
+          {item.name}
+        </Text>
+        <Text style={styles.nowTitle} numberOfLines={1}>
+          {nowTitle}
+        </Text>
+      </View>
+      <TvPressable hitSlop={12} focusable={!isTV} onPress={() => onToggleFavorite(item)}>
+        <Text style={item.isFavorite ? styles.starOn : styles.starOff}>★</Text>
+      </TvPressable>
+    </TvPressable>
+  );
+});
 
 const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
