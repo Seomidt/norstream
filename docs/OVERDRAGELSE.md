@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 252** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 253** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,23 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Lodret kanalskift i guiden bevarer tidspunktet (v253).** Bruger: "når jeg
+kører ned ad i guiden og står ved den røde live-linje, springer den tit ved
+siden af, og man skal flytte den hen på det der sender nu." Årsag: ned/op i
+gitteret lod Android vælge cellen i den næste række rent geometrisk — og fordi
+udsendelser har forskellig bredde, ramte den tit nabocellen i stedet for den
+udsendelse der dækker samme klokkeslæt. Løsning i `GuideScreen.tsx`: en
+**markør-tid** (`cursorTimeRef`) — den "søjle" man bladrer i. Den sættes når man
+går til venstre/højre (står man ved den røde linje, er den "nu"; ellers midt i
+den udsendelse man står på). Ved lodret kanalskift (ny række) bevares den:
+lander Android på en celle der ikke dækker markør-tiden, flyttes fokus i
+`onCellFocus` til den udsendelse i den nye række der gør (`focusKey` →
+`hasTVPreferredFocus`, samme mekanik som venstre/højre-vindueskift). Så ned/op
+ved den røde linje rammer nu næste kanals nu-udsendelse; er man kørt tilbage i
+tiden, følger den samme klokkeslæt. Reageres der **efter** fokus er landet (i
+onCellFocus), er der ingen tast-timing at kapløbe med. Markøren nulstilles til
+nu når man går ind i guiden.
 
 **Video-kanal med "radio" i navnet stod sort i fuld skærm (v252).** Bruger:
 "en enkelt kanal virker i preview, men i fuld skærm kommer den ikke frem —
