@@ -121,6 +121,13 @@ export function PlayerScreen({
    * virker, og der er ingen vej videre naar man ikke ved hvad der manglede.
    */
   const [fellBackToLive, setFellBackToLive] = useState(false);
+  /**
+   * Sat naar en start-forfra indhentede den levende kant og gled over i
+   * direkte. En udsendelse man ser forfra mens den stadig sendes, har kun
+   * arkiv frem til "nu"; naar afspilningen naar dertil, ville billedet ellers
+   * staa sort midt i udsendelsen. Saa fortsaetter vi direkte i stedet.
+   */
+  const [caughtUpToLive, setCaughtUpToLive] = useState(false);
   // Kommer vi fra guiden med et program, er afspilningen en start-forfra fra
   // foerste billede — ogsaa foer dialekten er laest, saa format-fallbacket
   // aldrig naar at slaa til paa en timeshift-URL.
@@ -288,6 +295,35 @@ export function PlayerScreen({
     });
     return () => subscription.remove();
   }, [player]);
+
+  /**
+   * Start-forfra naaede den levende kant — fortsaet direkte i stedet for sort.
+   *
+   * Ser man en udsendelse forfra mens den stadig sendes, findes arkivet kun
+   * frem til "nu". Naar afspilningen indhenter det, melder expo-video
+   * playToEnd, og billedet ville ellers staa sort midt i udsendelsen (en far
+   * meldte netop det paa TV 2). Sender udsendelsen stadig, skifter vi til
+   * live-streamen, saa resten ses direkte. Er programmet rigtigt slut (et
+   * afsluttet program aabnet fra guiden), roeres intet — arkivet sluttede,
+   * fordi udsendelsen sluttede.
+   */
+  const caughtUpHandled = useRef(false);
+  useEffect(() => {
+    if (restarted) caughtUpHandled.current = false;
+  }, [restarted]);
+  useEffect(() => {
+    const subscription = player.addListener('playToEnd', () => {
+      if (isRadio || !restarted || caughtUpHandled.current) return;
+      const airing = startFrom ?? now;
+      if (airing === null || airing.stop.getTime() <= Date.now()) return;
+      caughtUpHandled.current = true;
+      setRestarted(false);
+      setCaughtUpToLive(true);
+      setBannerUntil(Date.now() + 3_000);
+      setSource(liveUrlFor(access, channel, formatForPlatform()));
+    });
+    return () => subscription.remove();
+  }, [player, isRadio, restarted, startFrom, now, access, channel]);
 
   /**
    * Videosporet, til én linje i bjaelken paa tv: format, stoerrelse og om
@@ -768,6 +804,9 @@ export function PlayerScreen({
           <Text style={styles.nextTitle}>Derefter: {next.title}</Text>
         )}
         {restarted && <Text style={styles.badge}>Afspilles fra begyndelsen</Text>}
+        {caughtUpToLive && (
+          <Text style={styles.badge}>Du er nået til direkte — ser resten live</Text>
+        )}
         {fellBackToLive && (
           <Text style={styles.warn}>
             Udsendelsen kunne ikke hentes fra arkivet. Du ser direkte i stedet.

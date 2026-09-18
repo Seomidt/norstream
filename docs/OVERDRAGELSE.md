@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 248** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 249** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,24 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**"Forfra" bliver ikke til sort skærm midt i udsendelsen (v249).** Bruger:
+"far var ved at se en udsendelse på dansk TV 2 forfra, men den stoppede inden
+udsendelsen var færdig — bare sort skærm." Årsag: "Start forfra" genstarter den
+udsendelse der sendes **nu**, og arkiv-adressen beder om hele udsendelsens
+længde (`programme.stop − programme.start`). Men arkivet findes kun frem til
+"nu" (den levende kant). Når afspilningen indhenter det, melder expo-video
+`playToEnd`, og billedet stod sort på sidste billede midt i udsendelsen. Fix i
+`features/player/PlayerScreen.tsx`: en ny `playToEnd`-lytter — sender
+udsendelsen **stadig** (referencens `stop` er i fremtiden), skifter appen til
+live-streamen, så resten ses direkte (badge: "Du er nået til direkte — ser
+resten live"). Er programmet rigtigt slut (et afsluttet program åbnet fra
+guiden, `stop` i fortiden), røres intet — arkivet sluttede fordi udsendelsen
+sluttede. **Bemærk:** hjælper kun når panelet melder en egentlig slutning
+(ENDLIST). Stopper det i stedet som en fastfrysning/stall ved kanten, fanges
+det af stall-timeren (`STALL_TIMEOUT_MS` → genforbind); melder brugeren stadig
+sort skærm, er næste skridt at lade `handleFailure` også falde til live under
+en igangværende forfra.
 
 **Guiden springer ikke længere til toppen (v248).** Bruger: "når jeg når
 halvvejs ned i guiden springer den pludselig til toppen." Årsag: en række
