@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 255** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 256** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,22 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Afspiller på tv: knapbjælken bliver stående og ligger i bunden (v256).**
+Bruger: "jeg kan slet ikke komme hen til [de andre knapper]." Årsag:
+`Landscape.tsx` gemte bjælken efter 5 sek. og genskabte den ved næste tryk —
+og fordi "Start forfra" har statisk `hasTVPreferredFocus`, faldt fokus tilbage
+dertil hver gang bjælken kom igen, så man aldrig nåede Tekst/‹/›. Fix: på tv
+gemmer bjælken sig **ikke** (auto-hide sprunget over på tv), så knapperne bliver
+stående og kan nås frit; på telefon (fingre) gemmer den sig stadig. Desuden lå
+knapperne et stykke oppe fra bunden, fordi `paddingBottom` lagde skærmens sikre
+bund-kant til — på tv er der ingen navigationslinje at holde fri af, så
+bund/side-insets droppes på tv (`isTV ? 0 : insets.*`), og bjælken ligger nu i
+bunden. **Bivirkning:** når bjælken altid står på tv, kaldes `onPlayerKey` ikke
+længere for OK/venstre/højre (de rammer knapperne i stedet); pause/spol sker via
+medietasterne og `SeekButtons` (vises under start-forfra). Ses det som for
+påtrængende at bjælken altid står, er næste skridt en skjul-igen der IKKE
+genskaber bjælken (fx behold monteret, skift synlighed) så fokus ikke nulstilles.
 
 **Guide: ned/op rammer live-cellen — native forsøg (v255, EKSPERIMENTELT).**
 Efter v253's tilbagerulning (nedenfor) et NYT forsøg med den rigtige mekanik,

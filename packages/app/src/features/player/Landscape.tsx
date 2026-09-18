@@ -94,7 +94,12 @@ export function LandscapePlayer({
     setActivity((value) => value + 1);
   });
   useEffect(() => {
-    if (!barShown) return;
+    // Paa tv gemmer bjaelken sig IKKE: hver gang den gemte sig og kom igen,
+    // blev knapperne tegnet forfra, og fokus faldt tilbage paa den foerste
+    // ("Start forfra") — man kunne slet ikke komme hen til Tekst/zap. Med en
+    // fast bjaelke bliver knapperne staaende og kan naas frit. Paa telefon
+    // (fingre, ikke fokus) gemmer den sig stadig af sig selv.
+    if (!barShown || isTV) return;
     const timer = setTimeout(() => setBarShown(false), AUTO_HIDE_MS);
     return () => clearTimeout(timer);
   }, [barShown, activity]);
@@ -122,9 +127,12 @@ export function LandscapePlayer({
           style={[
             styles.bar,
             {
-              paddingBottom: theme.spacing.md + insets.bottom,
-              paddingLeft: theme.spacing.md + insets.left,
-              paddingRight: theme.spacing.md + insets.right,
+              // Paa tv ingen ekstra bund-luft: der er ingen navigationslinje at
+              // holde fri af, og skaermens "sikre kant" skubbede ellers
+              // knapperne et godt stykke op fra bunden. Nu ligger de i bunden.
+              paddingBottom: theme.spacing.md + (isTV ? 0 : insets.bottom),
+              paddingLeft: theme.spacing.md + (isTV ? 0 : insets.left),
+              paddingRight: theme.spacing.md + (isTV ? 0 : insets.right),
             },
           ]}
           pointerEvents="box-none"
