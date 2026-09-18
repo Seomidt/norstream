@@ -55,7 +55,7 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
     if (running.current !== null) return;
     setSummary(null);
     const [all, google] = await Promise.all([
-      listChannelsWithoutArchiveLogo(session.db, { limit: AUTO_SEARCH_LIMIT }),
+      listChannelsWithoutArchiveLogo(session.db, { favouritesOnly: true, limit: AUTO_SEARCH_LIMIT }),
       getGoogleSearchKeys(session.db),
     ]);
     const handle = autoSearchLogos(
@@ -92,7 +92,7 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
   }, [search]);
 
   const load = useCallback(async (): Promise<void> => {
-    setRows(await listChannelsWithoutArchiveLogo(session.db, { search: query, limit: 300 }));
+    setRows(await listChannelsWithoutArchiveLogo(session.db, { favouritesOnly: true, search: query, limit: 300 }));
   }, [session.db, query]);
 
   useEffect(() => {
@@ -103,10 +103,10 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
     <View style={styles.container}>
       <TvPressable style={styles.crumb} focusable={!isTV} onPress={onBack} hitSlop={8}>
         <Text style={styles.crumbBack}>‹</Text>
-        <Text style={styles.crumbLabel}>Kanaler uden logo</Text>
+        <Text style={styles.crumbLabel}>Favoritter uden logo</Text>
       </TvPressable>
       <Text style={styles.hint}>
-        Dem ingen af arkiverne kender. Favoritterne står øverst. Tryk på en kanal for at
+        Dine favoritter, som ingen af arkiverne kender et logo til. Tryk på en kanal for at
         vælge et logo selv, eller lad appen søge på nettet efter dem alle.
       </Text>
       {progress === null ? (
@@ -119,7 +119,7 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
             void searchAll();
           }}
         >
-          <Text style={styles.buttonText}>Søg logoer på nettet til alle</Text>
+          <Text style={styles.buttonText}>Søg logoer på nettet til favoritterne</Text>
         </TvPressable>
       ) : (
         <View style={styles.progress}>
@@ -166,7 +166,7 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
         onScrollToIndexFailed={() => undefined}
         ListEmptyComponent={
           <Text style={styles.hint}>
-            {rows === null ? 'Tæller …' : 'Ingen — alle kanaler har et logo fra et arkiv eller dit eget valg.'}
+            {rows === null ? 'Tæller …' : 'Ingen — alle dine favoritter har et logo fra et arkiv eller dit eget valg.'}
           </Text>
         }
         renderItem={({ item, index }) => (
@@ -175,7 +175,6 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
             onFocus={isTV ? () => keepInMiddle(listRef.current, index) : undefined}
             onPress={() => onPick(item.id)}
           >
-            <Text style={styles.star}>{item.isFavorite ? '★' : ' '}</Text>
             <Text style={styles.name} numberOfLines={1}>
               {item.name}
             </Text>

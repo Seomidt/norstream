@@ -409,11 +409,11 @@ export function SettingsScreen({
       <Text style={styles.sectionTitle}>Kanallogoer</Text>
       <TvPressable style={styles.row} onPress={onOpenLogos}>
         <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Kanaler uden logo</Text>
+          <Text style={styles.rowTitle}>Favoritter uden logo</Text>
           <Text style={styles.rowHint}>
             {isTV
-              ? 'Kanalerne som arkiverne ikke har et logo til. Lad appen søge dem alle på nettet på én gang, eller vælg selv på den enkelte kanal.'
-              : 'Logoerne hentes selv, én gang, og gemmes på telefonen. Dem arkiverne ikke kender, kan appen søge efter på nettet, alle på én gang — eller du vælger selv. Du kan også holde fingeren på en kanal i listerne.'}
+              ? 'Dine favoritter som arkiverne ikke har et logo til. Lad appen søge dem alle på nettet på én gang, eller vælg selv på den enkelte kanal.'
+              : 'Logoerne hentes selv, én gang, og gemmes på telefonen. Dem arkiverne ikke kender til dine favoritter, kan appen søge efter på nettet, alle på én gang — eller du vælger selv. Du kan også holde fingeren på en kanal i listerne.'}
           </Text>
         </View>
         <Text style={styles.actionText}>Åbn</Text>

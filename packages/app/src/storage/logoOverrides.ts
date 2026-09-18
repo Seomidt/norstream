@@ -94,13 +94,16 @@ export interface ChannelWithoutLogo {
  */
 export async function listChannelsWithoutArchiveLogo(
   db: SqlDatabase,
-  opts: { search?: string; limit?: number } = {},
+  opts: { search?: string; limit?: number; favouritesOnly?: boolean } = {},
 ): Promise<ChannelWithoutLogo[]> {
   const params: SqlValue[] = [];
   let where = '';
+  // Kun favoritter: det er dem man ser hver dag, og det er dem det giver
+  // mening at lede efter logoer til — ikke alle 22.000 kanaler.
+  if (opts.favouritesOnly === true) where += ' AND f.channel_id IS NOT NULL';
   const search = opts.search?.trim() ?? '';
   if (search.length > 0) {
-    where = "AND c.name LIKE ? ESCAPE '\\'";
+    where += " AND c.name LIKE ? ESCAPE '\\'";
     params.push(`%${search.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`);
   }
   params.push(Math.max(1, Math.trunc(opts.limit ?? 200)));

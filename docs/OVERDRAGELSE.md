@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 246** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 247** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,16 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Logo-søgning kun til favoritter (v247).** "Kanaler uden logo" hed før og
+søgte over ALLE kanaler (op til 2000). Nu er skærmen "Favoritter uden logo" og
+både listen og den automatiske net-søgning er scopet til favoritter
+(`listChannelsWithoutArchiveLogo(db, { favouritesOnly: true })` — nyt option i
+`storage/logoOverrides.ts`; brugt begge steder i `LogoGapsScreen`). Hurtigere og
+kun det relevante. **Åbent punkt:** brugeren synes stadig mange danske kanaler
+mangler et logo der burde kunne findes — logo-matchningen (`sync/logoSearch.ts`,
+Wikidata `wbsearchentities` på `searchNameFor(navn)` i landets sprog) skal
+tunes; afventer et skærmbillede af de kanaler der fejler, så navnene kan ses.
 
 **"Dine kanaler nu" skjules når man har grupper (v246).** Forsidens
 favorit-række ("Dine kanaler nu", alle favoritter) var en dublet af
