@@ -513,7 +513,7 @@ export function FrontScreen({
         windowSize={3}
         initialNumToRender={3}
         maxToRenderPerBatch={2}
-        removeClippedSubviews
+        removeClippedSubviews={!isTV}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />}
       />
 
@@ -610,7 +610,7 @@ function Shelf<T extends { key: string }>({
       initialNumToRender={4}
       maxToRenderPerBatch={4}
       windowSize={3}
-      removeClippedSubviews
+      removeClippedSubviews={!isTV}
       getItemLayout={(_, index) => ({ length: stride, offset: stride * index, index })}
     />
   );

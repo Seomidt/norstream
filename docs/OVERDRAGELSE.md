@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 242** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 243** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,22 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Fuld audit-runde (v243).** Efter en read-only gennemgang af hele
+kodebasen (fokus/hastighed/caching): tre lister mere satte
+`removeClippedSubviews` **true** og er D-pad-lister på tv — nu `{!isTV}`
+(`ui/RememberedList.tsx` = alle radiolister, `features/vod/VodScreen.tsx`
+plakat-gitteret, `features/home/FrontScreen.tsx` forsidens rækker+hylder).
+`ChannelList` skiftet fra `{false}` til `{!isTV}` så telefonen beholder
+klipningen på 22k-listen. **N+1 fjernet:** `storage/radio.ts`
+`countRadioStationsByCountry` lavede før ét `SELECT`+sortering **per land** —
+nu ét opslag + gruppering i hukommelsen. Auditten bekræftede at caching
+allerede er solid (`epgCache`, `logoCache` bruges overalt, ingen bypass) og at
+`disabled`-fælden er lukket centralt. Kendte, bevidst udeladte små ting
+(lav værdi/risiko): `listRecentChannels`/`listFollowedSeries` N+1 (≤10 PK-opslag
+på forsiden), TMDB-plakater uden fil-cache, og `ChannelList` der gentegner hele
+listen ved hvert D-pad-tryk (kræver memo-refaktor af rækken — tages hvis D-pad
+føles tungt).
 
 **Fokus-gennemgang af HELE appen (v242).** To systemiske tv-fokusfælder
 rettet ét sted hver:

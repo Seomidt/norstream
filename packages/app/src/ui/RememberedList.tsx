@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { FlatList } from 'react-native';
 import type { FlatListProps, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
+import { isTV } from './tv.js';
 
 /**
  * Hvor langt hver liste var rullet, paa tvaers af at listen tegnes forfra.
@@ -55,7 +56,9 @@ export function RememberedList<T>({ memoryKey, restoreSignal = 0, onScroll, onCo
       windowSize={5}
       initialNumToRender={12}
       maxToRenderPerBatch={8}
-      removeClippedSubviews
+      // Paa tv aldrig afmontere en raekke fjernbetjeningen kan staa paa (ellers
+      // ryger fokus ud i menuen). Paa telefon beholdes klipningen for fart.
+      removeClippedSubviews={!isTV}
       {...rest}
       onLayout={(event) => {
         // Aendrer listen selv hoejde (en bjaelke, tastaturet, kanterne),

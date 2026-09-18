@@ -84,11 +84,34 @@ export async function listRadioStations(db: SqlDatabase, country: string): Promi
   return sortStationsByPopularity(preferBestQuality(rows.map(toStation)));
 }
 
-/** Antal stationer per hentet land, efter sammenlaegning — det tal listen faktisk viser. */
+/**
+ * Antal stationer per hentet land, efter sammenlaegning — det tal listen
+ * faktisk viser.
+ *
+ * Ét opslag og gruppering i hukommelsen, ikke ét `SELECT` + sortering per
+ * land: med mange lande var det snese af forespoergsler bag landelisten, og
+ * hvert svar blev sorteret bare for at laese `.length`. Kun sammenlaegningen
+ * (`preferBestQuality`) aendrer tallet; popularitets-sorteringen springes over.
+ */
 export async function countRadioStationsByCountry(db: SqlDatabase): Promise<Map<string, number>> {
-  const rows = await db.getAllAsync<{ country: string }>('SELECT DISTINCT country FROM radio_stations WHERE rank < 100000');
+  const rows = await db.getAllAsync<StationRow & { rank: number }>(
+    'SELECT id, country, name, url, logo_url, homepage, votes, codec, bitrate, tags, rank FROM radio_stations ORDER BY rank',
+  );
+  const groups = new Map<string, { rows: StationRow[]; fetched: boolean }>();
+  for (const row of rows) {
+    let group = groups.get(row.country);
+    if (group === undefined) {
+      group = { rows: [], fetched: false };
+      groups.set(row.country, group);
+    }
+    group.rows.push(row);
+    if (row.rank < 100000) group.fetched = true;
+  }
   const counts = new Map<string, number>();
-  for (const row of rows) counts.set(row.country, (await listRadioStations(db, row.country)).length);
+  for (const [country, group] of groups) {
+    // Samme filter som foer: kun lande der er hentet (mindst én raekke med rank < 100000).
+    if (group.fetched) counts.set(country, preferBestQuality(group.rows.map(toStation)).length);
+  }
   return counts;
 }
 

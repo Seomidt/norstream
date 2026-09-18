@@ -296,11 +296,11 @@ export function ChannelList({
         windowSize={5}
         initialNumToRender={12}
         maxToRenderPerBatch={8}
-        // Ikke afmontere raekker ved kanten: staar fjernbetjeningen paa en
-        // kanal der lige er klippet, ryger fokus ellers ud i menuen. windowSize
-        // holder alligevel kun faa skaermfulde tegnet, saa de 22.000 kanaler
-        // fylder ikke mere af den grund.
-        removeClippedSubviews={false}
+        // Paa tv ikke afmontere raekker ved kanten: staar fjernbetjeningen paa
+        // en kanal der lige er klippet, ryger fokus ellers ud i menuen.
+        // windowSize holder alligevel kun faa skaermfulde tegnet. Paa telefon
+        // beholdes klipningen for fart paa den lange liste (22.000 kanaler).
+        removeClippedSubviews={!isTV}
         ListHeaderComponent={header === undefined ? undefined : <>{header}</>}
         viewabilityConfig={viewabilityConfig}
         onViewableItemsChanged={onViewableItemsChanged}

@@ -450,7 +450,7 @@ function PosterGrid({
       windowSize={5}
       initialNumToRender={COLUMNS * 3}
       maxToRenderPerBatch={COLUMNS * 2}
-      removeClippedSubviews
+      removeClippedSubviews={!isTV}
       contentContainerStyle={styles.grid}
       columnWrapperStyle={styles.gridRow}
       ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
