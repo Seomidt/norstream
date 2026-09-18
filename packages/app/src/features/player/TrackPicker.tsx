@@ -33,6 +33,7 @@ export function TrackPicker({
         </TvPressable>
       </View>
       <FlatList
+        removeClippedSubviews={false}
         data={options}
         keyExtractor={(option) => option.key}
         ListEmptyComponent={<Text style={styles.pickerEmpty}>{emptyText}</Text>}

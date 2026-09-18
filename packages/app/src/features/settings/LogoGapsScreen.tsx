@@ -158,6 +158,7 @@ export function LogoGapsScreen({ session, onBack, onPick, reloadToken, onChanged
         autoCapitalize="none"
       />
       <FlatList
+        removeClippedSubviews={false}
         ref={listRef}
         data={rows ?? []}
         keyExtractor={(row) => row.id}

@@ -67,6 +67,7 @@ export function SavedSongsScreen({ db, onBack, refreshSignal = 0 }: Props) {
   return (
     <View style={styles.container}>
       <FlatList
+        removeClippedSubviews={false}
         data={songs ?? []}
         keyExtractor={(song) => `${song.artist}|${song.track}`}
         contentContainerStyle={tail}

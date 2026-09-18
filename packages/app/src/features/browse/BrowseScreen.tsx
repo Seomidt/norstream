@@ -255,6 +255,7 @@ export function BrowseScreen({
           onBack={() => setLevel({ name: 'countries' })}
         />
         <FlatList
+          removeClippedSubviews={false}
           ref={categoryList}
           data={categories}
           keyExtractor={(item) => item.id}
@@ -309,6 +310,7 @@ export function BrowseScreen({
       {searchField}
       {noticeBar}
       <FlatList
+        removeClippedSubviews={false}
         ref={countryList}
         data={countries}
         keyExtractor={(item) => item.key}

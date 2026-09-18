@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 241** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 242** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,25 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Fokus-gennemgang af HELE appen (v242).** To systemiske tv-fokusfælder
+rettet ét sted hver:
+- **`disabled` er en fælde på tv** (en deaktiveret Pressable kan ikke få fokus,
+  så en knap der deaktiverer sig selv når man trykker — "Gemmer …", "Opdaterer
+  …" — sender fokus ud i menuen). Rettet **centralt i `ui/TvPressable.tsx`**:
+  på tv sendes `disabled` ikke til den native Pressable; knappen bliver
+  fokuserbar, trykket bliver bare uden virkning, og den tones ned (opacity
+  0.4). På telefon er `disabled` uændret. Fixer alle steder på én gang
+  (Indstillinger opdatér/hent, Kilder, Onboarding, Forbindelsestjek, Player…).
+- **Lister der afmonterer den fokuserede række ved kanten.** `FlatList` på
+  Android afmonterer klippede rækker som standard; står fjernbetjeningen på en,
+  ryger fokus. Sat `removeClippedSubviews={false}` på alle D-pad-lister:
+  `ChannelList` (Kanaler, 22k — `windowSize={5}` bounder alligevel),
+  BrowseScreen, CinemaScreen, ChannelDayScreen, GroupsScreen, LogoGaps,
+  LogoPicker, TrackPicker, SavedSongs (+ guiden i v241).
+Gennemgået `hasTVPreferredFocus` i hele appen: alle per-række er gated
+(`index === 0` eller en engangs-puls); `={isTV}` er enkeltknapper der tager
+fokus når de dukker op (bevidst).
 
 **Guide-fokus holder nu fast (v241).** I guiden kunne fokus springe **ud i
 menuen til venstre**, når den celle fjernbetjeningen stod på blev skiftet ud

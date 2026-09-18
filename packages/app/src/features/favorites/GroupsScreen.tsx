@@ -222,6 +222,7 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
           </Text>
         </View>
         <FlatList
+          removeClippedSubviews={false}
           ref={listRef}
           data={favourites}
           keyExtractor={(item) => item.id}
@@ -289,6 +290,7 @@ export function GroupsScreen({ session, onBack, onChanged }: Props) {
         </View>
       </View>
       <FlatList
+        removeClippedSubviews={false}
         data={groups}
         keyExtractor={(item) => item.id}
         contentContainerStyle={tail}

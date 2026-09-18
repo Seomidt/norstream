@@ -20,9 +20,22 @@ interface Props extends Omit<PressableProps, 'children'> {
  * hvad et tryk rammer. Paa telefonen er den en almindelig Pressable, uden
  * ekstra stil, saa det samme kort kan bruges begge steder.
  */
-export function TvPressable({ style, onFocus, onBlur, onPress, onLongPress, hasTVPreferredFocus, children, ...rest }: Props) {
+export function TvPressable({ style, onFocus, onBlur, onPress, onLongPress, hasTVPreferredFocus, disabled, children, ...rest }: Props) {
   const [focused, setFocused] = useState(false);
   const styles = useStyles(makeStyles);
+  /**
+   * `disabled` er en fokusfaelde paa tv.
+   *
+   * En deaktiveret Pressable kan ikke faa fokus. Deaktiverer en knap sig selv
+   * i det man trykker paa den ("Gemmer …", "Opdaterer …"), forsvinder den
+   * under fjernbetjeningen, og Android sender fokus til naermeste knap — tit
+   * ud i menuen. Derfor: paa tv beholdes knappen fokuserbar (ingen native
+   * `disabled`), trykket bliver bare uden virkning, og den tones ned saa man
+   * kan se den er inaktiv. Paa telefon er `disabled` en almindelig Pressable-
+   * egenskab og bliver ved med at vaere det.
+   */
+  const blocked = disabled === true && isTV;
+  const nativeDisabled = disabled === true && !isTV ? true : undefined;
   // Paa tv huskes trykket, saa skaermen kan bede om fokus tilbage hertil
   // naar det der aabnede oven paa (afspiller, ark) lukker igen. Se refocus.ts.
   const [forced, setForced] = useState(false);
@@ -44,24 +57,30 @@ export function TvPressable({ style, onFocus, onBlur, onPress, onLongPress, hasT
   return (
     <Pressable
       {...rest}
+      disabled={nativeDisabled}
       hasTVPreferredFocus={hasTVPreferredFocus === true || forced}
       onPress={
-        onPress == null && onLongPress == null
-          ? undefined
-          : (event) => {
-              note();
-              onPress?.(event);
-            }
+        // Paa tv: en spaerret knap beholder en tom onPress, saa den stadig
+        // kan faa fokus (en Pressable helt uden onPress er ikke fokuserbar) —
+        // men trykket goer ingenting.
+        blocked
+          ? () => undefined
+          : onPress == null && onLongPress == null
+            ? undefined
+            : (event) => {
+                note();
+                onPress?.(event);
+              }
       }
       onLongPress={
-        onLongPress == null
+        blocked || onLongPress == null
           ? undefined
           : (event) => {
               note();
               onLongPress?.(event);
             }
       }
-      style={[style, isTV && focused && styles.focused]}
+      style={[style, blocked && styles.blocked, isTV && focused && styles.focused]}
       onFocus={(event) => {
         setFocused(true);
         onFocus?.(event);
@@ -81,6 +100,9 @@ export function TvPressable({ style, onFocus, onBlur, onPress, onLongPress, hasT
 }
 
 const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  // Tv: en spaerret knap er stadig fokuserbar (ellers ryger fokus ud i
+  // menuen), men tonet ned saa man kan se den er inaktiv lige nu.
+  blocked: { opacity: 0.4 },
   // Tydelig fra sofaen: hvid ramme uden om fladen, blaa toning af fladen,
   // og en anelse stoerre. Det er det eneste der viser hvor
   // fjernbetjeningen er. Rammen er en outline og ikke en border: en

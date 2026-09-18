@@ -177,6 +177,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
         </View>
       ) : (
         <FlatList
+          removeClippedSubviews={false}
           ref={listRef}
           data={programmes}
           keyExtractor={(item) => String(item.start.getTime())}

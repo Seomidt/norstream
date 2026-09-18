@@ -198,6 +198,7 @@ export function LogoPickerScreen({ session, channelKey, onBack, onChanged }: Pro
         autoCapitalize="none"
       />
       <FlatList
+        removeClippedSubviews={false}
         data={hits}
         keyExtractor={(hit) => hit.url}
         numColumns={4}

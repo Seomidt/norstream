@@ -154,6 +154,7 @@ export function CinemaScreen({ session, onOpen, onTrailer, onOpenSettings }: Pro
         <Text style={styles.emptyRow}>{error === null ? 'TMDB gav ingen film for Danmark lige nu.' : 'Kunne ikke hentes.'}</Text>
       ) : (
         <FlatList
+          removeClippedSubviews={false}
           horizontal
           data={titles}
           keyExtractor={(title) => String(title.id)}
@@ -170,6 +171,7 @@ export function CinemaScreen({ session, onOpen, onTrailer, onOpenSettings }: Pro
   return (
     <View style={styles.container}>
       <FlatList
+        removeClippedSubviews={false}
         data={['now', 'soon'] as const}
         keyExtractor={(row) => row}
         contentContainerStyle={styles.content}
