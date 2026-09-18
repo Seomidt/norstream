@@ -94,12 +94,13 @@ export function LandscapePlayer({
     setActivity((value) => value + 1);
   });
   useEffect(() => {
-    // Paa tv gemmer bjaelken sig IKKE: hver gang den gemte sig og kom igen,
-    // blev knapperne tegnet forfra, og fokus faldt tilbage paa den foerste
-    // ("Start forfra") — man kunne slet ikke komme hen til Tekst/zap. Med en
-    // fast bjaelke bliver knapperne staaende og kan naas frit. Paa telefon
-    // (fingre, ikke fokus) gemmer den sig stadig af sig selv.
-    if (!barShown || isTV) return;
+    // Bjaelken gemmer sig igen efter lidt ro — ogsaa paa tv, saa den ikke
+    // daekker billedet hele tiden. Paa tv AFMONTERES den dog ikke (kun gemt
+    // med opacity): afmontering tegnede knapperne forfra og kastede fokus
+    // tilbage paa "Start forfra", saa man ikke kunne naa Tekst/zap. Bliver
+    // den monteret, bevares fokus, og et tryk paa fjernbetjeningen henter den
+    // frem igen.
+    if (!barShown) return;
     const timer = setTimeout(() => setBarShown(false), AUTO_HIDE_MS);
     return () => clearTimeout(timer);
   }, [barShown, activity]);
@@ -121,6 +122,13 @@ export function LandscapePlayer({
         >
           <Text style={styles.cornerText}>{barShown ? '×' : '⋯'}</Text>
         </TvPressable>
+      )}
+      {/* Naar bjaelken er skjult paa tv, holder denne usynlige flade fokus
+          inde i afspilleren. Uden den flyttede Android fokus UD af afspilleren
+          (til menuen bagved), naar den fokuserede knap forsvandt — og saa
+          kunne man ikke faa knapperne frem igen. Et tryk henter bjaelken. */}
+      {isTV && !barShown && (
+        <View style={StyleSheet.absoluteFill} focusable hasTVPreferredFocus />
       )}
       {barShown && (
         <View

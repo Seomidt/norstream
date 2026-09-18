@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 258** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 259** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,19 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Afspiller på tv: bjælken gemmer sig igen — uden at miste knapperne (v259).**
+Bruger efter v256: "nu er knapper fremme hele tiden i bunden." v256 gjorde
+bjælken permanent for at kunne nås; nu dækker den billedet konstant. v259:
+bjælken auto-gemmer sig igen (også på tv), MEN når den er skjult, holder en
+usynlig fuldskærms-flade (`<View focusable hasTVPreferredFocus>`) fokus INDE i
+afspilleren. Det var netop det der manglede i den oprindelige version: når den
+fokuserede knap forsvandt, flyttede Android fokus UD af afspilleren (til menuen
+bagved), og så kunne man ikke hente knapperne frem — deraf "kan slet ikke komme
+hen til dem". Med fokus-fladen bliver fokus i afspilleren; et tryk henter
+bjælken, og mens den er fremme kan alle knapper nås (som i v256). `onPlayerKey`
+(OK = pause, pil = spol) virker igen mens bjælken er skjult, fordi ingen knap
+har fokus da. `Landscape.tsx`.
 
 **Guide på tv bygget om til en glidende tidslinje (v258, ITERATION 1).** Bruger
 valgte den fulde ombygning (som Google/Xumo): "når jeg skifter i timer springer
