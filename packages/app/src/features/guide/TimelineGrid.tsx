@@ -10,7 +10,6 @@ import { TvPressable } from '../../ui/TvPressable.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
-import { keepInMiddle } from '../../ui/tvScroll.js';
 import { guideAction, layoutRow } from './layout.js';
 import type { CellState, GuideCell } from './layout.js';
 
@@ -138,7 +137,12 @@ export function TimelineGrid({
   const onRowFocus = useCallback(
     (channel: StoredChannel, index: number) => {
       onFocusChannel(channel);
-      keepInMiddle(listRef.current, index);
+      // Uden animation: op/ned foeles hurtigere ("saet klik-farten lidt op").
+      try {
+        listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: false });
+      } catch {
+        // Maalet er ikke tegnet endnu; onScrollToIndexFailed haandterer det.
+      }
     },
     [onFocusChannel],
   );
@@ -256,6 +260,7 @@ const ChannelRow = memo(function ChannelRow({
   return (
     <TvPressable
       style={styles.row}
+      flat
       hasTVPreferredFocus={focusPulse}
       onFocus={() => onFocusRow(channel, index)}
       onPress={() => onOpen(channel, primary?.programme ?? null, primary?.state ?? 'gap')}

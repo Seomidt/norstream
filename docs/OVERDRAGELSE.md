@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 265** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 266** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,16 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Guide iteration 8: NU-streg flugter + hurtigere op/ned (v266).** Bruger:
+"næsten perfekt — den røde streg bliver lidt forskudt på den kanal jeg går ind
+på, og sæt klik-farten en anelse op." NU-linjen sad forkert på den fokuserede
+række, fordi rækken skalerede op (1,05) på fokus: hele rækken — og NU-stregen i
+den — voksede, så den ikke flugtede med de andre rækkers. Nu bruger guide-rækken
+`TvPressable`s `flat` (fokus vises med ramme/ring, uden opskalering), så
+kolonner og NU-streg flugter på tværs af alle rækker. Og op/ned er sat en tak op
+i fart: `scrollToIndex({animated:false})` i stedet for den animerede centrering,
+så listen følger fokus uden en blød rulning per tryk.
 
 **Guide iteration 7: live vist med blå forløbs-streg (v265).** Bruger efter
 it.6 ("nu tror jeg vi er ved at være der"): den live-udsendelse skal ikke være
