@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 268** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 269** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,14 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Guide iteration 11: tid frem/tilbage virker igen (v269).** it.9 (v267) fik
+venstre/højre til at reagere på tast-NED (`eventKeyAction` 0) for at være
+hurtigere — men brugerens boks sender KUN tast-SLIP (action 1) for pil
+venstre/højre, så guarden `=== 1 return` sprang det eneste signal over, og man
+kunne slet ikke skifte tid ("kan ikke køre tilbage og frem i tiden"). Rullet
+tilbage til at reagere på tast-slip (`=== 0 return`), præcis som det virkede i
+265/266. Alt andet fra it.10 (hele arkiv-spændet) beholdt.
 
 **Guide iteration 10: hele arkivet tilbage igen (v268).** Bruger: "jeg kan kun
 gå 8-9 timer tilbage, plejer at kunne se flere dage tilbage." Den nye guide

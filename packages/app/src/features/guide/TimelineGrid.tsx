@@ -91,11 +91,12 @@ export function TimelineGrid({
   // Pil venstre/hoejre skruer paa tiden — ét tastetryk, ikke en fokusflytning.
   useTVEventHandler((event) => {
     if (event.eventType !== 'right' && event.eventType !== 'left') return;
-    // Reager paa tryk-NED (action 0), ikke paa slip (1): saa svarer venstre/hoejre
-    // med det samme, og holder man tasten inde, sender Android gentagne ned-tryk,
-    // saa man hurtigt kan bladre gennem tiden. (Slip-haendelsen springes over,
-    // ellers ville hvert tryk taelle to gange.)
-    if (event.eventKeyAction !== undefined && Number(event.eventKeyAction) === 1) return;
+    // Reager paa tast-SLIP (action 1), ikke paa tryk-ned (0). Denne boks sender
+    // KUN slip-haendelsen for pil venstre/hoejre — proevede vi at reagere paa
+    // tryk-ned i stedet, skete der ingenting, og man kunne ikke skifte tid.
+    // (Springer vi slip over paa en boks der sender begge, ville hvert tryk
+    // ellers taelle to gange.)
+    if (event.eventKeyAction !== undefined && Number(event.eventKeyAction) === 0) return;
     onStepTime(event.eventType === 'right' ? COL_MIN : -COL_MIN);
   });
 
