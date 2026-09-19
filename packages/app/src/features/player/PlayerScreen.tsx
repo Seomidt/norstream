@@ -672,30 +672,8 @@ export function PlayerScreen({
           Tekst{subtitle !== null ? `: ${trackName(subtitle)}` : ''}
         </Text>
       </TvPressable>
-      {zapList.length > 1 && zapIndex !== -1 && (
-        <>
-          <TvPressable
-            style={styles.button}
-            hitSlop={6}
-            onPress={() => {
-              const target = zapList[(zapIndex - 1 + zapList.length) % zapList.length];
-              if (target !== undefined) zapTo(target);
-            }}
-          >
-            <Text style={styles.buttonText}>‹</Text>
-          </TvPressable>
-          <TvPressable
-            style={styles.button}
-            hitSlop={6}
-            onPress={() => {
-              const target = zapList[(zapIndex + 1) % zapList.length];
-              if (target !== undefined) zapTo(target);
-            }}
-          >
-            <Text style={styles.buttonText}>›</Text>
-          </TvPressable>
-        </>
-      )}
+      {/* De to zap-pile (‹ ›) er fjernet: paa tv zapper man med fjernbetjeningens
+          pil venstre/hoejre i fuld skaerm, saa knapperne var overfloedige. */}
       {previous !== null && (
         <TvPressable style={styles.button} hitSlop={6} onPress={() => zapTo(previous)}>
           <Text style={styles.buttonText}>⇄ {shortName(previous.name)}</Text>

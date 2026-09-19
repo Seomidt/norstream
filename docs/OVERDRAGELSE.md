@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 275** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 276** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,12 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Afspiller: fjern de to zap-pile (‹ ›) fra bjælken (v276).** Bruger (med
+billede): "denne menu her i bunden kan du godt fjerne de 2 pile." Nu hvor
+venstre/højre på fjernbetjeningen zapper (v275), var ‹ ›-knapperne overflødige.
+Fjernet fra `actions` i `PlayerScreen.tsx`; "⇄ forrige kanal"-knappen og Tekst
+står stadig. `zapList`/`zapIndex` bruges videre af fjernbetjenings-zap og radio.
 
 **Afspiller: zap kanal med pil venstre/højre i fuld skærm (v275).** Bruger: "kan
 vi lave at når jeg er inde på en kanal i fuld billede, at pil højre = næste
