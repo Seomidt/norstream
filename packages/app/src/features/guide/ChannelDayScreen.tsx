@@ -182,7 +182,14 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
           data={programmes}
           keyExtractor={(item) => String(item.start.getTime())}
           contentContainerStyle={tail}
-          initialNumToRender={Math.max(20, liveIndex + 10)}
+          // Let foerste tegning: tegn kun en haandfuld raekker, saa markoeren
+          // kommer hurtigt. Foer blev ALLE raekker op til den live-udsendelse
+          // (tit 40+) tegnet paa én gang, og paa tv-boksen tog det lang tid foer
+          // man kunne koere op/ned. scrollToIndex + onScrollToIndexFailed henter
+          // resten og ruller ned til nu.
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={9}
           onScrollToIndexFailed={(info) => {
             setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, animated: false, viewPosition: 0 }), 300);
           }}
