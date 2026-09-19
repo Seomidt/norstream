@@ -34,10 +34,15 @@ const MAX_PARALLEL = 1;
 const PAUSE_MS = 150;
 
 /**
- * Hvor lidt vi altid beholder, ogsaa naar ingen kanal har arkiv. Tolv timer
- * daekker "hvad var det jeg saa i aftes" i guiden.
+ * Hvor mange dage bagud guiden OG dagssiden viser (DRAG_MIN_MINUTES = 7 dage,
+ * MAX_DAYS_BACK = 7). Programdata inden for dette vindue maa ALDRIG slettes,
+ * uanset arkivet: ellers viste guiden en udsendelse fra i forgaars (hentet og
+ * lige lagt i cachen), mens dagssiden bagefter laeste en beskaaret database og
+ * stod naesten tom. Selve *start-forfra* er stadig kun muligt inden for
+ * arkivet (styret pr. udsendelse), men at KUNNE VISE oversigten koster kun
+ * nogle faa kilobyte og skal daekke hele det vindue man kan bladre i.
  */
-const MIN_RETENTION_HOURS = 12;
+const DISPLAY_RETENTION_DAYS = 7;
 
 /** En dags luft oven i arkivet, saa graensetilfaeldet ikke ryger paa gulvet. */
 const RETENTION_MARGIN_DAYS = 1;
@@ -45,15 +50,15 @@ const RETENTION_MARGIN_DAYS = 1;
 /**
  * Hvor langt tilbage programdata skal beholdes.
  *
- * Reglen foelger arkivet, ikke et fast tal: et program uden for panelets
- * arkivperiode kan alligevel ikke startes, saa det er doed vaegt i databasen.
- * Omvendt ville den gamle faste 12-timers graense slette praecis de
- * udsendelser arkivet lever af — for saa vidt de overhovedet naaede at blive
- * gemt.
+ * Mindst hele det vindue guiden og dagssiden kan bladre i (7 dage), saa de to
+ * skaerme aldrig er uenige om hvor langt tilbage der er data. Har en kanal et
+ * laengere arkiv end det, beholdes tilsvarende mere (arkivet + en dags luft).
+ * Foer fulgte graensen kun arkivet (eller faldt til 12 timer naar panelet ikke
+ * oplyste arkivdage), og saa slettede oprydningen praecis de dage guiden viste.
  */
 export function retentionCutoff(now: Date, archiveDays: number): Date {
   const fromArchive = (archiveDays + RETENTION_MARGIN_DAYS) * 24;
-  const hours = Math.max(MIN_RETENTION_HOURS, archiveDays > 0 ? fromArchive : 0);
+  const hours = Math.max(DISPLAY_RETENTION_DAYS * 24, fromArchive);
   return new Date(now.getTime() - hours * 60 * 60_000);
 }
 

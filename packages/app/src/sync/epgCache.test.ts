@@ -186,23 +186,27 @@ describe('ensureEpg', () => {
     );
   });
 
-  it('rydder programmer der sluttede for over 12 timer siden', async () => {
-    const longAgo = NOW.getTime() - 20 * 60 * 60_000;
+  it('rydder programmer aeldre end visningsvinduet, men beholder de seneste dage', async () => {
+    // Uden for vinduet (over 7 dage) ryddes; inden for (i gaar) beholdes, saa
+    // baade guiden og dagssiden kan vise det, man kan bladre tilbage til.
+    const longAgo = NOW.getTime() - 9 * 24 * 60 * 60_000;
+    const yesterday = NOW.getTime() - 20 * 60 * 60_000;
     await db.runAsync(
       'INSERT INTO programmes (channel_id, start_ms, stop_ms, title) VALUES (?, ?, ?, ?)',
-      [key('247634'), longAgo, longAgo + 1800_000, 'Forrige doegn'],
+      [key('247634'), longAgo, longAgo + 1800_000, 'For laenge siden'],
+    );
+    await db.runAsync(
+      'INSERT INTO programmes (channel_id, start_ms, stop_ms, title) VALUES (?, ?, ?, ?)',
+      [key('247634'), yesterday, yesterday + 1800_000, 'I gaar'],
     );
     const fetchImpl = panel({ listings: { '247634': [listing(0)] } });
 
     await ensureEpg(db, sources, fetchImpl, [key('247634')], NOW);
 
-    const old = await listProgrammes(
-      db,
-      key('247634'),
-      new Date(longAgo - 1000),
-      new Date(longAgo + 1000),
-    );
+    const old = await listProgrammes(db, key('247634'), new Date(longAgo - 1000), new Date(longAgo + 1000));
     expect(old).toEqual([]);
+    const kept = await listProgrammes(db, key('247634'), new Date(yesterday - 1000), new Date(yesterday + 1000));
+    expect(kept).toHaveLength(1);
   });
 
   it('rydder ikke naar panelet ikke gav noget', async () => {
@@ -240,17 +244,19 @@ const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
 
 describe('retentionCutoff', () => {
-  it('holder tolv timer naar ingen kanal har arkiv', () => {
-    expect(retentionCutoff(NOW, 0)).toEqual(new Date(NOW.getTime() - 12 * HOUR_MS));
+  it('holder hele visningsvinduet (7 dage) naar ingen kanal har arkiv', () => {
+    // Guiden og dagssiden viser 7 dage tilbage; det maa aldrig beskaeres bort,
+    // heller ikke naar panelet slet ikke oplyser arkivdage.
+    expect(retentionCutoff(NOW, 0)).toEqual(new Date(NOW.getTime() - 7 * DAY_MS));
   });
 
-  it('foelger arkivet med en dags luft', () => {
+  it('foelger arkivet med en dags luft naar det er laengere end visningsvinduet', () => {
     expect(retentionCutoff(NOW, 7)).toEqual(new Date(NOW.getTime() - 8 * DAY_MS));
   });
 
-  it('gaar aldrig under tolv timer', () => {
+  it('gaar aldrig under visningsvinduet paa 7 dage', () => {
     // Et arkiv paa nul dage paa en kanal der ellers har flaget sat.
-    expect(retentionCutoff(NOW, 0).getTime()).toBeLessThanOrEqual(NOW.getTime() - 12 * HOUR_MS);
+    expect(retentionCutoff(NOW, 0).getTime()).toBeLessThanOrEqual(NOW.getTime() - 7 * DAY_MS);
   });
 });
 

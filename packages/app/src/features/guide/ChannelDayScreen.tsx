@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
-import { earliestProgrammeStart, listProgrammes } from '../../storage/programmes.js';
+import { listProgrammes } from '../../storage/programmes.js';
 import { ensureFullEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
@@ -44,28 +44,13 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const tail = useTvListTail();
-  // Tilbyd praecis saa mange dage tilbage som der FAKTISK er cachet EPG til —
-  // den samme cache guiden laeser. Et fast antal (fx 7) gav dag-knapper der
-  // stod tomme, fordi panelet kun gemmer programlisten et stykke tilbage; nu
-  // regnes graensen ud fra den aeldste cachede udsendelse for kanalen, saa
-  // dagssiden naar lige saa langt tilbage som guiden og ikke laenger. Mindst 1
-  // (I gaar), hoejst MAX_DAYS_BACK. Opdateres naar den fulde tabel er hentet.
-  const [daysBack, setDaysBack] = useState(1);
-  const refreshDaysBack = useCallback(async (): Promise<void> => {
-    const earliest = await earliestProgrammeStart(session.db, channel.id);
-    if (earliest === null) {
-      setDaysBack(1);
-      return;
-    }
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const earliestStart = new Date(earliest);
-    earliestStart.setHours(0, 0, 0, 0);
-    const diffDays = Math.round((todayStart.getTime() - earliestStart.getTime()) / 86_400_000);
-    setDaysBack(Math.min(MAX_DAYS_BACK, Math.max(1, diffDays)));
-  }, [session.db, channel.id]);
+  // Hele spanet (7 dage tilbage til et par frem) hentes ÉN gang — praecis som
+  // guiden goer — og hver dag skaeres ud lokalt. Saa laeser dagssiden og guiden
+  // GARANTERET det samme: samme kanal, samme listeopslag, samme cache. Foer
+  // laeste dagssiden dag for dag med sit eget opslag, og selv en lille forskel
+  // i timing eller vindue kunne give "guiden har det, men hele dagen er tom".
+  const [allProgrammes, setAllProgrammes] = useState<Programme[] | null>(null);
   const [dayDelta, setDayDelta] = useState(0);
-  const [programmes, setProgrammes] = useState<Programme[] | null>(null);
   const [fetching, setFetching] = useState(true);
   const [sheet, setSheet] = useState<{ programme: Programme; state: CellState } | null>(null);
   // Naar arket lukker, tilbage til det der aabnede det: ellers gav Android
@@ -95,6 +80,24 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
   }, [session.db, channel.id, sheet]);
   const now = new Date();
 
+  const dayBounds = useCallback((delta: number): { from: Date; to: Date } => {
+    const from = new Date();
+    from.setHours(0, 0, 0, 0);
+    from.setDate(from.getDate() + delta);
+    const to = new Date(from);
+    to.setDate(to.getDate() + 1);
+    return { from, to };
+  }, []);
+
+  // Den valgte dag skaeres ud af det hentede span — ingen nyt opslag pr. dag.
+  const programmes = useMemo((): Programme[] | null => {
+    if (allProgrammes === null) return null;
+    const { from, to } = dayBounds(dayDelta);
+    const f = from.getTime();
+    const t = to.getTime();
+    return allProgrammes.filter((p) => p.stop.getTime() > f && p.start.getTime() < t);
+  }, [allProgrammes, dayDelta, dayBounds]);
+
   /**
    * Listen aabner ved det der sendes nu (i dag) og ikke ved midnat: det er
    * det man kom fra i guiden. De andre dage begynder ved dagens start.
@@ -109,44 +112,47 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [programmes === null, dayDelta]);
 
-  const dayBounds = useCallback((delta: number): { from: Date; to: Date } => {
+  // Hele det vindue dagssiden kan bladre i, i ét opslag: fra MAX_DAYS_BACK dage
+  // tilbage til et par dage frem. Samme lokale database som guiden.
+  const load = useCallback(async (): Promise<void> => {
     const from = new Date();
     from.setHours(0, 0, 0, 0);
-    from.setDate(from.getDate() + delta);
-    const to = new Date(from);
-    to.setDate(to.getDate() + 1);
-    return { from, to };
-  }, []);
-
-  const load = useCallback(async (): Promise<void> => {
-    const { from, to } = dayBounds(dayDelta);
-    setProgrammes(await listProgrammes(session.db, channel.id, from, to));
-  }, [session.db, channel.id, dayDelta, dayBounds]);
+    from.setDate(from.getDate() - MAX_DAYS_BACK);
+    const to = new Date();
+    to.setHours(0, 0, 0, 0);
+    to.setDate(to.getDate() + DAYS_FORWARD + 1);
+    setAllProgrammes(await listProgrammes(session.db, channel.id, from, to));
+  }, [session.db, channel.id]);
 
   // Foerst det cachen har, saa hele tabellen fra panelet, saa igen.
   useEffect(() => {
     let cancelled = false;
     void load();
-    void refreshDaysBack();
     void ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, [channel])
       .catch(() => undefined)
       .then(() => {
         if (cancelled) return;
         setFetching(false);
         void load();
-        // Den fulde tabel kan have hentet flere dage bagud — opdater knapperne.
-        void refreshDaysBack();
       });
     return () => {
       cancelled = true;
     };
-    // Kun ved aabning; dagsskift laeser fra cachen nedenfor.
+    // Kun ved aabning; dagsskift skaeres ud af det hentede nedenfor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, channel.id]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  // Antal bagud-dage foelger den aeldste udsendelse i spanet, saa der ikke staar
+  // tomme fantom-dage, men praecis lige saa langt tilbage som der er data.
+  const daysBack = useMemo((): number => {
+    if (allProgrammes === null || allProgrammes.length === 0) return 1;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const earliest = new Date(allProgrammes[0]!.start);
+    earliest.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((todayStart.getTime() - earliest.getTime()) / 86_400_000);
+    return Math.min(MAX_DAYS_BACK, Math.max(1, diffDays));
+  }, [allProgrammes]);
 
   function stateOf(programme: Programme): CellState {
     const ms = now.getTime();

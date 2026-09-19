@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 280** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 281** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,25 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**"Hele dagen": dag-knapper kun så langt tilbage som der er data (v280).** Bruger:
+**"Hele dagen": oprydningen slettede de dage guiden viste — rettet ved roden (v281).**
+Bruger: "nej, de er ikke tomme i guiden — jeg kan fint starte noget for 3 dage
+siden i guiden, men når jeg går under hele dagen ved en kanal, er der næsten
+intet." Det var IKKE tomme fantomdage: dataene fandtes, men blev slettet igen.
+**Rod:** `retentionCutoff` (EPG-oprydningen) beholdt kun `(archiveDays + 1)`
+dage — og faldt til **12 timer**, når panelet ikke oplyste arkivdage
+(`archive_days = 0`, selv med arkiv-flaget sat → `maxArchiveDays = 0`). Men både
+guiden og dagssiden VISER 7 dage tilbage. Guiden viste 3 dage fra sin
+in-memory-indlæsning lige efter en hentning; så ryddede `deleteProgrammesBefore`
+databasen ned til 12 timer, og dagssiden — der læste databasen bagefter — stod
+næsten tom. **Fix:** oprydningen beholder nu mindst hele visningsvinduet
+(`DISPLAY_RETENTION_DAYS = 7`) uanset arkivet (mere hvis arkivet er længere).
+Selve start-forfra er stadig kun muligt inden for arkivet. Desuden læser
+dagssiden nu HELE spanet i ét opslag (som guiden) og skærer hver dag ud lokalt,
+så de to skærme garanteret er enige om, hvad der er data til; antal bagud-dage
+følger den ældste udsendelse i spanet. (Efter opdatering kan det kræve, at
+appen henter tabellen én gang, før de ekstra dage dukker op.)
+
+**"Hele dagen": dag-knapper kun så langt tilbage som der er data (v280, afløst af v281).** Bruger:
 "når jeg kigger EPG for hele dagen, kan jeg stadig kun køre tilbage til kl 23:55
 i går, men bladrer jeg i guiden, kommer jeg fint meget længere tilbage." I v278
 satte jeg dagssidens bagud-knapper til et fast antal (7), men panelet gemmer kun

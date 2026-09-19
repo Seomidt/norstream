@@ -110,24 +110,6 @@ export async function getNowNext(
   };
 }
 
-/**
- * Starttidspunktet paa den aeldste cachede udsendelse for kanalen, eller null
- * naar der ingen er. Dagssiden bruger det til at tilbyde praecis saa mange dage
- * tilbage som der faktisk er data til — samme data som guiden laeser — i stedet
- * for et fast antal dage der ellers staar tomme.
- */
-export async function earliestProgrammeStart(
-  db: SqlDatabase,
-  epgChannelId: string,
-): Promise<Date | null> {
-  const row = await db.getFirstAsync<{ start_ms: number | null }>(
-    'SELECT MIN(start_ms) AS start_ms FROM programmes WHERE channel_id = ?',
-    [epgChannelId],
-  );
-  if (row === null || row.start_ms === null) return null;
-  return new Date(row.start_ms);
-}
-
 /** Holder databasen fra at vokse ubegraenset efterhaanden som EPG fornys. */
 export async function deleteProgrammesBefore(
   db: SqlDatabase,
