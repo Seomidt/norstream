@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 266** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 267** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,14 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**Guide iteration 8: NU-streg flugter + hurtigere op/ned (v266).** Bruger:
+**Guide iteration 9: hurtigere venstre/højre i tid (v267).** Bruger: "har du
+venstre og højre også lidt hurtigere?" Tidsskiftet reagerede før på tast-SLIP
+(`eventKeyAction` 1), hvilket føltes forsinket og ikke gentog ved at holde
+tasten. Nu reageres på tast-NED (0): svarer med det samme, og holder man tasten
+inde, sender Android gentagne ned-tryk, så man hurtigt kan bladre gennem tiden.
+(Bygget oven på it.8; 266 blev aldrig udgivet — foldet ind her.)
+
+**Guide iteration 8: NU-streg flugter + hurtigere op/ned (v266, udgivet som 267).** Bruger:
 "næsten perfekt — den røde streg bliver lidt forskudt på den kanal jeg går ind
 på, og sæt klik-farten en anelse op." NU-linjen sad forkert på den fokuserede
 række, fordi rækken skalerede op (1,05) på fokus: hele rækken — og NU-stregen i

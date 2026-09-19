@@ -86,8 +86,11 @@ export function TimelineGrid({
   // Pil venstre/hoejre skruer paa tiden — ét tastetryk, ikke en fokusflytning.
   useTVEventHandler((event) => {
     if (event.eventType !== 'right' && event.eventType !== 'left') return;
-    // Android sender baade ned (0) og op (1); tael kun det ene, ellers to skridt.
-    if (event.eventKeyAction !== undefined && Number(event.eventKeyAction) === 0) return;
+    // Reager paa tryk-NED (action 0), ikke paa slip (1): saa svarer venstre/hoejre
+    // med det samme, og holder man tasten inde, sender Android gentagne ned-tryk,
+    // saa man hurtigt kan bladre gennem tiden. (Slip-haendelsen springes over,
+    // ellers ville hvert tryk taelle to gange.)
+    if (event.eventKeyAction !== undefined && Number(event.eventKeyAction) === 1) return;
     onStepTime(event.eventType === 'right' ? COL_MIN : -COL_MIN);
   });
 
