@@ -3,7 +3,7 @@ import { ActivityIndicator, FlatList, ScrollView, StyleSheet, Text, View } from 
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
-import { listProgrammes } from '../../storage/programmes.js';
+import { earliestProgrammeStart, listProgrammes } from '../../storage/programmes.js';
 import { ensureFullEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
@@ -44,12 +44,26 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const tail = useTvListTail();
-  // Tilbyd lige saa mange dage tilbage som guiden viser (al cachet EPG), ikke
-  // kun kanalens arkiv-dage. Foer var det begraenset til `archiveDays`, saa man
-  // kunne ikke gaa lige saa langt tilbage her som i guiden. En dag uden tabel
-  // viser bare "ingen tabel"; start-forfra er stadig kun muligt hvor arkivet
-  // raekker (styres af `restartable` pr. udsendelse).
-  const daysBack = MAX_DAYS_BACK;
+  // Tilbyd praecis saa mange dage tilbage som der FAKTISK er cachet EPG til —
+  // den samme cache guiden laeser. Et fast antal (fx 7) gav dag-knapper der
+  // stod tomme, fordi panelet kun gemmer programlisten et stykke tilbage; nu
+  // regnes graensen ud fra den aeldste cachede udsendelse for kanalen, saa
+  // dagssiden naar lige saa langt tilbage som guiden og ikke laenger. Mindst 1
+  // (I gaar), hoejst MAX_DAYS_BACK. Opdateres naar den fulde tabel er hentet.
+  const [daysBack, setDaysBack] = useState(1);
+  const refreshDaysBack = useCallback(async (): Promise<void> => {
+    const earliest = await earliestProgrammeStart(session.db, channel.id);
+    if (earliest === null) {
+      setDaysBack(1);
+      return;
+    }
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const earliestStart = new Date(earliest);
+    earliestStart.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((todayStart.getTime() - earliestStart.getTime()) / 86_400_000);
+    setDaysBack(Math.min(MAX_DAYS_BACK, Math.max(1, diffDays)));
+  }, [session.db, channel.id]);
   const [dayDelta, setDayDelta] = useState(0);
   const [programmes, setProgrammes] = useState<Programme[] | null>(null);
   const [fetching, setFetching] = useState(true);
@@ -113,12 +127,15 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
   useEffect(() => {
     let cancelled = false;
     void load();
+    void refreshDaysBack();
     void ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, [channel])
       .catch(() => undefined)
       .then(() => {
         if (cancelled) return;
         setFetching(false);
         void load();
+        // Den fulde tabel kan have hentet flere dage bagud — opdater knapperne.
+        void refreshDaysBack();
       });
     return () => {
       cancelled = true;

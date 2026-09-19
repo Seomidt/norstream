@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 279** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 280** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,21 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**"Hele dagen": dag-knapper kun så langt tilbage som der er data (v280).** Bruger:
+"når jeg kigger EPG for hele dagen, kan jeg stadig kun køre tilbage til kl 23:55
+i går, men bladrer jeg i guiden, kommer jeg fint meget længere tilbage." I v278
+satte jeg dagssidens bagud-knapper til et fast antal (7), men panelet gemmer kun
+programlisten et stykke tilbage, så de ekstra knapper stod tomme ("ingen tabel")
+— det lignede, at man ikke kunne komme længere. Dagssiden og guiden læser den
+SAMME cache (`listProgrammes`), så der er ikke mere data at hente bagud i den ene
+end i den anden; guiden føles bare dybere, fordi man kan bladre tomme celler
+igennem. Nu regnes antallet af bagud-dage ud fra den ÆLDSTE cachede udsendelse
+for kanalen (`earliestProgrammeStart` = `MIN(start_ms)`), klemt til [1,
+MAX_DAYS_BACK] og opdateret når den fulde tabel er hentet. Så viser dagssiden
+præcis de dage, der faktisk har indhold — lige så langt tilbage som guiden reelt
+rækker, uden tomme fantomdage. (Vil man have flere dage bagud, er det panelets
+programliste, der skal nå længere — ikke appen.)
 
 **Guide: beskrivelsesboksen følger med tilbage i tiden (v279).** Bruger: "når
 jeg går tilbage i tiden på guiden, har jeg svært ved at se, hvilken udsendelse
