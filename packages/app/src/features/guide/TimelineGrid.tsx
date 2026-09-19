@@ -42,6 +42,14 @@ const ROW_HEIGHT = 62;
 const CHANNEL_COL = 128;
 const HEADER_HEIGHT = 26;
 /**
+ * Hvor mange kommende udsendelser guiden beder panelet om (`get_short_epg`).
+ * Standard var 12 — praecis "nu + naeste" = ca. 8-9 timer frem, hvorefter guiden
+ * saa ud til at "stoppe". Med et hoejt tal henter den flere dage frem, saa langt
+ * panelet har oversigt. `get_short_epg` giver kun fremad; fortiden kommer fra den
+ * fulde tabel (`ensureFullEpg`).
+ */
+const GUIDE_EPG_LIMIT = 200;
+/**
  * Hvor langt tilbage/frem der hentes programdata til striben. Skal daekke hele
  * det spaend man kan bladre i (samme som traekkets graenser: 7 dage hver vej —
  * arkivet bagud, oversigten fremad). Var foer kun 6 timer tilbage, saa man
@@ -127,7 +135,7 @@ export function TimelineGrid({
     let cancelled = false;
     void (async () => {
       try {
-        await ensureEpg(session.db, session.credsBySource, session.fetchImpl, channels.map((c) => c.id));
+        await ensureEpg(session.db, session.credsBySource, session.fetchImpl, channels.map((c) => c.id), new Date(), GUIDE_EPG_LIMIT);
         if (!cancelled) void draw();
         await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, channels);
       } catch {

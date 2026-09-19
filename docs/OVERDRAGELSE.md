@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 269** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 270** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,17 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**Guide iteration 11: tid frem/tilbage virker igen (v269).** it.9 (v267) fik
+**Guide iteration 12: hent flere dage frem i EPG'en (v270).** Bruger: "jeg kan
+kun køre 8-9 timer frem/tilbage, den stopper helt som om der ikke er mere." 8-9
+timer = præcis de 12 udsendelser `get_short_epg` giver ("nu + næste"). Guiden bad
+kun om 12 (`DEFAULT_LIMIT`), så når den fulde tabel (`get_simple_data_table`)
+ikke rakte længere for panelet, stod resten tomt. Nu beder guiden om
+`GUIDE_EPG_LIMIT = 200` kommende udsendelser via `ensureEpg(..., limit)`, så den
+henter flere dage frem, så langt panelet har oversigt. `get_short_epg` giver kun
+fremad; fortiden kommer stadig fra den fulde tabel — panelet leverer sjældent
+meget bagud. (Bygget oven på it.11; 269 blev aldrig udgivet — foldet ind her.)
+
+**Guide iteration 11: tid frem/tilbage virker igen (v269, udgivet som 270).** it.9 (v267) fik
 venstre/højre til at reagere på tast-NED (`eventKeyAction` 0) for at være
 hurtigere — men brugerens boks sender KUN tast-SLIP (action 1) for pil
 venstre/højre, så guarden `=== 1 return` sprang det eneste signal over, og man
