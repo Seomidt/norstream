@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 270** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 271** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,17 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**Guide iteration 12: hent flere dage frem i EPG'en (v270).** Bruger: "jeg kan
+**Guide iteration 13: Tilbage går direkte til menuen (v271).** Bruger: "den må
+gerne være hurtigere til at komme til menu — når jeg trykker tilbage i guiden
+tager det et par sekunder, så man er i tvivl om man har trykket." Årsag: på
+guide-fanen stillede første Tilbage FØRST vinduet på "nu" (`offsetMinutes = 0`)
+og krævede et tryk til for at nå menuen — så første tryk så ud til ikke at gøre
+noget. Nu går Tilbage direkte til menuen (guide-backRef håndterer kun dagssiden),
+og vinduet stilles i stedet på "nu", når man kommer ind i guiden fra menuen igen
+(`setOffsetMinutes(0)` på `focusFirstSignal`-skift). (Bygget oven på it.12; 270
+blev aldrig udgivet — foldet ind her.)
+
+**Guide iteration 12: hent flere dage frem i EPG'en (v270, udgivet som 271).** Bruger: "jeg kan
 kun køre 8-9 timer frem/tilbage, den stopper helt som om der ikke er mere." 8-9
 timer = præcis de 12 udsendelser `get_short_epg` giver ("nu + næste"). Guiden bad
 kun om 12 (`DEFAULT_LIMIT`), så når den fulde tabel (`get_simple_data_table`)

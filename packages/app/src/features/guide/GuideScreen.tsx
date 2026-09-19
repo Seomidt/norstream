@@ -172,6 +172,10 @@ export function GuideScreen({
   const signalAtMount = useRef(focusFirstSignal);
   useEffect(() => {
     if (!isTV || focusFirstSignal === signalAtMount.current) return;
+    // Ind i guiden fra menuen: stil altid vinduet paa "nu" igen, saa man aabner
+    // paa nutiden (og ikke skal bruge Tilbage til at komme hjem — Tilbage gaar
+    // nu direkte til menuen).
+    setOffsetMinutes(0);
     const first = channels[0];
     if (first === undefined) return;
     setFocusTarget({ channelId: first.id, key: '' });
@@ -204,11 +208,11 @@ export function GuideScreen({
         setDayFor(null);
         return true;
       }
-      // Paa tv er der ingen "Nu"-knap: Tilbage saetter vinduet til nu foerst.
-      if (isTV && offsetMinutes !== 0) {
-        setOffsetMinutes(0);
-        return true;
-      }
+      // Tilbage gaar DIREKTE til menuen (ét tryk). Foer stillede det foerst
+      // vinduet paa "nu" og kraevede et tryk til for at naa menuen — det foeltes
+      // som om foerste tryk ikke gjorde noget ("et par sekunder, i tvivl om man
+      // har trykket"). Vinduet stilles i stedet paa nu, naar man kommer ind i
+      // guiden fra menuen igen (se focusFirstSignal nedenfor).
       return false;
     };
   }
