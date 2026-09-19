@@ -44,7 +44,12 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const tail = useTvListTail();
-  const daysBack = Math.min(MAX_DAYS_BACK, Math.max(0, channel.archiveDays));
+  // Tilbyd lige saa mange dage tilbage som guiden viser (al cachet EPG), ikke
+  // kun kanalens arkiv-dage. Foer var det begraenset til `archiveDays`, saa man
+  // kunne ikke gaa lige saa langt tilbage her som i guiden. En dag uden tabel
+  // viser bare "ingen tabel"; start-forfra er stadig kun muligt hvor arkivet
+  // raekker (styres af `restartable` pr. udsendelse).
+  const daysBack = MAX_DAYS_BACK;
   const [dayDelta, setDayDelta] = useState(0);
   const [programmes, setProgrammes] = useState<Programme[] | null>(null);
   const [fetching, setFetching] = useState(true);
@@ -167,8 +172,8 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
         ))}
       </ScrollView>
 
-      {daysBack === 0 && (
-        <Text style={styles.hint}>Kanalen har intet arkiv hos udbyderen, så kun det kommende kan ses her.</Text>
+      {channel.archiveDays === 0 && (
+        <Text style={styles.hint}>Kanalen har intet arkiv hos udbyderen, så du kan se oversigten, men ikke starte tidligere udsendelser forfra.</Text>
       )}
 
       {programmes === null ? (

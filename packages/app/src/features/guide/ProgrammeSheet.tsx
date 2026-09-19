@@ -83,21 +83,25 @@ export function ProgrammeSheet({
           </Text>
         </ScrollView>
 
-        {/* Paa tv staar fjernbetjeningen paa Start forfra naar den findes:
-            det er dét man aabner bladet for paa en udsendelse der er i
-            gang eller sendt, og Se kanalen kostede et tryk ned hver gang. */}
+        {/* Paa tv staar fjernbetjeningen paa "Se kanalen" som standard: det er
+            det man oftest vil, naar man klikker paa en kanal i guiden. Start
+            forfra ligger lige under og er kun et tryk ned vaek. */}
         <View style={styles.actions}>
           {options.play && (
             <TvPressable
-              style={[styles.button, !options.restart && styles.buttonAccent]}
+              style={[styles.button, styles.buttonAccent]}
               onPress={onPlay}
-              hasTVPreferredFocus={isTV && !options.restart}
+              hasTVPreferredFocus={isTV}
             >
               <Text style={styles.buttonText}>Se {channel.name}</Text>
             </TvPressable>
           )}
           {options.restart && (
-            <TvPressable style={[styles.button, styles.buttonAccent]} onPress={onRestart} hasTVPreferredFocus={isTV}>
+            <TvPressable
+              style={[styles.button, !options.play && styles.buttonAccent]}
+              onPress={onRestart}
+              hasTVPreferredFocus={isTV && !options.play}
+            >
               <Text style={styles.buttonText}>▶ Start forfra</Text>
             </TvPressable>
           )}

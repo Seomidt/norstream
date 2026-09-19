@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 277** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 278** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,28 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**"Hele dagen": let første tegning, så markøren kommer hurtigt (v277).** Bruger:
+**Guide: klik på en kanal står nu på "Se kanalen" (v278).** Bruger (med
+billede): "når jeg trykker på en kanal i guiden, vil jeg gerne have, at den
+som standard står på Se DR1 og ikke på Start forfra." I `ProgrammeSheet` stod
+fjernbetjeningen før på **Start forfra**, når den var mulig. Nu har **"Se
+{kanal}"** altid `hasTVPreferredFocus` og accent-farven, og Start forfra ligger
+lige under (kun et tryk ned væk). Skifter kun tilbage til Start forfra som
+standard, hvis der undtagelsesvis slet ikke er en Se-knap (`!options.play`).
+
+**"Hele dagen": så langt tilbage som guiden (v278).** Bruger: "jeg kan se,
+at det kun er, når jeg vælger hele dagens EPG, jeg ikke kan gå langt nok
+tilbage i tiden — i guiden virker tilbage fint." `ChannelDayScreen` begrænsede
+antallet af bagud-dage til `channel.archiveDays` (`daysBack = Math.min(MAX_DAYS_BACK,
+archiveDays)`), mens guiden viser al cachet EPG uanset arkiv. Nu er `daysBack =
+MAX_DAYS_BACK` (7 dage), så dagssiden tilbyder de samme dage tilbage som guiden;
+en dag uden tabel viser bare "ingen tabel", og Start-forfra er stadig kun muligt,
+hvor arkivet rækker (styret pr. udsendelse af `restartable`). Hint-teksten
+udløses nu på `channel.archiveDays === 0` (ikke `daysBack === 0`, som aldrig
+længere er sandt) og siger, at oversigten kan ses, men at tidligere udsendelser
+ikke kan startes forfra uden arkiv. (Hvor langt TILBAGE selve programlisten
+findes er stadig en panel-grænse — de fleste paneler gemmer kun ~1 døgn bagud.)
+
+**"Hele dagen": let første tegning, så markøren kommer hurtigt (v277, udgivet som 278).** Bruger:
 "når jeg vil se hele dagens EPG på en kanal, tager det meget lang tid, før
 vælger kommer, så man kan køre op og ned." `ChannelDayScreen` havde
 `initialNumToRender={Math.max(20, liveIndex + 10)}` — den tegnede ALLE rækker op
