@@ -76,6 +76,13 @@ interface Props {
   focusFirstSignal: number;
 }
 
+/**
+ * Sidste indlaeste programkort, gemt paa modulniveau (paa tvaers af at guiden
+ * af- og genmonteres). Saa staar der ikke "Ingen oversigt" hver gang man aabner
+ * guiden — det huskede vises straks, mens en frisk laesning opdaterer det.
+ */
+let lastProgMap: Record<string, Programme[]> = {};
+
 export function TimelineGrid({
   session,
   channels,
@@ -112,7 +119,11 @@ export function TimelineGrid({
   // lokalt (layoutRow), saa der ikke hentes ved hvert tidsskridt.
   const spanStartMs = anchorMs - SPAN_BACK_MIN * 60_000;
   const spanEndMs = anchorMs + SPAN_FWD_MIN * 60_000;
-  const [progMap, setProgMap] = useState<Record<string, Programme[]>>({});
+  // Start med det der sidst blev vist. Guide-fanen afmonteres naar man forlader
+  // den (HomeScreen), saa hver gang man kom tilbage stod der "Ingen oversigt",
+  // til cachen var laest ind igen ("som om den skal downloade det hver gang").
+  // Det huskede kort vises straks; draw() nedenunder opdaterer det med det samme.
+  const [progMap, setProgMap] = useState<Record<string, Programme[]>>(() => lastProgMap);
   const draw = useCallback(async () => {
     if (channels.length === 0) return;
     const from = new Date(spanStartMs);
@@ -122,6 +133,7 @@ export function TimelineGrid({
     channels.forEach((c, i) => {
       map[c.id] = found[i] ?? [];
     });
+    lastProgMap = map;
     setProgMap(map);
   }, [channels, session.db, spanStartMs, spanEndMs]);
 

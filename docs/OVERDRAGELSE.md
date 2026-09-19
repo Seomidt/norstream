@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 273** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 274** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,18 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**Film: mere buffer, så afspilningen kører flydende (v273).** Bruger: "ved ikke
+**Guide: husk programkortet, så der ikke står "Ingen oversigt" hver gang
+(v274).** Bruger: "hver gang jeg går på guiden starter den med ingen oversigt,
+som om den skal downloade det hver gang." Guide-fanen renderes som `{tab ===
+'guide' && <GuideScreen/>}` i HomeScreen — den AFMONTERES når man forlader fanen
+(modsat VOD/radio, der bliver hængende skjult). Så `progMap` var tom ved hver
+genåbning, til cachen var læst ind igen. `TimelineGrid` gemmer nu det sidst
+indlæste `progMap` på modulniveau (`lastProgMap`) og starter `useState` fra det,
+så det huskede vises straks; `draw()` opdaterer det med en frisk cache-læsning.
+(At holde guiden monteret ville risikere at previewet holdt panelets ene
+forbindelse — derfor modul-cachen i stedet.)
+
+**Film: mere buffer, så afspilningen kører flydende (v273, udgivet som 274).** Bruger: "ved ikke
 om den skal downloade noget buffer når man ser film — som om det ikke kører helt
 flydende; har 400 Mbit, så det er ikke derfor." Ikke båndbredden, men hvor meget
 der ligger klar. `VodPlayerScreen` brugte expo-videos standard-buffer (kun 20
