@@ -72,6 +72,19 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
 
   const player = useVideoPlayer(streamSource(current.url), (p) => {
     p.loop = false;
+    // Buffer mere frem, saa film koerer flydende ogsaa naar panelet leverer i
+    // stoed. Standarden er kun 20 sek frem og genoptager efter 2 sek buffer —
+    // paa en server der sender ujaevnt naar den saa lige tomt igen og hakkede.
+    // Ikke baandbredden (brugeren har 400 Mbit), men hvor meget der ligger klar.
+    // preferredForwardBufferDuration: 60 sek frem. minBufferForPlayback: vent
+    // til 5 sek er hentet foer der spilles videre efter en pause/buffering, saa
+    // den ikke starter paa en tynd buffer og straks staar igen.
+    // prioritizeTimeOverSizeThreshold: hold de 60 sek selv paa hoej bitrate.
+    p.bufferOptions = {
+      preferredForwardBufferDuration: 60,
+      minBufferForPlayback: 5,
+      prioritizeTimeOverSizeThreshold: true,
+    };
     // Én gang i sekundet melder afspilleren hvor langt den er. Det er den
     // eneste kilde til fremdriften ved afgang; se `lastKnown`.
     p.timeUpdateEventInterval = 1;

@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 272** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 273** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,19 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**Guide iteration 14: ur øverst i guiden (v272).** Bruger: "kan man lave noget
+**Film: mere buffer, så afspilningen kører flydende (v273).** Bruger: "ved ikke
+om den skal downloade noget buffer når man ser film — som om det ikke kører helt
+flydende; har 400 Mbit, så det er ikke derfor." Ikke båndbredden, men hvor meget
+der ligger klar. `VodPlayerScreen` brugte expo-videos standard-buffer (kun 20
+sek frem, genoptager efter 2 sek). På et panel der sender i stød løb bufferen
+tom og hakkede. Nu sættes `player.bufferOptions`:
+`preferredForwardBufferDuration: 60` (60 sek frem), `minBufferForPlayback: 5`
+(vent til 5 sek er hentet før der spilles videre efter en pause/buffering, så
+den ikke starter på en tynd buffer og straks står igen),
+`prioritizeTimeOverSizeThreshold: true` (hold de 60 sek selv på høj bitrate).
+Kun film (VOD); live-afspilleren er urørt.
+
+**Guide iteration 14: ur øverst i guiden (v272, udgivet som 273).** Bruger: "kan man lave noget
 med et ur et smart sted på guiden, så man hurtigt kan se klokken?" Hoved-cellen
 øverst til venstre (over kanalkolonnen) viser nu den rigtige tid ("Kl. 20:14",
 `clock(now)`, opdateres hvert minut via `now`-prop'en), altid synlig. Har man
