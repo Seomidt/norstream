@@ -66,6 +66,13 @@ interface Props {
   hasDialectFor: (channel: StoredChannel) => boolean;
   /** Kaldes naar fjernbetjeningen staar paa en kanal — previewet foelger. */
   onFocusChannel: (channel: StoredChannel) => void;
+  /**
+   * Kaldes med den udsendelse den fokuserede kanal viser i det aktuelle vindue
+   * (live hvis nu er i vinduet, ellers den foerste udsendelse i vinduet).
+   * Boksen til hoejre beskriver den, saa den skifter naar man bladrer tilbage
+   * i tiden — ikke kun staar paa "nu".
+   */
+  onFocusProgramme?: (programme: Programme | null) => void;
   /** Aabner programbladet (eller kanalen paa et hul). */
   onOpen: (channel: StoredChannel, programme: Programme | null, state: CellState) => void;
   /** Delt tidsforskydning i minutter (0 = nu). Deles med telefon-guiden. */
@@ -89,6 +96,7 @@ export function TimelineGrid({
   now,
   hasDialectFor,
   onFocusChannel,
+  onFocusProgramme,
   onOpen,
   offsetMinutes,
   onStepTime,
@@ -163,9 +171,13 @@ export function TimelineGrid({
 
   // Rul listen saa den fokuserede raekke er synlig (som favoritterne).
   const listRef = useRef<FlatList<StoredChannel>>(null);
+  // Den kanal fjernbetjeningen staar paa. Bruges til at fortaelle boksen til
+  // hoejre hvilken udsendelse der beskrives — ogsaa naar man bladrer tilbage.
+  const [focusedId, setFocusedId] = useState<string | null>(null);
   const onRowFocus = useCallback(
     (channel: StoredChannel, index: number) => {
       onFocusChannel(channel);
+      setFocusedId(channel.id);
       // Uden animation: op/ned foeles hurtigere ("saet klik-farten lidt op").
       try {
         listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: false });
@@ -175,6 +187,22 @@ export function TimelineGrid({
     },
     [onFocusChannel],
   );
+
+  // Fortael boksen til hoejre hvilken udsendelse den fokuserede kanal viser i
+  // det aktuelle vindue: live naar nu er i vinduet, ellers den foerste rigtige
+  // udsendelse i vinduet — praecis som raekkens "primary". Naar man bladrer
+  // tilbage i tiden (offsetMinutes) skifter vinduet, saa den ogsaa skifter.
+  useEffect(() => {
+    if (onFocusProgramme === undefined) return;
+    if (focusedId === null) {
+      onFocusProgramme(null);
+      return;
+    }
+    const cells = layoutRow(progMap[focusedId] ?? EMPTY, new Date(windowStartMs), new Date(windowEndMs), new Date(nowMs));
+    const primary =
+      cells.find((c) => c.state === 'live')?.programme ?? cells.find((c) => c.programme !== null)?.programme ?? null;
+    onFocusProgramme(primary);
+  }, [onFocusProgramme, focusedId, progMap, windowStartMs, windowEndMs, nowMs]);
 
   // Fokuser foerste raekke naar guiden aabnes / menuen sender fokus ind.
   const [focusPulse, setFocusPulse] = useState(true);

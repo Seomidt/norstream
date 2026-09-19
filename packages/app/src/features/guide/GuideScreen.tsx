@@ -863,6 +863,7 @@ export function GuideScreen({
           now={now}
           hasDialectFor={hasDialectFor}
           onFocusChannel={onPreviewRow}
+          onFocusProgramme={setFocusedProgramme}
           offsetMinutes={offsetMinutes}
           onStepTime={stepGuideTime}
           onOpen={(channel, programme, state) =>
