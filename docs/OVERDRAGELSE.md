@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 274** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 275** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,8 +51,17 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
+**Afspiller: zap kanal med pil venstre/højre i fuld skærm (v275).** Bruger: "kan
+vi lave at når jeg er inde på en kanal i fuld billede, at pil højre = næste
+kanal og venstre = forrige." Zap-infrastrukturen var der allerede (`zapList` =
+listen kanalen kom fra, `zapTo`, prev/næste-knapper). På en LIVE-kanal gjorde
+pil venstre/højre ingenting når bjælken var skjult (`onPlayerKey` returnerede
+false). Nu: live + bjælke skjult → venstre/højre zapper til forrige/næste kanal
+i listen (rundt). I arkivet (start forfra) spoler de stadig — der er noget at
+spole i. `PlayerScreen.tsx onPlayerKey`.
+
 **Guide: husk programkortet, så der ikke står "Ingen oversigt" hver gang
-(v274).** Bruger: "hver gang jeg går på guiden starter den med ingen oversigt,
+(v274, udgivet som 275).** Bruger: "hver gang jeg går på guiden starter den med ingen oversigt,
 som om den skal downloade det hver gang." Guide-fanen renderes som `{tab ===
 'guide' && <GuideScreen/>}` i HomeScreen — den AFMONTERES når man forlader fanen
 (modsat VOD/radio, der bliver hængende skjult). Så `progMap` var tom ved hver

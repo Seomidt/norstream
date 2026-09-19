@@ -784,6 +784,22 @@ export function PlayerScreen({
               else player.play();
               return true;
             }
+            // Pil venstre/hoejre paa en LIVE-kanal: zap til forrige/naeste kanal
+            // i den liste man kom fra (som en fjernbetjenings kanal-op/-ned).
+            // I arkivet (start forfra) spoler de i stedet — der er noget at spole i.
+            if ((key === 'left' || key === 'right') && !restarted) {
+              if (zapList.length > 1 && zapIndex !== -1) {
+                const target =
+                  key === 'left'
+                    ? zapList[(zapIndex - 1 + zapList.length) % zapList.length]
+                    : zapList[(zapIndex + 1) % zapList.length];
+                if (target !== undefined) {
+                  zapTo(target);
+                  return true;
+                }
+              }
+              return false;
+            }
             // Spoling kun i arkivet: en live-kanal har intet at spole i.
             if (!restarted) return false;
             if (key === 'left' || key === 'rewind') player.seekBy(-10);
