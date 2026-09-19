@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 267** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 268** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,16 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**Guide iteration 9: hurtigere venstre/højre i tid (v267).** Bruger: "har du
+**Guide iteration 10: hele arkivet tilbage igen (v268).** Bruger: "jeg kan kun
+gå 8-9 timer tilbage, plejer at kunne se flere dage tilbage." Den nye guide
+henter programdata ÉN gang for et fast vindue (for fart) — og det var kun sat
+til 6 timer tilbage, så man ramte en mur efter en aften. Nu dækker det hentede
+vindue hele det spænd man kan bladre i: `SPAN_BACK_MIN = −DRAG_MIN_MINUTES` og
+`SPAN_FWD_MIN = DRAG_MAX_MINUTES` (7 dage hver vej, samme grænser som trækket),
+så man når lige så langt tilbage som arkivet, som før. (Bygget oven på it.9;
+267 blev aldrig udgivet — foldet ind her.)
+
+**Guide iteration 9: hurtigere venstre/højre i tid (v267, udgivet som 268).** Bruger: "har du
 venstre og højre også lidt hurtigere?" Tidsskiftet reagerede før på tast-SLIP
 (`eventKeyAction` 1), hvilket føltes forsinket og ikke gentog ved at holde
 tasten. Nu reageres på tast-NED (0): svarer med det samme, og holder man tasten

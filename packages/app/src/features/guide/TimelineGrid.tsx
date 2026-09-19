@@ -10,7 +10,7 @@ import { TvPressable } from '../../ui/TvPressable.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
-import { guideAction, layoutRow } from './layout.js';
+import { DRAG_MAX_MINUTES, DRAG_MIN_MINUTES, guideAction, layoutRow } from './layout.js';
 import type { CellState, GuideCell } from './layout.js';
 
 /**
@@ -41,9 +41,14 @@ const WINDOW_MIN = COL_MIN * COLS;
 const ROW_HEIGHT = 62;
 const CHANNEL_COL = 128;
 const HEADER_HEIGHT = 26;
-/** Hvor langt tilbage/frem der hentes programdata til striben. */
-const SPAN_BACK_MIN = 6 * 60;
-const SPAN_FWD_MIN = 24 * 60;
+/**
+ * Hvor langt tilbage/frem der hentes programdata til striben. Skal daekke hele
+ * det spaend man kan bladre i (samme som traekkets graenser: 7 dage hver vej —
+ * arkivet bagud, oversigten fremad). Var foer kun 6 timer tilbage, saa man
+ * ramte en mur efter en aften; nu naar man lige saa langt tilbage som arkivet.
+ */
+const SPAN_BACK_MIN = -DRAG_MIN_MINUTES;
+const SPAN_FWD_MIN = DRAG_MAX_MINUTES;
 const HALF_HOUR_MS = COL_MIN * 60_000;
 
 interface Props {
