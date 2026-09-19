@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 271** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 272** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,15 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**Guide iteration 13: Tilbage går direkte til menuen (v271).** Bruger: "den må
+**Guide iteration 14: ur øverst i guiden (v272).** Bruger: "kan man lave noget
+med et ur et smart sted på guiden, så man hurtigt kan se klokken?" Hoved-cellen
+øverst til venstre (over kanalkolonnen) viser nu den rigtige tid ("Kl. 20:14",
+`clock(now)`, opdateres hvert minut via `now`-prop'en), altid synlig. Har man
+bladret væk fra nu, står den dag vinduet viser lige under (accent, lille).
+`HEADER_HEIGHT` 26 → 32 for at få plads til to linjer. Erstatter den gamle
+"● NU / I dag"-tekst samme sted.
+
+**Guide iteration 13: Tilbage går direkte til menuen (v271, udgivet som 272).** Bruger: "den må
 gerne være hurtigere til at komme til menu — når jeg trykker tilbage i guiden
 tager det et par sekunder, så man er i tvivl om man har trykket." Årsag: på
 guide-fanen stillede første Tilbage FØRST vinduet på "nu" (`offsetMinutes = 0`)

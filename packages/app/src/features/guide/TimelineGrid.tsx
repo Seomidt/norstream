@@ -40,7 +40,7 @@ const COLS = 3;
 const WINDOW_MIN = COL_MIN * COLS;
 const ROW_HEIGHT = 62;
 const CHANNEL_COL = 128;
-const HEADER_HEIGHT = 26;
+const HEADER_HEIGHT = 32;
 /**
  * Hvor mange kommende udsendelser guiden beder panelet om (`get_short_epg`).
  * Standard var 12 — praecis "nu + naeste" = ca. 8-9 timer frem, hvorefter guiden
@@ -203,9 +203,17 @@ export function TimelineGrid({
           ikke er i dag. */}
       <View style={styles.header}>
         <View style={styles.headerChannel}>
-          <Text style={styles.headerDay} numberOfLines={1}>
-            {sameDay(new Date(windowStartMs), now) ? (offsetMinutes === 0 ? '● NU' : 'I dag') : dayName(new Date(windowStartMs))}
+          {/* Uret: den rigtige tid lige nu, altid synligt oppe i hjoernet, saa
+              man hurtigt kan se hvad klokken er. */}
+          <Text style={styles.headerClock} numberOfLines={1}>
+            Kl. {clock(now)}
           </Text>
+          {/* Naar man har bladret vaek fra nu, staar den dag vinduet viser her. */}
+          {!sameDay(new Date(windowStartMs), now) && (
+            <Text style={styles.headerWindowDay} numberOfLines={1}>
+              {dayName(new Date(windowStartMs))}
+            </Text>
+          )}
         </View>
         {Array.from({ length: COLS }, (_, i) => (
           <Text key={i} style={styles.headerCol} numberOfLines={1}>
@@ -370,8 +378,9 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   list: { flex: 1 },
   header: { flexDirection: 'row', height: HEADER_HEIGHT, alignItems: 'center', borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
-  headerChannel: { width: CHANNEL_COL, justifyContent: 'center' },
-  headerDay: { color: colors.danger, fontSize: 12, fontWeight: '700', paddingLeft: 6 },
+  headerChannel: { width: CHANNEL_COL, justifyContent: 'center', paddingLeft: 6 },
+  headerClock: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  headerWindowDay: { color: colors.accent, fontSize: 10, fontWeight: '600', marginTop: 1 },
   headerCol: { flex: 1, color: colors.textMuted, fontSize: 12, fontWeight: '600', paddingLeft: 4 },
   row: { flexDirection: 'row', height: ROW_HEIGHT, alignItems: 'stretch' },
   channelCell: { width: CHANNEL_COL, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 6, borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
