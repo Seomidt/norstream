@@ -1,0 +1,15 @@
+name: Udgiv-test
+# Proeve: koerer en pull_request-workflow med grenens egen (aendrede) fil
+# uden at blive gated til godkendelse? workflow_dispatch af en aendret fil
+# bliver gated; pull_request i samme repo skulle vaere fri.
+on:
+  pull_request:
+    paths:
+      - 'release/**'
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - run: echo "pull_request af aendret workflow koerte UDEN gate"

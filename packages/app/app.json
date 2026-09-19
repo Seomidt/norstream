@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "dk.seomidt.norstream"
@@ -18,21 +18,44 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "dk.seomidt.norstream"
+      "package": "dk.seomidt.norstream",
+      "versionCode": 281,
+      "permissions": [
+        "android.permission.REQUEST_INSTALL_PACKAGES"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "@react-native-tvos/config-tv",
+        {
+          "isTV": false,
+          "tvosDeploymentTarget": "16.4",
+          "androidTVBanner": "./assets/tv-banner.png"
+        }
+      ],
       "expo-sqlite",
       "expo-secure-store",
-      "expo-video",
+      [
+        "expo-video",
+        {
+          "supportsBackgroundPlayback": true
+        }
+      ],
       [
         "expo-build-properties",
         {
           "android": {
             "usesCleartextTraffic": true
           }
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "NorStream bruger kameraet til at scanne QR-koden fra tv'et, når du sender en sikkerhedskopi."
         }
       ]
     ],

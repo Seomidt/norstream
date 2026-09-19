@@ -1,3 +1,4 @@
+import { channelKey } from '@norstream/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
 import { XtreamAuthError, XtreamNetworkError } from '@norstream/core';
@@ -7,6 +8,10 @@ import type { SqlDatabase } from '../storage/types.js';
 import { listCategories, listChannels } from '../storage/channels.js';
 import { getLastSyncMs } from '../storage/settings.js';
 import { syncChannels } from './syncChannels.js';
+
+/** Alt her kommer fra én kilde. */
+const SOURCE = 'src1';
+const key = (streamId: string): string => channelKey(SOURCE, streamId);
 
 const creds: XtreamCredentials = {
   baseUrl: 'http://panel.example:8080',
@@ -20,7 +25,7 @@ function panel(responses: Record<string, unknown>): FetchLike {
     return {
       ok: true,
       status: 200,
-      json: async () => responses[action] ?? { user_info: { auth: 1 } },
+      text: async () => '', json: async () => responses[action] ?? { user_info: { auth: 1 } },
     };
   });
 }
@@ -48,10 +53,10 @@ describe('syncChannels', () => {
       ],
     });
 
-    const result = await syncChannels(db, creds, fetchImpl);
+    const result = await syncChannels(db, SOURCE, creds, fetchImpl);
 
     expect(result).toEqual({ categories: 1, channels: 2 });
-    expect(await listCategories(db)).toEqual([{ id: '1', name: 'Danmark' }]);
+    expect(await listCategories(db)).toEqual([{ id: key('1'), name: 'Danmark' }]);
     const channels = await listChannels(db);
     expect(channels.map((c) => c.name)).toEqual(['DR1', 'TV 2']);
     expect(channels[0]?.hasArchive).toBe(true);
@@ -61,17 +66,17 @@ describe('syncChannels', () => {
   it('noterer tidspunktet for synkroniseringen', async () => {
     const fetchImpl = panel({ get_live_categories: [], get_live_streams: [] });
     const now = new Date(Date.UTC(2026, 8, 4, 12, 0, 0));
-    await syncChannels(db, creds, fetchImpl, now);
-    expect(await getLastSyncMs(db)).toBe(now.getTime());
+    await syncChannels(db, SOURCE, creds, fetchImpl, now);
+    expect(await getLastSyncMs(db, SOURCE)).toBe(now.getTime());
   });
 
   it('lader XtreamAuthError boble op', async () => {
     const failing: FetchLike = vi.fn(async () => ({
       ok: false,
       status: 401,
-      json: async () => ({}),
+      text: async () => '', json: async () => ({}),
     }));
-    await expect(syncChannels(db, creds, failing)).rejects.toBeInstanceOf(
+    await expect(syncChannels(db, SOURCE, creds, failing)).rejects.toBeInstanceOf(
       XtreamAuthError,
     );
   });
@@ -80,7 +85,7 @@ describe('syncChannels', () => {
     const failing: FetchLike = vi.fn(async () => {
       throw new Error('ECONNREFUSED');
     });
-    await expect(syncChannels(db, creds, failing)).rejects.toBeInstanceOf(
+    await expect(syncChannels(db, SOURCE, creds, failing)).rejects.toBeInstanceOf(
       XtreamNetworkError,
     );
   });
@@ -90,12 +95,12 @@ describe('syncChannels', () => {
       get_live_categories: [{ category_id: '1', category_name: 'Danmark' }],
       get_live_streams: [{ stream_id: 10, name: 'DR1' }],
     });
-    await syncChannels(db, creds, ok);
+    await syncChannels(db, SOURCE, creds, ok);
 
     const fullyUnreachable: FetchLike = vi.fn(async () => {
       throw new Error('ECONNREFUSED');
     });
-    await expect(syncChannels(db, creds, fullyUnreachable)).rejects.toThrow();
+    await expect(syncChannels(db, SOURCE, creds, fullyUnreachable)).rejects.toThrow();
 
     // Spec sec.2 kraever drift paa cached data naar panelet er nede.
     expect(await listChannels(db)).toHaveLength(1);
@@ -107,7 +112,7 @@ describe('syncChannels', () => {
       get_live_categories: [{ category_id: '1', category_name: 'Danmark' }],
       get_live_streams: [{ stream_id: 10, name: 'DR1' }],
     });
-    await syncChannels(db, creds, ok);
+    await syncChannels(db, SOURCE, creds, ok);
 
     // Derefter, når anden forespørgsel fejler (efter at første lukkedes),
     // skal cachen stadig være intakt. Vi returner en ANDEN kategori for
@@ -118,16 +123,16 @@ describe('syncChannels', () => {
       return {
         ok: true,
         status: 200,
-        json: async () => [{ category_id: '2', category_name: 'Sverige' }],
+        text: async () => '', json: async () => [{ category_id: '2', category_name: 'Sverige' }],
       };
     });
 
-    await expect(syncChannels(db, creds, failsOnStreams)).rejects.toThrow();
+    await expect(syncChannels(db, SOURCE, creds, failsOnStreams)).rejects.toThrow();
 
     // Spec sec.2 kraever drift paa cached data naar panelet fejler.
     // Hvis vi havde skrevet kategorier før anden forespørgsel fejlede, ville
     // cachen nu indeholde den nye kategori. Vi verificerer det ikke skete.
     expect(await listChannels(db)).toHaveLength(1);
-    expect(await listCategories(db)).toEqual([{ id: '1', name: 'Danmark' }]);
+    expect(await listCategories(db)).toEqual([{ id: key('1'), name: 'Danmark' }]);
   });
 });
