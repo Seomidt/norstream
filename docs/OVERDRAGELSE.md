@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 285** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 286** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,12 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Guide: ur/vejr gjort mindre (v286, udgivet med v285's preview-fix).** Bruger:
+"kan ur og vejr laves lidt mindre, det er meget dominerende i forhold til
+preview." `clockCol` fra 112 → 90 punkter, og skrifterne i `ClockWeather` ned
+(ur 27 → 21, resten tilsvarende), så previewet får mere bredde og uret fylder
+mindre. `tvRight` uændret (33 %), så det er previewet der vokser.
 
 **Guide: preview bliver stort igen når ur/vejr slås fra (v285).** Bruger: "når
 jeg slår uret fra, bliver previewet ved med at være lille — det skal jo blive
