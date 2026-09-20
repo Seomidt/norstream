@@ -26,6 +26,8 @@ export function createFetchImpl(
         status: response.status,
         json: () => response.json() as Promise<unknown>,
         text: () => response.text(),
+        // Raa bytes til XMLTV-vejen, saa en gzippet oversigt kan pakkes ud.
+        arrayBuffer: () => response.arrayBuffer(),
       };
     } finally {
       clearTimeout(timer);

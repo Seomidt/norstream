@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { gzipSync } from 'node:zlib';
 import type { FetchLike, Source } from '@norstream/core';
 import { listChannels } from '../storage/channels.js';
 import { listProgrammes } from '../storage/programmes.js';
@@ -54,6 +55,33 @@ function serving(
   })) as unknown as FetchLike;
 }
 
+/** Serverer en gzippet oversigt: teksten er volapyk, men arrayBuffer giver .gz-bytes. */
+function servingGzip(body: string): FetchLike {
+  const gz = gzipSync(Buffer.from(body, 'utf8'));
+  return vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({}),
+    text: async () => 'IKKE-UDPAKKET',
+    arrayBuffer: async () => gz.buffer.slice(gz.byteOffset, gz.byteOffset + gz.byteLength),
+    headers: { get: () => null },
+  })) as unknown as FetchLike;
+}
+
+/** Serverer forskellige kroppe alt efter hvilken adresse der spoerges paa. */
+function servingByUrl(map: Record<string, string>): FetchLike {
+  return vi.fn(async (url: string) => {
+    const body = map[url] ?? '';
+    return {
+      ok: body.length > 0,
+      status: body.length > 0 ? 200 : 404,
+      json: async () => ({}),
+      text: async () => body,
+      headers: { get: () => null },
+    };
+  }) as unknown as FetchLike;
+}
+
 let db: SqlDatabase;
 
 beforeEach(async () => {
@@ -87,6 +115,45 @@ describe('syncXmltv', () => {
   it('gør ingenting naar kilden ingen XMLTV-adresse har', async () => {
     const result = await syncXmltv(db, source({ xmltvUrl: null }), serving(XMLTV));
     expect(result).toEqual({ programmes: 0, matched: 0, logos: 0 });
+  });
+
+  it('pakker en gzippet (.xml.gz) oversigt ud', async () => {
+    const result = await syncXmltv(
+      db,
+      source({ xmltvUrl: 'http://liste.example/epg.xml.gz' }),
+      servingGzip(XMLTV),
+    );
+    expect(result.programmes).toBe(1);
+    const stored = await listProgrammes(
+      db,
+      'm1:dr1.dk',
+      new Date('2026-09-06T17:00:00Z'),
+      new Date('2026-09-06T20:00:00Z'),
+    );
+    expect(stored.map((p) => p.title)).toEqual(['TV Avisen']);
+  });
+
+  it('henter fra flere adresser i samme felt', async () => {
+    const XMLTV2 = `<?xml version="1.0"?>
+<tv><programme start="20260906200000 +0000" stop="20260906210000 +0000" channel="tv2.dk"><title>Nyhederne</title></programme></tv>`;
+    const result = await syncXmltv(
+      db,
+      source({ xmltvUrl: 'http://a/1.xml, http://a/2.xml' }),
+      servingByUrl({ 'http://a/1.xml': XMLTV, 'http://a/2.xml': XMLTV2 }),
+    );
+    // dr1 fra den ene fil + tv2 fra den anden; begge kanaler er i listen.
+    expect(result.programmes).toBe(2);
+    expect(result.matched).toBe(2);
+  });
+
+  it('lader de oevrige adresser koere selv om én fejler', async () => {
+    const result = await syncXmltv(
+      db,
+      source({ xmltvUrl: 'http://a/nede.xml http://a/2.xml' }),
+      servingByUrl({ 'http://a/2.xml': XMLTV }),
+    );
+    // Kun 'nede.xml' fejler (404); den anden fil giver stadig sit ene program.
+    expect(result.programmes).toBe(1);
   });
 
   it('afviser en oversigt der er for stor til en telefon', async () => {

@@ -25,9 +25,37 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 296** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 297** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
+
+**v297 — XMLTV: gzip (.xml.gz) + flere adresser i samme felt.** Så man kan fylde
+hullerne i guiden med gratis, offentlige EPG-feeds. `syncXmltv` (app):
+- **Pakker .gz ud i appen** (`fflate`), så de fleste offentlige feeds (som
+  udgives som `.xml.gz`) virker. Gzip genkendes på `.gz`-endelsen eller på filens
+  magiske bytes; både pakket (≤25 MB) og upakket (≤40 MB) størrelse holdes under
+  et loft, så en kæmpefil ikke sprænger hukommelsen. Kræver `arrayBuffer()` på
+  fetch-svaret — tilføjet som valgfri på core's `FetchLikeResponse` og i
+  `net/fetchImpl.ts`.
+- **Flere adresser** i samme XMLTV-felt (adskilt med mellemrum/komma/linjeskift),
+  så DK + UK kan lægges oveni hinanden. Fejler én adresse, springes den over og de
+  øvrige kører videre; fejler ALLE, kastes fejlen (så en enkelt forkert adresse
+  stadig giver besked). Matchning er uændret: `tvg-id` og ellers kanalnavn.
+- UI: feltet hedder nu "XMLTV-adresse(r)" med en hint om flere/pakkede adresser.
+- Tests: gzip-udpakning, flere adresser, og at én fejlende adresse ikke tager de
+  andre. `scripts/maal/epgfeeds.mjs` gemt til at tjekke feeds (størrelse pakket +
+  upakket).
+
+**Verificerede feeds (målt med `maal`, sep. 2026):**
+- **DK:** `https://epgshare01.online/epgshare01/epg_ripper_DK1.xml.gz` — 1,4 MB /
+  9,9 MB upakket, 217 kanaler (DR1, DR2, TV 2 …). ✅
+- **UK:** `https://epgshare01.online/epgshare01/epg_ripper_UK1.xml.gz` — 2,9 MB /
+  21,9 MB, 486 kanaler. ✅ (alternativt `https://epg.pw/xmltv/epg_GB.xml.gz`, 755
+  kanaler, 19,8 MB.)
+- **US:** den fulde `https://epg.pw/xmltv/epg_US.xml.gz` er **203 MB upakket** —
+  for stor til en tv-boks; appen springer den over (over loftet). Kun en lille
+  delmængde (fx Pluto `https://i.mjh.nz/PlutoTV/us.xml.gz`, 7 MB) er realistisk
+  on-device. Et fuldt US-EPG kræver en anden arkitektur (server-side filtrering).
 
 **v296 — Redigér panel (fået en anden server).** Før kunne man kun tilføje og
 fjerne en kilde; nu er der en **"Redigér"**-knap ved hvert panel i Indstillinger

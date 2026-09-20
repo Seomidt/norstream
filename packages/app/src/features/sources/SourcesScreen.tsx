@@ -392,16 +392,17 @@ function SourceForm({
       )}
 
       <Field
-        label="XMLTV-adresse (valgfrit)"
+        label="XMLTV-adresse(r) (valgfrit)"
         value={xmltvUrl}
         onChange={setXmltvUrl}
-        placeholder="http://.../epg.xml"
+        placeholder="http://.../dk.xml.gz  http://.../uk.xml.gz"
         keyboardType="url"
       />
       <Text style={styles.hint}>
         {isXtream
           ? 'Panelet leverer selv programoversigt. En XMLTV-adresse her fylder hullerne for de kanaler panelet ikke har data til.'
           : 'En M3U-liste rummer ingen programoversigt. Uden en XMLTV-adresse står guiden tom for kanalerne herfra.'}
+        {' '}Du kan skrive flere adresser (fx DK, UK og US) adskilt med mellemrum eller komma, og de må gerne være pakkede (.xml.gz).
       </Text>
 
       {error !== null && <Text style={styles.error}>{error}</Text>}

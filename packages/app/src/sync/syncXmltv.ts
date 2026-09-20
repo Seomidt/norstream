@@ -1,5 +1,6 @@
 import { createXmltvParser, normaliseChannelName } from '@norstream/core';
 import type { FetchLike, Programme, Source } from '@norstream/core';
+import { gunzipSync, strFromU8 } from 'fflate';
 import { upsertProgrammes } from '../storage/programmes.js';
 import type { SqlDatabase } from '../storage/types.js';
 
@@ -27,25 +28,116 @@ export interface XmltvResult {
 }
 
 /**
- * Henter en M3U-kildes programoversigt og skriver den ind.
+ * Henter en kildes programoversigt(er) og skriver dem ind.
  *
- * En M3U-liste rummer ingen EPG. Det eneste baand mellem listen og en
- * XMLTV-fil er `tvg-id`, som parseren gemmer som kanalens `epgChannelId`.
- * Programmer for id'er der ikke findes i listen kasseres — en delt XMLTV-fil
- * daekker tit mange flere kanaler end den enkelte liste har.
+ * En M3U-liste rummer ingen EPG, og et panel har tit huller; en XMLTV-fil
+ * fylder dem. Baandet mellem kanal og fil er `tvg-id` (kanalens `epgChannelId`)
+ * — og ellers **navnet** (se channelIndex). Programmer for id'er/navne der ikke
+ * findes i kilden kasseres; en delt XMLTV-fil daekker tit mange flere kanaler.
+ *
+ * Feltet kan rumme **flere adresser** (adskilt med mellemrum, komma eller
+ * linjeskift), saa man kan lgge fx DK + UK + US oveni hinanden. Hver adresse
+ * maa gerne vaere gzippet (`.xml.gz`); den pakkes ud i appen. Fejler én adresse
+ * (nede, for stor), springes den bare over, og de oevrige koerer videre.
  */
 export async function syncXmltv(
   db: SqlDatabase,
   source: Source,
   fetchImpl: FetchLike,
 ): Promise<XmltvResult> {
-  if (source.xmltvUrl === null || source.xmltvUrl.length === 0) {
+  const urls = splitUrls(source.xmltvUrl);
+  if (urls.length === 0) {
     return { programmes: 0, matched: 0, logos: 0 };
   }
 
-  const response = await fetchImpl(source.xmltvUrl);
+  // Ét opslag for hele kilden: en forespoergsel per programme ville vaere
+  // titusinder af dem. Deles af alle adresserne.
+  const index = await channelIndex(db, source.id);
+
+  const programmes: Programme[] = [];
+  const matched = new Set<string>();
+  const logos = new Map<string, string>();
+
+  // Med flere adresser maa én daarlig ikke tage de andre med sig; men fejler
+  // ALLE (fx den ene adresse man har skrevet er nede eller for stor), kastes
+  // fejlen videre, saa kaldet ved at intet lykkedes.
+  let anySucceeded = false;
+  let lastError: unknown = null;
+
+  for (const url of urls) {
+    let xml: string;
+    try {
+      xml = await fetchXmltv(fetchImpl, url);
+      anySucceeded = true;
+    } catch (cause) {
+      lastError = cause;
+      continue;
+    }
+    const parser = createXmltvParser(
+      (programme) => {
+        const key = lookup(index, programme.channelId);
+        if (key === undefined) return;
+        matched.add(key);
+        programmes.push({ ...programme, channelId: key });
+      },
+      // Logoerne staar i <channel><icon> — standardens plads til dem. Kanalen
+      // findes paa id'et som programmerne, og ellers paa et af dens navne.
+      (channel) => {
+        if (channel.iconUrl === null) return;
+        let key = lookup(index, channel.id);
+        for (const name of channel.displayNames) {
+          if (key !== undefined) break;
+          key = lookupName(index, name);
+        }
+        if (key !== undefined && !logos.has(key)) logos.set(key, channel.iconUrl);
+      },
+    );
+    parser.write(xml);
+    parser.end();
+  }
+
+  if (!anySucceeded && lastError !== null) throw lastError;
+
+  await upsertProgrammes(db, programmes);
+  await replaceXmltvLogos(db, source.id, logos);
+  return { programmes: programmes.length, matched: matched.size, logos: logos.size };
+}
+
+/** Én eller flere adresser i feltet, adskilt med mellemrum, komma eller linjeskift. */
+function splitUrls(field: string | null): string[] {
+  if (field === null) return [];
+  return field
+    .split(/[\s,]+/)
+    .map((url) => url.trim())
+    .filter((url) => url.length > 0);
+}
+
+/**
+ * Henter én XMLTV-adresse som tekst — pakker den ud, hvis den er gzippet.
+ *
+ * Gzippet genkendes paa endelsen `.gz` eller paa filens to foerste bytes
+ * (0x1f 0x8b), saa en server der ikke saetter den rigtige content-type ogsaa
+ * fanges. Baade den pakkede og den upakkede stoerrelse holdes under et loft, saa
+ * en kmpefil ikke sprnger hukommelsen paa en tv-boks.
+ */
+async function fetchXmltv(fetchImpl: FetchLike, url: string): Promise<string> {
+  const response = await fetchImpl(url);
   if (!response.ok) {
     throw new Error(`Programoversigten svarede HTTP ${response.status}`);
+  }
+
+  const looksGzipped = /\.gz($|\?)/i.test(url) || /gzip/i.test(contentType(response) ?? '');
+  if (looksGzipped && typeof response.arrayBuffer === 'function') {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.length > COMPRESSED_MAX_BYTES) {
+      throw new Error('Den pakkede programoversigt er for stor.');
+    }
+    const isGzip = bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+    const out = isGzip ? gunzipSync(bytes) : bytes;
+    if (out.length > MAX_BYTES) {
+      throw new Error('Programoversigten er for stor, når den pakkes ud.');
+    }
+    return strFromU8(out);
   }
 
   const declared = contentLength(response);
@@ -55,45 +147,15 @@ export async function syncXmltv(
         'Det er for meget til at hente på en telefon.',
     );
   }
-
   const xml = await readText(response);
   if (xml.length > MAX_BYTES) {
     throw new Error('Programoversigten er for stor til at hente på en telefon.');
   }
-
-  // Ét opslag for hele kilden: en forespoergsel per programme ville vaere
-  // titusinder af dem.
-  const index = await channelIndex(db, source.id);
-
-  const programmes: Programme[] = [];
-  const matched = new Set<string>();
-  const logos = new Map<string, string>();
-  const parser = createXmltvParser(
-    (programme) => {
-      const key = lookup(index, programme.channelId);
-      if (key === undefined) return;
-      matched.add(key);
-      programmes.push({ ...programme, channelId: key });
-    },
-    // Logoerne staar i <channel><icon> — standardens plads til dem. Kanalen
-    // findes paa id'et som programmerne, og ellers paa et af dens navne.
-    (channel) => {
-      if (channel.iconUrl === null) return;
-      let key = lookup(index, channel.id);
-      for (const name of channel.displayNames) {
-        if (key !== undefined) break;
-        key = lookupName(index, name);
-      }
-      if (key !== undefined && !logos.has(key)) logos.set(key, channel.iconUrl);
-    },
-  );
-  parser.write(xml);
-  parser.end();
-
-  await upsertProgrammes(db, programmes);
-  await replaceXmltvLogos(db, source.id, logos);
-  return { programmes: programmes.length, matched: matched.size, logos: logos.size };
+  return xml;
 }
+
+/** Loft paa den pakkede fil, saa vi ikke henter gigabyte foer vi opdager stoerrelsen. */
+const COMPRESSED_MAX_BYTES = 25 * 1_000_000;
 
 /**
  * Skriver filens logoer ind for kilden. De gamle for samme kilde ryddes
@@ -183,6 +245,20 @@ function lookupName(index: ChannelIndex, displayName: string): string | undefine
   const key = normaliseChannelName(displayName);
   if (key.length === 0 || index.ambiguous.has(key)) return undefined;
   return index.byName.get(key);
+}
+
+function contentType(response: unknown): string | null {
+  if (typeof response !== 'object' || response === null) return null;
+  const headers = (response as { headers?: unknown }).headers;
+  if (typeof headers !== 'object' || headers === null) return null;
+  const get = (headers as { get?: unknown }).get;
+  if (typeof get !== 'function') return null;
+  try {
+    const value = (get as (key: string) => unknown).call(headers, 'content-type');
+    return typeof value === 'string' ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 function contentLength(response: unknown): number | null {

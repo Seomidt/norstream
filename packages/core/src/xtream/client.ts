@@ -28,6 +28,12 @@ export interface FetchLikeResponse {
    * "ikke at vaere hentet". Nu fanger oversaetteren den slags.
    */
   text(): Promise<string>;
+  /**
+   * Svarets krop som raa bytes. Valgfri — kun XMLTV-vejen bruger den, til at
+   * pakke en gzippet (.xml.gz) programoversigt ud. De oevrige laesere (JSON,
+   * tekst) roeres ikke, og indpakninger der ikke giver den, virker som foer.
+   */
+  arrayBuffer?(): Promise<ArrayBuffer>;
 }
 
 export type FetchLike = (url: string) => Promise<FetchLikeResponse>;
