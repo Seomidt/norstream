@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 283** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 284** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,24 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Hastighed: fuld skærm, preview og Tilbage-til-menu (v284).** Bruger: "fuld
+skærm tager lang tid om at komme; preview er langsom, når jeg skifter kanal
+nedad; og Tilbage i guiden er langsom til at få menuen frem."
+- **Fuld skærm hurtigere:** live-afspilleren fik et lille startbuffer
+  (`minBufferForPlayback: 1`, `preferredForwardBufferDuration: 20`) i stedet for
+  standardens ~2 sek — billedet kommer hurtigere. Arkiv/start-forfra beholder
+  det store buffer (60/5) som film, så spoling er flydende. (Selve
+  forbindelsen skal stadig vente på, at previewet slipper panelets ENE
+  forbindelse — det er panelets grænse, ikke appens.)
+- **Preview hurtigere:** `IDLE_MS` i `MiniPreview` fra 800 → 450 ms, så
+  previewet kommer mærkbart hurtigere, når man står stille på en kanal; stadig
+  nok til at en hurtig scroll ikke åbner en stream pr. række.
+- **Tilbage-til-menu hurtigere:** `GuideScreen` er nu `memo`, og de callbacks
+  HomeScreen giver den (`onPlay`/`onRestart`/`onBrowse`) er gjort referencestabile
+  (`useCallback` + `placeRef`). Før tegnede HELE det tunge gitter om, hver gang
+  HomeScreen tegnede — bl.a. når søjlen tog fokus ved Tilbage — så menuen kom
+  langsomt. Nu springes gitteret over ved den slags gen-tegning.
 
 **Guide + dagssiden: tre rettelser (v283).** Bruger: (1) "lav i Indstillinger så
 man kan slukke [ur/vejr], og så er den bare som nu når man slukker"; (2) "i

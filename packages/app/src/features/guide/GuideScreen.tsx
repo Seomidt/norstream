@@ -112,7 +112,7 @@ const DRAG_SLOP = 10;
  * som foer. Lodret rulning er uroert: bevaegelsen skal vaere overvejende
  * vandret foer guiden tager den.
  */
-export function GuideScreen({
+export const GuideScreen = memo(function GuideScreen({
   session,
   onPlay,
   backRef,
@@ -1094,7 +1094,7 @@ export function GuideScreen({
       {dayView}
     </View>
   );
-}
+});
 
 /** Én tom liste til alle kanaler uden programdata, saa raekken ser de samme props igen. */
 const NO_PROGRAMMES: Programme[] = [];

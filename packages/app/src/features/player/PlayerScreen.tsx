@@ -209,6 +209,14 @@ export function PlayerScreen({
     p.showNowPlayingNotification = isRadio;
     // Hvert sekund: hvor langt arkivstreamen er naaet, til "Fortsaet".
     p.timeUpdateEventInterval = 1;
+    // Live: lille startbuffer, saa billedet kommer hurtigt ("tager lang tid om
+    // at komme i fuld skaerm"). Arkiv/start-forfra beholder det stoerre buffer
+    // som film, saa spoling og genoptagelse er flydende. prioritizeTime holder
+    // sekunderne selv paa hoej bitrate.
+    p.bufferOptions =
+      startFrom !== undefined
+        ? { preferredForwardBufferDuration: 60, minBufferForPlayback: 5, prioritizeTimeOverSizeThreshold: true }
+        : { preferredForwardBufferDuration: 20, minBufferForPlayback: 1, prioritizeTimeOverSizeThreshold: true };
     p.play();
   });
 

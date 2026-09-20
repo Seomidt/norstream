@@ -39,9 +39,11 @@ interface Props {
 /**
  * Hvor laenge listen skal staa stille foer previewet skifter kanal. Uden
  * forsinkelsen ville en hurtig scroll aabne snesevis af streams paa et panel
- * der kun tillader én.
+ * der kun tillader én. 800 ms foeltes traegt naar man skifter kanal nedad; 450
+ * er stadig nok til at en hurtig scroll ikke aabner en stream pr. raekke, men
+ * previewet kommer maerkbart hurtigere naar man staar stille paa en kanal.
  */
-const IDLE_MS = 800;
+const IDLE_MS = 450;
 
 /** Ét genforsoeg, kort efter. Er panelet stadig optaget, giver vi op og siger det. */
 const RETRY_MS = 1200;

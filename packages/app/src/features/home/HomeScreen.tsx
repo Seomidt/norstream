@@ -128,6 +128,10 @@ export function HomeScreen({
   const insets = useSafeAreaInsets();
   const tab = place.tab;
   const setTab = (next: Tab): void => onPlaceChange({ ...place, tab: next });
+  // Seneste `place`, saa stabile callbacks (til memoiseret GuideScreen) kan
+  // laese den uden selv at aendre reference hver render.
+  const placeRef = useRef(place);
+  placeRef.current = place;
   const [previewEnabled, setPreviewEnabled] = useState(false);
   /** Previewet vises kun mens Hjem er oeverst: under afspilleren skal dets videoflade vaere vaek. */
   const previewOn = previewEnabled && !covered;
@@ -346,6 +350,21 @@ export function HomeScreen({
     },
     [onSelect],
   );
+
+  // Stabile callbacks til den memoiserede GuideScreen: uden dem faar guiden
+  // nye props hver gang HomeScreen tegnes (fx naar soejlen tager fokus ved
+  // Tilbage), og memoiseringen holder ikke — saa hele det tunge gitter blev
+  // tegnet om, og menuen kom langsomt frem. `open` og `onPlaceChange` er selv
+  // stabile; `placeRef` giver den nyeste place uden at aendre reference.
+  const openGuidePlay = useCallback(
+    (channel: StoredChannel, neighbours?: StoredChannel[]) => open(channel, undefined, neighbours),
+    [open],
+  );
+  const openGuideRestart = useCallback(
+    (channel: StoredChannel, programme: Programme) => open(channel, programme),
+    [open],
+  );
+  const goBrowse = useCallback(() => onPlaceChange({ ...placeRef.current, tab: 'browse' }), [onPlaceChange]);
 
   /** Skifter faneblad. Previewet lever i kanallisten; forlader man den, skal
       forbindelsen slippes med det samme. */
@@ -591,10 +610,10 @@ export function HomeScreen({
           <GuideScreen
             session={session}
             backRef={guideBack}
-            onPlay={(channel, neighbours) => open(channel, undefined, neighbours)}
-            onRestart={(channel, programme) => open(channel, programme)}
+            onPlay={openGuidePlay}
+            onRestart={openGuideRestart}
             onAuthError={handleAuthError}
-            onBrowse={() => setTab('browse')}
+            onBrowse={goBrowse}
             previewEnabled={previewOn}
             previewHandle={previewHandle}
             focusFirstSignal={enterSignal}
