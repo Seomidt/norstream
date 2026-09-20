@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 281** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 282** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,21 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Guide: stort ur + vejr til venstre for preview (v282, kun tv).** Bruger (med
+billede): "kan man lave uret lige til venstre for preview og med vejret nedenunder."
+Valgt **Variant A** (efter mockup): uret + vejret sidder i den tomme plads til
+VENSTRE for preview, så intet skubbes nedad (lodret plads er knap på tv);
+preview bliver bare en anelse smallere, og `tvRight` gik fra 28 % til 33 %.
+Nyt: `ClockWeather.tsx` (stort ur, dato, vejr-ikon + nu-temp + dagens max/min +
+dansk tekst). Vejret hentes af `sync/weather.ts`: **boksens position ud fra dens
+IP** (`ipwho.is`, ingen tilladelse — tv-bokse har sjældent GPS) → **open-meteo**
+(gratis, ingen nøgle) → temperatur + WMO-kode. Cachet i `settings` (`weather_cache`),
+hentes højst én gang i timen, opdateres et par gange i timen mens guiden er åben.
+Ren parsning + kode→tekst/ikon ligger i core (`weather/weather.ts`, testet).
+Alt sluges stille: fejler position eller vejr, vises kun uret — aldrig en rå fejl.
+(Den lille "Kl."-klokke i gitterets hoved bliver — den viser også dagen, når man
+bladrer tilbage.)
 
 **"Hele dagen": oprydningen slettede de dage guiden viste — rettet ved roden (v281).**
 Bruger: "nej, de er ikke tomme i guiden — jeg kan fint starte noget for 3 dage

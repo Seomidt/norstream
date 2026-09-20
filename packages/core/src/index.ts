@@ -59,6 +59,9 @@ export type { RawEpgListing } from './xtream/epgListings.js';
 
 export { panelOffsetFromServerInfo } from './xtream/serverInfo.js';
 
+export { parseGeoLocation, parseOpenMeteo, weatherIcon, weatherText } from './weather/weather.js';
+export type { GeoLocation, WeatherIcon, WeatherNow } from './weather/weather.js';
+
 export { channelKey, isValidSourceId, parseChannelKey } from './source/source.js';
 export { logoCandidates, originOf } from './source/logo.js';
 export { parseCsv, parseCsvRecords } from './source/csv.js';

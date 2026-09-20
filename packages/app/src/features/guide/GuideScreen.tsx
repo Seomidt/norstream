@@ -30,6 +30,9 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { isTV, useCanvasSize } from '../../ui/tv.js';
 import { MiniPreview } from '../preview/MiniPreview.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
+import { ClockWeather } from './ClockWeather.js';
+import { loadCachedWeather, refreshWeather } from '../../sync/weather.js';
+import type { Weather } from '../../sync/weather.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
 import { TimelineGrid } from './TimelineGrid.js';
 import { ChannelDayScreen } from './ChannelDayScreen.js';
@@ -231,6 +234,30 @@ export function GuideScreen({
    * boksen stadig sige hvad der sendes *nu*.
    */
   const [previewProgrammes, setPreviewProgrammes] = useState<Programme[]>([]);
+
+  // Vejret ved uret (kun tv). Det sidst gemte vises straks; et frisk hentes i
+  // baggrunden (open-meteo ud fra boksens IP) og opdateres et par gange i timen.
+  // Fejler noget, staar der bare intet vejr — aldrig en raa fejl.
+  const [weather, setWeather] = useState<Weather | null>(null);
+  useEffect(() => {
+    if (!isTV) return;
+    let cancelled = false;
+    void loadCachedWeather(session.db).then((w) => {
+      if (!cancelled && w !== null) setWeather(w);
+    });
+    const run = (): void => {
+      void refreshWeather(session.db, session.fetchImpl).then((w) => {
+        if (!cancelled && w !== null) setWeather(w);
+      });
+    };
+    run();
+    const timer = setInterval(run, 30 * 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session]);
   // Laerredets bredde, ikke vinduets: paa tv er de ikke ens (se ui/tv.ts).
   const sideBySide = guideTopLayout(useCanvasSize().width) === 'side';
   const [loading, setLoading] = useState(true);
@@ -762,15 +789,34 @@ export function GuideScreen({
           venstre i 42 % af bredden, boksen ved siden af, og guiden faar
           resten af hoejden i stedet for to raekker. */}
       <View style={isTV ? styles.topColumn : sideBySide ? styles.topSide : undefined}>
-        <View style={!isTV && sideBySide ? { width: `${Math.round(sidePreviewFraction(false) * 100)}%` } : undefined}>
-          <MiniPreview
-            session={session}
-            channel={dayFor === null ? previewChannel : null}
-            enabled={previewEnabled}
-            handle={previewHandle}
-            onOpen={(channel) => onPlay(channel, channels)}
-          />
-        </View>
+        {isTV ? (
+          // Variant A: uret + vejret i den tomme plads til VENSTRE for preview,
+          // saa intet skubbes nedad (hoejden er knap paa tv). Preview faar resten.
+          <View style={styles.previewRow}>
+            <View style={styles.clockCol}>
+              <ClockWeather now={now} weather={weather} />
+            </View>
+            <View style={styles.previewFill}>
+              <MiniPreview
+                session={session}
+                channel={dayFor === null ? previewChannel : null}
+                enabled={previewEnabled}
+                handle={previewHandle}
+                onOpen={(channel) => onPlay(channel, channels)}
+              />
+            </View>
+          </View>
+        ) : (
+          <View style={sideBySide ? { width: `${Math.round(sidePreviewFraction(false) * 100)}%` } : undefined}>
+            <MiniPreview
+              session={session}
+              channel={dayFor === null ? previewChannel : null}
+              enabled={previewEnabled}
+              handle={previewHandle}
+              onOpen={(channel) => onPlay(channel, channels)}
+            />
+          </View>
+        )}
         <NowNextBox
           channel={previewChannel}
           programmes={previewProgrammes}
@@ -1302,10 +1348,17 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   // uden det havde soejlen kun previewets hoejde, og boksen blev nul
   // punkter hoej med alt indhold klippet vaek. "Ser meget tomt ud."
   topColumn: { flex: 1, backgroundColor: colors.surface },
+  // Uret + vejret til venstre for preview (Variant A): en fast, smal soejle,
+  // saa preview faar resten af bredden og intet skubbes nedad.
+  previewRow: { flexDirection: 'row', alignItems: 'stretch', gap: theme.spacing.sm },
+  clockCol: { width: 112 },
+  previewFill: { flex: 1, minWidth: 0 },
   tvSplit: { flex: 1, flexDirection: 'row' },
   hidden: { display: 'none' },
   tvLeft: { flex: 1 },
-  tvRight: { width: '28%', marginLeft: theme.spacing.sm, backgroundColor: colors.surface },
+  // Lidt bredere paa tv end foer (28%), saa der er plads til uret ved siden af
+  // preview uden at klemme selve previewet.
+  tvRight: { width: '33%', marginLeft: theme.spacing.sm, backgroundColor: colors.surface },
   dayOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.background },
   centered: {
     flex: 1,
