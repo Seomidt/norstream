@@ -25,9 +25,31 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 294** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 295** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
+
+**v295 — hastigheds-regression rettet + nyhedskilder målt op.**
+
+*Fuld skærm var blevet langsom.* v292 lagde en 300 ms panel-pause ind i `open()`
+(HomeScreen) før afspilleren åbnede — tænkt til at give panelet tid til at
+frigive sit ene slot, men den gjorde **hver** kanalåbning mærkbart langsommere.
+Rullet tilbage: åbner nu straks efter preview er sluppet, som før v292. Bliver
+den første stream alligevel afvist, fanger afspillerens 4-sekunders start-timer
+(`INITIAL_STALL_TIMEOUT_MS`, v288) det. "Forbinder …"-laget (v292) blev også
+tæmmet: det skjules så snart billedet er i gang (`hasVideo`), så det ikke blinker
+igen ved en kort genbuffring.
+
+*Nyhedsstriben viste "kun DR".* To grunde, begge målt op med `scripts/maal/
+nyhedsfeeds.mjs` (motor `maal`, frit internet): (1) DR's nyheder bærer **ingen**
+`<category>`, og jeg lagde `allenyheder` (foreningen af alle sektioner) først i
+flettningen — så dublet-lugningen gav næsten alt det generiske mærke "DR" og
+sultede sektions-mærkerne. (2) **TV2 tilbyder ikke længere et offentligt RSS**
+(alle adresser gav 404). Rettet: henter nu DR's **sektioner direkte**
+(indland/udland/sporten/penge/politik → mærkerne INDLAND/UDLAND/SPORT/PENGE/
+POLITIK) + **Politiken** som en ægte anden avis. Frisk cache-nøgle
+(`news_cache_v3`), så det slår igennem straks. `scripts/maal/nyhedsfeeds.mjs` er
+gemt til fremtidige feed-tjek.
 
 **v294 — nyhedsstriben: flere kilder + breaking.** Med DR bekræftet virkende
 (v293) henter striben nu fra flere feeds: DR allenyheder + DR **indland/udland/

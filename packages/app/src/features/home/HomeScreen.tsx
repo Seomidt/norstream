@@ -83,13 +83,6 @@ export type Tab = 'home' | 'favorites' | 'browse' | 'guide' | 'vod' | 'radio' | 
 /** Tryk paa fjernbetjeningen der kan have flyttet fokus ind i eller langs menusoejlen. */
 const RAIL_KEYS = new Set(['left', 'longLeft', 'up', 'longUp', 'down', 'longDown']);
 
-/**
- * Hvor laenge afspilleren venter efter at previewet er sluppet, foer den aabner.
- * Panelet frigiver sit ene forbindelses-slot et oejeblik efter klienten; en kort
- * pause her sparer en afvist foerste stream (og de sekunder den ellers sad fast).
- */
-const PANEL_SETTLE_MS = 300;
-
 const TABS: { id: Tab; label: string; icon: string }[] = [
   // Det man bruger hver dag oeverst. Favoritter staar lige under Guide —
   // de to hoerer sammen (guiden viser netop favoritterne), saa man kan
@@ -347,19 +340,15 @@ export function HomeScreen({
   const open = useCallback(
     (channel: StoredChannel, startFrom?: Programme, neighbours?: StoredChannel[], resumeAtSeconds?: number): void => {
       void (async () => {
-        let wasActive = false;
         try {
-          wasActive = (await previewHandle.current?.release()) ?? false;
+          await previewHandle.current?.release();
         } catch {
           // Med vilje.
         }
-        // Panelet tillader kun én forbindelse. Klienten har sluppet sin, men
-        // panelet frigiver sit slot et oejeblik senere; aabner afspilleren
-        // straks, kan den foerste stream blive afvist og saette sig fast i
-        // "Forbinder …" (foer man selv maatte zappe frem og tilbage). En kort
-        // pause giver panelet tid — kun naar previewet faktisk holdt en
-        // forbindelse, saa en kold aabning ikke bliver langsommere.
-        if (wasActive) await new Promise((resolve) => setTimeout(resolve, PANEL_SETTLE_MS));
+        // Ingen ekstra pause her: den blev proevet (v292) for at give panelet tid
+        // til at frigive sit ene slot, men gjorde hver aabning maerkbart
+        // langsommere. Bliver den foerste stream alligevel afvist, fanger
+        // afspillerens 4-sekunders start-timer det (INITIAL_STALL_TIMEOUT_MS).
         onSelect(channel, startFrom, neighbours, resumeAtSeconds);
       })();
     },

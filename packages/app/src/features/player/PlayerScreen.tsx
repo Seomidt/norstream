@@ -749,7 +749,7 @@ export function PlayerScreen({
   // sin egen skaerm) og kun til billedet er klart (radioState skifter til
   // 'playing'); en fejl viser sin egen tekst i stedet.
   const connectingOverlay =
-    !isRadio && radioState === 'connecting' && streamError === null ? (
+    !isRadio && radioState === 'connecting' && hasVideo !== true && streamError === null ? (
       <View style={styles.connecting} pointerEvents="none">
         <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={48} />
         <Text style={styles.connectingName} numberOfLines={1}>

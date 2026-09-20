@@ -30,20 +30,28 @@ interface Feed {
   label: string;
 }
 
+// Maalt paa en maskine med frit internet (scripts/maal/nyhedsfeeds.mjs):
+// DR's nyheder baerer INGEN <category>, saa maerket kommer fra hvilken sektion
+// de hentes fra — derfor sektionerne direkte, ikke "allenyheder" (som er
+// foreningen af dem alle og ville snuppe alt med ét generisk DR-maerke via
+// dublet-lugningen). TV2 tilbyder ikke laengere et offentligt RSS (alt 404),
+// saa Politiken er med som en aegte anden avis.
 const FEEDS: readonly Feed[] = [
-  { url: 'https://www.dr.dk/nyheder/service/feeds/allenyheder', label: 'DR' },
   { url: 'https://www.dr.dk/nyheder/service/feeds/indland', label: 'INDLAND' },
   { url: 'https://www.dr.dk/nyheder/service/feeds/udland', label: 'UDLAND' },
   { url: 'https://www.dr.dk/nyheder/service/feeds/sporten', label: 'SPORT' },
-  { url: 'https://nyheder.tv2.dk/rss', label: 'TV2' },
+  { url: 'https://www.dr.dk/nyheder/service/feeds/penge', label: 'PENGE' },
+  { url: 'https://www.dr.dk/nyheder/service/feeds/politik', label: 'POLITIK' },
+  { url: 'https://politiken.dk/rss/senestenyt.rss', label: 'POLITIKEN' },
 ];
 
 /** Hvor mange overskrifter striben hoejst faar, naar flere feeds er flettet sammen. */
 const MAX_TICKER = 18;
 
-// _v2: formen skiftede (fra string[] til {text,label}), og hentningen sender nu
-// en User-Agent. En frisk noegle undgaar at en gammel, tom-fortolket kopi vises.
-const KEY_NEWS = 'news_cache_v2';
+// _v3: kilderne skiftede (DR-sektioner + Politiken i stedet for allenyheder+TV2).
+// En frisk noegle sikrer at det slaar igennem straks — ellers viste en gammel
+// DR-only-kopi sig, indtil den var 20 min gammel ("der er kun DR").
+const KEY_NEWS = 'news_cache_v3';
 /** Hentes hoejst et par gange i timen; overskrifterne skifter ikke hurtigere. */
 const MAX_AGE_MS = 20 * 60_000;
 /**
