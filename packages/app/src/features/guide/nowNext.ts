@@ -87,3 +87,25 @@ export function formatClock(date: Date): string {
 export function formatSpan(programme: Programme): string {
   return `${formatClock(programme.start)}–${formatClock(programme.stop)}`;
 }
+
+const WEEKDAYS = ['søn', 'man', 'tir', 'ons', 'tor', 'fre', 'lør'];
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
+
+function startOfDay(d: Date): number {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x.getTime();
+}
+
+/**
+ * Hvilken dag en udsendelse ligger paa, i forhold til nu — eller null naar det
+ * er i dag. Saa kan boksen sige "i går" ud over klokkeslaettet, naar man har
+ * bladret tilbage i tiden i guiden ("hvornaar det er sendt, men ogsaa hvad dag").
+ */
+export function dayContext(date: Date, now: Date): string | null {
+  const diff = Math.round((startOfDay(now) - startOfDay(date)) / 86_400_000);
+  if (diff === 0) return null;
+  if (diff === 1) return 'i går';
+  if (diff === -1) return 'i morgen';
+  return `${WEEKDAYS[date.getDay()]} ${date.getDate()}. ${MONTHS[date.getMonth()]}`;
+}

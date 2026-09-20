@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 282** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 283** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,25 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**Guide: stort ur + vejr til venstre for preview (v282, kun tv).** Bruger (med
+**Guide + dagssiden: tre rettelser (v283).** Bruger: (1) "lav i Indstillinger så
+man kan slukke [ur/vejr], og så er den bare som nu når man slukker"; (2) "i
+beskrivelsen af udsendelsen, når man går tilbage i tiden, står klokken fint, men
+jeg har brug for at vide hvad DAG man er gået tilbage på"; (3) "når jeg vælger
+hele dagen, vises der kort i toppen et valg af hvad dag, men det forsvinder
+hurtigt og man kan ikke vælge det."
+- (1) **Kontakt i Indstillinger → Forhåndsvisning: "Ur og vejr i guiden"** (kun
+  tv, `guide_clock_weather`, til som standard). Fra = guiden som før: preview i
+  fuld bredde, `tvRight` tilbage til 28 %, intet vejr hentet. `GuideScreen`
+  læser den ved åbning (fanen genmonteres, så et skift slår igennem næste gang).
+- (2) **`NowNextBox` viser dagen ved klokkeslættet**, når udsendelsen ikke er i
+  dag: kickeren bliver fx "SENDT · i går" / "· tor 17. sep". Ren `dayContext`
+  i `nowNext.ts` (i dag → null, i går/i morgen, ellers ugedag + dato), testet.
+- (3) **Dag-knapperne i "hele dagen" stjæler ikke længere fokus.** Live-rækken
+  havde `hasTVPreferredFocus`, som greb fokus fra dag-knapperne, så de blinkede
+  og ikke kunne vælges. Nu bliver fokus på den valgte dag-knap ved åbning (man
+  går ned i listen, når man vil); listen ruller stadig til nu på i dag.
+
+**Guide: stort ur + vejr til venstre for preview (v282, udgivet som 283, kun tv).** Bruger (med
 billede): "kan man lave uret lige til venstre for preview og med vejret nedenunder."
 Valgt **Variant A** (efter mockup): uret + vejret sidder i den tomme plads til
 VENSTRE for preview, så intet skubbes nedad (lodret plads er knap på tv);

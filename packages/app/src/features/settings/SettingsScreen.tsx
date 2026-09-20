@@ -29,6 +29,8 @@ import {
   setTmdbApiKey,
   setYoutubeApiKey,
   setMiniPreviewEnabled,
+  getGuideWeatherEnabled,
+  setGuideWeatherEnabled,
   setStreamFormatSetting,
   getThemeMode,
   getThemePlace,
@@ -155,6 +157,7 @@ export function SettingsScreen({
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [providersOpen, setProvidersOpen] = useState(false);
   const [videoSurface, setVideoSurfaceState] = useState<VideoSurface>('surface');
+  const [guideWeather, setGuideWeather] = useState(true);
   const [themeMode, setThemeModeState] = useState<ThemeMode>(themePreference().mode);
   const [themePlace, setThemePlaceState] = useState(themePreference().placeKey);
 
@@ -184,6 +187,7 @@ export function SettingsScreen({
     setVideoSurfaceState(surface);
     applyVideoSurfaceSetting(surface);
     setThemePlaceState((await getThemePlace(session.db)) ?? themePreference().placeKey);
+    setGuideWeather(await getGuideWeatherEnabled(session.db));
     setRadio(await countRadioChannels(session.db));
     const errors: string[] = [];
     for (const access of session.sources) {
@@ -308,6 +312,11 @@ export function SettingsScreen({
     onPreviewEnabledChange(enabled);
   }
 
+  async function toggleGuideWeather(enabled: boolean): Promise<void> {
+    setGuideWeather(enabled);
+    await setGuideWeatherEnabled(session.db, enabled);
+  }
+
   async function chooseStreamFormat(value: StreamFormatSetting): Promise<void> {
     await setStreamFormatSetting(session.db, value);
     applyStreamFormatSetting(value);
@@ -356,6 +365,26 @@ export function SettingsScreen({
           trackColor={{ true: colors.accent, false: colors.border }}
         />
       </TvPressable>
+
+      {isTV && (
+        <TvPressable style={styles.row} onPress={() => void toggleGuideWeather(!guideWeather)}>
+          <View style={styles.rowText}>
+            <Text style={styles.rowTitle}>Ur og vejr i guiden</Text>
+            <Text style={styles.rowHint}>
+              Viser et stort ur og vejret ved siden af forhåndsvisningen i guiden.
+              Slå fra, hvis du hellere vil have guiden som før.
+            </Text>
+          </View>
+          <Switch
+            value={guideWeather}
+            focusable={false}
+            onValueChange={(value) => {
+              void toggleGuideWeather(value);
+            }}
+            trackColor={{ true: colors.accent, false: colors.border }}
+          />
+        </TvPressable>
+      )}
 
       <Text style={styles.sectionTitle}>Kilder</Text>
       <TvPressable style={styles.row} disabled={refreshing} onPress={onRefresh}>

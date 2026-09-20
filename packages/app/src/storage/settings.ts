@@ -207,6 +207,21 @@ export async function setMiniPreviewEnabled(
   await setSetting(db, KEY_PREVIEW, enabled ? 'on' : 'off');
 }
 
+const KEY_GUIDE_WEATHER = 'guide_clock_weather';
+
+/**
+ * Om det store ur + vejret vises til venstre for preview i guiden (kun tv).
+ * Til som standard; slaas det fra, ser guiden ud som foer (preview i fuld
+ * bredde, intet vejr hentet).
+ */
+export async function getGuideWeatherEnabled(db: SqlDatabase): Promise<boolean> {
+  return (await getSetting(db, KEY_GUIDE_WEATHER)) !== 'off';
+}
+
+export async function setGuideWeatherEnabled(db: SqlDatabase, enabled: boolean): Promise<void> {
+  await setSetting(db, KEY_GUIDE_WEATHER, enabled ? 'on' : 'off');
+}
+
 /**
  * Hvilket containerformat live-streams hentes i.
  *

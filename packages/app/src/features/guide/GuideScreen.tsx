@@ -16,7 +16,7 @@ import type { AppSession } from '../../session.js';
 import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { listProgrammes } from '../../storage/programmes.js';
-import { getFavoriteGroup, setFavoriteGroup, sourcesWithDialect } from '../../storage/settings.js';
+import { getFavoriteGroup, getGuideWeatherEnabled, setFavoriteGroup, sourcesWithDialect } from '../../storage/settings.js';
 import { listFavoriteGroups } from '../../storage/favoriteGroups.js';
 import { addReminder, hasReminder, removeReminder } from '../../storage/reminders.js';
 import type { FavoriteGroup } from '../../storage/favoriteGroups.js';
@@ -239,8 +239,20 @@ export function GuideScreen({
   // baggrunden (open-meteo ud fra boksens IP) og opdateres et par gange i timen.
   // Fejler noget, staar der bare intet vejr — aldrig en raa fejl.
   const [weather, setWeather] = useState<Weather | null>(null);
+  // Kan slaas fra i Indstillinger; saa er guiden som foer (preview i fuld bredde).
+  const [weatherEnabled, setWeatherEnabled] = useState(true);
   useEffect(() => {
-    if (!isTV) return;
+    let cancelled = false;
+    void getGuideWeatherEnabled(session.db).then((on) => {
+      if (!cancelled) setWeatherEnabled(on);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session.db]);
+  const showClockWeather = isTV && weatherEnabled;
+  useEffect(() => {
+    if (!showClockWeather) return;
     let cancelled = false;
     void loadCachedWeather(session.db).then((w) => {
       if (!cancelled && w !== null) setWeather(w);
@@ -257,7 +269,7 @@ export function GuideScreen({
       clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
+  }, [session, showClockWeather]);
   // Laerredets bredde, ikke vinduets: paa tv er de ikke ens (se ui/tv.ts).
   const sideBySide = guideTopLayout(useCanvasSize().width) === 'side';
   const [loading, setLoading] = useState(true);
@@ -789,7 +801,7 @@ export function GuideScreen({
           venstre i 42 % af bredden, boksen ved siden af, og guiden faar
           resten af hoejden i stedet for to raekker. */}
       <View style={isTV ? styles.topColumn : sideBySide ? styles.topSide : undefined}>
-        {isTV ? (
+        {showClockWeather ? (
           // Variant A: uret + vejret i den tomme plads til VENSTRE for preview,
           // saa intet skubbes nedad (hoejden er knap paa tv). Preview faar resten.
           <View style={styles.previewRow}>
@@ -1032,7 +1044,7 @@ export function GuideScreen({
         // saa dagsknapperne i laget ikke kunne vaelges.
         <View style={[styles.tvSplit, dayFor !== null && styles.hidden]}>
           <View style={styles.tvLeft}>{guideBlock}</View>
-          <View style={styles.tvRight}>{topBlock}</View>
+          <View style={[styles.tvRight, !showClockWeather && styles.tvRightNarrow]}>{topBlock}</View>
         </View>
       ) : (
         <>
@@ -1357,8 +1369,9 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   hidden: { display: 'none' },
   tvLeft: { flex: 1 },
   // Lidt bredere paa tv end foer (28%), saa der er plads til uret ved siden af
-  // preview uden at klemme selve previewet.
+  // preview uden at klemme selve previewet. Uden ur/vejr: tilbage til 28%.
   tvRight: { width: '33%', marginLeft: theme.spacing.sm, backgroundColor: colors.surface },
+  tvRightNarrow: { width: '28%' },
   dayOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: colors.background },
   centered: {
     flex: 1,

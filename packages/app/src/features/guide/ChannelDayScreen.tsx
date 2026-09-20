@@ -232,7 +232,10 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
             return (
               <TvPressable
                 style={[styles.row, state === 'live' && styles.rowLive]}
-                hasTVPreferredFocus={isTV && index === liveIndex}
+                // INGEN preferred focus paa raekken: den staal ellers fokus fra
+                // dag-knapperne oeverst, saa de blinkede kort og ikke kunne
+                // vaelges ("dag-valget forsvinder hurtigt"). Nu bliver fokus paa
+                // dag-knappen, og man gaar ned i listen naar man vil.
                 // Uden dette ruller listen ikke: Android holder kun raekken
                 // inden for listens egne kanter, men listen er hoejere end
                 // laerredet, saa den fokuserede raekke roeg uden for skaermen

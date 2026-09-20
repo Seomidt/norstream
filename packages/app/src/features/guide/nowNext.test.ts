@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Programme } from '@norstream/core';
 import {
   SIDE_BY_SIDE_MIN_WIDTH,
+  dayContext,
   formatSpan,
   guideTopLayout,
   minutesLeft,
@@ -81,5 +82,19 @@ describe('upcoming og minutesLeft', () => {
   it('taeller minutter tilbage', () => {
     expect(minutesLeft(list[1]!, at(19, 20))).toBe(40);
     expect(minutesLeft(list[0]!, at(19, 20))).toBe(0);
+  });
+});
+
+describe('dayContext', () => {
+  const now = new Date(2026, 8, 20, 12, 0); // lør 20. sep 2026
+  it('er null for i dag', () => {
+    expect(dayContext(new Date(2026, 8, 20, 9, 0), now)).toBeNull();
+  });
+  it('siger "i går" og "i morgen"', () => {
+    expect(dayContext(new Date(2026, 8, 19, 23, 55), now)).toBe('i går');
+    expect(dayContext(new Date(2026, 8, 21, 8, 0), now)).toBe('i morgen');
+  });
+  it('giver ugedag og dato laengere vaek', () => {
+    expect(dayContext(new Date(2026, 8, 17, 20, 0), now)).toBe('tor 17. sep');
   });
 });

@@ -6,7 +6,7 @@ import { theme } from '../../ui/theme.js';
 import { useStyles } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
-import { formatClock, formatSpan, minutesLeft, nowAndNext, progressRatio, upcoming } from './nowNext.js';
+import { dayContext, formatClock, formatSpan, minutesLeft, nowAndNext, progressRatio, upcoming } from './nowNext.js';
 
 /** Knapperne i boksen paa tv: se kanalen, start forfra, hele dagen. */
 interface Props {
@@ -61,6 +61,9 @@ export function NowNextBox({ channel, programmes, now, compact, onOpen, rich = f
       : [next];
   const kicker =
     current === null || isLive ? 'NU' : current.stop.getTime() <= now.getTime() ? 'SENDT' : 'SENERE';
+  // Dagen ved siden af klokkeslaettet, naar udsendelsen ikke er i dag: saa ved
+  // man baade hvornaar og HVILKEN dag man er bladret tilbage til.
+  const day = current === null ? null : dayContext(current.start, now);
 
   if (channel === null) {
     return compact ? null : (
@@ -76,7 +79,7 @@ export function NowNextBox({ channel, programmes, now, compact, onOpen, rich = f
         <View style={styles.stripLine}>
           <Text style={styles.stripLabel}>Nu</Text>
           <Text style={styles.stripText} numberOfLines={1}>
-            {current === null ? 'Ingen programdata' : `${formatSpan(current)} · ${current.title}`}
+            {current === null ? 'Ingen programdata' : `${day !== null ? `${day} · ` : ''}${formatSpan(current)} · ${current.title}`}
           </Text>
         </View>
         {next !== null && (
@@ -100,7 +103,7 @@ export function NowNextBox({ channel, programmes, now, compact, onOpen, rich = f
         </Text>
       </View>
 
-      <Text style={styles.kicker}>{kicker}</Text>
+      <Text style={styles.kicker}>{kicker}{day !== null ? ` · ${day}` : ''}</Text>
       {current === null ? (
         <Text style={styles.muted}>Ingen programdata for kanalen lige nu.</Text>
       ) : (
