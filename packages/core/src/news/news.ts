@@ -14,12 +14,21 @@ import { decodeXmlEntities } from '../epg/entities.js';
 /** Hvor mange overskrifter en enkelt hentning hoejst giver videre. */
 const MAX_HEADLINES = 15;
 
-/** Én nyhed: overskriften og en eventuel kategori (fx "INDLAND", "SPORT"). */
+/** Én nyhed: overskriften, en eventuel kategori (fx "INDLAND", "SPORT") og et breaking-flag. */
 export interface NewsItem {
   title: string;
   /** Kategorien stroemmen selv angav, renset og med store bogstaver — ellers null. */
   category: string | null;
+  /** Sandt naar kilden selv signalerer at nyheden er breaking / opdateres lige nu. */
+  breaking: boolean;
 }
+
+/**
+ * Kendetegn paa at en nyhed er breaking. RSS har ingen paalidelig markering, saa
+ * det er et bedste-bud: staar der "breaking", "seneste nyt" eller "opdateres" i
+ * titlen eller kategorien, taeller den. Fanger det meste, lover ingen realtid.
+ */
+const BREAKING = /\b(breaking|seneste nyt|sidste nyt|opdateres)\b/i;
 
 /** Pakker CDATA ud og fjerner eventuelle indre elementer, saa der staar ren tekst. */
 function plainText(raw: string): string {
@@ -61,8 +70,10 @@ export function parseNewsItems(xml: string): NewsItem[] {
     if (title.length === 0 || seen.has(title)) continue;
     seen.add(title);
     const categoryMatch = block.match(/<category\b[^>]*>([\s\S]*?)<\/category>/i);
-    const category = categoryMatch === null ? null : tidyCategory(categoryMatch[1] ?? '');
-    items.push({ title, category });
+    const categoryRaw = categoryMatch === null ? '' : plainText(categoryMatch[1] ?? '');
+    const category = tidyCategory(categoryRaw);
+    const breaking = BREAKING.test(title) || BREAKING.test(categoryRaw);
+    items.push({ title, category, breaking });
     if (items.length >= MAX_HEADLINES) break;
   }
   return items;

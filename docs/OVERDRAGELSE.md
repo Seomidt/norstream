@@ -25,9 +25,24 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 293** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 294** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
+
+**v294 — nyhedsstriben: flere kilder + breaking.** Med DR bekræftet virkende
+(v293) henter striben nu fra flere feeds: DR allenyheder + DR **indland/udland/
+sporten** (giver mærkerne INDLAND/UDLAND/SPORT også når de enkelte nyheder ikke
+selv er kategoriseret) + **TV2** (`nyheder.tv2.dk/rss`). `sync/news.ts` henter
+alle parallelt, fletter dem skiftevis (round-robin, så striben veksler mellem
+kilder), luger dubletter fra (samme historie i flere feeds) og skærer til 18.
+Hver feed er valgfri: svarer én ikke (404/403/tom), springes den over, og
+striben kører videre på dem der virker — så det aldrig bliver værre end DR alene.
+**Breaking:** core (`parseNewsItems`) markerer en nyhed som breaking, hvis titlen
+eller kategorien selv siger det (`/breaking|seneste nyt|sidste nyt|opdateres/i`);
+striben viser den så med et rødt **BREAKING**-mærke. RSS lover ikke realtid — det
+er et bedste-bud, ikke en push-alarm, og lyser kun når kilden selv signalerer det.
+Bemærk: TV2's feed-URL kunne ikke verificeres fra udviklingsmiljøet (proxyen
+blokerer den) — virker den ikke på boksen, falder striben bare tilbage til DR.
 
 **v293 — nyhedsstriben viste kun vejr (rettet).** Nyhederne kom aldrig igennem:
 DR's server (Akamai) svarer 403 — eller en samtykke-side helt uden `<item>` — på

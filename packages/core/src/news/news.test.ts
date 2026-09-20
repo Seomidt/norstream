@@ -53,8 +53,8 @@ describe('parseNewsItems', () => {
       '<rss><item><title>En sag</title><category>Indland</category></item>' +
       '<item><title>Et mål</title><category><![CDATA[Sport]]></category></item></rss>';
     expect(parseNewsItems(xml)).toEqual([
-      { title: 'En sag', category: 'INDLAND' },
-      { title: 'Et mål', category: 'SPORT' },
+      { title: 'En sag', category: 'INDLAND', breaking: false },
+      { title: 'Et mål', category: 'SPORT', breaking: false },
     ]);
   });
 
@@ -64,9 +64,18 @@ describe('parseNewsItems', () => {
       '<item><title>B</title><category>Penge og økonomi</category></item>' +
       '<item><title>C</title><category>   </category></item></rss>';
     expect(parseNewsItems(xml)).toEqual([
-      { title: 'A', category: null },
-      { title: 'B', category: null },
-      { title: 'C', category: null },
+      { title: 'A', category: null, breaking: false },
+      { title: 'B', category: null, breaking: false },
+      { title: 'C', category: null, breaking: false },
     ]);
+  });
+
+  it('markerer breaking fra titel eller kategori', () => {
+    const xml =
+      '<rss><item><title>BREAKING: stort udfald</title></item>' +
+      '<item><title>Følg med: sagen opdateres</title></item>' +
+      '<item><title>Rolig nyhed</title><category>Seneste nyt</category></item>' +
+      '<item><title>Helt almindelig</title><category>Indland</category></item></rss>';
+    expect(parseNewsItems(xml).map((i) => i.breaking)).toEqual([true, true, true, false]);
   });
 });

@@ -61,8 +61,10 @@ function Segments({ weather, headlines }: { weather: Weather | null; headlines: 
       )}
       {headlines.map((headline, index) => (
         <View key={`${index}-${headline.text}`} style={styles.segRow}>
-          <Text style={styles.labelNw}>{headline.label}</Text>
-          <Text style={styles.item}>{headline.text}</Text>
+          <Text style={headline.breaking ? styles.labelBreaking : styles.labelNw}>
+            {headline.breaking ? 'BREAKING' : headline.label}
+          </Text>
+          <Text style={headline.breaking ? styles.itemBreaking : styles.item}>{headline.text}</Text>
           <Text style={styles.dot}>•</Text>
         </View>
       ))}
@@ -157,6 +159,10 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   // er valgt saa den kan laeses paa baade lyst og moerkt tema.
   labelWx: { color: '#d98a1f', fontSize: 13, fontWeight: '800', marginLeft: 16, marginRight: 8 },
   labelNw: { color: colors.accent, fontSize: 13, fontWeight: '800', marginLeft: 16, marginRight: 8 },
+  // Breaking: roedt maerke + fed tekst, saa det springer i oejnene naar en kilde
+  // selv signalerer det (RSS lover ikke realtid — se core/news.ts).
+  labelBreaking: { color: colors.danger, fontSize: 13, fontWeight: '800', marginLeft: 16, marginRight: 8 },
+  itemBreaking: { color: colors.text, fontSize: 14, fontWeight: '700' },
   item: { color: colors.text, fontSize: 14 },
   dot: { color: colors.border, fontSize: 14, marginHorizontal: 10 },
 });

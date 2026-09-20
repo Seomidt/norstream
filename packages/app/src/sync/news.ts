@@ -9,26 +9,43 @@ import type { SqlDatabase } from '../storage/types.js';
  * noget, vises der bare de sidst kendte overskrifter — aldrig en raa fejl.
  */
 
-/** Én overskrift til striben: teksten og et kort maerke (kategori eller "DR"). */
+/** Én overskrift til striben: teksten, et kort maerke (kategori/kilde) og breaking-flag. */
 export interface NewsHeadline {
   text: string;
   label: string;
+  breaking: boolean;
 }
 
 export interface News {
   headlines: NewsHeadline[];
 }
 
-/** Kildens standardmaerke, naar en nyhed ikke selv angav en kategori. */
-const DEFAULT_LABEL = 'DR';
+/** Feeds vi henter fra. Hver har et standardmaerke, der bruges naar en nyhed
+ *  ikke selv angiver en kategori. DR-kategori-feeds giver variationen (INDLAND,
+ *  UDLAND, SPORT) ogsaa naar de enkelte nyheder ikke selv er kategoriseret; TV2
+ *  er med som ekstra kilde. Svarer en feed ikke (404/403/tom), springes den bare
+ *  over — striben koerer videre paa dem der virker. */
+interface Feed {
+  url: string;
+  label: string;
+}
+
+const FEEDS: readonly Feed[] = [
+  { url: 'https://www.dr.dk/nyheder/service/feeds/allenyheder', label: 'DR' },
+  { url: 'https://www.dr.dk/nyheder/service/feeds/indland', label: 'INDLAND' },
+  { url: 'https://www.dr.dk/nyheder/service/feeds/udland', label: 'UDLAND' },
+  { url: 'https://www.dr.dk/nyheder/service/feeds/sporten', label: 'SPORT' },
+  { url: 'https://nyheder.tv2.dk/rss', label: 'TV2' },
+];
+
+/** Hvor mange overskrifter striben hoejst faar, naar flere feeds er flettet sammen. */
+const MAX_TICKER = 18;
 
 // _v2: formen skiftede (fra string[] til {text,label}), og hentningen sender nu
 // en User-Agent. En frisk noegle undgaar at en gammel, tom-fortolket kopi vises.
 const KEY_NEWS = 'news_cache_v2';
 /** Hentes hoejst et par gange i timen; overskrifterne skifter ikke hurtigere. */
 const MAX_AGE_MS = 20 * 60_000;
-/** DR's offentlige nyhedsstroem — gratis og uden legitimation. */
-const DR_RSS_URL = 'https://www.dr.dk/nyheder/service/feeds/allenyheder';
 /**
  * DR's server (Akamai) svarer 403 — eller en samtykke-side helt uden <item> —
  * paa et kald uden en browser-agtig User-Agent. Derfor kom der vejr men ingen
@@ -64,7 +81,11 @@ function toCached(value: string | null): CachedNews | null {
         (h): h is NewsHeadline =>
           typeof h === 'object' && h !== null && typeof (h as NewsHeadline).text === 'string',
       )
-      .map((h) => ({ text: h.text, label: typeof h.label === 'string' && h.label.length > 0 ? h.label : DEFAULT_LABEL }));
+      .map((h) => ({
+        text: h.text,
+        label: typeof h.label === 'string' && h.label.length > 0 ? h.label : 'DR',
+        breaking: h.breaking === true,
+      }));
     return { news: { headlines }, fetchedAt: parsed.fetchedAt };
   } catch {
     return null;
@@ -96,6 +117,25 @@ async function fetchText(fetchImpl: HeaderFetch, url: string): Promise<string | 
  * bruges den; mislykkes en hentning, beholdes de sidst kendte frem for at
  * blanke ud. Gav stroemmen ingen overskrifter, beholdes de gamle ogsaa.
  */
+/** Fletter flere kilders lister sammen skiftevis, saa striben ikke bliver
+ *  alle-DR-saa-alle-TV2, men veksler mellem kilderne. */
+function interleave(lists: readonly NewsHeadline[][]): NewsHeadline[] {
+  const out: NewsHeadline[] = [];
+  const longest = lists.reduce((max, list) => Math.max(max, list.length), 0);
+  for (let i = 0; i < longest; i += 1) {
+    for (const list of lists) {
+      const item = list[i];
+      if (item !== undefined) out.push(item);
+    }
+  }
+  return out;
+}
+
+/**
+ * Henter friske overskrifter fra alle feeds, hoejst et par gange i timen. Er
+ * cachen frisk, bruges den; svarer en feed ikke, springes den over. Kom der
+ * intet fra nogen af dem, beholdes de sidst kendte frem for at blanke ud.
+ */
 export async function refreshNews(
   db: SqlDatabase,
   fetchImpl: HeaderFetch,
@@ -106,16 +146,31 @@ export async function refreshNews(
     return cached.news;
   }
 
-  const xml = await fetchText(fetchImpl, DR_RSS_URL);
-  if (xml === null) return cached?.news ?? null;
+  const perFeed = await Promise.all(
+    FEEDS.map(async (feed): Promise<NewsHeadline[]> => {
+      const xml = await fetchText(fetchImpl, feed.url);
+      if (xml === null) return [];
+      return parseNewsItems(xml).map((item) => ({
+        text: item.title,
+        label: item.category ?? feed.label,
+        breaking: item.breaking,
+      }));
+    }),
+  );
 
-  const items = parseNewsItems(xml);
-  if (items.length === 0) return cached?.news ?? null;
+  // Fletning + dubletter luget fra (samme historie staar tit i flere feeds).
+  const seen = new Set<string>();
+  const headlines: NewsHeadline[] = [];
+  for (const headline of interleave(perFeed)) {
+    const key = headline.text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    headlines.push(headline);
+    if (headlines.length >= MAX_TICKER) break;
+  }
 
-  const headlines: NewsHeadline[] = items.map((item) => ({
-    text: item.title,
-    label: item.category ?? DEFAULT_LABEL,
-  }));
+  if (headlines.length === 0) return cached?.news ?? null;
+
   const news: News = { headlines };
   await setSetting(db, KEY_NEWS, JSON.stringify({ news, fetchedAt: now.getTime() } satisfies CachedNews));
   return news;
