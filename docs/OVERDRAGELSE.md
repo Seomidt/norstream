@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 287** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 288** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,19 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**Guide: grader inde i kassen + preview tættere på (v287).** Bruger (med billede):
+**Afspiller: kanalen kommer selv frem uden at zappe (v288).** Bruger: "nogle
+gange kommer kanalen ikke frem, så skal jeg lige trykke lidt frem og tilbage,
+så kommer programmet." Årsag: når panelets ENE forbindelse ikke var nået at
+blive fri (preview eller forrige kanal), leverede den nye stream ingenting og
+stod bare i "Forbinder …" — og genforbindelsen ved et stille buffer-stall
+udløste først efter **15 sekunder** (`STALL_TIMEOUT_MS`). Så nåede man selv at
+zappe frem/tilbage (hvilket tvinger en frisk åbning) længe før. Nu skelnes der:
+den FØRSTE forbindelse genforbinder efter **4 sek** (`INITIAL_STALL_TIMEOUT_MS`,
+styret af `everReady`-ref pr. kilde), mens en genbuffring MIDT i afspilningen
+stadig får de 15 sek, så et kort udfald ikke river billedet ned. Hårde fejl
+retry'er stadig som før (to forsøg + format-fallback).
+
+**Guide: grader inde i kassen + preview tættere på (v287, udgivet som 288).** Bruger (med billede):
 "graderne går uden for kassen — de skal lidt til venstre — og preview skal fylde
 lidt mere til venstre, så den går helt hen til ur/vejr-kassen." I `ClockWeather`
 står dagens max/min nu på sin egen linje under nu-temperaturen (før løb "21° /

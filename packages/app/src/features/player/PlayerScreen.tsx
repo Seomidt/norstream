@@ -60,8 +60,19 @@ interface Props {
 
 const MAX_RETRIES = 2;
 const RETRY_BACKOFF_MS = 1500;
-/** Hvor laenge afspilleren maa haenge i buffering foer vi kalder det et udfald. */
+/** Hvor laenge afspilleren maa haenge i buffering MIDT i afspilningen foer vi
+ *  kalder det et udfald og genforbinder. Laengere, saa en kort genbuffring
+ *  ikke river billedet ned. */
 const STALL_TIMEOUT_MS = 15_000;
+/**
+ * Hvor laenge vi venter paa det FOERSTE billede foer vi genforbinder.
+ * Meget kortere end STALL_TIMEOUT_MS: naar panelets ene forbindelse ikke er
+ * naaet at blive fri (preview eller forrige kanal), leverer den nye stream
+ * ingenting og staar bare i "Forbinder …" — foer i 15 sekunder, saa man selv
+ * maatte zappe frem/tilbage for at faa billedet. Nu genforbinder den selv
+ * efter faa sekunder.
+ */
+const INITIAL_STALL_TIMEOUT_MS = 4000;
 
 export function PlayerScreen({
   session,
@@ -416,6 +427,15 @@ export function PlayerScreen({
     player.play();
   }, [player, source]);
 
+  // Har afspilleren vist det foerste billede for DENNE stream endnu? Nulstilles
+  // ved hvert kildeskift (ny kanal/format), saa den foerste forbindelse
+  // genforbinder hurtigt (INITIAL_STALL_TIMEOUT_MS), mens en genbuffring midt i
+  // afspilningen faar den laengere snor (STALL_TIMEOUT_MS).
+  const everReady = useRef(false);
+  useEffect(() => {
+    everReady.current = false;
+  }, [source]);
+
   // Spec sec.9: IPTV-streams falder ud hele tiden. To forsoeg med backoff,
   // derefter fallback til det andet containerformat der hvor et saadant
   // findes, og automatisk genforbindelse naar afspilningen stopper eller
@@ -477,6 +497,7 @@ export function PlayerScreen({
 
         if (status === 'readyToPlay') {
           attempt = 0;
+          everReady.current = true;
           clearStallTimer();
           setStreamError(null);
           try {
@@ -530,7 +551,7 @@ export function PlayerScreen({
         // streamen faldet ud midt i afspilningen, selv om der aldrig kom en
         // egentlig fejl.
         if (status === 'loading' && stallTimer === null) {
-          stallTimer = setTimeout(handleFailure, STALL_TIMEOUT_MS);
+          stallTimer = setTimeout(handleFailure, everReady.current ? STALL_TIMEOUT_MS : INITIAL_STALL_TIMEOUT_MS);
         }
       },
     );
