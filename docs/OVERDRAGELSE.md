@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 286** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 287** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,14 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Guide: grader inde i kassen + preview tættere på (v287).** Bruger (med billede):
+"graderne går uden for kassen — de skal lidt til venstre — og preview skal fylde
+lidt mere til venstre, så den går helt hen til ur/vejr-kassen." I `ClockWeather`
+står dagens max/min nu på sin egen linje under nu-temperaturen (før løb "21° /
+17°" ud over kantens højre side i den smalle søjle). Og mellemrummet mellem
+ur/vejr-kassen og preview (`previewRow` gap) er sat fra `sm` → `xs`, så previewet
+når næsten helt hen til kassen.
 
 **Guide: ur/vejr gjort mindre (v286, udgivet med v285's preview-fix).** Bruger:
 "kan ur og vejr laves lidt mindre, det er meget dominerende i forhold til

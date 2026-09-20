@@ -43,18 +43,20 @@ export function ClockWeather({ now, weather }: { now: Date; weather: Weather | n
       </Text>
       {weather !== null && (
         <View style={styles.wx}>
+          {/* Nu-temperaturen paa foerste linje; dagens max/min paa sin egen linje
+              under, saa graderne ikke loeber ud over kassens hoejre kant i den
+              smalle soejle. */}
           <View style={styles.wxTop}>
             <Text style={styles.icon}>{ICON[weatherIcon(weather.code)]}</Text>
             <Text style={styles.temp} numberOfLines={1}>
               {Math.round(weather.tempNow)}°
-              {weather.tempMax !== null && weather.tempMin !== null && (
-                <Text style={styles.range}>
-                  {'  '}
-                  {Math.round(weather.tempMax)}° / {Math.round(weather.tempMin)}°
-                </Text>
-              )}
             </Text>
           </View>
+          {weather.tempMax !== null && weather.tempMin !== null && (
+            <Text style={styles.range} numberOfLines={1}>
+              {Math.round(weather.tempMax)}° / {Math.round(weather.tempMin)}°
+            </Text>
+          )}
           <Text style={styles.desc} numberOfLines={1}>
             {weatherText(weather.code)}
           </Text>
@@ -81,6 +83,6 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   wxTop: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   icon: { fontSize: 13 },
   temp: { color: colors.text, fontSize: 13, fontWeight: '700' },
-  range: { color: colors.textMuted, fontSize: 10, fontWeight: '600' },
+  range: { color: colors.textMuted, fontSize: 10, fontWeight: '600', marginTop: 2 },
   desc: { color: colors.textMuted, fontSize: 10, marginTop: 2 },
 });

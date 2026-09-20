@@ -1365,7 +1365,8 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   topColumn: { flex: 1, backgroundColor: colors.surface },
   // Uret + vejret til venstre for preview (Variant A): en fast, smal soejle,
   // saa preview faar resten af bredden og intet skubbes nedad.
-  previewRow: { flexDirection: 'row', alignItems: 'stretch', gap: theme.spacing.sm },
+  // Lille mellemrum, saa previewet naar naesten helt hen til ur/vejr-kassen.
+  previewRow: { flexDirection: 'row', alignItems: 'stretch', gap: theme.spacing.xs },
   // Smal soejle, saa uret ikke dominerer over preview: previewet faar resten.
   clockCol: { width: 90 },
   previewFill: { flex: 1, minWidth: 0 },
