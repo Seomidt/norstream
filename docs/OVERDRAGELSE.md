@@ -25,9 +25,25 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 290** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 291** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
+
+**Guide: info-området kan nu vælges (ur/vejr, nyhedsstribe eller fra) (v291).**
+Bruger ønskede et valg i Indstillinger i stedet for den gamle til/fra for
+ur+vejr: enten (1) **Ur og vejr** som før, (2) en **Nyhedsstribe** i bunden af
+guiden (tid fast til venstre; vejr + danske overskrifter ruller forbi som på en
+nyhedskanal; forhåndsvisningen fylder fuld bredde), eller (3) **Fra**.
+Indstillinger → "Guidens info-område" (kun tv), tre valg-chips. Gemt under den
+samme nøgle `guide_clock_weather` som en `GuideInfoMode` (`clock`/`news`/`off`);
+den gamle værdi `on` læses stadig som `clock`, så ingen mister deres valg.
+Nyhederne kommer fra **DR's RSS** (`allenyheder`, gratis, ingen nøgle), renset i
+`packages/core` (`parseNewsHeadlines`, testet) og hentet i `sync/news.ts`
+(cachet i settings-kv, opdateret et par gange i timen, fejler stille — de gamle
+overskrifter bliver stående). Vejret genbruges fra den eksisterende hentning.
+Striben (`features/guide/NewsTicker.tsx`) er en `Animated`-marquee med to kopier
+af indholdet, så den ruller uendeligt uden hul; den er kun i live mens
+guide-fanen er fremme (afmonteres på faneskift, så animationen stopper).
 
 **Ny boks = kun ét kodeord (v239).** På login-skærmen er der nu en tredje fane
 **"Sky-kopi"**: skriv kodeordet → appen henter kopien, logger selv på panelet

@@ -210,16 +210,28 @@ export async function setMiniPreviewEnabled(
 const KEY_GUIDE_WEATHER = 'guide_clock_weather';
 
 /**
- * Om det store ur + vejret vises til venstre for preview i guiden (kun tv).
- * Til som standard; slaas det fra, ser guiden ud som foer (preview i fuld
- * bredde, intet vejr hentet).
+ * Hvad der staar i guidens info-omraade ved siden af/under preview (kun tv):
+ *
+ * - `clock` — det store ur + vejret til venstre for preview (som foer).
+ * - `news`  — en nyhedsstribe i bunden med tid, vejr og danske overskrifter;
+ *   preview faar fuld bredde.
+ * - `off`   — intet; preview i fuld bredde, intet hentet.
+ *
+ * Standard er `clock`. Den gamle til/fra-vaerdi laeses stadig: `on` var uret,
+ * `off` var slukket — saa ingen mister deres valg ved opdateringen.
  */
-export async function getGuideWeatherEnabled(db: SqlDatabase): Promise<boolean> {
-  return (await getSetting(db, KEY_GUIDE_WEATHER)) !== 'off';
+export type GuideInfoMode = 'clock' | 'news' | 'off';
+
+export async function getGuideInfoMode(db: SqlDatabase): Promise<GuideInfoMode> {
+  const value = await getSetting(db, KEY_GUIDE_WEATHER);
+  if (value === 'news') return 'news';
+  if (value === 'off') return 'off';
+  // null, 'on' (den gamle til-vaerdi) og alt andet: uret.
+  return 'clock';
 }
 
-export async function setGuideWeatherEnabled(db: SqlDatabase, enabled: boolean): Promise<void> {
-  await setSetting(db, KEY_GUIDE_WEATHER, enabled ? 'on' : 'off');
+export async function setGuideInfoMode(db: SqlDatabase, mode: GuideInfoMode): Promise<void> {
+  await setSetting(db, KEY_GUIDE_WEATHER, mode);
 }
 
 /**

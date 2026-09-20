@@ -16,7 +16,8 @@ import type { AppSession } from '../../session.js';
 import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { listProgrammes } from '../../storage/programmes.js';
-import { getFavoriteGroup, getGuideWeatherEnabled, setFavoriteGroup, sourcesWithDialect } from '../../storage/settings.js';
+import { getFavoriteGroup, getGuideInfoMode, setFavoriteGroup, sourcesWithDialect } from '../../storage/settings.js';
+import type { GuideInfoMode } from '../../storage/settings.js';
 import { listFavoriteGroups } from '../../storage/favoriteGroups.js';
 import { addReminder, hasReminder, removeReminder } from '../../storage/reminders.js';
 import type { FavoriteGroup } from '../../storage/favoriteGroups.js';
@@ -31,8 +32,10 @@ import { isTV, useCanvasSize } from '../../ui/tv.js';
 import { MiniPreview } from '../preview/MiniPreview.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { ClockWeather } from './ClockWeather.js';
+import { NewsTicker } from './NewsTicker.js';
 import { loadCachedWeather, refreshWeather } from '../../sync/weather.js';
 import type { Weather } from '../../sync/weather.js';
+import { loadCachedNews, refreshNews } from '../../sync/news.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
 import { TimelineGrid } from './TimelineGrid.js';
 import { ChannelDayScreen } from './ChannelDayScreen.js';
@@ -239,20 +242,24 @@ export const GuideScreen = memo(function GuideScreen({
   // baggrunden (open-meteo ud fra boksens IP) og opdateres et par gange i timen.
   // Fejler noget, staar der bare intet vejr — aldrig en raa fejl.
   const [weather, setWeather] = useState<Weather | null>(null);
-  // Kan slaas fra i Indstillinger; saa er guiden som foer (preview i fuld bredde).
-  const [weatherEnabled, setWeatherEnabled] = useState(true);
+  // Info-omraadet i guiden (kun tv): uret+vejr, nyhedsstribe eller intet. Kan
+  // vaelges i Indstillinger; standard er uret. 'off' er guiden som foer uret.
+  const [infoMode, setInfoMode] = useState<GuideInfoMode>('clock');
   useEffect(() => {
     let cancelled = false;
-    void getGuideWeatherEnabled(session.db).then((on) => {
-      if (!cancelled) setWeatherEnabled(on);
+    void getGuideInfoMode(session.db).then((mode) => {
+      if (!cancelled) setInfoMode(mode);
     });
     return () => {
       cancelled = true;
     };
   }, [session.db]);
-  const showClockWeather = isTV && weatherEnabled;
+  const showClockWeather = isTV && infoMode === 'clock';
+  const showNews = isTV && infoMode === 'news';
+  // Vejret bruges baade af ur-kassen og af nyhedsstriben, saa det hentes til begge.
+  const wantWeather = showClockWeather || showNews;
   useEffect(() => {
-    if (!showClockWeather) return;
+    if (!wantWeather) return;
     let cancelled = false;
     void loadCachedWeather(session.db).then((w) => {
       if (!cancelled && w !== null) setWeather(w);
@@ -269,7 +276,31 @@ export const GuideScreen = memo(function GuideScreen({
       clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, showClockWeather]);
+  }, [session, wantWeather]);
+
+  // Nyhedsoverskrifterne til striben. Det sidst gemte vises straks; friske
+  // hentes fra DR's RSS i baggrunden og opdateres et par gange i timen. Fejler
+  // noget, staar de gamle — aldrig en raa fejl.
+  const [headlines, setHeadlines] = useState<string[]>([]);
+  useEffect(() => {
+    if (!showNews) return;
+    let cancelled = false;
+    void loadCachedNews(session.db).then((n) => {
+      if (!cancelled && n !== null) setHeadlines(n.headlines);
+    });
+    const run = (): void => {
+      void refreshNews(session.db, session.fetchImpl).then((n) => {
+        if (!cancelled && n !== null) setHeadlines(n.headlines);
+      });
+    };
+    run();
+    const timer = setInterval(run, 15 * 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, showNews]);
   // Laerredets bredde, ikke vinduets: paa tv er de ikke ens (se ui/tv.ts).
   const sideBySide = guideTopLayout(useCanvasSize().width) === 'side';
   const [loading, setLoading] = useState(true);
@@ -1045,10 +1076,18 @@ export const GuideScreen = memo(function GuideScreen({
         // Skjult mens hele dagen staar ovenpaa: gitterets celler og knapper
         // ligger ellers stadig under laget og faar fjernbetjeningens fokus,
         // saa dagsknapperne i laget ikke kunne vaelges.
-        <View style={[styles.tvSplit, dayFor !== null && styles.hidden]}>
-          <View style={styles.tvLeft}>{guideBlock}</View>
-          <View style={[styles.tvRight, !showClockWeather && styles.tvRightNarrow]}>{topBlock}</View>
-        </View>
+        <>
+          <View style={[styles.tvSplit, dayFor !== null && styles.hidden]}>
+            <View style={styles.tvLeft}>{guideBlock}</View>
+            <View style={[styles.tvRight, !showClockWeather && styles.tvRightNarrow]}>{topBlock}</View>
+          </View>
+          {/* Nyhedsstriben ligger i bunden i fuld bredde (uden for delingen),
+              som paa en nyhedskanal. Kun i nyheds-tilstand og ikke mens hele
+              dagen staar ovenpaa. */}
+          {showNews && dayFor === null && (
+            <NewsTicker now={now} weather={weather} headlines={headlines} />
+          )}
+        </>
       ) : (
         <>
           {topBlock}

@@ -29,15 +29,15 @@ import {
   setTmdbApiKey,
   setYoutubeApiKey,
   setMiniPreviewEnabled,
-  getGuideWeatherEnabled,
-  setGuideWeatherEnabled,
+  getGuideInfoMode,
+  setGuideInfoMode,
   setStreamFormatSetting,
   getThemeMode,
   getThemePlace,
   setThemeMode,
   setThemePlace,
 } from '../../storage/settings.js';
-import type { HomeProvider, StreamFormatSetting, SubtitlePreference, VideoSurface } from '../../storage/settings.js';
+import type { GuideInfoMode, HomeProvider, StreamFormatSetting, SubtitlePreference, VideoSurface } from '../../storage/settings.js';
 import { tmdbFetch } from '../../sync/tmdb.js';
 import { PLACES, THEME_MODES, setThemePreference, themePreference } from '../../ui/themeMode.js';
 import type { ThemeMode } from '../../ui/themeMode.js';
@@ -93,6 +93,12 @@ const SUBTITLE_CHOICES: readonly { value: SubtitlePreference; label: string }[] 
 const VIDEO_SURFACES: readonly { value: VideoSurface; label: string }[] = [
   { value: 'surface', label: 'Standard' },
   { value: 'texture', label: 'Alternativ' },
+];
+
+const GUIDE_INFO_CHOICES: readonly { value: GuideInfoMode; label: string }[] = [
+  { value: 'clock', label: 'Ur og vejr' },
+  { value: 'news', label: 'Nyhedsstribe' },
+  { value: 'off', label: 'Fra' },
 ];
 
 const STREAM_FORMATS: readonly { value: StreamFormatSetting; label: string }[] = [
@@ -157,7 +163,7 @@ export function SettingsScreen({
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [providersOpen, setProvidersOpen] = useState(false);
   const [videoSurface, setVideoSurfaceState] = useState<VideoSurface>('surface');
-  const [guideWeather, setGuideWeather] = useState(true);
+  const [guideInfo, setGuideInfo] = useState<GuideInfoMode>('clock');
   const [themeMode, setThemeModeState] = useState<ThemeMode>(themePreference().mode);
   const [themePlace, setThemePlaceState] = useState(themePreference().placeKey);
 
@@ -187,7 +193,7 @@ export function SettingsScreen({
     setVideoSurfaceState(surface);
     applyVideoSurfaceSetting(surface);
     setThemePlaceState((await getThemePlace(session.db)) ?? themePreference().placeKey);
-    setGuideWeather(await getGuideWeatherEnabled(session.db));
+    setGuideInfo(await getGuideInfoMode(session.db));
     setRadio(await countRadioChannels(session.db));
     const errors: string[] = [];
     for (const access of session.sources) {
@@ -312,9 +318,9 @@ export function SettingsScreen({
     onPreviewEnabledChange(enabled);
   }
 
-  async function toggleGuideWeather(enabled: boolean): Promise<void> {
-    setGuideWeather(enabled);
-    await setGuideWeatherEnabled(session.db, enabled);
+  async function chooseGuideInfo(mode: GuideInfoMode): Promise<void> {
+    setGuideInfo(mode);
+    await setGuideInfoMode(session.db, mode);
   }
 
   async function chooseStreamFormat(value: StreamFormatSetting): Promise<void> {
@@ -367,23 +373,29 @@ export function SettingsScreen({
       </TvPressable>
 
       {isTV && (
-        <TvPressable style={styles.row} onPress={() => void toggleGuideWeather(!guideWeather)}>
-          <View style={styles.rowText}>
-            <Text style={styles.rowTitle}>Ur og vejr i guiden</Text>
-            <Text style={styles.rowHint}>
-              Viser et stort ur og vejret ved siden af forhåndsvisningen i guiden.
-              Slå fra, hvis du hellere vil have guiden som før.
-            </Text>
+        <>
+          <Text style={styles.sectionTitle}>Guidens info-område</Text>
+          <Text style={styles.hint}>
+            Ved siden af forhåndsvisningen i guiden: et stort ur med vejret,
+            en nyhedsstribe i bunden med tid, vejr og danske overskrifter, eller
+            intet — så fylder forhåndsvisningen mere.
+          </Text>
+          <View style={styles.choices}>
+            {GUIDE_INFO_CHOICES.map((option) => (
+              <TvPressable
+                key={option.value}
+                style={[styles.choice, guideInfo === option.value && styles.choiceSelected]}
+                onPress={() => {
+                  void chooseGuideInfo(option.value);
+                }}
+              >
+                <Text style={[styles.choiceText, guideInfo === option.value && styles.choiceTextSelected]}>
+                  {option.label}
+                </Text>
+              </TvPressable>
+            ))}
           </View>
-          <Switch
-            value={guideWeather}
-            focusable={false}
-            onValueChange={(value) => {
-              void toggleGuideWeather(value);
-            }}
-            trackColor={{ true: colors.accent, false: colors.border }}
-          />
-        </TvPressable>
+        </>
       )}
 
       <Text style={styles.sectionTitle}>Kilder</Text>
