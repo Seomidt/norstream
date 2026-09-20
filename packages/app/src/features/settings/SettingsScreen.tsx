@@ -14,6 +14,7 @@ import { deleteSource, listSources } from '../../storage/sources.js';
 import {
   clearLastSyncMs,
   getGoogleSearchFields,
+  getLastSyncMs,
   getSetting,
   getHomeProviders,
   getStreamFormatSetting,
@@ -39,6 +40,8 @@ import {
 } from '../../storage/settings.js';
 import type { GuideInfoMode, HomeProvider, StreamFormatSetting, SubtitlePreference, VideoSurface } from '../../storage/settings.js';
 import { tmdbFetch } from '../../sync/tmdb.js';
+import { weatherFetchedAt } from '../../sync/weather.js';
+import { newsFetchedAt } from '../../sync/news.js';
 import { PLACES, THEME_MODES, setThemePreference, themePreference } from '../../ui/themeMode.js';
 import type { ThemeMode } from '../../ui/themeMode.js';
 import { listTmdbProvidersWithUk } from '../../sync/tmdbHome.js';
@@ -107,6 +110,19 @@ const STREAM_FORMATS: readonly { value: StreamFormatSetting; label: string }[] =
   { value: 'm3u8', label: 'HLS' },
 ];
 
+/** "for 5 min siden", "for 3 timer siden", "for 2 dage siden" — eller "aldrig". */
+function relativeTime(ms: number | null, now: number = Date.now()): string {
+  if (ms === null || ms <= 0) return 'aldrig';
+  const diff = Math.max(0, now - ms);
+  const minutes = Math.round(diff / 60_000);
+  if (minutes < 1) return 'lige nu';
+  if (minutes < 60) return `for ${minutes} min siden`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `for ${hours} ${hours === 1 ? 'time' : 'timer'} siden`;
+  const days = Math.round(hours / 24);
+  return `for ${days} ${days === 1 ? 'dag' : 'dage'} siden`;
+}
+
 /** Noeglen sloeret: foerste og sidste fire tegn, resten som prikker. */
 function maskKey(key: string): string {
   const trimmed = key.trim();
@@ -164,6 +180,10 @@ export function SettingsScreen({
   const [providersOpen, setProvidersOpen] = useState(false);
   const [videoSurface, setVideoSurfaceState] = useState<VideoSurface>('surface');
   const [guideInfo, setGuideInfo] = useState<GuideInfoMode>('clock');
+  /** Hvornaar kanaler, vejr og nyheder sidst blev hentet — til status-linjerne. */
+  const [status, setStatus] = useState<{ channels: number | null; weather: number | null; news: number | null }>(
+    { channels: null, weather: null, news: null },
+  );
   const [themeMode, setThemeModeState] = useState<ThemeMode>(themePreference().mode);
   const [themePlace, setThemePlaceState] = useState(themePreference().placeKey);
 
@@ -194,6 +214,12 @@ export function SettingsScreen({
     applyVideoSurfaceSetting(surface);
     setThemePlaceState((await getThemePlace(session.db)) ?? themePreference().placeKey);
     setGuideInfo(await getGuideInfoMode(session.db));
+    const [channelsAt, weatherAt, newsAt] = await Promise.all([
+      getLastSyncMs(session.db),
+      weatherFetchedAt(session.db),
+      newsFetchedAt(session.db),
+    ]);
+    setStatus({ channels: channelsAt, weather: weatherAt, news: newsAt });
     setRadio(await countRadioChannels(session.db));
     const errors: string[] = [];
     for (const access of session.sources) {
@@ -794,6 +820,36 @@ export function SettingsScreen({
           await restoreFromText(json);
         }}
       />
+
+      <Text style={styles.sectionTitle}>Status</Text>
+      <Text style={styles.hint}>
+        Hvornår appen sidst hentede sit indhold. Ser noget forældet ud, siger det
+        her det — i stedet for at man skal gætte, om noget er gået i stå.
+      </Text>
+      <View style={styles.row}>
+        <Text style={styles.rowTitle}>Kanaler, film og serier</Text>
+        <Text style={styles.actionText}>{relativeTime(status.channels)}</Text>
+      </View>
+      {isTV && (
+        <>
+          <View style={styles.row}>
+            <Text style={styles.rowTitle}>Vejr</Text>
+            <Text style={styles.actionText}>
+              {guideInfo === 'off' ? 'Slået fra' : relativeTime(status.weather)}
+            </Text>
+          </View>
+          <View style={styles.row}>
+            <Text style={styles.rowTitle}>Nyheder</Text>
+            <Text style={styles.actionText}>
+              {guideInfo === 'news' ? relativeTime(status.news) : 'Slået fra'}
+            </Text>
+          </View>
+        </>
+      )}
+      <Text style={styles.hint}>
+        Program­oversigten (EPG) hentes løbende for de kanaler, du kigger på i guiden, og
+        vises ikke her.
+      </Text>
 
       <Text style={styles.sectionTitle}>Skjulte lande</Text>
       {hidden.length === 0 ? (

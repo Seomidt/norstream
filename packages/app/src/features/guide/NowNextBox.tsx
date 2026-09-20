@@ -6,7 +6,7 @@ import { theme } from '../../ui/theme.js';
 import { useStyles } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
-import { dayContext, formatClock, formatSpan, minutesLeft, nowAndNext, progressRatio, upcoming } from './nowNext.js';
+import { formatClock, formatSpan, minutesLeft, nowAndNext, progressRatio, relativeDay, upcoming } from './nowNext.js';
 
 /** Knapperne i boksen paa tv: se kanalen, start forfra, hele dagen. */
 interface Props {
@@ -61,9 +61,11 @@ export function NowNextBox({ channel, programmes, now, compact, onOpen, rich = f
       : [next];
   const kicker =
     current === null || isLive ? 'NU' : current.stop.getTime() <= now.getTime() ? 'SENDT' : 'SENERE';
-  // Dagen ved siden af klokkeslaettet, naar udsendelsen ikke er i dag: saa ved
-  // man baade hvornaar og HVILKEN dag man er bladret tilbage til.
-  const day = current === null ? null : dayContext(current.start, now);
+  // Dagen ved siden af klokkeslaettet, naar man har bladret vaek fra det der
+  // sender nu: saa ved man baade hvornaar OG hvilken dag. Ogsaa "i dag" — en
+  // udsendelse sendt tidligere i dag skal sige "SENDT · i dag", ikke bare
+  // "SENDT". Kun det der sender live faar ingen dag (den er underforstaaet nu).
+  const day = current === null || isLive ? null : relativeDay(current.start, now);
 
   if (channel === null) {
     return compact ? null : (

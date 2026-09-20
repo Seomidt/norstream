@@ -6,6 +6,7 @@ import {
   formatSpan,
   guideTopLayout,
   minutesLeft,
+  relativeDay,
   upcoming,
   nowAndNext,
   progressRatio,
@@ -96,5 +97,19 @@ describe('dayContext', () => {
   });
   it('giver ugedag og dato laengere vaek', () => {
     expect(dayContext(new Date(2026, 8, 17, 20, 0), now)).toBe('tor 17. sep');
+  });
+});
+
+describe('relativeDay', () => {
+  const now = new Date(2026, 8, 20, 12, 0); // lør 20. sep 2026
+  it('siger "i dag" for i dag (til forskel fra dayContext)', () => {
+    expect(relativeDay(new Date(2026, 8, 20, 9, 0), now)).toBe('i dag');
+  });
+  it('siger "i går" og "i morgen"', () => {
+    expect(relativeDay(new Date(2026, 8, 19, 23, 55), now)).toBe('i går');
+    expect(relativeDay(new Date(2026, 8, 21, 8, 0), now)).toBe('i morgen');
+  });
+  it('giver ugedag og dato laengere vaek', () => {
+    expect(relativeDay(new Date(2026, 8, 17, 20, 0), now)).toBe('tor 17. sep');
   });
 });

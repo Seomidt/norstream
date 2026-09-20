@@ -83,6 +83,7 @@ export function PlayerScreen({
   resumeAtSeconds,
 }: Props) {
   const styles = useStyles(makeStyles);
+  const { colors } = useTheme();
   const landscape = useLandscape();
   /**
    * Kanalen der spilles. Begynder som den man kom med, og skifter naar man
@@ -742,6 +743,23 @@ export function PlayerScreen({
     </View>
   ) : null;
 
+  // Mens billedet buffres, staar skaermen ellers sort — det foelte langsomt,
+  // som om kanalen ikke kom. Et roligt lag med logo, navn og "Forbinder …"
+  // giver med det samme svar paa at der sker noget. Kun paa video (radioen har
+  // sin egen skaerm) og kun til billedet er klart (radioState skifter til
+  // 'playing'); en fejl viser sin egen tekst i stedet.
+  const connectingOverlay =
+    !isRadio && radioState === 'connecting' && streamError === null ? (
+      <View style={styles.connecting} pointerEvents="none">
+        <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={48} />
+        <Text style={styles.connectingName} numberOfLines={1}>
+          {channel.name}
+        </Text>
+        <ActivityIndicator color={colors.accent} />
+        <Text style={styles.connectingHint}>Forbinder …</Text>
+      </View>
+    ) : null;
+
   if (isRadio) {
     const shown: RadioState = radioState === 'playing' && !playing ? 'paused' : radioState;
     return (
@@ -819,6 +837,7 @@ export function PlayerScreen({
         overlays={
           <>
             {banner}
+            {connectingOverlay}
             {subtitlePicker}
           </>
         }
@@ -939,6 +958,19 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   bannerName: { color: colors.text, fontSize: 16, fontWeight: '700' },
   bannerTitle: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
+  connecting: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.sm,
+    backgroundColor: '#000000',
+  },
+  connectingName: { color: colors.text, fontSize: 18, fontWeight: '700' },
+  connectingHint: { color: colors.textMuted, fontSize: 14 },
   container: { flex: 1, backgroundColor: '#000000' },
   video: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000000' },
   hiddenVideo: { width: 1, height: 1 },

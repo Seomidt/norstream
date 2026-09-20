@@ -36,6 +36,7 @@ import { NewsTicker } from './NewsTicker.js';
 import { loadCachedWeather, refreshWeather } from '../../sync/weather.js';
 import type { Weather } from '../../sync/weather.js';
 import { loadCachedNews, refreshNews } from '../../sync/news.js';
+import type { NewsHeadline } from '../../sync/news.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
 import { TimelineGrid } from './TimelineGrid.js';
 import { ChannelDayScreen } from './ChannelDayScreen.js';
@@ -281,7 +282,7 @@ export const GuideScreen = memo(function GuideScreen({
   // Nyhedsoverskrifterne til striben. Det sidst gemte vises straks; friske
   // hentes fra DR's RSS i baggrunden og opdateres et par gange i timen. Fejler
   // noget, staar de gamle — aldrig en raa fejl.
-  const [headlines, setHeadlines] = useState<string[]>([]);
+  const [headlines, setHeadlines] = useState<NewsHeadline[]>([]);
   useEffect(() => {
     if (!showNews) return;
     let cancelled = false;
@@ -927,25 +928,40 @@ export const GuideScreen = memo(function GuideScreen({
       {/* Favoritgrupperne over gitteret paa tv, som Googles "kategorier
           paa den lodrette akse": pil op fra oeverste raekke, pil ned igen.
           Kun naar der er grupper. Tilbage gaar til menuen. */}
-      {isTV && groups.length > 0 && (
+      {isTV && (groups.length > 0 || offsetMinutes !== 0) && (
         <View style={styles.groupRow}>
-          {[null, ...groups].map((entry) => {
-            const active = (entry?.id ?? null) === (group?.id ?? null);
-            return (
-              <TvPressable
-                key={entry?.id ?? 'all'}
-                style={[styles.dayChip, active && styles.dayChipActive]}
-                onPress={() => {
-                  void setFavoriteGroup(session.db, entry?.id ?? null).then(() => {
-                    setLoading(true);
-                    setGroupTick((value) => value + 1);
-                  });
-                }}
-              >
-                <Text style={[styles.dayChipText, active && styles.dayChipTextActive]}>{entry === null ? 'Alle' : entry.name}</Text>
-              </TvPressable>
-            );
-          })}
+          {/* Ét tryk hjem til nutiden, naar man har bladret vaek. Staar her,
+              fordi det er den eneste raekke fjernbetjeningen naar med pil op
+              fra gitteret; vises kun naar der ER bladret, saa den ikke fylder
+              til daglig. Tilbage gaar direkte til menuen — den her bliver i
+              guiden. */}
+          {offsetMinutes !== 0 && (
+            <TvPressable
+              key="now"
+              style={[styles.dayChip, styles.dayChipActive]}
+              onPress={() => setOffsetMinutes(0)}
+            >
+              <Text style={[styles.dayChipText, styles.dayChipTextActive]}>▶ Nu</Text>
+            </TvPressable>
+          )}
+          {groups.length > 0 &&
+            [null, ...groups].map((entry) => {
+              const active = (entry?.id ?? null) === (group?.id ?? null);
+              return (
+                <TvPressable
+                  key={entry?.id ?? 'all'}
+                  style={[styles.dayChip, active && styles.dayChipActive]}
+                  onPress={() => {
+                    void setFavoriteGroup(session.db, entry?.id ?? null).then(() => {
+                      setLoading(true);
+                      setGroupTick((value) => value + 1);
+                    });
+                  }}
+                >
+                  <Text style={[styles.dayChipText, active && styles.dayChipTextActive]}>{entry === null ? 'Alle' : entry.name}</Text>
+                </TvPressable>
+              );
+            })}
         </View>
       )}
       {isTV && (

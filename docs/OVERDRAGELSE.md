@@ -25,9 +25,37 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 291** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 292** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
+
+**v292 — fem ting på én gang:**
+
+1. **Fejl: "sendt i dag" manglede.** Bladrer man tilbage i guiden, sagde
+   beskrivelsen "SENDT · i går" korrekt, men en udsendelse sendt tidligere I DAG
+   stod bare "SENDT" uden dag. `dayContext` returnerer bevidst null for i dag (så
+   det der sender *nu* ikke mærkes "i dag"); ny `relativeDay` giver altid en tekst
+   ("i dag"/"i går"/…), og `NowNextBox` bruger den for sendt/senere (kun det live
+   får ingen dag). `nowNext.ts` + test.
+2. **Kanal kommer hurtigere frem (rod, ikke plaster).** `open()` frigav allerede
+   previewet før afspilleren, men panelet slipper sit ene forbindelses-slot et
+   øjeblik senere. `PreviewHandle.release` melder nu om previewet faktisk holdt en
+   forbindelse; gjorde det, venter `open()` `PANEL_SETTLE_MS` (300 ms) før
+   afspilleren åbnes — kun da, så en kold åbning ikke bliver langsommere. Sparer
+   den afviste første stream, der før satte sig fast i "Forbinder …".
+3. **Nyhedsstribe: kategori-mærker.** Core-parseren tager nu `<category>` med per
+   nyhed (`parseNewsItems`), så striben kan mærke hver overskrift med fx INDLAND /
+   SPORT i stedet for bare DR. Falder tilbage til "DR", når DR ikke angiver en
+   kategori — ingen regression. `parseNewsHeadlines` bevaret som tynd wrapper.
+4. **"▶ Nu"-chip i tv-guiden.** Har man bladret væk, er der nu ét tryk hjem til
+   nutiden: en chip i grupperækken (den eneste række fjernbetjeningen når med pil
+   op fra gitteret). Vises kun når der ER bladret.
+5. **"Forbinder …"-lag på afspilleren.** Mens billedet buffres, stod skærmen sort
+   ("kom langsomt"). Nu et roligt lag med logo, kanalnavn og spinner, til billedet
+   er klart (`radioState`-skift). Kun på video; en fejl viser sin egen tekst.
+6. **Status i Indstillinger.** Ny "Status"-sektion: hvornår kanaler, vejr og
+   nyheder sidst blev hentet ("for 5 min siden"), så man kan se om noget er gået i
+   stå uden at gætte. EPG hentes løbende per kanal og vises ikke.
 
 **Guide: info-området kan nu vælges (ur/vejr, nyhedsstribe eller fra) (v291).**
 Bruger ønskede et valg i Indstillinger i stedet for den gamle til/fra for

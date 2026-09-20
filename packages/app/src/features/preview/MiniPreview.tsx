@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { isTV } from '../../ui/tv.js';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -23,7 +23,8 @@ import { TvPressable } from '../../ui/TvPressable.js';
  * kalderen venter paa at det er sket.
  */
 export interface PreviewHandle {
-  release: () => Promise<void>;
+  /** Frigiver previewets forbindelse. Returnerer sandt, hvis den faktisk holdt en. */
+  release: () => Promise<boolean>;
 }
 
 interface Props {
@@ -68,6 +69,10 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
   const styles = useStyles(makeStyles);
   // Kanalen previewet faktisk viser. Foelger `channel` efter IDLE_MS.
   const [target, setTarget] = useState<StoredChannel | null>(null);
+  // Samme vaerdi som en ref, saa frigivelsen (hvis stabile closure) kan se om
+  // previewet faktisk holdt en forbindelse uden at staa i sine afhaengigheder.
+  const targetRef = useRef<StoredChannel | null>(null);
+  targetRef.current = target;
   // Lyd fra som standard paa telefonen (spec sec. 7), til paa tv: der er
   // previewet det man sidder og kigger paa, og lydknappen er svaer at naa.
   const [muted, setMuted] = useState(!isTV);
@@ -100,8 +105,10 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
   useEffect(() => {
     handle.current = {
       release: async () => {
+        const wasActive = targetRef.current !== null;
         setTarget(null);
         await releaseQuietly(() => player.replaceAsync(null));
+        return wasActive;
       },
     };
     return () => {

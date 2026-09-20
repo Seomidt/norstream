@@ -98,14 +98,22 @@ function startOfDay(d: Date): number {
 }
 
 /**
- * Hvilken dag en udsendelse ligger paa, i forhold til nu — eller null naar det
- * er i dag. Saa kan boksen sige "i går" ud over klokkeslaettet, naar man har
- * bladret tilbage i tiden i guiden ("hvornaar det er sendt, men ogsaa hvad dag").
+ * Hvilken dag en udsendelse ligger paa, i forhold til nu — altid en tekst.
+ * "i dag" / "i går" / "i morgen" for de tre naermeste, ellers ugedag + dato.
  */
-export function dayContext(date: Date, now: Date): string | null {
+export function relativeDay(date: Date, now: Date): string {
   const diff = Math.round((startOfDay(now) - startOfDay(date)) / 86_400_000);
-  if (diff === 0) return null;
+  if (diff === 0) return 'i dag';
   if (diff === 1) return 'i går';
   if (diff === -1) return 'i morgen';
   return `${WEEKDAYS[date.getDay()]} ${date.getDate()}. ${MONTHS[date.getMonth()]}`;
+}
+
+/**
+ * Som relativeDay, men null naar det er i dag. Til steder hvor "i dag" er
+ * underforstaaet — fx den udsendelse der sendes *nu* skal ikke maerkes "i dag".
+ */
+export function dayContext(date: Date, now: Date): string | null {
+  const diff = Math.round((startOfDay(now) - startOfDay(date)) / 86_400_000);
+  return diff === 0 ? null : relativeDay(date, now);
 }

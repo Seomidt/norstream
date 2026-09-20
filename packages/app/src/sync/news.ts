@@ -1,5 +1,5 @@
 import type { FetchLike } from '@norstream/core';
-import { parseNewsHeadlines } from '@norstream/core';
+import { parseNewsItems } from '@norstream/core';
 import { getSetting, setSetting } from '../storage/settings.js';
 import type { SqlDatabase } from '../storage/types.js';
 
@@ -9,9 +9,18 @@ import type { SqlDatabase } from '../storage/types.js';
  * noget, vises der bare de sidst kendte overskrifter — aldrig en raa fejl.
  */
 
-export interface News {
-  headlines: string[];
+/** Én overskrift til striben: teksten og et kort maerke (kategori eller "DR"). */
+export interface NewsHeadline {
+  text: string;
+  label: string;
 }
+
+export interface News {
+  headlines: NewsHeadline[];
+}
+
+/** Kildens standardmaerke, naar en nyhed ikke selv angav en kategori. */
+const DEFAULT_LABEL = 'DR';
 
 const KEY_NEWS = 'news_cache';
 /** Hentes hoejst et par gange i timen; overskrifterne skifter ikke hurtigere. */
@@ -38,7 +47,12 @@ function toCached(value: string | null): CachedNews | null {
     ) {
       return null;
     }
-    const headlines = (parsed.news as News).headlines.filter((h): h is string => typeof h === 'string');
+    const headlines = (parsed.news as News).headlines
+      .filter(
+        (h): h is NewsHeadline =>
+          typeof h === 'object' && h !== null && typeof (h as NewsHeadline).text === 'string',
+      )
+      .map((h) => ({ text: h.text, label: typeof h.label === 'string' && h.label.length > 0 ? h.label : DEFAULT_LABEL }));
     return { news: { headlines }, fetchedAt: parsed.fetchedAt };
   } catch {
     return null;
@@ -48,6 +62,11 @@ function toCached(value: string | null): CachedNews | null {
 /** De senest gemte overskrifter, saa striben kan vise noget straks. */
 export async function loadCachedNews(db: SqlDatabase): Promise<News | null> {
   return toCached(await getSetting(db, KEY_NEWS))?.news ?? null;
+}
+
+/** Hvornaar nyhederne sidst blev hentet, til status-linjen i Indstillinger. */
+export async function newsFetchedAt(db: SqlDatabase): Promise<number | null> {
+  return toCached(await getSetting(db, KEY_NEWS))?.fetchedAt ?? null;
 }
 
 async function fetchText(fetchImpl: FetchLike, url: string): Promise<string | null> {
@@ -78,9 +97,13 @@ export async function refreshNews(
   const xml = await fetchText(fetchImpl, DR_RSS_URL);
   if (xml === null) return cached?.news ?? null;
 
-  const headlines = parseNewsHeadlines(xml);
-  if (headlines.length === 0) return cached?.news ?? null;
+  const items = parseNewsItems(xml);
+  if (items.length === 0) return cached?.news ?? null;
 
+  const headlines: NewsHeadline[] = items.map((item) => ({
+    text: item.title,
+    label: item.category ?? DEFAULT_LABEL,
+  }));
   const news: News = { headlines };
   await setSetting(db, KEY_NEWS, JSON.stringify({ news, fetchedAt: now.getTime() } satisfies CachedNews));
   return news;

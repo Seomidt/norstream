@@ -14,6 +14,13 @@ import { decodeXmlEntities } from '../epg/entities.js';
 /** Hvor mange overskrifter en enkelt hentning hoejst giver videre. */
 const MAX_HEADLINES = 15;
 
+/** Én nyhed: overskriften og en eventuel kategori (fx "INDLAND", "SPORT"). */
+export interface NewsItem {
+  title: string;
+  /** Kategorien stroemmen selv angav, renset og med store bogstaver — ellers null. */
+  category: string | null;
+}
+
 /** Pakker CDATA ud og fjerner eventuelle indre elementer, saa der staar ren tekst. */
 function plainText(raw: string): string {
   const withoutCdata = raw.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
@@ -22,16 +29,29 @@ function plainText(raw: string): string {
 }
 
 /**
- * Oversaetter en RSS- eller Atom-stroem til en liste af overskrifter.
+ * En kort, praesentabel kategori fra et <category>-felt, eller null.
  *
- * Tager titlen i hvert <item> (RSS) eller <entry> (Atom). Kanaltitlen oeverst i
- * dokumentet staar uden for de blokke og kommer derfor ikke med. Tomme og ens
- * overskrifter luges fra, og listen skaeres til et rimeligt antal, saa striben
- * ikke bliver uendelig. Kan intet laeses, er listen tom — aldrig en raa fejl.
+ * Holdes kort (ét ord, store bogstaver) saa den kan staa som et lille maerke
+ * foran overskriften i striben. Tomme og alenlange kategorier droppes frem for
+ * at fylde striben — saa staar der bare kildens standardmaerke i stedet.
  */
-export function parseNewsHeadlines(xml: string): string[] {
+function tidyCategory(raw: string): string | null {
+  const text = plainText(raw);
+  if (text.length === 0 || text.length > 18 || text.includes(' ')) return null;
+  return text.toUpperCase();
+}
+
+/**
+ * Oversaetter en RSS- eller Atom-stroem til en liste af nyheder.
+ *
+ * Tager titlen (og en eventuel <category>) i hvert <item> (RSS) eller <entry>
+ * (Atom). Kanaltitlen oeverst i dokumentet staar uden for de blokke og kommer
+ * derfor ikke med. Tomme og ens overskrifter luges fra, og listen skaeres til
+ * et rimeligt antal. Kan intet laeses, er listen tom — aldrig en raa fejl.
+ */
+export function parseNewsItems(xml: string): NewsItem[] {
   if (typeof xml !== 'string' || xml.length === 0) return [];
-  const headlines: string[] = [];
+  const items: NewsItem[] = [];
   const seen = new Set<string>();
   const blocks = xml.match(/<(item|entry)\b[\s\S]*?<\/\1>/gi) ?? [];
   for (const block of blocks) {
@@ -40,8 +60,15 @@ export function parseNewsHeadlines(xml: string): string[] {
     const title = plainText(match[1] ?? '');
     if (title.length === 0 || seen.has(title)) continue;
     seen.add(title);
-    headlines.push(title);
-    if (headlines.length >= MAX_HEADLINES) break;
+    const categoryMatch = block.match(/<category\b[^>]*>([\s\S]*?)<\/category>/i);
+    const category = categoryMatch === null ? null : tidyCategory(categoryMatch[1] ?? '');
+    items.push({ title, category });
+    if (items.length >= MAX_HEADLINES) break;
   }
-  return headlines;
+  return items;
+}
+
+/** Kun overskrifterne, uden kategori. Bevaret for kald der ikke bruger kategorien. */
+export function parseNewsHeadlines(xml: string): string[] {
+  return parseNewsItems(xml).map((item) => item.title);
 }

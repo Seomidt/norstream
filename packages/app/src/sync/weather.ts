@@ -55,6 +55,11 @@ export async function loadCachedWeather(db: SqlDatabase): Promise<Weather | null
   return toCached(await getSetting(db, KEY_WEATHER))?.weather ?? null;
 }
 
+/** Hvornaar vejret sidst blev hentet, til status-linjen i Indstillinger. */
+export async function weatherFetchedAt(db: SqlDatabase): Promise<number | null> {
+  return toCached(await getSetting(db, KEY_WEATHER))?.fetchedAt ?? null;
+}
+
 async function fetchJson(fetchImpl: FetchLike, url: string): Promise<unknown | null> {
   try {
     const response = await fetchImpl(url);

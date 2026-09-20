@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseNewsHeadlines } from './news.js';
+import { parseNewsHeadlines, parseNewsItems } from './news.js';
 
 const RSS = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
@@ -44,5 +44,29 @@ describe('parseNewsHeadlines', () => {
   it('skaerer listen til et rimeligt antal', () => {
     const items = Array.from({ length: 30 }, (_, i) => `<item><title>Nr ${i}</title></item>`).join('');
     expect(parseNewsHeadlines(`<rss>${items}</rss>`)).toHaveLength(15);
+  });
+});
+
+describe('parseNewsItems', () => {
+  it('tager kategorien med og goer den kort og med store bogstaver', () => {
+    const xml =
+      '<rss><item><title>En sag</title><category>Indland</category></item>' +
+      '<item><title>Et mål</title><category><![CDATA[Sport]]></category></item></rss>';
+    expect(parseNewsItems(xml)).toEqual([
+      { title: 'En sag', category: 'INDLAND' },
+      { title: 'Et mål', category: 'SPORT' },
+    ]);
+  });
+
+  it('dropper kategori der er tom, for lang eller har mellemrum', () => {
+    const xml =
+      '<rss><item><title>A</title></item>' +
+      '<item><title>B</title><category>Penge og økonomi</category></item>' +
+      '<item><title>C</title><category>   </category></item></rss>';
+    expect(parseNewsItems(xml)).toEqual([
+      { title: 'A', category: null },
+      { title: 'B', category: null },
+      { title: 'C', category: null },
+    ]);
   });
 });

@@ -5,6 +5,7 @@ import type { WeatherIcon } from '@norstream/core';
 import { useStyles } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import type { Weather } from '../../sync/weather.js';
+import type { NewsHeadline } from '../../sync/news.js';
 
 /**
  * Nyhedsstribe i bunden af guiden (kun tv). Tiden staar fast til venstre; til
@@ -46,8 +47,8 @@ function weatherSegment(weather: Weather): string {
   return parts.join(' · ');
 }
 
-/** Én stribe indhold: vejret foerst (mrket VEJR), saa overskrifterne (mrket DR). */
-function Segments({ weather, headlines }: { weather: Weather | null; headlines: string[] }) {
+/** Én stribe indhold: vejret foerst (mrket VEJR), saa overskrifterne (kategori-mrke). */
+function Segments({ weather, headlines }: { weather: Weather | null; headlines: NewsHeadline[] }) {
   const styles = useStyles(makeStyles);
   return (
     <View style={styles.segments}>
@@ -59,9 +60,9 @@ function Segments({ weather, headlines }: { weather: Weather | null; headlines: 
         </>
       )}
       {headlines.map((headline, index) => (
-        <View key={`${index}-${headline}`} style={styles.segRow}>
-          <Text style={styles.labelNw}>DR</Text>
-          <Text style={styles.item}>{headline}</Text>
+        <View key={`${index}-${headline.text}`} style={styles.segRow}>
+          <Text style={styles.labelNw}>{headline.label}</Text>
+          <Text style={styles.item}>{headline.text}</Text>
           <Text style={styles.dot}>•</Text>
         </View>
       ))}
@@ -76,7 +77,7 @@ export function NewsTicker({
 }: {
   now: Date;
   weather: Weather | null;
-  headlines: string[];
+  headlines: NewsHeadline[];
 }) {
   const styles = useStyles(makeStyles);
   const translateX = useRef(new Animated.Value(0)).current;
