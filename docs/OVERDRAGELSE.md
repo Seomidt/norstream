@@ -25,9 +25,25 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 295** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 296** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
+
+**v296 — Redigér panel (fået en anden server).** Før kunne man kun tilføje og
+fjerne en kilde; nu er der en **"Redigér"**-knap ved hvert panel i Indstillinger
+→ Paneler og M3U-lister. Formularen er forudfyldt (adresse, brugernavn, navn,
+XMLTV) med kodeordet hentet frem fra secure store, og man kan rette adressen
+(eller login) og trykke **Gem**. Kilde-**id'et beholdes**, så favoritter, grupper
+og egne logoer bliver hængende på panelet; kun det man rettede skiftes, og
+kanalerne hentes forfra fra den nye server (`replaceChannels` under samme id).
+Den nye server **prøves først** (`XtreamClient.authenticate`) — går login ikke
+igennem, ændres INTET, så man ikke kan ødelægge et panel der virker ved at taste
+forkert. `sources/connect.ts` → `editXtream`/`editM3u`; `storage/sources.ts` →
+`updateSourceDetails`; UI i `features/sources/SourcesScreen.tsx` (AddSource blev
+til `SourceForm`, der dækker både tilføj og redigér). Bemærk: skifter man til en
+helt anden konto med andre stream-id'er, kan nogle gamle favoritter pege på
+kanaler der ikke længere findes (uskadeligt — de vises bare ikke); samme
+konto/mirror med ny adresse beholder favoritterne.
 
 **v295 — hastigheds-regression rettet + nyhedskilder målt op.**
 

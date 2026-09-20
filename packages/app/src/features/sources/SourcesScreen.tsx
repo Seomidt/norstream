@@ -19,7 +19,7 @@ import { deleteSource, listSources, setSourceEnabled } from '../../storage/sourc
 // Tilfoejelsen ligger i `sources/connect` og ikke her, saa den her skaerm og
 // foerste-start-skaermen ikke kan komme til at goere det forskelligt. Foer laa
 // den to steder, og kun det ene sted hentede kanalerne med det samme.
-import { connectM3u, connectXtream, hostOf, probeArchive } from '../../sources/connect.js';
+import { connectM3u, connectXtream, editM3u, editXtream, hostOf, probeArchive } from '../../sources/connect.js';
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
@@ -47,6 +47,8 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
   const [sources, setSources] = useState<Source[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState<SourceKind | null>(null);
+  /** Panelet der redigeres, med dets nuvaerende kodeord forudfyldt. */
+  const [editing, setEditing] = useState<{ source: Source; password: string } | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   /** Har kilden fundet vejen til udbyderens arkiv? Slaaet op paa kilde-id. */
@@ -109,6 +111,12 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
     }
   }
 
+  /** Aabner redigeringsformularen med kildens nuvaerende kodeord hentet frem. */
+  async function startEdit(source: Source): Promise<void> {
+    const creds = await loadSourceCredentials(source.id);
+    setEditing({ source, password: creds?.password ?? '' });
+  }
+
   async function remove(source: Source): Promise<void> {
     await clearSourceCredentials(source.id);
     await deleteSource(session.db, source.id);
@@ -128,15 +136,33 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
 
   if (adding !== null) {
     return (
-      <AddSource
+      <SourceForm
         kind={adding}
         session={session}
         onCancel={() => setAdding(null)}
-        onAdded={(name) => {
+        onSaved={(name) => {
           setAdding(null);
           void reload();
           onSourcesChanged();
           setNotice({ text: `“${name}” er tilføjet. Kanalerne hentes nu.` });
+        }}
+      />
+    );
+  }
+
+  if (editing !== null) {
+    return (
+      <SourceForm
+        kind={editing.source.kind}
+        session={session}
+        source={editing.source}
+        initialPassword={editing.password}
+        onCancel={() => setEditing(null)}
+        onSaved={(name) => {
+          setEditing(null);
+          void reload();
+          onSourcesChanged();
+          setNotice({ text: `“${name}” er gemt. Kanalerne hentes forfra fra den nye server.` });
         }}
       />
     );
@@ -213,9 +239,14 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
                 </View>
               </View>
             ) : (
-              <TvPressable hitSlop={8} onPress={() => setConfirmDelete(source.id)}>
-                <Text style={styles.danger}>Fjern</Text>
-              </TvPressable>
+              <View style={styles.rowActions}>
+                <TvPressable hitSlop={8} onPress={() => void startEdit(source)}>
+                  <Text style={styles.action}>Redigér</Text>
+                </TvPressable>
+                <TvPressable hitSlop={8} onPress={() => setConfirmDelete(source.id)}>
+                  <Text style={styles.danger}>Fjern</Text>
+                </TvPressable>
+              </View>
             )}
           </View>
           <Switch
@@ -238,25 +269,32 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
   );
 }
 
-/** Formularen til én ny kilde. */
-function AddSource({
+/** Formularen til én kilde — ny (tilfoej) eller eksisterende (redigér). */
+function SourceForm({
   kind,
   session,
+  source,
+  initialPassword,
   onCancel,
-  onAdded,
+  onSaved,
 }: {
   kind: SourceKind;
   session: AppSession;
+  /** Sat naar en eksisterende kilde redigeres; ellers tilfoejes en ny. */
+  source?: Source;
+  /** Kildens nuvaerende kodeord, forudfyldt ved redigering. */
+  initialPassword?: string;
   onCancel: () => void;
-  onAdded: (name: string) => void;
+  onSaved: (name: string) => void;
 }) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
-  const [name, setName] = useState('');
-  const [url, setUrl] = useState('');
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [xmltvUrl, setXmltvUrl] = useState('');
+  const editing = source !== undefined;
+  const [name, setName] = useState(source?.name ?? '');
+  const [url, setUrl] = useState(source?.url ?? '');
+  const [username, setUsername] = useState(source?.username ?? '');
+  const [password, setPassword] = useState(initialPassword ?? '');
+  const [xmltvUrl, setXmltvUrl] = useState(source?.xmltvUrl ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -279,25 +317,40 @@ function AddSource({
       const trimmedUrl = url.trim();
       const label = name.trim().length > 0 ? name.trim() : hostOf(trimmedUrl);
 
-      const result = isXtream
-        ? await connectXtream(session.db, session.fetchImpl, {
-            url: trimmedUrl,
-            username,
-            password,
-            xmltvUrl,
-            name: label,
-          })
-        : await connectM3u(session.db, session.fetchImpl, {
-            url: trimmedUrl,
-            xmltvUrl,
-            name: label,
-          });
+      const result =
+        editing && source !== undefined
+          ? isXtream
+            ? await editXtream(session.db, session.fetchImpl, source.id, {
+                url: trimmedUrl,
+                username,
+                password,
+                xmltvUrl,
+                name: label,
+              })
+            : await editM3u(session.db, session.fetchImpl, source.id, {
+                url: trimmedUrl,
+                xmltvUrl,
+                name: label,
+              })
+          : isXtream
+            ? await connectXtream(session.db, session.fetchImpl, {
+                url: trimmedUrl,
+                username,
+                password,
+                xmltvUrl,
+                name: label,
+              })
+            : await connectM3u(session.db, session.fetchImpl, {
+                url: trimmedUrl,
+                xmltvUrl,
+                name: label,
+              });
 
       if (!result.ok) {
         setError(result.message);
         return;
       }
-      onAdded(label);
+      onSaved(label);
     } finally {
       setBusy(false);
     }
@@ -306,8 +359,21 @@ function AddSource({
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.sectionTitle}>
-        {isXtream ? 'Tilføj panel' : 'Tilføj M3U-liste'}
+        {editing
+          ? isXtream
+            ? 'Redigér panel'
+            : 'Redigér M3U-liste'
+          : isXtream
+            ? 'Tilføj panel'
+            : 'Tilføj M3U-liste'}
       </Text>
+      {editing && isXtream && (
+        <Text style={styles.hint}>
+          Har du fået en anden server? Ret adressen (og evt. brugernavn/kodeord) og gem.
+          Panelet beholder dine favoritter, grupper og logoer; kanalerne hentes forfra fra
+          den nye server. Går login ikke igennem, ændres intet.
+        </Text>
+      )}
 
       <Field label="Navn (valgfrit)" value={name} onChange={setName} placeholder="Hovedpanel" />
       <Field
@@ -354,7 +420,7 @@ function AddSource({
           {busy ? (
             <ActivityIndicator color={colors.text} />
           ) : (
-            <Text style={styles.buttonText}>Tilføj</Text>
+            <Text style={styles.buttonText}>{editing ? 'Gem' : 'Tilføj'}</Text>
           )}
         </TvPressable>
       </View>
@@ -435,6 +501,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   confirm: { marginTop: theme.spacing.xs },
   confirmRow: { flexDirection: 'row', gap: theme.spacing.md, marginTop: theme.spacing.xs },
   action: { color: colors.accent, fontSize: 14, fontWeight: '600' },
+  rowActions: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.lg, marginTop: 4 },
   danger: { color: colors.danger, fontSize: 14, fontWeight: '600', marginTop: 4 },
   field: { marginBottom: theme.spacing.md },
   fieldLabel: { color: colors.textMuted, fontSize: 13, marginBottom: theme.spacing.xs },

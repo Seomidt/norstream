@@ -1,6 +1,6 @@
 import { XtreamAuthError, XtreamClient, detectTimeshiftDialect } from '@norstream/core';
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
-import { addSource, deleteSource, listSources } from '../storage/sources.js';
+import { addSource, deleteSource, getSource, listSources, updateSourceDetails } from '../storage/sources.js';
 import { setPanelOffsetMinutes, setTimeshiftDialect } from '../storage/settings.js';
 import type { SqlDatabase } from '../storage/types.js';
 import { syncChannels } from '../sync/syncChannels.js';
@@ -139,6 +139,90 @@ export async function connectXtream(
     // staaende; naeste opdatering forsoeger igen.
   }
   await probeArchive(db, fetchImpl, sourceId, creds);
+  return { ok: true, sourceId, name };
+}
+
+/**
+ * Retter et **eksisterende** panel — "har faaet en anden server".
+ *
+ * Beholder kilde-id'et, saa favoritter, grupper og egne logoer bliver haengende;
+ * kun adresse/brugernavn/kodeord/navn skiftes, og kanalerne hentes forfra fra den
+ * nye server (replaceChannels under samme id). Den nye server proeves foerst — gaar
+ * loginet ikke igennem, aendres INTET, saa man ikke kan komme til at oedelaegge et
+ * panel der virker ved at taste forkert.
+ */
+export async function editXtream(
+  db: SqlDatabase,
+  fetchImpl: FetchLike,
+  sourceId: string,
+  request: XtreamRequest,
+): Promise<ConnectResult> {
+  const creds: XtreamCredentials = {
+    baseUrl: request.url.trim(),
+    username: request.username.trim(),
+    password: request.password,
+  };
+
+  try {
+    await new XtreamClient(creds, fetchImpl).authenticate();
+  } catch (cause) {
+    return {
+      ok: false,
+      message:
+        cause instanceof XtreamAuthError
+          ? 'Brugernavn eller adgangskode blev afvist af panelet.'
+          : `Kunne ikke nå panelet. Tjek adressen og din forbindelse.\n\nDetalje: ${describeFailure(cause, creds)}`,
+    };
+  }
+
+  const name = optional(request.name) ?? hostOf(creds.baseUrl);
+  try {
+    await updateSourceDetails(db, sourceId, {
+      name,
+      url: creds.baseUrl,
+      username: creds.username,
+      xmltvUrl: optional(request.xmltvUrl),
+    });
+    const { saveSourceCredentials } = await import('../storage/credentials.js');
+    await saveSourceCredentials(sourceId, creds);
+  } catch {
+    return { ok: false, message: 'Kunne ikke gemme dine adgangsoplysninger på denne enhed.' };
+  }
+
+  try {
+    await syncChannels(db, sourceId, creds, fetchImpl);
+  } catch {
+    // Panelet svarede paa login og ikke paa kanallisten. Aendringen staar;
+    // naeste opdatering forsoeger igen.
+  }
+  await probeArchive(db, fetchImpl, sourceId, creds);
+  return { ok: true, sourceId, name };
+}
+
+/**
+ * Retter en eksisterende M3U-liste (adresse/navn/XMLTV) og henter den forfra.
+ * Kilde-id'et beholdes. Giver den nye adresse ingen kanaler, siges det — men
+ * kilden bliver staaende (til forskel fra tilfoejelsen, der rydder op efter sig).
+ */
+export async function editM3u(
+  db: SqlDatabase,
+  fetchImpl: FetchLike,
+  sourceId: string,
+  request: M3uRequest,
+): Promise<ConnectResult> {
+  const url = request.url.trim();
+  const name = optional(request.name) ?? hostOf(url);
+  await updateSourceDetails(db, sourceId, { name, url, username: null, xmltvUrl: optional(request.xmltvUrl) });
+  const source = await getSource(db, sourceId);
+  if (source === null) return { ok: false, message: 'Kilden findes ikke længere.' };
+  try {
+    const result = await syncM3u(db, source, fetchImpl);
+    if (result.channels === 0) {
+      return { ok: false, message: 'Listen kunne hentes, men indeholdt ingen kanaler.' };
+    }
+  } catch {
+    return { ok: false, message: 'Kunne ikke hente listen. Tjek adressen og din forbindelse.' };
+  }
   return { ok: true, sourceId, name };
 }
 

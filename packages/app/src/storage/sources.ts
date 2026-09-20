@@ -127,6 +127,23 @@ export async function renameSource(db: SqlDatabase, id: string, name: string): P
 }
 
 /**
+ * Retter en kildes adresse, navn, brugernavn og XMLTV — til "Redigér panel",
+ * naar man har faaet en anden server. Kilde-**id'et beholdes**, saa favoritter,
+ * grupper og egne logoer bliver haengende paa panelet; kun det man har rettet
+ * skiftes. Selve kanalerne hentes forfra bagefter (se sources/connect.editXtream).
+ */
+export async function updateSourceDetails(
+  db: SqlDatabase,
+  id: string,
+  fields: { name: string; url: string; username?: string | null; xmltvUrl?: string | null },
+): Promise<void> {
+  await db.runAsync(
+    'UPDATE sources SET name = ?, url = ?, username = ?, xmltv_url = ? WHERE id = ?',
+    [fields.name, fields.url, fields.username ?? null, fields.xmltvUrl ?? null, id],
+  );
+}
+
+/**
  * Fjerner kilden og alt der kom fra den.
  *
  * Ogsaa favoritter og optagelser: de peger paa kanaler der ikke laengere
