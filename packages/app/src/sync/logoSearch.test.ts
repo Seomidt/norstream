@@ -22,6 +22,18 @@ describe('searchNameFor', () => {
     expect(searchNameFor('DR - P3')).toBe('DR - P3');
     expect(searchNameFor('TV2 - Zulu')).toBe('TV2 - Zulu');
   });
+
+  it('tager oest/vest-feed og loesrevne landekoder ud, saa soegningen rammer bredere', () => {
+    expect(searchNameFor('US| FX WEST HD')).toBe('FX');
+    expect(searchNameFor('US| CINEMAX EAST HD')).toBe('CINEMAX');
+    expect(searchNameFor('GOLD| BBC NORDIC DK RAW')).toBe('BBC NORDIC');
+    expect(searchNameFor('US| E! ENTERTAINMENT WEST HD')).toBe('E! ENTERTAINMENT');
+  });
+
+  it('efterlader ikke et tomt navn', () => {
+    // Hvis alt var feed/landekode, beholdes ordene frem for at give tom soegning.
+    expect(searchNameFor('US| WEST HD')).toBe('WEST');
+  });
 });
 
 describe('wikidataLanguageFor', () => {

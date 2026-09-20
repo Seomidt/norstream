@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 289** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 290** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,19 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**Guide: den lille "Kl."-klokke i hjørnet fjernet (v289).** Bruger: "fjern det
+**Logo-søgning: rammer bredere (v290).** Bruger (med billede af "Favoritter uden
+logo"): "søgning efter logo — måske du bedre kan se det her, så vi rammer noget
+mere." Kanalnavnene har feed-mærker og løsrevne landekoder (`US| FX WEST HD`,
+`GOLD| BBC NORDIC DK RAW`), som gjorde søgningen forbi. `searchNameFor` i
+`logoSearch.ts` fjerner nu også **ØST/VEST** (øst/vest-feeds deler logo) og
+**løsrevne 2-bogstavs landekoder** (DK, US, UK, …) — men aldrig så navnet bliver
+tomt. Så søger den fx `FX` i stedet for `FX West`, og `BBC Nordic` i stedet for
+`BBC Nordic DK`. (Bemærk: det er den online logo-søgning, "Søg logoer", der
+rammer bredere. Den automatiske registermatchning ved kanalhentning bruger
+`normaliseChannelName` og er urørt her — kan udvides senere med et
+`MATCH_KEY_VERSION`-løft, som koster en ny kanalhentning.)
+
+**Guide: den lille "Kl."-klokke i hjørnet fjernet (v289, udgivet som 290).** Bruger: "fjern det
 ur du lavede øverst til venstre i guiden." Nu hvor det store ur står ved
 preview, var den lille header-klokke overflødig. `TimelineGrid`-hovedet viser nu
 kun dagen, når man har bladret væk fra nu (window-day); `headerClock` fjernet.

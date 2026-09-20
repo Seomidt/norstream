@@ -89,6 +89,16 @@ const QUALITY_WORDS = new Set([
 ]);
 
 /**
+ * Feed-maerker og loesrevne landekoder, der er stoej for en logo-soegning.
+ * `FX West` og `FX East` deler logo med `FX`; `BBC Nordic DK` er `BBC Nordic`.
+ * Fjernes KUN naar der er andet tilbage, saa et navn ikke forsvinder helt.
+ */
+const REGION_WORDS = new Set(['EAST', 'WEST']);
+const COUNTRY_CODES = new Set([
+  'DK', 'NO', 'SE', 'FI', 'IS', 'DE', 'NL', 'ES', 'IT', 'FR', 'PL', 'UK', 'GB', 'US', 'CA', 'IE', 'BE', 'AT', 'CH', 'PT',
+]);
+
+/**
  * Det navn man selv ville skrive i en soegemaskine.
  *
  * `DNK| TV 2 Fri HD` -> `TV 2 Fri`. `DK: DR P3 (RADIO)` -> `DR P3`. Praefikset
@@ -105,11 +115,16 @@ export function searchNameFor(channelName: string): string {
     if (deriveCountry(prefixed[1]) !== null) name = prefixed[2];
   }
   name = name.replace(/\([^)]*\)|\[[^\]]*\]/g, ' ');
-  return name
+  const words = name
     .split(/\s+/)
-    .filter((word) => word.length > 0 && !QUALITY_WORDS.has(word.toUpperCase()))
-    .join(' ')
-    .trim();
+    .filter((word) => word.length > 0 && !QUALITY_WORDS.has(word.toUpperCase()));
+  // Tag OEST/VEST-feed-maerker og loesrevne landekoder ud, men aldrig saa navnet
+  // bliver tomt: saa rammer soegningen "FX" og "BBC Nordic" i stedet for
+  // "FX West" og "BBC Nordic DK".
+  const trimmed = words.filter(
+    (word) => !REGION_WORDS.has(word.toUpperCase()) && !COUNTRY_CODES.has(word.toUpperCase()),
+  );
+  return (trimmed.length > 0 ? trimmed : words).join(' ').trim();
 }
 
 /** Sproget Wikidata soeges paa for et land. Engelsk naar landet ikke er kendt. */
