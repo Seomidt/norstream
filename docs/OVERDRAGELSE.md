@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 288** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 289** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -51,7 +51,12 @@ ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen →
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
 
-**Afspiller: kanalen kommer selv frem uden at zappe (v288).** Bruger: "nogle
+**Guide: den lille "Kl."-klokke i hjørnet fjernet (v289).** Bruger: "fjern det
+ur du lavede øverst til venstre i guiden." Nu hvor det store ur står ved
+preview, var den lille header-klokke overflødig. `TimelineGrid`-hovedet viser nu
+kun dagen, når man har bladret væk fra nu (window-day); `headerClock` fjernet.
+
+**Afspiller: kanalen kommer selv frem uden at zappe (v288, udgivet som 289).** Bruger: "nogle
 gange kommer kanalen ikke frem, så skal jeg lige trykke lidt frem og tilbage,
 så kommer programmet." Årsag: når panelets ENE forbindelse ikke var nået at
 blive fri (preview eller forrige kanal), leverede den nye stream ingenting og

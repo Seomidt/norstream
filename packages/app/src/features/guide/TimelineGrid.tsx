@@ -243,12 +243,8 @@ export function TimelineGrid({
           ikke er i dag. */}
       <View style={styles.header}>
         <View style={styles.headerChannel}>
-          {/* Uret: den rigtige tid lige nu, altid synligt oppe i hjoernet, saa
-              man hurtigt kan se hvad klokken er. */}
-          <Text style={styles.headerClock} numberOfLines={1}>
-            Kl. {clock(now)}
-          </Text>
-          {/* Naar man har bladret vaek fra nu, staar den dag vinduet viser her. */}
+          {/* Uret er fjernet her: det store ur staar nu ved preview. Kun dagen
+              vises, naar man har bladret vaek fra nu. */}
           {!sameDay(new Date(windowStartMs), now) && (
             <Text style={styles.headerWindowDay} numberOfLines={1}>
               {dayName(new Date(windowStartMs))}
@@ -419,7 +415,6 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   list: { flex: 1 },
   header: { flexDirection: 'row', height: HEADER_HEIGHT, alignItems: 'center', borderBottomColor: colors.border, borderBottomWidth: StyleSheet.hairlineWidth },
   headerChannel: { width: CHANNEL_COL, justifyContent: 'center', paddingLeft: 6 },
-  headerClock: { color: colors.text, fontSize: 14, fontWeight: '700' },
   headerWindowDay: { color: colors.accent, fontSize: 10, fontWeight: '600', marginTop: 1 },
   headerCol: { flex: 1, color: colors.textMuted, fontSize: 12, fontWeight: '600', paddingLeft: 4 },
   row: { flexDirection: 'row', height: ROW_HEIGHT, alignItems: 'stretch' },
