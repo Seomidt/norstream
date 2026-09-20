@@ -25,9 +25,21 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 292** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 293** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
+
+**v293 — nyhedsstriben viste kun vejr (rettet).** Nyhederne kom aldrig igennem:
+DR's server (Akamai) svarer 403 — eller en samtykke-side helt uden `<item>` — på
+et kald **uden** en browser-agtig User-Agent. Vejret kom, fordi ipwho.is og
+open-meteo er ligeglade med User-Agent; DR er det ikke. `sync/news.ts` sender nu
+`User-Agent` + `Accept` med til DR. Det krævede at hoveder faktisk når frem:
+`withPanelCooldown` (cooldown.ts) og `withDnsFallback` (doh.ts) videresender nu
+kalderens hoveder (og fletter dem under Host-hovedet i DNS-nødudgangen), og
+`session.fetchImpl` er typet `HeaderFetch`. Cache-nøglen er `news_cache_v2`, så en
+gammel tom-fortolket kopi ikke vises. Kan man se det virke? Indstillinger →
+**Status → Nyheder** viser "for X min siden", når hentningen er kommet igennem
+(og "aldrig", hvis DR stadig afviser).
 
 **v292 — fem ting på én gang:**
 

@@ -121,29 +121,30 @@ export function createResolver(fetchImpl: HeaderFetch): Resolver {
  * problemet. Er navnet allerede pinnet, gaar kaldet direkte til adressen;
  * svigter den, glemmes den og navnet proeves igen.
  */
-export function withDnsFallback(fetchImpl: HeaderFetch, resolve: Resolver = createResolver(fetchImpl)): FetchLike {
-  return async (url) => {
+export function withDnsFallback(fetchImpl: HeaderFetch, resolve: Resolver = createResolver(fetchImpl)): HeaderFetch {
+  return async (url, headers) => {
     const parts = eligibleParts(url);
-    if (parts === null) return fetchImpl(url);
+    if (parts === null) return fetchImpl(url, headers);
 
     const pinned = pinnedIp(parts.host);
     if (pinned !== null) {
       const direct = viaIp(parts, pinned);
       try {
-        return await fetchImpl(direct.url, direct.headers);
+        // Kalderens hoveder foerst, saa Host-hovedet fra viaIp altid vinder.
+        return await fetchImpl(direct.url, { ...headers, ...direct.headers });
       } catch {
         unpinHost(parts.host);
       }
     }
 
     try {
-      return await fetchImpl(url);
+      return await fetchImpl(url, headers);
     } catch (cause) {
       const ips = await resolve(parts.host);
       for (const ip of ips.slice(0, 2)) {
         const direct = viaIp(parts, ip);
         try {
-          const response = await fetchImpl(direct.url, direct.headers);
+          const response = await fetchImpl(direct.url, { ...headers, ...direct.headers });
           pinHost(parts.host, ip);
           return response;
         } catch {

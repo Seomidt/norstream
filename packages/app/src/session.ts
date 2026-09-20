@@ -1,7 +1,8 @@
-import type { FetchLike, XtreamCredentials } from '@norstream/core';
+import type { XtreamCredentials } from '@norstream/core';
 import { withPanelCooldown } from './net/cooldown.js';
 import { createFetchImpl } from './net/fetchImpl.js';
 import { withDnsFallback } from './net/doh.js';
+import type { HeaderFetch } from './net/doh.js';
 import { initLogoCache } from './ui/logoCache.js';
 import { createLogoFileStore } from './ui/logoFiles.js';
 import { initPosterFill } from './ui/posterFill.js';
@@ -21,7 +22,7 @@ import type { SqlDatabase } from './storage/types.js';
 
 export interface AppSession {
   db: SqlDatabase;
-  fetchImpl: FetchLike;
+  fetchImpl: HeaderFetch;
   /** Alle aktive kilder med det der skal til for at tale med dem. */
   sources: SourceAccess[];
   /** Legitimation slaaet op paa kilde, som hente-lagene bruger. */

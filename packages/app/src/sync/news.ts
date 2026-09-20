@@ -1,6 +1,6 @@
-import type { FetchLike } from '@norstream/core';
 import { parseNewsItems } from '@norstream/core';
 import { getSetting, setSetting } from '../storage/settings.js';
+import type { HeaderFetch } from '../net/doh.js';
 import type { SqlDatabase } from '../storage/types.js';
 
 /**
@@ -22,11 +22,23 @@ export interface News {
 /** Kildens standardmaerke, naar en nyhed ikke selv angav en kategori. */
 const DEFAULT_LABEL = 'DR';
 
-const KEY_NEWS = 'news_cache';
+// _v2: formen skiftede (fra string[] til {text,label}), og hentningen sender nu
+// en User-Agent. En frisk noegle undgaar at en gammel, tom-fortolket kopi vises.
+const KEY_NEWS = 'news_cache_v2';
 /** Hentes hoejst et par gange i timen; overskrifterne skifter ikke hurtigere. */
 const MAX_AGE_MS = 20 * 60_000;
 /** DR's offentlige nyhedsstroem — gratis og uden legitimation. */
 const DR_RSS_URL = 'https://www.dr.dk/nyheder/service/feeds/allenyheder';
+/**
+ * DR's server (Akamai) svarer 403 — eller en samtykke-side helt uden <item> —
+ * paa et kald uden en browser-agtig User-Agent. Derfor kom der vejr men ingen
+ * nyheder: vejrtjenesterne er ligeglade, det er DR ikke. Et almindeligt
+ * Accept-hoved til med, saa vi faar RSS og ikke andet.
+ */
+const RSS_HEADERS: Record<string, string> = {
+  'User-Agent': 'Mozilla/5.0 (Linux; Android 12; NorStream) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+  Accept: 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.8',
+};
 
 interface CachedNews {
   news: News;
@@ -69,9 +81,9 @@ export async function newsFetchedAt(db: SqlDatabase): Promise<number | null> {
   return toCached(await getSetting(db, KEY_NEWS))?.fetchedAt ?? null;
 }
 
-async function fetchText(fetchImpl: FetchLike, url: string): Promise<string | null> {
+async function fetchText(fetchImpl: HeaderFetch, url: string): Promise<string | null> {
   try {
-    const response = await fetchImpl(url);
+    const response = await fetchImpl(url, RSS_HEADERS);
     if (!response.ok) return null;
     return await response.text();
   } catch {
@@ -86,7 +98,7 @@ async function fetchText(fetchImpl: FetchLike, url: string): Promise<string | nu
  */
 export async function refreshNews(
   db: SqlDatabase,
-  fetchImpl: FetchLike,
+  fetchImpl: HeaderFetch,
   now: Date = new Date(),
 ): Promise<News | null> {
   const cached = toCached(await getSetting(db, KEY_NEWS));

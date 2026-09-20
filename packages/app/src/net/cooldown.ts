@@ -1,5 +1,5 @@
 import { originOf } from '@norstream/core';
-import type { FetchLike } from '@norstream/core';
+import type { HeaderFetch } from './doh.js';
 
 /**
  * Hvor laenge et panel faar fred efter at have afvist os.
@@ -55,14 +55,14 @@ export class PanelCoolingDownError extends Error {
  * Er kodeordet virkelig skiftet, siger panelet det igen om ti minutter, og
  * saa staar der en knap til at logge ind igen — uden at noget er slettet.
  */
-export function withPanelCooldown(fetchImpl: FetchLike): FetchLike {
-  return async (url) => {
+export function withPanelCooldown(fetchImpl: HeaderFetch): HeaderFetch {
+  return async (url, headers) => {
     const origin = originOf(url);
     if (origin !== null) {
       const stamp = cooldownUntil(origin);
       if (stamp !== null) throw new PanelCoolingDownError(origin, stamp);
     }
-    const response = await fetchImpl(url);
+    const response = await fetchImpl(url, headers);
     if (origin !== null && (response.status === 401 || response.status === 403)) {
       noteRejected(origin);
     }

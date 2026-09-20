@@ -28,6 +28,13 @@ describe('withPanelCooldown', () => {
     await expect(fetchImpl('https://raw.githubusercontent.com/x')).resolves.toBeDefined();
   });
 
+  it('sender kalderens hoveder videre (fx User-Agent til nyheds-RSS)', async () => {
+    const underlying = respond(200);
+    const fetchImpl = withPanelCooldown(underlying);
+    await fetchImpl('https://www.dr.dk/feeds/alle', { 'User-Agent': 'NorStream' });
+    expect(underlying).toHaveBeenCalledWith('https://www.dr.dk/feeds/alle', { 'User-Agent': 'NorStream' });
+  });
+
   it('slipper vaerten igen naar tiden er gaaet', async () => {
     const fetchImpl = withPanelCooldown(respond(403));
     const start = 1_000_000;
