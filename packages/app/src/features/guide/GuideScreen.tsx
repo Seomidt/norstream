@@ -819,7 +819,10 @@ export const GuideScreen = memo(function GuideScreen({
             </View>
           </View>
         ) : (
-          <View style={sideBySide ? { width: `${Math.round(sidePreviewFraction(false) * 100)}%` } : undefined}>
+          // Uden ur/vejr: previewet i fuld bredde igen, som foer. Paa tv INTET
+          // bredde-loft (kun paa smalle skaerme deles der op i procent) — ellers
+          // stod previewet paa 42 % og var lille, selv naar uret var slaaet fra.
+          <View style={!isTV && sideBySide ? { width: `${Math.round(sidePreviewFraction(false) * 100)}%` } : undefined}>
             <MiniPreview
               session={session}
               channel={dayFor === null ? previewChannel : null}

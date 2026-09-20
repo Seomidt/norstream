@@ -25,7 +25,7 @@ efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 
 ### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
 
-Nyeste udgave: **versionCode 284** (tv og telefon), udgivet i skyen. Udgaver
+Nyeste udgave: **versionCode 285** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
 det ved hver ny udgave**, ellers kan boksen ikke se at der er kommet en ny.
 
@@ -50,6 +50,14 @@ id-match (præcist); navne-match er kun reserven. **Brug for en anden fil?** Log
 ind på den nye fil under "Panel", gå så til Indstillinger → Gem i skyen → Hent.
 Kategorier og VOD-fremdrift kan ikke navne-matches (springes over på en anden
 fil).
+
+**Guide: preview bliver stort igen når ur/vejr slås fra (v285).** Bruger: "når
+jeg slår uret fra, bliver previewet ved med at være lille — det skal jo blive
+stort igen som før vi lavede ur og vejr." Fejl indført i v282-splittet: den
+"uden ur"-gren tabte `!isTV`-betingelsen, så previewet på tv faldt ned i
+telefonens `sideBySide`-gren og stod på 42 % (lille), selv med uret slået fra.
+Rettet: på tv har previewet intet bredde-loft, så det fylder hele søjlen igen,
+præcis som før ur/vejr blev tilføjet.
 
 **Hastighed: fuld skærm, preview og Tilbage-til-menu (v284).** Bruger: "fuld
 skærm tager lang tid om at komme; preview er langsom, når jeg skifter kanal
