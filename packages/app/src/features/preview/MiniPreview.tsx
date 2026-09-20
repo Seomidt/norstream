@@ -212,14 +212,21 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
         )}
       </TvPressable>
 
-      <View style={styles.bar}>
-        <Text style={styles.title} numberOfLines={1}>
-          {target?.name ?? ''}
-        </Text>
-        <TvPressable hitSlop={12} focusable={!isTV} onPress={() => setMuted((value) => !value)}>
-          <Text style={styles.sound}>{muted ? '🔇' : '🔊'}</Text>
-        </TvPressable>
-      </View>
+      {/* Bjaelken med kanalnavn + lyd er kun paa telefon. Paa tv staar
+          kanalnavnet allerede i nu/naeste-boksen lige under ("behoever ikke
+          staa hvad kanal man er paa under preview"), og lydknappen kan
+          alligevel ikke faa fokus paa tv. Uden bjaelken er previewet ogsaa
+          renere og en anelse mindre dominerende. */}
+      {!isTV && (
+        <View style={styles.bar}>
+          <Text style={styles.title} numberOfLines={1}>
+            {target?.name ?? ''}
+          </Text>
+          <TvPressable hitSlop={12} focusable={!isTV} onPress={() => setMuted((value) => !value)}>
+            <Text style={styles.sound}>{muted ? '🔇' : '🔊'}</Text>
+          </TvPressable>
+        </View>
+      )}
     </View>
   );
 }

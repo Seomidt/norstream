@@ -55,7 +55,11 @@ fil).
 "kan ur og vejr laves lidt mindre, det er meget dominerende i forhold til
 preview." `clockCol` fra 112 → 90 punkter, og skrifterne i `ClockWeather` ned
 (ur 27 → 21, resten tilsvarende), så previewet får mere bredde og uret fylder
-mindre. `tvRight` uændret (33 %), så det er previewet der vokser.
+mindre. `tvRight` uændret (33 %), så det er previewet der vokser. Desuden: på
+tv er bjælken under preview (kanalnavn + lydknap) fjernet — kanalnavnet står
+allerede i nu/næste-boksen lige under, og lydknappen kunne alligevel ikke få
+fokus på tv (`MiniPreview`: bjælken vises kun `!isTV`). Previewet er dermed
+renere og en anelse mindre højt.
 
 **Guide: preview bliver stort igen når ur/vejr slås fra (v285).** Bruger: "når
 jeg slår uret fra, bliver previewet ved med at være lille — det skal jo blive
