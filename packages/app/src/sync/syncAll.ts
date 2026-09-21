@@ -172,9 +172,14 @@ async function maybeXmltv(
   const last = await getLastXmltvMs(db, source.id);
   if (!force && last !== null && now.getTime() - last < XMLTV_INTERVAL_MS) return;
 
+  // Marker forsoeget **foer** hentningen, ikke efter. Ellers: doer eller
+  // afbrydes appen midt i en stor parse, blev "sidst hentet" aldrig sat — og
+  // saa proever den forfra hver eneste gang appen aabnes. Med en tung fil er
+  // det en app der fryser ved hver start. EPG er ikke kritisk; ét forsoeg i
+  // doegnet er rigeligt, ogsaa naar det gik galt. Naeste doegn proever den igen.
+  await setLastXmltvMs(db, source.id, now.getTime());
   try {
     await syncXmltv(db, source, fetchImpl);
-    await setLastXmltvMs(db, source.id, now.getTime());
   } catch {
     // Med vilje: se kommentaren ovenfor. Kanalerne virker uden.
   }

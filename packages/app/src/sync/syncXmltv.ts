@@ -1,5 +1,5 @@
 import { createXmltvParser, normaliseChannelName } from '@norstream/core';
-import type { FetchLike, Programme, Source } from '@norstream/core';
+import type { FetchLike, Programme, Source, XmltvParser } from '@norstream/core';
 import { gunzipSync, strFromU8 } from 'fflate';
 import { upsertProgrammes } from '../storage/programmes.js';
 import type { SqlDatabase } from '../storage/types.js';
@@ -92,8 +92,7 @@ export async function syncXmltv(
         if (key !== undefined && !logos.has(key)) logos.set(key, channel.iconUrl);
       },
     );
-    parser.write(xml);
-    parser.end();
+    await writeChunked(parser, xml);
   }
 
   if (!anySucceeded && lastError !== null) throw lastError;
@@ -101,6 +100,36 @@ export async function syncXmltv(
   await upsertProgrammes(db, programmes);
   await replaceXmltvLogos(db, source.id, logos);
   return { programmes: programmes.length, matched: matched.size, logos: logos.size };
+}
+
+/**
+ * Bidstoerrelse naar filen fodres til parseren. Stor nok til at yields ikke
+ * koster maerkbart, lille nok til at hovedtraaden aander mellem dem.
+ */
+const PARSE_CHUNK = 256 * 1024;
+
+/**
+ * Fodrer XMLTV-teksten til parseren i bidder og giver hovedtraaden luft mellem
+ * hver.
+ *
+ * Det er hele grunden til at det her findes: en samlet fil paa titusinder af
+ * kanaler er ~30 MB tekst, og `parser.write` paa det hele paa én gang loeber
+ * synkront igennem alt sammen — paa en tv-boks er det sekunder hvor intet kan
+ * klikkes, altsaa en frossen app. Delt op i bidder med et `setTimeout(0)`
+ * imellem naar UI'en at tegne og reagere undervejs. Parseren beholder selv en
+ * hale mellem bidder, saa et element delt over to bidder ikke tabes.
+ */
+async function writeChunked(parser: XmltvParser, xml: string): Promise<void> {
+  for (let i = 0; i < xml.length; i += PARSE_CHUNK) {
+    parser.write(xml.slice(i, i + PARSE_CHUNK));
+    await yieldToUi();
+  }
+  parser.end();
+}
+
+/** Slipper hovedtraaden fri én runde, saa tegning og tryk kan komme til. */
+function yieldToUi(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /** Én eller flere adresser i feltet, adskilt med mellemrum, komma eller linjeskift. */
