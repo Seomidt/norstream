@@ -1,5 +1,5 @@
 import type { Programme } from '@norstream/core';
-import { getChannel } from './channels.js';
+import { getChannelsByIds } from './channels.js';
 import type { StoredChannel } from './channels.js';
 import type { SqlDatabase } from './types.js';
 
@@ -31,10 +31,14 @@ export async function listRecentChannels(db: SqlDatabase, limit = 5): Promise<St
     'SELECT channel_id FROM channel_history ORDER BY watched_ms DESC LIMIT ?',
     [Math.max(1, limit * 2)],
   );
+  // Ét opslag for alle kanalerne, i stedet for én tung join per raekke; ordenen
+  // (nyeste foerst) holdes af listen, ikke af opslaget. Kanaler der ikke findes
+  // laengere springes over.
+  const channels = await getChannelsByIds(db, rows.map((row) => row.channel_id));
   const out: StoredChannel[] = [];
   for (const row of rows) {
-    const channel = await getChannel(db, row.channel_id);
-    if (channel !== null) out.push(channel);
+    const channel = channels.get(row.channel_id);
+    if (channel !== undefined) out.push(channel);
     if (out.length >= limit) break;
   }
   return out;
@@ -87,10 +91,11 @@ export async function listArchiveProgress(db: SqlDatabase, now = Date.now(), lim
     'SELECT channel_id, start_ms, stop_ms, title, position_s, updated_ms FROM archive_progress ORDER BY updated_ms DESC LIMIT ?',
     [limit],
   );
+  const channels = await getChannelsByIds(db, rows.map((row) => row.channel_id));
   const out: ArchiveProgress[] = [];
   for (const row of rows) {
-    const channel = await getChannel(db, row.channel_id);
-    if (channel === null) continue;
+    const channel = channels.get(row.channel_id);
+    if (channel === undefined) continue;
     out.push({
       channel,
       programme: { channelId: row.channel_id, title: row.title, description: null, start: new Date(row.start_ms), stop: new Date(row.stop_ms) },

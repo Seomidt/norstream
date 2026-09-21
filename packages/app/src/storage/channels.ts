@@ -295,12 +295,12 @@ export async function listChannels(
   return rows.map((row) => toStoredChannel(row, dead));
 }
 
-export async function getChannel(
-  db: SqlDatabase,
-  id: string,
-): Promise<StoredChannel | null> {
-  const row = await db.getFirstAsync<ChannelRow>(
-    `SELECT c.id, c.source_id, c.stream_id, c.stream_url, c.name, c.number, c.logo_url,
+/**
+ * Selve opslaget bag getChannel/getChannelsByIds: samme kolonner og joins,
+ * kun WHERE skifter. Ét sted, saa de to ikke kan komme til at drive fra
+ * hinanden.
+ */
+const CHANNEL_SELECT = `SELECT c.id, c.source_id, c.stream_id, c.stream_url, c.name, c.number, c.logo_url,
             c.category_id, c.epg_channel_id, c.has_archive, c.archive_days, c.sort_order,
             s.url AS source_url,
             lo.url AS override_logo_url,
@@ -317,12 +317,45 @@ export async function getChannel(
      -- tvg-id og et panels epg_channel_id. Et opslag, ikke et gaet.
      LEFT JOIN registry_logos ri ON ri.key = 'id:' || LOWER(TRIM(c.epg_channel_id))
      LEFT JOIN registry_logos rc ON rc.key = c.match_key || ':' || c.country
-     LEFT JOIN registry_logos ra ON ra.key = c.match_key || ':*'
-     WHERE c.id = ?`,
-    [id],
-  );
+     LEFT JOIN registry_logos ra ON ra.key = c.match_key || ':*'`;
+
+export async function getChannel(
+  db: SqlDatabase,
+  id: string,
+): Promise<StoredChannel | null> {
+  const row = await db.getFirstAsync<ChannelRow>(`${CHANNEL_SELECT}\n     WHERE c.id = ?`, [id]);
   if (row === null || row === undefined) return null;
   return toStoredChannel(row, await deadLogoOrigins(db));
+}
+
+/**
+ * Slaar flere kanaler op i ét opslag, med doede logo-vaerter regnet ud én gang.
+ *
+ * Forsidens "Sidst sete" og "Fortsaet" slog foer hver kanal op for sig med den
+ * fulde seks-join-forespoergsel OG regnede doede logo-vaerter ud per kald —
+ * femten-tyve tunge opslag serielt ved hver hjemaabning. Nu er det ét opslag
+ * (delt i klumper under SQLites variabel-loft) plus én doede-udregning.
+ * Resultatet er en opslagstabel, saa kalderen selv kan holde sin raekkefoelge.
+ */
+export async function getChannelsByIds(
+  db: SqlDatabase,
+  ids: readonly string[],
+): Promise<Map<string, StoredChannel>> {
+  const found = new Map<string, StoredChannel>();
+  if (ids.length === 0) return found;
+  const dead = await deadLogoOrigins(db);
+  const unique = [...new Set(ids)];
+  const CHUNK = 400;
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const slice = unique.slice(i, i + CHUNK);
+    const placeholders = slice.map(() => '?').join(', ');
+    const rows = await db.getAllAsync<ChannelRow>(
+      `${CHANNEL_SELECT}\n     WHERE c.id IN (${placeholders})`,
+      slice,
+    );
+    for (const row of rows) found.set(row.id, toStoredChannel(row, dead));
+  }
+  return found;
 }
 
 /**

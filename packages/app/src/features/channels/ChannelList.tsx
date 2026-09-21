@@ -11,7 +11,7 @@ import {
 import { XtreamAuthError } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
-import { getNowNext } from '../../storage/programmes.js';
+import { nowTitlesFor } from '../../storage/programmes.js';
 import { sourcesWithDialect } from '../../storage/settings.js';
 import { restartFilterEnabled, setRestartFilterEnabled, subscribeRestartFilter } from './restartFilter.js';
 import { ensureEpg } from '../../sync/epgCache.js';
@@ -180,15 +180,13 @@ export function ChannelList({
 
       /** Tegner det cachen har. Kaldes foer og efter hentningen. */
       const draw = async (): Promise<boolean> => {
-        const now = new Date();
-        const titles: Record<string, string> = {};
-        for (const streamId of streamIds) {
-          // Opslaget sker paa kanalens eget id — Xtreams stream_id. I v1 gik
-          // det gennem epg_channel_id, som 87 % af kanalerne ikke har.
-          const result = await getNowNext(session.db, streamId, now);
-          if (result.now) titles[streamId] = result.now.title;
-        }
+        // Ét opslag for hele skaermfulden i stedet for et getNowNext per raekke:
+        // med 22.142 kanaler var den serielle loekke det tungeste ved hvert
+        // scroll-stop. Opslaget sker paa kanalens eget id — Xtreams stream_id.
+        const found = await nowTitlesFor(session.db, streamIds, new Date());
         if (runId.current !== id) return false;
+        const titles: Record<string, string> = {};
+        for (const [streamId, title] of found) titles[streamId] = title;
         setNowTitles((previous) => ({ ...previous, ...titles }));
         return true;
       };

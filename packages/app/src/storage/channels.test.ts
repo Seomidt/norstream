@@ -7,6 +7,7 @@ import { createTestDatabase } from './testDb.js';
 import type { SqlDatabase } from './types.js';
 import {
   getChannel,
+  getChannelsByIds,
   listCategories,
   listChannels,
   replaceCategories,
@@ -139,6 +140,34 @@ describe('listChannels', () => {
 
   it('ignorerer en soegning der kun er mellemrum', async () => {
     expect(await listChannels(db, { search: '   ' })).toHaveLength(3);
+  });
+});
+
+describe('getChannelsByIds', () => {
+  beforeEach(async () => {
+    await replaceChannels(db, SOURCE, [
+      channel({ id: 'a', name: 'DR1' }),
+      channel({ id: 'b', name: 'TV 2' }),
+      channel({ id: 'c', name: 'DR2' }),
+    ]);
+    await setFavorite(db, key('b'), true);
+  });
+
+  it('slaar flere kanaler op i ét kald, med favorit-flag', async () => {
+    const found = await getChannelsByIds(db, [key('a'), key('b')]);
+    expect(found.size).toBe(2);
+    expect(found.get(key('a'))?.name).toBe('DR1');
+    expect(found.get(key('b'))?.isFavorite).toBe(true);
+  });
+
+  it('udelader ukendte id og giver samme kanal som getChannel', async () => {
+    const found = await getChannelsByIds(db, [key('c'), key('findes-ikke')]);
+    expect(found.has(key('findes-ikke'))).toBe(false);
+    expect(found.get(key('c'))).toEqual(await getChannel(db, key('c')));
+  });
+
+  it('tom liste giver et tomt opslag', async () => {
+    expect((await getChannelsByIds(db, [])).size).toBe(0);
   });
 });
 

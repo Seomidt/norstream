@@ -121,14 +121,20 @@ export async function ensureEpg(
 ): Promise<EnsureEpgResult> {
   const unique = [...new Set(channelKeys)].filter((id) => id.length > 0);
 
-  const stale: string[] = [];
-  for (const key of unique) {
-    const [freshness, archiveAt] = await Promise.all([
-      getEpgFreshness(db, key),
-      getArchiveFetchedAt(db, key),
-    ]);
-    if (needsShortEpg(freshness, archiveAt, now)) stale.push(key);
-  }
+  // Friskheds-tjekket for alle kanaler paa én gang. Foer var det en seriel
+  // loekke — 2 opslag per kanal, ét ad gangen — koert ved hvert scroll-stop og
+  // hver guide-aabning, ogsaa naar intet var gammelt. Nu venter opslagene
+  // sideloebende; det aendrer ikke reglen, kun ventetiden.
+  const flags = await Promise.all(
+    unique.map(async (key) => {
+      const [freshness, archiveAt] = await Promise.all([
+        getEpgFreshness(db, key),
+        getArchiveFetchedAt(db, key),
+      ]);
+      return needsShortEpg(freshness, archiveAt, now) ? key : null;
+    }),
+  );
+  const stale = flags.filter((key): key is string => key !== null);
   if (stale.length === 0) return { fetched: 0, programmes: 0 };
 
   let authFailure: XtreamAuthError | null = null;
@@ -203,15 +209,14 @@ export async function ensureFullEpg(
   channels: readonly { id: string }[],
   now: Date = new Date(),
 ): Promise<EnsureEpgResult> {
-  const candidates: string[] = [];
-  const seen = new Set<string>();
-  for (const channel of channels) {
-    if (channel.id.length === 0 || seen.has(channel.id)) continue;
-    seen.add(channel.id);
-    if (needsArchiveFetch(await getArchiveFetchedAt(db, channel.id), now)) {
-      candidates.push(channel.id);
-    }
-  }
+  // Samme som i ensureEpg: distinkte id'er, og friskheds-tjekket sideloebende
+  // frem for ét ad gangen. Raekkefoelgen bevares (Set + Promise.all), saa
+  // grupperingen per kilde er uaendret.
+  const distinct = [...new Set(channels.map((channel) => channel.id).filter((id) => id.length > 0))];
+  const flags = await Promise.all(
+    distinct.map(async (id) => (needsArchiveFetch(await getArchiveFetchedAt(db, id), now) ? id : null)),
+  );
+  const candidates = flags.filter((id): id is string => id !== null);
   if (candidates.length === 0) return { fetched: 0, programmes: 0 };
 
   let authFailure: XtreamAuthError | null = null;

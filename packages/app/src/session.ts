@@ -40,12 +40,15 @@ export interface AppSession {
  */
 async function readSources(db: SqlDatabase): Promise<SourceAccess[]> {
   const sources = await listEnabledSources(db);
-  const accesses: SourceAccess[] = [];
-  for (const source of sources) {
-    const creds = source.kind === 'xtream' ? await loadSourceCredentials(source.id) : null;
-    accesses.push({ source, creds });
-  }
-  return accesses;
+  // Legitimationen for hver kilde paa én gang: hver er en Keychain-oplaesning
+  // (Android Keystore-dekrypt), og serielt var de N runde-ture foran foerste
+  // tegning. Promise.all bevarer raekkefoelgen og aendrer intet i hvad der laeses.
+  return Promise.all(
+    sources.map(async (source) => ({
+      source,
+      creds: source.kind === 'xtream' ? await loadSourceCredentials(source.id) : null,
+    })),
+  );
 }
 
 /**
@@ -83,22 +86,26 @@ export async function createSession(): Promise<AppSession> {
   const db = await openDatabase();
   await adoptLegacyInstallation(db);
 
-  // Streamformatet laeses her, foer noget kan tegnes: baade afspilleren og
-  // previewet bygger deres URL synkront i foerste render, og et format der
-  // skiftede bagefter ville aabne stream nummer to paa et panel der kun
-  // tillader én.
-  applyStreamFormatSetting(await getStreamFormatSetting(db));
-  // Hvilke logoer der allerede ligger paa telefonen. Laeses ind foer noget
-  // tegnes, af samme grund som streamformatet: logoerne tegnes synkront.
-  await initLogoCache(db, createLogoFileStore());
+  // De uafhaengige opstarts-laesninger paa én gang i stedet for i koe: de
+  // afhaenger kun af db, ikke af hinanden, men laa foer serielt foran foerste
+  // tegning (og logo-cachen alene er to fuld-tabel-laesninger). Nu overlapper
+  // ventetiden.
+  //  - streamformat: afspiller og preview bygger deres URL synkront i foerste
+  //    render, saa det SKAL vaere sat foer noget tegnes — derfor anvendes det
+  //    straks resultatet er der, og altid foer retur (som er foer render).
+  //  - logo-cache: logoerne tegnes synkront fra den; skal ligeledes ligge klar.
+  //  - kilder (med legitimation) og plakat-udfyldning: som foer.
+  const [format, , sources] = await Promise.all([
+    getStreamFormatSetting(db),
+    initLogoCache(db, createLogoFileStore()),
+    readSources(db),
+    // Plakater til film og serier uden: slaas op efterhaanden som de vises.
+    initPosterFill(db),
+  ]);
+  applyStreamFormatSetting(format);
 
-  const sources = await readSources(db);
   // Nedkoelingen yderst (den ser panelets navn), DNS-noedudgangen inderst.
   const fetchImpl = withPanelCooldown(withDnsFallback(createFetchImpl()));
-  // Plakater til film og serier uden: slaas op efterhaanden som de vises.
-  // Egen hentning: TMDBs laesetoken skal med som et hoved, og appens
-  // saedvanlige fetch kender ingen hoveder.
-  await initPosterFill(db);
   return {
     db,
     fetchImpl,
