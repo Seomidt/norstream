@@ -64,10 +64,11 @@ export function LandscapePlayer({
   playing?: boolean;
   /**
    * Tv, Googles regler for afspilning (TV-PC, TV-PP): OK pauser og
-   * genoptager, pil venstre/hoejre spoler, og play/pause-tasten virker.
-   * Kaldes for OK og pilene kun naar bjaelken er skjult (ellers rammer
-   * de knapperne), og for medietasterne altid. Returnerer sand naar
-   * tasten er brugt.
+   * genoptager, pil venstre/hoejre zapper (eller spoler i arkivet), og
+   * play/pause-tasten virker. Kaldes for OK og pilene kun naar bjaelken er
+   * skjult (ellers rammer de knapperne), og for medietasterne altid.
+   * Returnerer sand naar tasten er brugt — og for pil venstre/hoejre betyder
+   * "brugt" at bjaelken **ikke** hentes frem, saa man kan zappe videre.
    */
   onPlayerKey?: (key: PlayerKey) => boolean;
 }) {
@@ -83,12 +84,32 @@ export function LandscapePlayer({
   barShownRef.current = barShown;
   useTVEventHandler((event) => {
     if (event.eventType === 'focus' || event.eventType === 'blur') return;
-    // Android sender tryk ned (0) og op (1); tasterne taeller én gang.
+    // Android sender tryk ned (0) og op (1). Reagér kun naar tasten SLIPPES, saa
+    // et tryk taeller én gang — og saa "vis bjaelken"-beslutningen nedenfor sker
+    // samtidig med at tasten bruges. Foer skete setBarShown ogsaa paa keydown,
+    // saa bjaelken naaede frem foer keyup'et kunne zappe, og saa spiste den
+    // resten af zap-trykkene.
     const keyUp = event.eventKeyAction === undefined || Number(event.eventKeyAction) !== 0;
+    if (!keyUp) return;
     const type = event.eventType;
-    if (keyUp && onPlayerKey !== undefined) {
+
+    // Pil venstre/hoejre mens bjaelken er skjult: zap til forrige/naeste kanal
+    // (eller spoling i arkivet). Blev tasten brugt, henter vi IKKE bjaelken frem
+    // — det var netop fejlen: bjaelken kom op og spiste det naeste zap-tryk, saa
+    // man ikke kunne skifte kanal igen foer den forsvandt af sig selv. Banneret
+    // med kanalnavnet er kvitteringen i stedet.
+    if (
+      onPlayerKey !== undefined &&
+      !barShownRef.current &&
+      (type === 'left' || type === 'right') &&
+      onPlayerKey(type)
+    ) {
+      return;
+    }
+
+    if (onPlayerKey !== undefined) {
       if (type === 'playPause' || type === 'rewind' || type === 'fastForward') onPlayerKey(type);
-      else if (!barShownRef.current && (type === 'select' || type === 'left' || type === 'right')) onPlayerKey(type);
+      else if (!barShownRef.current && type === 'select') onPlayerKey(type);
     }
     setBarShown(true);
     setActivity((value) => value + 1);
