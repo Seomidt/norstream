@@ -5,6 +5,8 @@ import type { SqlDatabase } from '../storage/types.js';
 import {
   getLastSyncMs,
   getLastXmltvMs,
+  getSetting,
+  setSetting,
   setLastSyncMs,
   getLogoRegistryEnabled,
   setLastXmltvMs,
@@ -32,6 +34,19 @@ export const CHANNEL_SYNC_INTERVAL_MS = 24 * 60 * 60_000;
  * ingen grund til at hente den oftere end programmerne aendrer sig.
  */
 export const XMLTV_INTERVAL_MS = 24 * 60 * 60_000;
+
+/** Efter en fejlet XMLTV-hentning: proev igen om en time, ikke om et doegn. */
+const XMLTV_RETRY_MS = 60 * 60_000;
+
+/**
+ * Version af de indbyggede EPG-feeds. Aendrer listen sig (nye/andre feeds), skal
+ * de hentes med det samme efter en opdatering — ikke foerst naar den gamle
+ * "sidst hentet" er et doegn gammel. Naar tallet her er hoejere end det gemte,
+ * nulstilles XMLTV-hentetiderne én gang, saa de nye feeds kommer ind straks.
+ * **Haev det her, hver gang DEFAULT_XMLTV_URLS aendres.**
+ */
+const XMLTV_DEFAULTS_VERSION = 1;
+const XMLTV_DEFAULTS_VERSION_KEY = 'xmltv_defaults_version';
 
 /**
  * Indbyggede EPG-filer der bruges for ALLE kilder, oven i det brugeren selv har
@@ -107,6 +122,15 @@ export async function syncAllSources(
     await deleteOrphanedChannelData(db);
   } catch {
     // Med vilje: oprydningen er en ekstra sikkerhed, ikke en forudsaetning.
+  }
+
+  // Er de indbyggede EPG-feeds skiftet siden sidst (ny app-udgave), saa nulstil
+  // XMLTV-hentetiderne én gang, saa de nye feeds hentes STRAKS — ikke foerst naar
+  // den gamle "sidst hentet" er et doegn gammel.
+  try {
+    await maybeInvalidateXmltvDefaults(db);
+  } catch {
+    // Ekstra sikkerhed, ikke en forudsaetning.
   }
 
   for (const access of sources) {
@@ -210,6 +234,8 @@ async function maybeXmltv(
   // saa proever den forfra hver eneste gang appen aabnes. Med en tung fil er
   // det en app der fryser ved hver start. EPG er ikke kritisk; ét forsoeg i
   // doegnet er rigeligt, ogsaa naar det gik galt. Naeste doegn proever den igen.
+  // Marker forsoeget **foer** hentningen, saa en app der lukkes midt i parsen
+  // ikke koerer forfra ved hver start.
   await setLastXmltvMs(db, source.id, now.getTime());
   // De indbyggede feeds foerst, saa kildens egne adresser oven i — afdupliceret,
   // saa den samme adresse ikke hentes to gange. syncXmltv laeser xmltvUrl, saa
@@ -218,9 +244,30 @@ async function maybeXmltv(
   const merged = [...new Set([...DEFAULT_XMLTV_URLS, ...own])].join(' ');
   try {
     await syncXmltv(db, { ...source, xmltvUrl: merged }, fetchImpl);
+    // Lykkedes (mindst én feed): behold doegnrytmen (tidsstemplet staar).
   } catch {
-    // Med vilje: se kommentaren ovenfor. Kanalerne virker uden.
+    // ALLE feeds fejlede (syncXmltv kaster kun da). Saet tidsstemplet tilbage,
+    // saa den proever igen om en TIME i stedet for om et doegn — en midlertidig
+    // netfejl maa ikke holde programoversigten vaek en hel dag. (Men ikke helt
+    // nulstillet: den skal stadig ikke koere forfra ved hver app-start.)
+    await setLastXmltvMs(db, source.id, now.getTime() - (XMLTV_INTERVAL_MS - XMLTV_RETRY_MS));
   }
+}
+
+/**
+ * Nulstiller XMLTV-hentetiderne én gang, naar de indbyggede feeds er skiftet.
+ *
+ * Uden det ville en app-udgave med nye/andre EPG-feeds foerst hente dem naar
+ * den gamle "sidst hentet" var et doegn gammel — saa den brede EPG lod vente paa
+ * sig efter en opdatering. Sammenligner en gemt version med koden; er de ens,
+ * goeres intet.
+ */
+async function maybeInvalidateXmltvDefaults(db: SqlDatabase): Promise<void> {
+  const stored = await getSetting(db, XMLTV_DEFAULTS_VERSION_KEY);
+  if (stored === String(XMLTV_DEFAULTS_VERSION)) return;
+  // Alle kilders XMLTV-hentetid ryddes, saa maybeXmltv henter forfra naeste gang.
+  await db.runAsync("DELETE FROM settings WHERE key LIKE 'last_xmltv_ms:%'");
+  await setSetting(db, XMLTV_DEFAULTS_VERSION_KEY, String(XMLTV_DEFAULTS_VERSION));
 }
 
 /**
