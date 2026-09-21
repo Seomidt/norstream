@@ -214,11 +214,19 @@ export function SettingsScreen({
     applyVideoSurfaceSetting(surface);
     setThemePlaceState((await getThemePlace(session.db)) ?? themePreference().placeKey);
     setGuideInfo(await getGuideInfoMode(session.db));
-    const [channelsAt, weatherAt, newsAt] = await Promise.all([
-      getLastSyncMs(session.db),
+    // Hentetiden gemmes PER kilde (last_sync_ms:<id>), ikke som én faelles
+    // vaerdi. Status skal vise den nyeste paa tvaers af kilderne; laeste den den
+    // faelles (uden kilde-id), stod der "aldrig hentet" selv om kanalerne var
+    // hentet for laengst.
+    const [perSource, weatherAt, newsAt] = await Promise.all([
+      Promise.all(session.sources.map((access) => getLastSyncMs(session.db, access.source.id))),
       weatherFetchedAt(session.db),
       newsFetchedAt(session.db),
     ]);
+    const channelsAt = perSource.reduce<number | null>(
+      (newest, value) => (value !== null && (newest === null || value > newest) ? value : newest),
+      null,
+    );
     setStatus({ channels: channelsAt, weather: weatherAt, news: newsAt });
     setRadio(await countRadioChannels(session.db));
     const errors: string[] = [];
