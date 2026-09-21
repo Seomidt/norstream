@@ -34,6 +34,30 @@ export const CHANNEL_SYNC_INTERVAL_MS = 24 * 60 * 60_000;
 export const XMLTV_INTERVAL_MS = 24 * 60 * 60_000;
 
 /**
+ * Indbyggede EPG-filer der bruges for ALLE kilder, oven i det brugeren selv har
+ * skrevet ind. Saa er programoversigten bred fra foerste start — panelets egen
+ * EPG daekker sjaeldent de mange kanaler, og de her fylder hullerne paa DK, UK
+ * og US uden at man skal taste noget.
+ *
+ * Kun feeds MAALT til at passe under loftet (40 MB upakket, se
+ * scripts/maal/epgfeeds.mjs). Den fulde US er 156 MB / den store US-cable-fil
+ * 76 MB — for stort til en tv-boks; US daekkes derfor af de gratis FAST-feeds
+ * (nyheder, film, underholdning), ~1.700 kanaler tilsammen, der passer sikkert.
+ */
+const DEFAULT_XMLTV_URLS = [
+  // Danmark — 217 kanaler, 9,9 MB upakket
+  'https://epgshare01.online/epgshare01/epg_ripper_DK1.xml.gz',
+  // Storbritannien — 486 kanaler, 22,4 MB upakket
+  'https://epgshare01.online/epgshare01/epg_ripper_UK1.xml.gz',
+  // USA (FAST) — nyheder + underholdning (CBS/ABC/NBC/FOX news m.fl.), 582 kanaler, 3,0 MB
+  'https://i.mjh.nz/SamsungTVPlus/us.xml.gz',
+  // USA (FAST) — film og serier (AMC, ION m.fl.), 693 kanaler, 14,8 MB
+  'https://i.mjh.nz/Plex/us.xml.gz',
+  // USA (FAST) — Pluto TV, 430 kanaler, 7,4 MB
+  'https://i.mjh.nz/PlutoTV/us.xml.gz',
+];
+
+/**
  * Logo-registret hentes hoejst én gang om ugen.
  *
  * Det er to filer paa tre megabyte hver, og kanallogoer aendrer sig ikke fra
@@ -173,10 +197,10 @@ async function maybeXmltv(
   now: Date,
   force: boolean,
 ): Promise<void> {
-  // Ogsaa for Xtream-kilder: et panel kan sagtens have kanaler uden EPG, og
-  // en XMLTV-adresse ved siden af er den eneste vej til at fylde hullerne.
+  // Koeres for ALLE kilder, ogsaa dem uden egen XMLTV-adresse: de indbyggede
+  // standard-feeds (DK/UK/US) gaelder alle, saa programoversigten er bred fra
+  // start. Et panel har tit kanaler uden EPG, og filerne fylder hullerne.
   const { source } = access;
-  if (source.xmltvUrl === null || source.xmltvUrl.length === 0) return;
 
   const last = await getLastXmltvMs(db, source.id);
   if (!force && last !== null && now.getTime() - last < XMLTV_INTERVAL_MS) return;
@@ -187,8 +211,13 @@ async function maybeXmltv(
   // det en app der fryser ved hver start. EPG er ikke kritisk; ét forsoeg i
   // doegnet er rigeligt, ogsaa naar det gik galt. Naeste doegn proever den igen.
   await setLastXmltvMs(db, source.id, now.getTime());
+  // De indbyggede feeds foerst, saa kildens egne adresser oven i — afdupliceret,
+  // saa den samme adresse ikke hentes to gange. syncXmltv laeser xmltvUrl, saa
+  // vi giver den en kopi af kilden med den sammensatte adresse.
+  const own = (source.xmltvUrl ?? '').split(/[\s,]+/).map((url) => url.trim()).filter((url) => url.length > 0);
+  const merged = [...new Set([...DEFAULT_XMLTV_URLS, ...own])].join(' ');
   try {
-    await syncXmltv(db, source, fetchImpl);
+    await syncXmltv(db, { ...source, xmltvUrl: merged }, fetchImpl);
   } catch {
     // Med vilje: se kommentaren ovenfor. Kanalerne virker uden.
   }
