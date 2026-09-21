@@ -214,11 +214,6 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
                 )}
               </View>
             )}
-            {source.kind === 'm3u' && source.xmltvUrl === null && (
-              <Text style={styles.rowWarn}>
-                Uden en XMLTV-adresse har listen ingen programoversigt.
-              </Text>
-            )}
             {confirmDelete === source.id ? (
               <View style={styles.confirm}>
                 <Text style={styles.rowWarn}>
@@ -294,7 +289,6 @@ function SourceForm({
   const [url, setUrl] = useState(source?.url ?? '');
   const [username, setUsername] = useState(source?.username ?? '');
   const [password, setPassword] = useState(initialPassword ?? '');
-  const [xmltvUrl, setXmltvUrl] = useState(source?.xmltvUrl ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -324,12 +318,10 @@ function SourceForm({
                 url: trimmedUrl,
                 username,
                 password,
-                xmltvUrl,
                 name: label,
               })
             : await editM3u(session.db, session.fetchImpl, source.id, {
                 url: trimmedUrl,
-                xmltvUrl,
                 name: label,
               })
           : isXtream
@@ -337,12 +329,10 @@ function SourceForm({
                 url: trimmedUrl,
                 username,
                 password,
-                xmltvUrl,
                 name: label,
               })
             : await connectM3u(session.db, session.fetchImpl, {
                 url: trimmedUrl,
-                xmltvUrl,
                 name: label,
               });
 
@@ -390,20 +380,6 @@ function SourceForm({
           <Field label="Adgangskode" value={password} onChange={setPassword} secure />
         </>
       )}
-
-      <Field
-        label="XMLTV-adresse(r) (valgfrit)"
-        value={xmltvUrl}
-        onChange={setXmltvUrl}
-        placeholder="http://.../dk.xml.gz  http://.../uk.xml.gz"
-        keyboardType="url"
-      />
-      <Text style={styles.hint}>
-        {isXtream
-          ? 'Panelet leverer selv programoversigt. En XMLTV-adresse her fylder hullerne for de kanaler panelet ikke har data til.'
-          : 'En M3U-liste rummer ingen programoversigt. Uden en XMLTV-adresse står guiden tom for kanalerne herfra.'}
-        {' '}Du kan skrive flere adresser (fx DK, UK og US) adskilt med mellemrum eller komma, og de må gerne være pakkede (.xml.gz).
-      </Text>
 
       {error !== null && <Text style={styles.error}>{error}</Text>}
 

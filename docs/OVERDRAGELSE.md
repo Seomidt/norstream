@@ -23,7 +23,25 @@ telefon mod det rigtige panel, og brugerens ord er "nu er det hele
 efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 `docs/BYG-FRA-CHAT.md`.
 
-### 21. september 2026 — v298: XMLTV-synk fryser ikke længere appen (LÆS DENNE FØRST)
+### 21. september 2026 — v299: XMLTV/EPG-fil-funktionen fjernet igen (LÆS DENNE FØRST)
+
+Efter v298-rettelsen valgte brugeren at **fjerne hele XMLTV/EPG-fil-funktionen**
+igen — den kostede mere uro end den gav. Guiden kører nu **kun** på panelets egen
+EPG (`get_short_epg` per kanal), præcis som før v297.
+
+Fjernet:
+- Den automatiske XMLTV-hentning/parse (`syncXmltv.ts` slettet, `maybeXmltv` ude
+  af `syncAll.ts`). Dermed er frys-vejen helt væk — der hentes og parses aldrig
+  en EPG-fil mere.
+- XMLTV-felterne i UI (onboarding + Redigér panel/M3U) og hintene om dem.
+- Onboarding-gendan fra sky sender **ikke** længere XMLTV med, så en gammel
+  sky-kopi kan ikke bringe adressen tilbage.
+
+Bevaret bevidst (inert, altid null — for at undgå en risikabel skema-migrering):
+`sources.xmltv_url`-kolonnen, `Source.xmltvUrl` i core, `xmltv_logos`-tabellen og
+core's XMLTV-parser. De læses ikke længere af nogen hente-vej.
+
+### 21. september 2026 — v298: XMLTV-synk fryser ikke længere appen
 
 **Fejl indført i v297.** Da flere/store EPG-adresser kom ind, begyndte appen at
 **fryse helt** ved start — også på hotspot uden panel, og også når boksen var
