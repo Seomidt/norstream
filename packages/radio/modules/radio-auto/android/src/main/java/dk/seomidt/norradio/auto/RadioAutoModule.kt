@@ -76,7 +76,16 @@ class RadioAutoModule : Module() {
     }
 
     AsyncFunction("pause") { withController { it.pause() } }
-    AsyncFunction("resume") { withController { it.play() } }
+    // Radio er live: efter en pause maa den ikke afspille den gamle buffer og
+    // saa hoppe til live. Vi kaster bufferen og forbinder forfra ved live-kanten
+    // — samme sekvens som Reconnect bruger. Saa starter den paa live med det samme.
+    AsyncFunction("resume") {
+      withController {
+        it.seekToDefaultPosition()
+        it.prepare()
+        it.play()
+      }
+    }
     AsyncFunction("stop") { withController { it.stop() } }
 
     Function("current") { last }
