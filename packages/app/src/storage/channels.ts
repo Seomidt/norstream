@@ -201,6 +201,24 @@ export async function replaceChannels(
 }
 
 /**
+ * Fjerner kanaler og kategorier fra kilder der ikke findes laengere.
+ *
+ * En slettet kilde ryddes af deleteSource, men rester kan staa tilbage — fx
+ * hvis en sletning blev afbrudt, eller data kom ind under et id der siden er
+ * vaek. Saadanne kanaler roder bare i listen og kan ikke afspilles: kilden bag
+ * dem er der ikke. Koeres ved hver synkronisering, saa listen ikke kan samle
+ * spoegelseskanaler fra en fil man har fjernet.
+ *
+ * Deaktiverede kilder staar stadig i `sources` og roeres IKKE — kun kilder der
+ * er helt slettet. Favoritter/EPG for saadanne kanaler er harmloese (de peger
+ * bare paa intet) og ryddes af deres egne veje; her fjernes det synlige rod.
+ */
+export async function deleteOrphanedChannelData(db: SqlDatabase): Promise<void> {
+  await db.runAsync('DELETE FROM channels WHERE source_id NOT IN (SELECT id FROM sources)');
+  await db.runAsync('DELETE FROM categories WHERE source_id NOT IN (SELECT id FROM sources)');
+}
+
+/**
  * Hvor denne kildes kanaler skal begynde i den samlede raekkefoelge.
  *
  * Kilderne staar efter hinanden frem for blandet imellem hinanden: rakte de

@@ -6,6 +6,7 @@ import { addSource } from './sources.js';
 import { createTestDatabase } from './testDb.js';
 import type { SqlDatabase } from './types.js';
 import {
+  deleteOrphanedChannelData,
   getChannel,
   getChannelsByIds,
   listCategories,
@@ -168,6 +169,30 @@ describe('getChannelsByIds', () => {
 
   it('tom liste giver et tomt opslag', async () => {
     expect((await getChannelsByIds(db, [])).size).toBe(0);
+  });
+});
+
+describe('deleteOrphanedChannelData', () => {
+  it('fjerner kanaler fra en slettet kilde, men beholder de oevrige', async () => {
+    const a = await addSource(db, { kind: 'm3u', name: 'A', url: 'http://a' });
+    const b = await addSource(db, { kind: 'm3u', name: 'B', url: 'http://b' });
+    await replaceChannels(db, a.id, [channel({ id: '1', name: 'A1' })]);
+    await replaceChannels(db, b.id, [channel({ id: '1', name: 'B1' })]);
+
+    // Simulér rester: kildens raekke er vaek, men kanalerne staar tilbage.
+    await db.runAsync('DELETE FROM sources WHERE id = ?', [b.id]);
+    await deleteOrphanedChannelData(db);
+
+    const names = (await listChannels(db)).map((c) => c.name);
+    expect(names).toContain('A1');
+    expect(names).not.toContain('B1');
+  });
+
+  it('roerer ikke kanaler hvis alle kilder findes', async () => {
+    const a = await addSource(db, { kind: 'm3u', name: 'A', url: 'http://a' });
+    await replaceChannels(db, a.id, [channel({ id: '1', name: 'A1' })]);
+    await deleteOrphanedChannelData(db);
+    expect((await listChannels(db)).map((c) => c.name)).toEqual(['A1']);
   });
 });
 

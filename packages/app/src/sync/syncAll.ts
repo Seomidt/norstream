@@ -8,6 +8,7 @@ import {
   getLogoRegistryEnabled,
   setRegistryError,
 } from '../storage/settings.js';
+import { deleteOrphanedChannelData } from '../storage/channels.js';
 import { checkLogoHosts } from './logoHosts.js';
 import { syncChannels } from './syncChannels.js';
 import { syncM3u } from './syncM3u.js';
@@ -62,6 +63,14 @@ export async function syncAllSources(
   const now = options.now ?? new Date();
   const force = options.force === true;
   const result: SyncAllResult = { synced: 0, skipped: 0, rejected: [], failed: [] };
+
+  // Ryd rester fra kilder der er slettet: en fil man har fjernet maa ikke blive
+  // ved med at rode i kanallisten. Maa aldrig kunne vaelte selve hentningen.
+  try {
+    await deleteOrphanedChannelData(db);
+  } catch {
+    // Med vilje: oprydningen er en ekstra sikkerhed, ikke en forudsaetning.
+  }
 
   for (const access of sources) {
     // Hver kilde har sin egen doegnrytme. Med én faelles ville en nyligt
