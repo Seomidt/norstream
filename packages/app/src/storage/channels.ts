@@ -7,6 +7,7 @@ import {
 } from '@norstream/core';
 import type { Category, Channel } from '@norstream/core';
 import { deadLogoOrigins } from './logoHosts.js';
+import { invalidateQueryCache } from './queryCache.js';
 import { withTransaction } from './transaction.js';
 import type { SqlDatabase, SqlValue } from './types.js';
 
@@ -198,6 +199,8 @@ export async function replaceChannels(
   // den nye liste. En anden kildes kanaler maa ikke ryge med.
   await db.runAsync('DELETE FROM channels WHERE is_stale = 1 AND source_id = ?', [sourceId]);
   });
+  // Kanallisten er skiftet: kast de cachede lande-/kategori-opslag vaek.
+  invalidateQueryCache();
 }
 
 /**
@@ -216,6 +219,7 @@ export async function replaceChannels(
 export async function deleteOrphanedChannelData(db: SqlDatabase): Promise<void> {
   await db.runAsync('DELETE FROM channels WHERE source_id NOT IN (SELECT id FROM sources)');
   await db.runAsync('DELETE FROM categories WHERE source_id NOT IN (SELECT id FROM sources)');
+  invalidateQueryCache();
 }
 
 /**

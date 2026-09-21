@@ -1,5 +1,6 @@
 import { deriveCountryLoose } from '@norstream/core';
 import type { Country } from '@norstream/core';
+import { cachedQuery } from './queryCache.js';
 import type { SqlDatabase } from './types.js';
 
 /**
@@ -112,28 +113,34 @@ async function countriesFromChannels(db: SqlDatabase): Promise<Map<string, Count
  * garanti som spec'en giver for skjulte lande.
  */
 export async function listCategorySummaries(db: SqlDatabase): Promise<CategorySummary[]> {
-  const rows = await db.getAllAsync<CategoryRow>(
-    `SELECT c.id, c.name, COUNT(ch.id) AS channel_count
-     FROM categories c
-     LEFT JOIN channels ch ON ch.category_id = c.id
-     GROUP BY c.id, c.name
-     ORDER BY c.name`,
-  );
+  // Cachet: det er appens tungeste opslag (vindues-scan over ALLE kanaler +
+  // landeudledning), og det kaldes baade af landelisten og kategorilisten, ved
+  // hvert fane-skift til Browse. Dataene aendrer sig kun ved en synk, saa
+  // invalidateQueryCache i replaceChannels rydder det naar kanalerne skifter.
+  return cachedQuery('categorySummaries', async () => {
+    const rows = await db.getAllAsync<CategoryRow>(
+      `SELECT c.id, c.name, COUNT(ch.id) AS channel_count
+       FROM categories c
+       LEFT JOIN channels ch ON ch.category_id = c.id
+       GROUP BY c.id, c.name
+       ORDER BY c.name`,
+    );
 
-  // Kanalnavnene bruges kun som anden udvej: kategorinavnet er panelets egen
-  // gruppering, og en enkelt fejlmaerket kanal maa ikke kunne flytte hele
-  // kategorien under et andet flag.
-  const fromChannels = await countriesFromChannels(db);
+    // Kanalnavnene bruges kun som anden udvej: kategorinavnet er panelets egen
+    // gruppering, og en enkelt fejlmaerket kanal maa ikke kunne flytte hele
+    // kategorien under et andet flag.
+    const fromChannels = await countriesFromChannels(db);
 
-  return rows.map((row) => {
-    const country = deriveCountryLoose(row.name) ?? fromChannels.get(row.id) ?? null;
-    return {
-      id: row.id,
-      name: row.name,
-      channelCount: row.channel_count,
-      countryKey: country?.code ?? OTHER_COUNTRY_KEY,
-      country,
-    };
+    return rows.map((row) => {
+      const country = deriveCountryLoose(row.name) ?? fromChannels.get(row.id) ?? null;
+      return {
+        id: row.id,
+        name: row.name,
+        channelCount: row.channel_count,
+        countryKey: country?.code ?? OTHER_COUNTRY_KEY,
+        country,
+      };
+    });
   });
 }
 

@@ -217,10 +217,15 @@ export function ChannelList({
     loadVisibleRef.current = loadVisible;
   }, [loadVisible]);
 
+  // Fyrede onViewableItemsChanged allerede for denne liste? Saa skal
+  // mount-fallbacken IKKE ogsaa hente — ellers laeste listen den foerste
+  // skaermfuld to gange (to nowTitlesFor + to ensureEpg over de samme kanaler).
+  const sawViewables = useRef(false);
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
   const onViewableItemsChanged = useRef(
     (info: { viewableItems: { item: StoredChannel }[] }): void => {
       const items = info.viewableItems.map((entry) => entry.item).filter(Boolean);
+      sawViewables.current = true;
       // Paa tv foelger previewet den raekke der har fokus (onFocus), ikke
       // den oeverste synlige: ellers viste det TLC mens man stod paa DK4.
       if (!isTV) setPreviewChannel(items[0] ?? null);
@@ -230,16 +235,21 @@ export function ChannelList({
 
   // Foerste skaermfuld: onViewableItemsChanged fyrer ikke altid ved montering,
   // og uden dette ville listen staa med "Ingen programdata" til man rullede.
+  // Men den er nu en FALLBACK: vi venter én tegning, og har onViewableItems-
+  // Changed fyret imens, springer vi den over (ellers dobbelt-load).
   useEffect(() => {
+    sawViewables.current = false;
     const first = shown.slice(0, 15);
     if (first.length === 0) return;
     setPreviewChannel(first[0] ?? null);
-    void loadVisibleRef.current(first.map((channel) => channel.id));
+    const frame = requestAnimationFrame(() => {
+      if (!sawViewables.current) void loadVisibleRef.current(first.map((channel) => channel.id));
+    });
+    return () => cancelAnimationFrame(frame);
     // IKKE `dialects` som afhaengighed: den lander et oejeblik efter
     // monteringen, og var den med, hentede listen alle nu-titler forfra én
-    // gang til lige efter — "som om den laeser alt to gange". Slaar filteret
-    // til og dialekterne aendrer `shown`, henter onViewableItemsChanged de
-    // synlige raekker.
+    // gang til lige efter. Slaar filteret til og dialekterne aendrer `shown`,
+    // henter onViewableItemsChanged de synlige raekker.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channels, restartOnly]);
 

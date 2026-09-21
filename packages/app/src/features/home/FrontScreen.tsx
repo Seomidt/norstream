@@ -231,7 +231,10 @@ export function FrontScreen({
 
   useEffect(() => {
     void loadLocal();
-  }, [loadLocal, reloadToken, refreshing]);
+    // IKKE `refreshing`: den skifter false->true->false ved traek-ned og fik
+    // loadLocal til at koere to gange. Genindlaesning efter en synk sker via
+    // reloadToken (haeves kun naar noget faktisk blev hentet).
+  }, [loadLocal, reloadToken]);
 
   // Hylderne fra TMDB, naar der er en noegle. Hver tjeneste for sig, saa
   // den foerste staar der mens de naeste hentes.

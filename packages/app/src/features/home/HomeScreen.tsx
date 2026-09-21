@@ -83,6 +83,12 @@ export type Tab = 'home' | 'favorites' | 'browse' | 'guide' | 'vod' | 'radio' | 
 /** Tryk paa fjernbetjeningen der kan have flyttet fokus ind i eller langs menusoejlen. */
 const RAIL_KEYS = new Set(['left', 'longLeft', 'up', 'longUp', 'down', 'longDown']);
 
+// Stabile standard-niveauer. Foer var de inline-objekter (`{ name: 'countries' }`),
+// altsaa en ny reference ved HVER HomeScreen-render — og saa genindlaeste Browse
+// (og VOD) sit tungeste opslag hver gang forsiden tegnede sig om.
+const DEFAULT_BROWSE_LEVEL: Level = { name: 'countries' };
+const DEFAULT_VOD_LEVEL: VodLevel = { name: 'home' };
+
 const TABS: { id: Tab; label: string; icon: string }[] = [
   // Det man bruger hver dag oeverst. Favoritter staar lige under Guide —
   // de to hoerer sammen (guiden viser netop favoritterne), saa man kan
@@ -297,7 +303,10 @@ export function HomeScreen({
         force,
       });
       if (result.rejected.length > 0) setRejected(true);
-      setFavoritesToken((value) => value + 1);
+      // Kun naar noget FAKTISK blev hentet. Foer blev token'en haevet ved hver
+      // synk — ogsaa naar alt var friskt og blev sprunget over — og saa
+      // genindlaeste forsiden ALT en ekstra gang ved hver app-start.
+      if (result.synced > 0) setFavoritesToken((value) => value + 1);
 
       // Bagefter, og uden at nogen venter paa det: favoritternes programtabel
       // for det naeste doegn, saa guiden er fyldt naar den aabnes. Fejler det,
@@ -605,7 +614,7 @@ export function HomeScreen({
             previewHandle={previewHandle}
             onPickLogo={pickLogo}
             onFavoritesChanged={() => setFavoritesToken((value) => value + 1)}
-            level={place.browse ?? { name: 'countries' }}
+            level={place.browse ?? DEFAULT_BROWSE_LEVEL}
             onLevelChange={(level) => onPlaceChange({ ...place, browse: level })}
             focusFirstSignal={enterSignal}
           />
@@ -627,7 +636,7 @@ export function HomeScreen({
           <View style={[styles.body, tab !== 'vod' && styles.hiddenTab]}>
           <VodScreen
             session={session}
-            level={place.vod ?? { name: 'home' }}
+            level={place.vod ?? DEFAULT_VOD_LEVEL}
             onLevelChange={(level) => onPlaceChange({ ...place, vod: level })}
             onOpen={onOpenVod}
             onTrailer={onTrailer}

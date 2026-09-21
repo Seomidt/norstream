@@ -5,6 +5,7 @@ import { originOf } from '@norstream/core';
 import { OTHER_COUNTRY_FLAG, OTHER_COUNTRY_KEY } from './countries.js';
 import { deadLogoOrigins } from './logoHosts.js';
 import type { CountryGroup } from './countries.js';
+import { cachedQuery, invalidateQueryCache } from './queryCache.js';
 import { withTransaction } from './transaction.js';
 import type { SqlDatabase, SqlValue } from './types.js';
 
@@ -131,6 +132,7 @@ export async function replaceVodCategories(
       );
     }
   });
+  invalidateQueryCache();
 }
 
 /**
@@ -177,6 +179,7 @@ export async function replaceVodItems(
       );
     }
   });
+  invalidateQueryCache();
 }
 
 /** Alle kategorier af den ene slags, med antal og udledt land, i ét opslag. */
@@ -184,6 +187,9 @@ export async function listVodCategorySummaries(
   db: SqlDatabase,
   kind: VodKind,
 ): Promise<VodCategorySummary[]> {
+  // Cachet som kanalernes: delt af VOD-lande og -kategorier, aendrer sig kun ved
+  // en synk (invalidateQueryCache i replaceVodItems/-Categories).
+  return cachedQuery(`vodCategorySummaries:${kind}`, async () => {
   const rows = await db.getAllAsync<{ id: string; name: string; item_count: number }>(
     `SELECT c.id, c.name, COUNT(i.key) AS item_count
      FROM vod_categories c
@@ -206,6 +212,7 @@ export async function listVodCategorySummaries(
       countryKey: country?.code ?? OTHER_COUNTRY_KEY,
       country,
     };
+  });
   });
 }
 
