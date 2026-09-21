@@ -26,6 +26,15 @@ function toProgramme(row: ProgrammeRow): Programme {
  */
 const UPSERT_CHUNK = 180;
 
+/**
+ * Raekker per transaktion. En stor EPG-hentning skriver titusinder af raekker,
+ * og SQLite lader **ingen laesning** komme forbi en aaben skrivning: laa det i
+ * én transaktion, stod menuer, guide og lister og ventede paa den ("appen
+ * foeles tung"). Ved at commite i klumper og give traaden luft imellem kan
+ * laesningerne smutte ind mellem transaktionerne.
+ */
+const TX_ROWS = 1800;
+
 export async function upsertProgrammes(
   db: SqlDatabase,
   programmes: Programme[],
@@ -40,29 +49,33 @@ export async function upsertProgrammes(
   for (const p of programmes) byKey.set(`${p.channelId}\u0000${p.start.getTime()}`, p);
   const rows = [...byKey.values()];
 
-  // Én transaktion, men faa fler-raekkers INSERTs i stedet for én runAsync per
-  // program: en fuld dagstabel er hundreder af raekker per kanal, og et opslag
-  // over hele guiden var titusinder af broveksler mellem JS og SQLite. Nu er det
-  // nogle faa skrivninger.
-  await withTransaction(db, async () => {
-    for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
-      const slice = rows.slice(i, i + UPSERT_CHUNK);
-      const placeholders = slice.map(() => '(?, ?, ?, ?, ?)').join(', ');
-      const args: (string | number | null)[] = [];
-      for (const p of slice) {
-        args.push(p.channelId, p.start.getTime(), p.stop.getTime(), p.title, p.description);
+  // Flere smaa transaktioner frem for én stor (se TX_ROWS). Inden i hver:
+  // faa fler-raekkers INSERTs frem for én runAsync per program. En lille
+  // hentning (nu-og-naeste, ~12 raekker) er stadig én transaktion.
+  for (let start = 0; start < rows.length; start += TX_ROWS) {
+    const txRows = rows.slice(start, start + TX_ROWS);
+    await withTransaction(db, async () => {
+      for (let i = 0; i < txRows.length; i += UPSERT_CHUNK) {
+        const slice = txRows.slice(i, i + UPSERT_CHUNK);
+        const placeholders = slice.map(() => '(?, ?, ?, ?, ?)').join(', ');
+        const args: (string | number | null)[] = [];
+        for (const p of slice) {
+          args.push(p.channelId, p.start.getTime(), p.stop.getTime(), p.title, p.description);
+        }
+        await db.runAsync(
+          `INSERT INTO programmes (channel_id, start_ms, stop_ms, title, description)
+           VALUES ${placeholders}
+           ON CONFLICT(channel_id, start_ms) DO UPDATE SET
+             stop_ms     = excluded.stop_ms,
+             title       = excluded.title,
+             description = excluded.description`,
+          args,
+        );
       }
-      await db.runAsync(
-        `INSERT INTO programmes (channel_id, start_ms, stop_ms, title, description)
-         VALUES ${placeholders}
-         ON CONFLICT(channel_id, start_ms) DO UPDATE SET
-           stop_ms     = excluded.stop_ms,
-           title       = excluded.title,
-           description = excluded.description`,
-        args,
-      );
-    }
-  });
+    });
+    // Luft mellem transaktionerne, saa laesninger kan komme til.
+    if (start + TX_ROWS < rows.length) await new Promise((resolve) => setTimeout(resolve, 0));
+  }
 }
 
 /**

@@ -53,13 +53,14 @@ describe('upsertProgrammes', () => {
     expect(list[0]?.title).toBe('Sidste');
   });
 
-  it('skriver mange raekker i ét kald (over batch-klumpen)', async () => {
-    const many = Array.from({ length: 200 }, (_, i) => prog('dr1', i, i + 1, `P${i}`));
+  it('skriver mange raekker i ét kald (over baade batch- og transaktions-klumpen)', async () => {
+    // Over 1800 raekker, saa det gaar gennem flere transaktioner.
+    const many = Array.from({ length: 2000 }, (_, i) => prog('dr1', i, i + 1, `P${i}`));
     await upsertProgrammes(db, many);
-    const list = await listProgrammes(db, 'dr1', T(0), T(200));
-    expect(list).toHaveLength(200);
+    const list = await listProgrammes(db, 'dr1', T(0), T(2001));
+    expect(list).toHaveLength(2000);
     expect(list[0]?.title).toBe('P0');
-    expect(list[199]?.title).toBe('P199');
+    expect(list[1999]?.title).toBe('P1999');
   });
 
   it('bevarer beskrivelsen', async () => {
