@@ -23,7 +23,31 @@ telefon mod det rigtige panel, og brugerens ord er "nu er det hele
 efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 `docs/BYG-FRA-CHAT.md`.
 
-### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser (LÆS DENNE FØRST)
+### 21. september 2026 — v298: XMLTV-synk fryser ikke længere appen (LÆS DENNE FØRST)
+
+**Fejl indført i v297.** Da flere/store EPG-adresser kom ind, begyndte appen at
+**fryse helt** ved start — også på hotspot uden panel, og også når boksen var
+på kabel (så "sluk wifi" tog den ikke af nettet). Roden: en samlet
+programoversigt (DK+UK ~30 MB tekst) blev pakket ud og **parset synkront på
+hovedtråden** ved hver app-start. På en tv-boks er det sekunder hvor intet kan
+klikkes. Og fejlede/afbrødes parsen, blev "sidst hentet" aldrig sat, så den
+prøvede forfra **hver eneste gang** appen åbnede → permanent frys.
+
+To rettelser (`syncXmltv.ts` + `syncAll.ts`):
+- **Filen fodres til parseren i bidder** (256 KB) med et `setTimeout(0)`
+  imellem, så UI'en når at tegne og reagere undervejs. Parseren beholder selv en
+  hale mellem bidder, så elementer delt over to bidder ikke tabes.
+- **"Sidst hentet" sættes FØR hentningen**, ikke efter. Dør/afbrydes appen midt
+  i en tung parse, prøver den ikke forfra ved næste start — ét forsøg i døgnet,
+  også når det gik galt.
+
+En allerede-frossen boks helbredes ved at **sideloade v298-APK'en** (den frosne
+app blokerer ikke installationen). Nødløsning uden ny APK: tag boksen **helt** af
+nettet (kabel + wifi), åbn appen, ryd XMLTV-feltet under Redigér panel, sæt nettet
+til igen — men gendan **ikke** fra skyen bagefter, for sikkerhedskopien indeholder
+selv XMLTV-adressen.
+
+### 17.–18. september 2026 — selv-opdatering, sky-backup, tv-rettelser
 
 Nyeste udgave: **versionCode 297** (tv og telefon), udgivet i skyen. Udgaver
 nummereres nu med `expo.android.versionCode` i `packages/app/app.json` — **hæv
