@@ -51,6 +51,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
   const [baseUrl, setBaseUrl] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [xmltvUrl, setXmltvUrl] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +98,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
         if (source.kind === 'm3u') {
           const result = await connectM3u(db, fetchImpl, {
             url: source.url,
+            xmltvUrl: source.xmltvUrl ?? undefined,
             name: source.name,
           });
           if (result.ok) connected = true;
@@ -105,6 +107,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
             url: source.url,
             username: source.username ?? '',
             password: source.password,
+            xmltvUrl: source.xmltvUrl ?? undefined,
             name: source.name,
           });
           if (result.ok) connected = true;
@@ -139,8 +142,9 @@ export function OnboardingScreen({ onDone, notice }: Props) {
             url: baseUrl,
             username,
             password,
+            xmltvUrl,
           })
-        : await connectM3u(db, fetchImpl, { url: baseUrl });
+        : await connectM3u(db, fetchImpl, { url: baseUrl, xmltvUrl });
 
       if (!result.ok) {
         setError(result.message);
@@ -285,6 +289,26 @@ export function OnboardingScreen({ onDone, notice }: Props) {
                   </>
                 )}
 
+                <TvTextInput
+                  style={inputStyle}
+                  onSubmitEditing={submitFromField}
+                  returnKeyType="go"
+                  blurOnSubmit={false}
+                  placeholder="XMLTV-adresse (valgfri)"
+                  placeholderTextColor={colors.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  inputMode="url"
+                  value={xmltvUrl}
+                  onChangeText={setXmltvUrl}
+                />
+                {!isTV && (
+                  <Text style={styles.hint}>
+                    {isPanel
+                      ? 'Panelet leverer selv programoversigt. En XMLTV-adresse fylder hullerne for de kanaler panelet ikke har data til.'
+                      : 'En M3U-liste rummer ingen programoversigt. Uden en XMLTV-adresse står guiden tom for kanalerne herfra.'}
+                  </Text>
+                )}
               </>
             )}
 

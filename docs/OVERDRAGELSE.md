@@ -23,23 +23,16 @@ telefon mod det rigtige panel, og brugerens ord er "nu er det hele
 efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 `docs/BYG-FRA-CHAT.md`.
 
-### 21. september 2026 — v299: XMLTV/EPG-fil-funktionen fjernet igen (LÆS DENNE FØRST)
+### 21. september 2026 — v305: XMLTV/EPG-filer tilbage igen (LÆS DENNE FØRST)
 
-Efter v298-rettelsen valgte brugeren at **fjerne hele XMLTV/EPG-fil-funktionen**
-igen — den kostede mere uro end den gav. Guiden kører nu **kun** på panelets egen
-EPG (`get_short_epg` per kanal), præcis som før v297.
-
-Fjernet:
-- Den automatiske XMLTV-hentning/parse (`syncXmltv.ts` slettet, `maybeXmltv` ude
-  af `syncAll.ts`). Dermed er frys-vejen helt væk — der hentes og parses aldrig
-  en EPG-fil mere.
-- XMLTV-felterne i UI (onboarding + Redigér panel/M3U) og hintene om dem.
-- Onboarding-gendan fra sky sender **ikke** længere XMLTV med, så en gammel
-  sky-kopi kan ikke bringe adressen tilbage.
-
-Bevaret bevidst (inert, altid null — for at undgå en risikabel skema-migrering):
-`sources.xmltv_url`-kolonnen, `Source.xmltvUrl` i core, `xmltv_logos`-tabellen og
-core's XMLTV-parser. De læses ikke længere af nogen hente-vej.
+XMLTV blev fjernet i v299 (frøs appen), men det tog **for meget EPG** med:
+brugeren manglede programoversigt på de mange kanaler panelet ikke selv har
+data til — dem fyldte EPG-filen. Frysningen er rettet (v298: læses i bidder), så
+funktionen er **taget ind igen** (git-revert af v299). Konkret er tilbage:
+`syncXmltv.ts` (med chunked-parsing), `maybeXmltv` i `syncAll.ts` (sætter "sidst
+hentet" før hentningen), XMLTV-felterne i UI (onboarding + Redigér panel/M3U),
+og at sky-gendan tager XMLTV med. De gemte EPG-adresser lå urørt i databasen, så
+oversigten fylder sig selv op igen ved næste Hent.
 
 ### 21. september 2026 — v298: XMLTV-synk fryser ikke længere appen
 

@@ -4,8 +4,10 @@ import type { SourceAccess } from '../sources/access.js';
 import type { SqlDatabase } from '../storage/types.js';
 import {
   getLastSyncMs,
+  getLastXmltvMs,
   setLastSyncMs,
   getLogoRegistryEnabled,
+  setLastXmltvMs,
   setRegistryError,
 } from '../storage/settings.js';
 import { deleteOrphanedChannelData } from '../storage/channels.js';
@@ -16,9 +18,20 @@ import { syncVod } from './syncVod.js';
 import { refreshFollowedSeries } from './vodDetails.js';
 import { syncLogoRegistry } from './syncLogoRegistry.js';
 import { forgetLogoMisses } from '../ui/logoCache.js';
+import { syncXmltv } from './syncXmltv.js';
 
 /** Kanallisten hentes hoejst én gang i doegnet af sig selv. */
 export const CHANNEL_SYNC_INTERVAL_MS = 24 * 60 * 60_000;
+
+/**
+ * Programoversigten for en M3U-kilde hentes ogsaa hoejst én gang i doegnet.
+ *
+ * Xtream-kilder er ikke med her: deres EPG hentes per kanal og kun for de
+ * raekker der er fremme, med sin egen friskhed paa en halv time. En XMLTV-fil
+ * er derimod alt-eller-intet — den daekker hele listen paa én gang, og der er
+ * ingen grund til at hente den oftere end programmerne aendrer sig.
+ */
+export const XMLTV_INTERVAL_MS = 24 * 60 * 60_000;
 
 /**
  * Logo-registret hentes hoejst én gang om ugen.
@@ -79,14 +92,17 @@ export async function syncAllSources(
     const fresh = last !== null && now.getTime() - last < CHANNEL_SYNC_INTERVAL_MS;
     if (!force && fresh) {
       result.skipped += 1;
+      await maybeXmltv(db, access, fetchImpl, now, force);
       continue;
     }
 
     try {
       if (access.source.kind === 'm3u') {
         await syncM3u(db, access.source, fetchImpl, now);
+        await maybeXmltv(db, access, fetchImpl, now, true);
       } else if (access.creds !== null) {
         await syncChannels(db, access.source.id, access.creds, fetchImpl, now);
+        await maybeXmltv(db, access, fetchImpl, now, true);
         // Film og serier foelger kanalernes doegnrytme. Fejler de, staar
         // kanalerne stadig — `syncVod` sluger selv sine fejl per slags.
         await syncVod(db, access.source.id, access.creds, fetchImpl, now);
@@ -141,6 +157,41 @@ export async function refreshLogoRegistry(
   now: Date = new Date(),
 ): Promise<void> {
   await maybeRegistry(db, fetchImpl, now, true);
+}
+
+/**
+ * Henter kildens XMLTV-programoversigt hvis den har en og den er blevet gammel.
+ *
+ * Fejler den, gaar det ikke ud over kanalerne: en liste uden programoversigt
+ * er stadig en liste man kan se tv fra. Fejlen samles op af kalderen gennem
+ * `failed`, saa den kan siges.
+ */
+async function maybeXmltv(
+  db: SqlDatabase,
+  access: SourceAccess,
+  fetchImpl: FetchLike,
+  now: Date,
+  force: boolean,
+): Promise<void> {
+  // Ogsaa for Xtream-kilder: et panel kan sagtens have kanaler uden EPG, og
+  // en XMLTV-adresse ved siden af er den eneste vej til at fylde hullerne.
+  const { source } = access;
+  if (source.xmltvUrl === null || source.xmltvUrl.length === 0) return;
+
+  const last = await getLastXmltvMs(db, source.id);
+  if (!force && last !== null && now.getTime() - last < XMLTV_INTERVAL_MS) return;
+
+  // Marker forsoeget **foer** hentningen, ikke efter. Ellers: doer eller
+  // afbrydes appen midt i en stor parse, blev "sidst hentet" aldrig sat — og
+  // saa proever den forfra hver eneste gang appen aabnes. Med en tung fil er
+  // det en app der fryser ved hver start. EPG er ikke kritisk; ét forsoeg i
+  // doegnet er rigeligt, ogsaa naar det gik galt. Naeste doegn proever den igen.
+  await setLastXmltvMs(db, source.id, now.getTime());
+  try {
+    await syncXmltv(db, source, fetchImpl);
+  } catch {
+    // Med vilje: se kommentaren ovenfor. Kanalerne virker uden.
+  }
 }
 
 /**
