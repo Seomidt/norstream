@@ -7,25 +7,32 @@ import { gunzipSync } from 'node:zlib';
 const UA =
   'Mozilla/5.0 (Linux; Android 12; NorStream) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
 
-const CANDIDATES = [
-  // epgshare01 — per land (pakket .gz)
+// Foerst: hvad hedder epgshare01's US-filer overhovedet? US1 gav 404, saa
+// listen er skiftet. Vi henter mappeoversigten og trekker US-.gz-navnene ud.
+async function discoverEpgshare01Us() {
+  const r = await get('https://epgshare01.online/epgshare01/');
+  if (r.status !== 200) {
+    console.log(`\n# epgshare01 index status=${r.status} error=${r.error ?? ''}`);
+    return [];
+  }
+  const html = r.buf.toString('utf8');
+  const files = [...html.matchAll(/href="([^"]*epg_ripper_US[^"]*\.xml\.gz)"/gi)].map((m) => m[1]);
+  const uniq = [...new Set(files)].map((f) => (f.startsWith('http') ? f : `https://epgshare01.online/epgshare01/${f.replace(/^.*\//, '')}`));
+  console.log(`\n# epgshare01 US-filer fundet: ${uniq.length}`);
+  for (const u of uniq) console.log(`  - ${u}`);
+  return uniq;
+}
+
+const BASE = [
+  // Passer allerede — med til sammenligning
   'https://epgshare01.online/epgshare01/epg_ripper_DK1.xml.gz',
   'https://epgshare01.online/epgshare01/epg_ripper_UK1.xml.gz',
-  'https://epgshare01.online/epgshare01/epg_ripper_US1.xml.gz',
-  'https://epgshare01.online/epgshare01/epg_ripper_US_LOCALS2.xml.gz',
-  // epg.pw — per land
-  'https://epg.pw/xmltv/epg_DK.xml.gz',
   'https://epg.pw/xmltv/epg_GB.xml.gz',
-  'https://epg.pw/xmltv/epg_US.xml.gz',
-  'https://epg.pw/xmltv/epg_DK.xml',
-  'https://epg.pw/xmltv/epg_GB.xml',
-  // iptv-org (per land, upakket)
-  'https://iptv-org.github.io/epg/guides/dk.xml',
-  'https://iptv-org.github.io/epg/guides/uk.xml',
-  'https://iptv-org.github.io/epg/guides/us.xml',
-  // i.mjh.nz (UK Freeview som eksempel)
-  'https://i.mjh.nz/DVB-T/UK.xml.gz',
+  // US-kandidater der maaske er en brugbar delmaengde (ikke hele 156 MB)
   'https://i.mjh.nz/PlutoTV/us.xml.gz',
+  'https://i.mjh.nz/SamsungTVPlus/us.xml.gz',
+  'https://i.mjh.nz/Plex/us.xml.gz',
+  'https://i.mjh.nz/Roku/us.xml.gz',
 ];
 
 async function get(url) {
@@ -50,6 +57,9 @@ function summarise(xml) {
     .map((m) => (m[1] ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40));
   return { channels, programmes, names };
 }
+
+const usFiles = await discoverEpgshare01Us();
+const CANDIDATES = [...BASE, ...usFiles];
 
 for (const url of CANDIDATES) {
   const r = await get(url);
