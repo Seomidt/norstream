@@ -38,6 +38,22 @@ const AUTO_HIDE_MS = 5_000;
 export type PlayerKey = 'select' | 'left' | 'right' | 'playPause' | 'rewind' | 'fastForward';
 
 /**
+ * De haendelser der taeller som et rigtigt fjernbetjeningstryk.
+ *
+ * Kun disse viser bjaelken OG giver auto-skjul-uret ny tid. Alt andet
+ * (fokus/blur, og navnlig `pan` fra en beroeringsfjernbetjening der driver i
+ * tomgang) ignoreres — ellers blev 5-sekunders-uret nulstillet konstant af
+ * haendelser brugeren ikke selv sendte, og bjaelken blev staaende for evigt
+ * midt i en film.
+ */
+const REMOTE_KEYS = new Set([
+  'up', 'down', 'left', 'right', 'select', 'longSelect',
+  'longUp', 'longDown', 'longLeft', 'longRight',
+  'playPause', 'rewind', 'fastForward', 'skipForward', 'skipBackward', 'next', 'previous',
+  'swipeUp', 'swipeDown', 'swipeLeft', 'swipeRight',
+]);
+
+/**
  * Skaermen holdes vaagen, men kun mens der afspilles (Google TV-BY: ved
  * pause maa fjernsynet gaa i pauseskaerm). En egen komponent, saa
  * useKeepAwake kan slaas til og fra ved at montere den.
@@ -92,6 +108,11 @@ export function LandscapePlayer({
     const keyUp = event.eventKeyAction === undefined || Number(event.eventKeyAction) !== 0;
     if (!keyUp) return;
     const type = event.eventType;
+
+    // Kun rigtige fjernbetjeningstryk taeller. En tomgangs-haendelse (fx `pan`
+    // fra en beroeringsfjernbetjening) maa hverken vise bjaelken eller nulstille
+    // auto-skjul-uret — ellers blev bjaelken staaende for evigt under en film.
+    if (!REMOTE_KEYS.has(type)) return;
 
     // Pil venstre/hoejre mens bjaelken er skjult: zap til forrige/naeste kanal
     // (eller spoling i arkivet). Blev tasten brugt, henter vi IKKE bjaelken frem
