@@ -23,7 +23,25 @@ telefon mod det rigtige panel, og brugerens ord er "nu er det hele
 efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 `docs/BYG-FRA-CHAT.md`.
 
-### 21. september 2026 — v305: XMLTV/EPG-filer tilbage igen (LÆS DENNE FØRST)
+### 22. september 2026 — v310: favoritter forsvinder ikke længere når id'er skifter (LÆS DENNE FØRST)
+
+Brugeren tilføjede en ny testfil ved siden af sin faste ("Hakuna"), og
+**hele hans favoritliste var væk** bagefter. Guiden viser kun favoritter, så
+guiden stod også tom. Rod: en favorit pegede kun på kanalens id
+(`kilde:kanal-id`). Skifter panelet sine `stream_id`'er — eller udleder en
+M3U dem anderledes efter en opdatering — findes kanalen ikke længere under det
+id, og favoritten forsvandt stille (listen bygges fra kanalerne).
+
+Rettelse (skema v23): `favorites.match_key` gemmer kanalens normaliserede
+navn på selve favoritten. `relinkOrphanedFavorites` (kaldt ved hver synk)
+gen-hægter en forældreløs favorit til kanalen med **samme navn i samme kilde**.
+Migrationen fylder navnet ud for eksisterende favoritter hvis kanal stadig
+findes; favoritter hvis kanal allerede var væk kan ikke reddes af koden (navnet
+stod kun på kanalen) og skal hentes fra en sky-backup — gendan matcher på navn.
+
+Se også v309 (kanaler grupperet efter fil; fravalgt fil ryddes ved næste hentning).
+
+### 21. september 2026 — v305: XMLTV/EPG-filer tilbage igen
 
 XMLTV blev fjernet i v299 (frøs appen), men det tog **for meget EPG** med:
 brugeren manglede programoversigt på de mange kanaler panelet ikke selv har

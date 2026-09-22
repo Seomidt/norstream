@@ -12,7 +12,7 @@ import {
   setLastXmltvMs,
   setRegistryError,
 } from '../storage/settings.js';
-import { deleteOrphanedChannelData } from '../storage/channels.js';
+import { deleteOrphanedChannelData, relinkOrphanedFavorites } from '../storage/channels.js';
 import { purgeDisabledSourceData } from '../storage/sources.js';
 import { checkLogoHosts } from './logoHosts.js';
 import { syncChannels } from './syncChannels.js';
@@ -176,6 +176,15 @@ export async function syncAllSources(
       if (cause instanceof XtreamAuthError) result.rejected.push(access.source.name);
       else result.failed.push(access.source.name);
     }
+  }
+
+  // Kanalerne er friske nu: gen-haegt favoritter hvis et panel har givet sine
+  // kanaler nye id'er, saa favoritlisten ikke staar tom fordi id'et skiftede.
+  // Maa aldrig kunne vaelte hentningen.
+  try {
+    await relinkOrphanedFavorites(db);
+  } catch {
+    // Med vilje: en ekstra sikkerhed, ikke en forudsaetning.
   }
 
   // **Efter** kilderne, ikke foer. Registret er to filer paa flere megabyte og

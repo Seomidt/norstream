@@ -223,6 +223,68 @@ export async function deleteOrphanedChannelData(db: SqlDatabase): Promise<void> 
 }
 
 /**
+ * Gen-haegter favoritter hvis kanal-id er skiftet, ud fra det gemte navn.
+ *
+ * Et panel kan omnummerere sine kanaler (nyt `stream_id`), og en M3U kan
+ * udlede id'et anderledes efter en opdatering. Saa peger favoritten paa et id
+ * der ikke findes mere, og den forsvandt foer stille fra listen — sammen med
+ * resten. Her findes kanalen med **samme navn i samme kilde** igen, og
+ * favoritten (og dens gruppemedlemskaber) flyttes over paa det nye id.
+ *
+ * Kun inden for samme kilde: en favorit fra Hakuna maa ikke pludselig pege paa
+ * en anden fils kanal med samme navn. Er der to kanaler med samme navn i
+ * kilden, vinder den foerste i panelets orden. Favoritter uden gemt navn
+ * (lavet foer v23, hvis kanal allerede var vaek) kan ikke reddes her.
+ *
+ * Koeres ved hver synkronisering, saa en favoritliste ikke kan staa tom fordi
+ * panelet gav kanalerne nye numre.
+ */
+export async function relinkOrphanedFavorites(db: SqlDatabase): Promise<void> {
+  const orphans = await db.getAllAsync<{ channel_id: string; match_key: string }>(
+    `SELECT channel_id, match_key FROM favorites
+     WHERE match_key IS NOT NULL AND match_key <> ''
+       AND channel_id NOT IN (SELECT id FROM channels)`,
+  );
+  if (orphans.length === 0) return;
+
+  let healed = 0;
+  for (const orphan of orphans) {
+    const separator = orphan.channel_id.indexOf(':');
+    if (separator === -1) continue;
+    const sourceId = orphan.channel_id.slice(0, separator);
+    const target = await db.getFirstAsync<{ id: string }>(
+      `SELECT id FROM channels WHERE source_id = ? AND match_key = ?
+       ORDER BY sort_order, id LIMIT 1`,
+      [sourceId, orphan.match_key],
+    );
+    if (target === null || target === undefined) continue;
+
+    const already = await db.getFirstAsync<{ x: number }>(
+      'SELECT 1 AS x FROM favorites WHERE channel_id = ?',
+      [target.id],
+    );
+    if (already !== null && already !== undefined) {
+      // Kanalen er allerede favorit under sit nye id; den forael­dede raekke
+      // er overfloedig og ville ellers blokere primaernoeglen.
+      await db.runAsync('DELETE FROM favorites WHERE channel_id = ?', [orphan.channel_id]);
+    } else {
+      await db.runAsync('UPDATE favorites SET channel_id = ? WHERE channel_id = ?', [
+        target.id,
+        orphan.channel_id,
+      ]);
+      // Grupperne peger paa det gamle id; flyt dem med (OR IGNORE: er kanalen
+      // allerede i gruppen under sit nye id, droppes den gamle).
+      await db.runAsync(
+        'UPDATE OR IGNORE favorite_group_members SET channel_id = ? WHERE channel_id = ?',
+        [target.id, orphan.channel_id],
+      );
+    }
+    healed += 1;
+  }
+  if (healed > 0) invalidateQueryCache();
+}
+
+/**
  * Hvor denne kildes kanaler skal begynde i den samlede raekkefoelge.
  *
  * Kilderne staar efter hinanden frem for blandet imellem hinanden: rakte de
@@ -397,11 +459,13 @@ export async function setFavorite(
 ): Promise<void> {
   if (favorite) {
     // Nederst i listen. Raekkefoelgen er brugerens egen, og en ny favorit
-    // skal ikke dukke op midt i den.
+    // skal ikke dukke op midt i den. match_key gemmes med, saa favoritten kan
+    // gen-haegtes hvis kanalens id senere skifter (se relinkOrphanedFavorites).
     await db.runAsync(
-      `INSERT OR IGNORE INTO favorites (channel_id, source_category_id, position)
-       VALUES (?, ?, (SELECT COALESCE(MAX(position), -1) + 1 FROM favorites))`,
-      [id, sourceCategoryId],
+      `INSERT OR IGNORE INTO favorites (channel_id, source_category_id, match_key, position)
+       VALUES (?, ?, (SELECT match_key FROM channels WHERE id = ?),
+               (SELECT COALESCE(MAX(position), -1) + 1 FROM favorites))`,
+      [id, sourceCategoryId, id],
     );
     // Brugeren vil have den igen; en tidligere fravalgt kanal skal ikke blive
     // ved med at vaere udelukket fra kategoriens opdatering.

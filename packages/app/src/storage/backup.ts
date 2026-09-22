@@ -347,8 +347,9 @@ export async function restoreBackup(
     const categoryId =
       favorite.sourceCategoryId === null ? null : remap(favorite.sourceCategoryId);
     await db.runAsync(
-      'INSERT OR REPLACE INTO favorites (channel_id, source_category_id, position) VALUES (?, ?, ?)',
-      [channelId, categoryId, position],
+      `INSERT OR REPLACE INTO favorites (channel_id, source_category_id, match_key, position)
+       VALUES (?, ?, (SELECT match_key FROM channels WHERE id = ?), ?)`,
+      [channelId, categoryId, channelId, position],
     );
     position += 1;
     result.favorites += 1;

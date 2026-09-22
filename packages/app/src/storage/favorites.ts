@@ -29,8 +29,8 @@ export async function addCategoryToFavorites(
   // springes over af OR IGNORE og efterlader huller i numrene; det er uden
   // betydning, kun ordenen taeller.
   await db.runAsync(
-    `INSERT OR IGNORE INTO favorites (channel_id, source_category_id, position)
-     SELECT id, ?, ? + ROW_NUMBER() OVER (ORDER BY sort_order)
+    `INSERT OR IGNORE INTO favorites (channel_id, source_category_id, match_key, position)
+     SELECT id, ?, match_key, ? + ROW_NUMBER() OVER (ORDER BY sort_order)
      FROM channels
      WHERE category_id = ?
        AND id NOT IN (SELECT channel_id FROM favorite_exclusions WHERE category_id = ?)`,

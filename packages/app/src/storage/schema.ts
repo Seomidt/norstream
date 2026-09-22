@@ -64,6 +64,12 @@ CREATE INDEX IF NOT EXISTS idx_channels_source ON channels (source_id);
 CREATE TABLE IF NOT EXISTS favorites (
   channel_id         TEXT PRIMARY KEY,
   source_category_id TEXT,
+  -- Kanalens normaliserede navn (samme som channels.match_key) gemt paa
+  -- favoritten selv. Saa kan en favorit gen-haegtes til kanalen med samme navn
+  -- i samme kilde hvis panelet omnummererer sine kanal-id'er (eller en M3U
+  -- udleder dem anderledes) — ellers forsvandt hele favoritlisten stille naar
+  -- id'et skiftede. Se relinkOrphanedFavorites.
+  match_key          TEXT,
   -- Brugerens egen raekkefoelge. Nye favoritter laegger sig nederst; en hel
   -- kategori laegges nederst i panelets orden. Kan flyttes under Favoritter.
   position           INTEGER
@@ -434,8 +440,8 @@ const TABLES = [
 // v17: logo_search_tried. v18: samme tabel toemt én gang (se migrate).
 // v19: radio_stations og radio_favorites. v20: favorite_groups og medlemmer.
 // v21: channel_history, reminders, archive_progress, followed_series.
-// v22: saved_songs.
-const SCHEMA_VERSION = 22;
+// v22: saved_songs. v23: favorites.match_key (gen-haegt favoritter ved id-skift).
+const SCHEMA_VERSION = 23;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -606,6 +612,34 @@ async function addV13Columns(db: SqlDatabase): Promise<void> {
   }
 }
 
+/**
+ * v23: kanalnavnet gemt paa favoritten.
+ *
+ * Uden det pegede en favorit kun paa kanalens id (`kilde:kanal-id`). Skiftede
+ * panelet sine id'er — eller udledte en M3U dem anderledes efter en
+ * opdatering — kunne appen ikke laengere finde kanalen, og hele favoritlisten
+ * stod tom uden forklaring. Med navnet gemt kan favoritten gen-haegtes til
+ * kanalen med samme navn i samme kilde (relinkOrphanedFavorites).
+ *
+ * De der allerede er favoritter faar navnet fyldt ud fra deres nuvaerende
+ * kanal. Favoritter hvis kanal allerede er vaek kan ikke faa et navn (det stod
+ * kun paa kanalen) og maa hentes fra en sikkerhedskopi — men fremover er de
+ * sikret.
+ */
+async function addV23Columns(db: SqlDatabase): Promise<void> {
+  try {
+    await db.execAsync('ALTER TABLE favorites ADD COLUMN match_key TEXT');
+  } catch {
+    // Kolonnen fandtes allerede.
+  }
+  await db.execAsync(
+    `UPDATE favorites
+     SET match_key = (SELECT c.match_key FROM channels c WHERE c.id = favorites.channel_id)
+     WHERE match_key IS NULL
+       AND EXISTS (SELECT 1 FROM channels c WHERE c.id = favorites.channel_id)`,
+  );
+}
+
 /** v15: karakteren fra TMDB ved siden af plakaten. */
 async function addV15Columns(db: SqlDatabase): Promise<void> {
   try {
@@ -679,6 +713,7 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     if (version >= 8 && version < 10) await addV10Columns(db);
     if (version > 0 && version < 13) await addV13Columns(db);
     if (version === 14) await addV15Columns(db);
+    if (version > 0 && version < 23) await addV23Columns(db);
     // v17 -> v18: den foerste netsoegning noterede 2.000 kanaler som soegt
     // uden held, fordi alle opslag blev afvist lokalt af panel-pausen. De
     // noter er ikke sande og skal vaek, ellers springes kanalerne over i
