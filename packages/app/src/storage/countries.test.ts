@@ -10,8 +10,10 @@ import {
   listCategorySummaries,
   listCountryGroups,
   listHiddenCountries,
+  listSourceCountryGroups,
   unhideCountry,
 } from './countries.js';
+import { addSource } from './sources.js';
 import { migrate } from './schema.js';
 import { createTestDatabase } from './testDb.js';
 import type { SqlDatabase } from './types.js';
@@ -68,21 +70,22 @@ describe('listCategorySummaries', () => {
         id: key('4'),
         name: '4K UHD 3840P',
         channelCount: 1,
+        sourceId: SOURCE,
         countryKey: OTHER_COUNTRY_KEY,
         country: null,
       },
       {
         id: key('1'),
         name: 'DENMARK HD & HEVC',
-        channelCount: 2, countryKey: 'DK', country: DK },
+        channelCount: 2, sourceId: SOURCE, countryKey: 'DK', country: DK },
       {
         id: key('2'),
         name: 'DENMARK SPORT HD',
-        channelCount: 1, countryKey: 'DK', country: DK },
+        channelCount: 1, sourceId: SOURCE, countryKey: 'DK', country: DK },
       {
         id: key('3'),
         name: 'SWEDEN SPORT',
-        channelCount: 1, countryKey: 'SE', country: SE },
+        channelCount: 1, sourceId: SOURCE, countryKey: 'SE', country: SE },
     ]);
   });
 
@@ -171,6 +174,52 @@ describe('listCategoriesInCountry', () => {
     // Skjulningen gaelder oversigten; den maa ikke laase data ude.
     await hideCountry(db, 'SE');
     expect(await listCategoriesInCountry(db, 'SE')).toHaveLength(1);
+  });
+});
+
+describe('listSourceCountryGroups', () => {
+  it('grupperer landene per kilde, i kildernes raekkefoelge', async () => {
+    // To filer: "Hakuna" med DK+SE, "Test" med kun DK. Hver skal staa for sig,
+    // med sit navn og sine flag nedenunder.
+    const hakuna = await addSource(db, { kind: 'm3u', name: 'Hakuna', url: 'http://h' });
+    const test = await addSource(db, { kind: 'm3u', name: 'Test', url: 'http://t' });
+
+    await replaceCategories(db, hakuna.id, [
+      { id: '1', name: 'DENMARK HD' },
+      { id: '2', name: 'SWEDEN SPORT' },
+    ]);
+    await replaceChannels(db, hakuna.id, [
+      channel('10', '1', 'DNK| DR1'),
+      channel('11', '2', 'SWE| SVT1'),
+    ]);
+    await replaceCategories(db, test.id, [{ id: '1', name: 'DENMARK SPORT' }]);
+    await replaceChannels(db, test.id, [channel('20', '1', 'DNK| TV3')]);
+
+    const grouped = await listSourceCountryGroups(db);
+    expect(grouped.map((s) => s.sourceName)).toEqual(['Hakuna', 'Test']);
+    expect(grouped[0]?.groups.map((g) => g.key)).toEqual(['DK', 'SE']);
+    expect(grouped[1]?.groups.map((g) => g.key)).toEqual(['DK']);
+  });
+
+  it('udelader kilder uden synlige lande og skjulte lande', async () => {
+    const hakuna = await addSource(db, { kind: 'm3u', name: 'Hakuna', url: 'http://h' });
+    const tom = await addSource(db, { kind: 'm3u', name: 'Tom', url: 'http://x' });
+
+    await replaceCategories(db, hakuna.id, [
+      { id: '1', name: 'DENMARK HD' },
+      { id: '2', name: 'SWEDEN SPORT' },
+    ]);
+    await replaceChannels(db, hakuna.id, [
+      channel('10', '1', 'DNK| DR1'),
+      channel('11', '2', 'SWE| SVT1'),
+    ]);
+    // Tom-kilden har ingen kanaler; den skal ikke give en overskrift.
+    void tom;
+
+    await hideCountry(db, 'SE');
+    const grouped = await listSourceCountryGroups(db);
+    expect(grouped.map((s) => s.sourceName)).toEqual(['Hakuna']);
+    expect(grouped[0]?.groups.map((g) => g.key)).toEqual(['DK']);
   });
 });
 

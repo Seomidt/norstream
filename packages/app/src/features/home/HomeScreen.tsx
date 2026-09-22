@@ -202,7 +202,10 @@ export function HomeScreen({
     if (tab === 'browse' && place.browse !== null) {
       const level = place.browse;
       if (level.name === 'channels') {
-        onPlaceChange({ ...place, browse: { name: 'categories', country: level.country } });
+        onPlaceChange({
+          ...place,
+          browse: { name: 'categories', sourceId: level.sourceId, country: level.country },
+        });
         return true;
       }
       if (level.name === 'categories') {

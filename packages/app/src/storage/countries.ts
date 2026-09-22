@@ -23,10 +23,19 @@ export interface CategorySummary {
   id: string;
   name: string;
   channelCount: number;
+  /** Kilden (fil/panel) kategorien hoerer til. */
+  sourceId: string;
   /** ISO-koden for landet, eller `OTHER_COUNTRY_KEY`. */
   countryKey: string;
   /** Landet med navn og flag, eller null naar det ikke kunne udledes. */
   country: Country | null;
+}
+
+/** Én kildes lande, til Browse grupperet efter fil. */
+export interface SourceCountries {
+  sourceId: string;
+  sourceName: string;
+  groups: CountryGroup[];
 }
 
 export interface CountryGroup {
@@ -41,6 +50,7 @@ export interface CountryGroup {
 interface CategoryRow {
   id: string;
   name: string;
+  source_id: string;
   channel_count: number;
 }
 
@@ -119,10 +129,10 @@ export async function listCategorySummaries(db: SqlDatabase): Promise<CategorySu
   // invalidateQueryCache i replaceChannels rydder det naar kanalerne skifter.
   return cachedQuery('categorySummaries', async () => {
     const rows = await db.getAllAsync<CategoryRow>(
-      `SELECT c.id, c.name, COUNT(ch.id) AS channel_count
+      `SELECT c.id, c.name, c.source_id, COUNT(ch.id) AS channel_count
        FROM categories c
        LEFT JOIN channels ch ON ch.category_id = c.id
-       GROUP BY c.id, c.name
+       GROUP BY c.id, c.name, c.source_id
        ORDER BY c.name`,
     );
 
@@ -136,6 +146,7 @@ export async function listCategorySummaries(db: SqlDatabase): Promise<CategorySu
       return {
         id: row.id,
         name: row.name,
+        sourceId: row.source_id,
         channelCount: row.channel_count,
         countryKey: country?.code ?? OTHER_COUNTRY_KEY,
         country,
@@ -204,7 +215,68 @@ export async function listCountryGroups(db: SqlDatabase): Promise<CountryGroup[]
 export async function listCategoriesInCountry(
   db: SqlDatabase,
   countryKey: string,
+  sourceId?: string,
 ): Promise<CategorySummary[]> {
   const summaries = await listCategorySummaries(db);
-  return summaries.filter((summary) => summary.countryKey === countryKey);
+  return summaries.filter(
+    (summary) =>
+      summary.countryKey === countryKey &&
+      (sourceId === undefined || summary.sourceId === sourceId),
+  );
+}
+
+/** Øvrige nederst; ellers dansk navnerraekkefoelge. */
+function sortCountryGroups(a: CountryGroup, b: CountryGroup): number {
+  if (a.key === OTHER_COUNTRY_KEY) return 1;
+  if (b.key === OTHER_COUNTRY_KEY) return -1;
+  return a.name.localeCompare(b.name, 'da');
+}
+
+/**
+ * Landene grupperet efter KILDE (fil/panel): hver kilde med sit navn og sine
+ * egne lande nedenunder, i kildernes egen raekkefoelge. Saa kan man se hvilken
+ * fil kanalerne kommer fra — "Hakuna" med sine flag, og under den "Test" med
+ * sine. Skjulte lande udelades her, men findes stadig via soegning.
+ */
+export async function listSourceCountryGroups(db: SqlDatabase): Promise<SourceCountries[]> {
+  const [summaries, hidden, sources] = await Promise.all([
+    listCategorySummaries(db),
+    listHiddenCountries(db),
+    db.getAllAsync<{ id: string; name: string }>(
+      'SELECT id, name FROM sources ORDER BY sort_order, created_at',
+    ),
+  ]);
+  const hiddenSet = new Set(hidden);
+
+  // kilde -> land -> gruppe
+  const perSource = new Map<string, Map<string, CountryGroup>>();
+  for (const summary of summaries) {
+    if (hiddenSet.has(summary.countryKey)) continue;
+    let byCountry = perSource.get(summary.sourceId);
+    if (byCountry === undefined) {
+      byCountry = new Map();
+      perSource.set(summary.sourceId, byCountry);
+    }
+    let group = byCountry.get(summary.countryKey);
+    if (group === undefined) {
+      group = {
+        key: summary.countryKey,
+        name: summary.country?.name ?? OTHER_COUNTRY_NAME,
+        flag: summary.country?.flag ?? OTHER_COUNTRY_FLAG,
+        categoryCount: 0,
+        channelCount: 0,
+      };
+      byCountry.set(summary.countryKey, group);
+    }
+    group.categoryCount += 1;
+    group.channelCount += summary.channelCount;
+  }
+
+  return sources
+    .filter((source) => perSource.has(source.id))
+    .map((source) => ({
+      sourceId: source.id,
+      sourceName: source.name,
+      groups: [...perSource.get(source.id)!.values()].sort(sortCountryGroups),
+    }));
 }

@@ -13,6 +13,7 @@ import {
   setRegistryError,
 } from '../storage/settings.js';
 import { deleteOrphanedChannelData } from '../storage/channels.js';
+import { purgeDisabledSourceData } from '../storage/sources.js';
 import { checkLogoHosts } from './logoHosts.js';
 import { syncChannels } from './syncChannels.js';
 import { syncM3u } from './syncM3u.js';
@@ -120,6 +121,15 @@ export async function syncAllSources(
   // ved med at rode i kanallisten. Maa aldrig kunne vaelte selve hentningen.
   try {
     await deleteOrphanedChannelData(db);
+  } catch {
+    // Med vilje: oprydningen er en ekstra sikkerhed, ikke en forudsaetning.
+  }
+
+  // Fravalgte kilder: slaar man en fil fra, skal dens kanaler og film forsvinde
+  // ved denne hentning — ikke blive staaende under Kanaler. Kilden selv bliver,
+  // saa man kan slaa den til igen. Maa aldrig kunne vaelte hentningen.
+  try {
+    await purgeDisabledSourceData(db);
   } catch {
     // Med vilje: oprydningen er en ekstra sikkerhed, ikke en forudsaetning.
   }

@@ -1,5 +1,6 @@
 import { isValidSourceId } from '@norstream/core';
 import type { Source, SourceKind } from '@norstream/core';
+import { invalidateQueryCache } from './queryCache.js';
 import type { SqlDatabase } from './types.js';
 import { deleteVodForSource } from './vod.js';
 
@@ -107,6 +108,31 @@ export async function listSources(db: SqlDatabase): Promise<Source[]> {
 /** Kun de kilder der skal bruges. En slaaet fra beholder sine kanaler. */
 export async function listEnabledSources(db: SqlDatabase): Promise<Source[]> {
   return (await listSources(db)).filter((source) => source.enabled);
+}
+
+/**
+ * Rydder kanaler, kategorier og film/serier for **fravalgte** kilder.
+ *
+ * Slaar man en fil fra (fx en testfil), skal dens kanaler forsvinde fra
+ * Kanaler ved naeste hentning — ikke blive staaende og rode. Kilden selv bliver
+ * i `sources`, saa man kan slaa den til igen; favoritter og programoversigt
+ * for dens kanaler er harmloese (de peger bare paa intet) og ryddes ad deres
+ * egne veje. Slaar man kilden til igen, hentes kanalerne forfra.
+ *
+ * Koeres ved hver synkronisering, lige som `deleteOrphanedChannelData`, saa en
+ * fravalgt fil ikke kan blive ved med at fylde i listen.
+ */
+export async function purgeDisabledSourceData(db: SqlDatabase): Promise<void> {
+  const rows = await db.getAllAsync<{ id: string }>(
+    'SELECT id FROM sources WHERE enabled = 0',
+  );
+  if (rows.length === 0) return;
+  for (const row of rows) {
+    await db.runAsync('DELETE FROM channels WHERE source_id = ?', [row.id]);
+    await db.runAsync('DELETE FROM categories WHERE source_id = ?', [row.id]);
+    await deleteVodForSource(db, row.id);
+  }
+  invalidateQueryCache();
 }
 
 export async function getSource(db: SqlDatabase, id: string): Promise<Source | null> {

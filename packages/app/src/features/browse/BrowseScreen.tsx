@@ -14,10 +14,10 @@ import {
   OTHER_COUNTRY_FLAG,
   hideCountry,
   listCategoriesInCountry,
-  listCountryGroups,
+  listSourceCountryGroups,
   unhideCountry,
 } from '../../storage/countries.js';
-import type { CategorySummary, CountryGroup } from '../../storage/countries.js';
+import type { CategorySummary, CountryGroup, SourceCountries } from '../../storage/countries.js';
 import { keepInMiddle, useTvListTail } from '../../ui/tvScroll.js';
 import { addCategoryToFavorites } from '../../storage/favorites.js';
 import { Notice } from '../../ui/Notice.js';
@@ -62,8 +62,18 @@ const SEARCH_LIMIT = 200;
  */
 export type Level =
   | { name: 'countries' }
-  | { name: 'categories'; country: CountryGroup }
-  | { name: 'channels'; country: CountryGroup; category: CategorySummary };
+  | { name: 'categories'; sourceId: string; country: CountryGroup }
+  | { name: 'channels'; sourceId: string; country: CountryGroup; category: CategorySummary };
+
+/**
+ * Én raekke i landelisten paa oeverste niveau: enten en kilde-overskrift
+ * ("Hakuna") eller et land under den kilde. De ligger fladt i én FlatList, saa
+ * fokus kan loebe uafbrudt fra en kildes sidste land ned til naeste kildes
+ * foerste — en sektionsliste ville bryde den kaede paa tv.
+ */
+type CountryRow =
+  | { type: 'header'; key: string; sourceName: string }
+  | { type: 'country'; key: string; sourceId: string; group: CountryGroup };
 
 /**
  * Browse i to niveauer med soegning oeverst.
@@ -90,12 +100,12 @@ export function BrowseScreen({
   const setLevel = onLevelChange;
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
-  const [countries, setCountries] = useState<CountryGroup[]>([]);
+  const [sourceGroups, setSourceGroups] = useState<SourceCountries[]>([]);
   const [categories, setCategories] = useState<CategorySummary[]>([]);
   const [channels, setChannels] = useState<StoredChannel[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<NoticeState | null>(null);
-  const countryList = useRef<FlatList<CountryGroup>>(null);
+  const countryList = useRef<FlatList<CountryRow>>(null);
   const categoryList = useRef<FlatList<CategorySummary>>(null);
   const tail = useTvListTail();
   // Én gang per niveau, ikke ved hver tegning (se ChannelList).
@@ -107,6 +117,34 @@ export function BrowseScreen({
     return () => clearTimeout(timer);
   }, [search]);
 
+  // Kilderne fladet ud til én liste: hver kilde en overskrift, saa dens lande.
+  // Er der kun én kilde, dropper vi overskriften — saa ligner listen den gamle,
+  // og der er ingen grund til at doebe en fil man ikke skal skelne fra andre.
+  const countryRows = useMemo<CountryRow[]>(() => {
+    const rows: CountryRow[] = [];
+    const showHeaders = sourceGroups.length > 1;
+    for (const source of sourceGroups) {
+      if (showHeaders) {
+        rows.push({ type: 'header', key: `header:${source.sourceId}`, sourceName: source.sourceName });
+      }
+      for (const group of source.groups) {
+        rows.push({
+          type: 'country',
+          key: `${source.sourceId}:${group.key}`,
+          sourceId: source.sourceId,
+          group,
+        });
+      }
+    }
+    return rows;
+  }, [sourceGroups]);
+
+  // Foerste land faar fokus paa tv; overskrifter er ikke fokuserbare.
+  const firstCountryKey = useMemo(
+    () => countryRows.find((row) => row.type === 'country')?.key,
+    [countryRows],
+  );
+
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
     try {
@@ -116,11 +154,11 @@ export function BrowseScreen({
         return;
       }
       if (level.name === 'countries') {
-        setCountries(await listCountryGroups(session.db));
+        setSourceGroups(await listSourceCountryGroups(session.db));
         return;
       }
       if (level.name === 'categories') {
-        setCategories(await listCategoriesInCountry(session.db, level.country.key));
+        setCategories(await listCategoriesInCountry(session.db, level.country.key, level.sourceId));
         return;
       }
       setChannels(await listChannels(session.db, { categoryId: level.category.id }));
@@ -207,7 +245,9 @@ export function BrowseScreen({
         {!searching && level.name === 'channels' && (
           <Crumb
             label={`${level.country.flag} ${level.category.name}`}
-            onBack={() => setLevel({ name: 'categories', country: level.country })}
+            onBack={() =>
+              setLevel({ name: 'categories', sourceId: level.sourceId, country: level.country })
+            }
           />
         )}
         <ChannelList
@@ -280,7 +320,12 @@ export function BrowseScreen({
                 hasTVPreferredFocus={index === 0 && focusFirstHere}
                 onFocus={isTV ? () => keepInMiddle(categoryList.current, index) : undefined}
                 onPress={() =>
-                  setLevel({ name: 'channels', country: level.country, category: item })
+                  setLevel({
+                    name: 'channels',
+                    sourceId: level.sourceId,
+                    country: level.country,
+                    category: item,
+                  })
                 }
               >
                 <Text style={styles.rowTitle} numberOfLines={1}>
@@ -312,7 +357,7 @@ export function BrowseScreen({
       <FlatList
         removeClippedSubviews={false}
         ref={countryList}
-        data={countries}
+        data={countryRows}
         keyExtractor={(item) => item.key}
         contentContainerStyle={tail}
         onScrollToIndexFailed={() => undefined}
@@ -321,22 +366,35 @@ export function BrowseScreen({
             Ingen kanaler hentet endnu. Træk ned på favoritskærmen for at hente fra panelet.
           </Text>
         }
-        renderItem={({ item, index }) => (
-          <TvPressable
-            style={styles.row}
-            onFocus={isTV ? () => keepInMiddle(countryList.current, index) : undefined}
-            onPress={() => setLevel({ name: 'categories', country: item })}
-            onLongPress={() => hide(item)}
-          >
-            <Text style={styles.flag}>{item.flag}</Text>
-            <View style={styles.rowMain}>
-              <Text style={styles.rowTitle}>{item.name}</Text>
-              <Text style={styles.rowCount}>
-                {item.channelCount} kanaler i {item.categoryCount} kategorier
+        renderItem={({ item, index }) => {
+          if (item.type === 'header') {
+            return (
+              <Text style={styles.sourceHeader} numberOfLines={1}>
+                {item.sourceName}
               </Text>
-            </View>
-          </TvPressable>
-        )}
+            );
+          }
+          const group = item.group;
+          return (
+            <TvPressable
+              style={styles.row}
+              hasTVPreferredFocus={item.key === firstCountryKey && focusFirstHere}
+              onFocus={isTV ? () => keepInMiddle(countryList.current, index) : undefined}
+              onPress={() =>
+                setLevel({ name: 'categories', sourceId: item.sourceId, country: group })
+              }
+              onLongPress={() => hide(group)}
+            >
+              <Text style={styles.flag}>{group.flag}</Text>
+              <View style={styles.rowMain}>
+                <Text style={styles.rowTitle}>{group.name}</Text>
+                <Text style={styles.rowCount}>
+                  {group.channelCount} kanaler i {group.categoryCount} kategorier
+                </Text>
+              </View>
+            </TvPressable>
+          );
+        }}
       />
     </View>
   );
@@ -369,6 +427,17 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     paddingBottom: theme.spacing.sm,
   },
   crumbText: { color: colors.accent, fontSize: 15 },
+  sourceHeader: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    paddingHorizontal: theme.spacing.md,
+    paddingTop: theme.spacing.md,
+    paddingBottom: theme.spacing.xs,
+    backgroundColor: colors.surface,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

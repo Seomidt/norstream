@@ -8,6 +8,7 @@ import {
   listEnabledSources,
   listSources,
   newSourceId,
+  purgeDisabledSourceData,
   renameSource,
   setSourceEnabled,
 } from './sources.js';
@@ -96,6 +97,56 @@ describe('slaa en kilde fra', () => {
     const a = await addSource(db, { kind: 'xtream', name: 'A', url: 'http://a' });
     await renameSource(db, a.id, 'Hovedpanel');
     expect((await getSource(db, a.id))?.name).toBe('Hovedpanel');
+  });
+});
+
+describe('purgeDisabledSourceData', () => {
+  it('fjerner kanaler, kategorier og film for fravalgte kilder, men lader de aktive staa', async () => {
+    const a = await addSource(db, { kind: 'xtream', name: 'A', url: 'http://a' });
+    const b = await addSource(db, { kind: 'xtream', name: 'B', url: 'http://b' });
+
+    for (const source of [a, b]) {
+      const key = channelKey(source.id, '1');
+      await db.runAsync(
+        `INSERT INTO channels (id, source_id, stream_id, name) VALUES (?, ?, '1', 'DR1')`,
+        [key, source.id],
+      );
+      await db.runAsync('INSERT INTO categories (id, source_id, name) VALUES (?, ?, ?)', [
+        channelKey(source.id, 'c1'),
+        source.id,
+        'DENMARK',
+      ]);
+      await db.runAsync(
+        `INSERT INTO vod_items (key, source_id, item_id, kind, name) VALUES (?, ?, 'v1', 'movie', 'Film')`,
+        [channelKey(source.id, 'v1'), source.id],
+      );
+    }
+
+    // Fil A slaas fra: dens kanaler skal forsvinde ved naeste hentning.
+    await setSourceEnabled(db, a.id, false);
+    await purgeDisabledSourceData(db);
+
+    const channels = await db.getAllAsync<{ source_id: string }>('SELECT source_id FROM channels');
+    expect(channels.map((row) => row.source_id)).toEqual([b.id]);
+    const categories = await db.getAllAsync<{ source_id: string }>(
+      'SELECT source_id FROM categories',
+    );
+    expect(categories.map((row) => row.source_id)).toEqual([b.id]);
+    const vod = await db.getAllAsync<{ source_id: string }>('SELECT source_id FROM vod_items');
+    expect(vod.map((row) => row.source_id)).toEqual([b.id]);
+
+    // Kilden selv bliver staaende, saa den kan slaas til igen.
+    expect(await getSource(db, a.id)).not.toBeNull();
+  });
+
+  it('roerer intet naar alle kilder er aktive', async () => {
+    const a = await addSource(db, { kind: 'xtream', name: 'A', url: 'http://a' });
+    await db.runAsync(
+      `INSERT INTO channels (id, source_id, stream_id, name) VALUES (?, ?, '1', 'DR1')`,
+      [channelKey(a.id, '1'), a.id],
+    );
+    await purgeDisabledSourceData(db);
+    expect(await db.getAllAsync('SELECT id FROM channels')).toHaveLength(1);
   });
 });
 
