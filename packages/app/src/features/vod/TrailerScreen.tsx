@@ -236,6 +236,11 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             source={webSource}
             originWhitelist={['*']}
             style={styles.web}
+            // Tving webvisningen op i et hardware-lag (GPU). Uden det
+            // software-tegner nogle Android TV-bokse den store videoflade, og
+            // saa hakker traileren ("slowmotion"), mens den native filmafspiller
+            // koerer glat. Kun Android; ignoreres andre steder.
+            androidLayerType="hardware"
             userAgent={BROWSER_USER_AGENT}
             thirdPartyCookiesEnabled
             sharedCookiesEnabled
