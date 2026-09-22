@@ -23,7 +23,21 @@ telefon mod det rigtige panel, og brugerens ord er "nu er det hele
 efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 `docs/BYG-FRA-CHAT.md`.
 
-### 22. september 2026 — v310: favoritter forsvinder ikke længere når id'er skifter (LÆS DENNE FØRST)
+### 22. september 2026 — v311: en tom sky-kopi kan ikke overskrive en god (LÆS DENNE FØRST)
+
+Ny boks: brugeren skrev sit sky-kodeord i Indstillinger **for at hente**
+favoritter ned — men `setSkyCode` slår også den ugentlige kopi til, og
+"Gem"/enter lagde straks en **tom** kopi op (boksen har jo intet endnu) og
+overskrev den gode kopi i skyen. Favoritterne var så væk begge steder.
+
+Rettelse: `runWeeklyCloudBackup` uploader ikke længere hvis kopien er tom
+(`backupHasUserData`: ingen favoritter, grupper, egne logoer, skjulte lande,
+seneste-liste eller fremdrift) — returnerer `'empty'`. Kodeordet gemmes stadig,
+så man kan trykke **Hent**. Gælder både "Gem nu" og den ugentlige auto-kopi.
+CloudBackup-skærmen forklarer det ('empty' → "tryk Hent"). Den lokale
+mappe-kopi er urørt (egen fil på egen boks).
+
+### 22. september 2026 — v310: favoritter forsvinder ikke længere når id'er skifter
 
 Brugeren tilføjede en ny testfil ved siden af sin faste ("Hakuna"), og
 **hele hans favoritliste var væk** bagefter. Guiden viser kun favoritter, så

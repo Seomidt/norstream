@@ -207,6 +207,26 @@ export function serialiseBackup(backup: Backup): string {
   return JSON.stringify(backup, null, 2);
 }
 
+/**
+ * Om kopien indeholder noget brugeren selv har skabt — favoritter, grupper,
+ * egne logoer, skjulte lande, seneste-liste eller afspilningsfremdrift.
+ *
+ * Bruges til at afvise at LAEGGE en tom kopi op i skyen: paa en ny boks, hvor
+ * intet er sat op endnu, ville en upload ellers overskrive den gode kopi der
+ * ligger i forvejen med en tom — og saa er favoritterne vaek for altid. En ny
+ * boks skal kunne gemme kodeordet og HENTE, uden at en tom kopi gaar op foerst.
+ */
+export function backupHasUserData(backup: Backup): boolean {
+  return (
+    backup.favorites.length > 0 ||
+    (backup.favoriteGroups?.length ?? 0) > 0 ||
+    backup.logoOverrides.length > 0 ||
+    backup.hiddenCountries.length > 0 ||
+    backup.watchlist.length > 0 ||
+    backup.progress.length > 0
+  );
+}
+
 /** Laeser en fil. Kaster med en besked der kan vises, naar det ikke er en sikkerhedskopi. */
 export function parseBackup(text: string): Backup {
   let parsed: unknown;

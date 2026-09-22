@@ -83,7 +83,10 @@ export function CloudBackup({ session, onRestore }: Props) {
     setMessage(
       result === 'written'
         ? 'Gemt i skyen. Skriv det samme kodeord på en ny boks for at hente alt ned.'
-        : 'Kunne ikke gemme lige nu. Er der forbindelse? Prøv igen.',
+        : result === 'empty'
+          ? 'Kodeordet er gemt — men der er ikke noget at gemme i skyen endnu (ingen favoritter). ' +
+            'På en ny boks: tryk "Hent" for at få din kopi ned. Der bliver ikke lagt en tom kopi op, så din gode kopi i skyen er urørt.'
+          : 'Kunne ikke gemme lige nu. Er der forbindelse? Prøv igen.',
     );
   }
 
