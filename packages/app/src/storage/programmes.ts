@@ -1,4 +1,5 @@
 import type { Programme } from '@norstream/core';
+import { withTransaction } from './transaction.js';
 import type { SqlDatabase } from './types.js';
 
 interface ProgrammeRow {
@@ -19,7 +20,22 @@ function toProgramme(row: ProgrammeRow): Programme {
   };
 }
 
+/**
+ * Skriver et parti programmer. `syncEpg` kalder den i partier a 500, og uden
+ * en transaktion ville hvert parti blive til 500 diskskrivninger. Samme
+ * aarsag som i `replaceChannels`, blot i mindre skala per kald — men EPG'en
+ * har mange partier, saa det er den samme regning betalt mange gange.
+ */
 export async function upsertProgrammes(
+  db: SqlDatabase,
+  programmes: Programme[],
+): Promise<void> {
+  await withTransaction(db, async () => {
+    await upsertProgrammesInTransaction(db, programmes);
+  });
+}
+
+async function upsertProgrammesInTransaction(
   db: SqlDatabase,
   programmes: Programme[],
 ): Promise<void> {
