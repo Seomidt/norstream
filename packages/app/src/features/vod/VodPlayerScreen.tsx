@@ -405,6 +405,9 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
         bar={actions}
         overlays={pickers}
         playing={playing}
+        // Paa tv: bjaelken skjult fra start, saa pil venstre/hoejre spoler i
+        // filmen med det samme. Pil op henter knapperne (Undertekster, Lyd).
+        initialBarShown={!isTV}
         onPlayerKey={(key) => {
           try {
             if (key === 'select' || key === 'playPause') {

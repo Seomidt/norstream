@@ -68,6 +68,7 @@ export function LandscapePlayer({
   bar,
   overlays,
   playing = true,
+  initialBarShown = true,
   onPlayerKey,
 }: {
   /** Selve videoen; laegges over hele skaermen. */
@@ -78,6 +79,13 @@ export function LandscapePlayer({
   overlays?: ReactNode;
   /** Sand mens der afspilles: saa holdes skaermen vaagen. */
   playing?: boolean;
+  /**
+   * Om bjaelken staar fremme fra start. Paa tv startes den **skjult** for en
+   * video man skal spole i (film, start-forfra): saa spoler pil venstre/hoejre
+   * med det samme, i stedet for at flytte fokus mellem knapperne, mens bjaelken
+   * staar i vejen og aeder tastetrykkene. Options hentes med pil op.
+   */
+  initialBarShown?: boolean;
   /**
    * Tv, Googles regler for afspilning (TV-PC, TV-PP): OK pauser og
    * genoptager, pil venstre/hoejre zapper (eller spoler i arkivet), og
@@ -90,7 +98,7 @@ export function LandscapePlayer({
 }) {
   const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
-  const [barShown, setBarShown] = useState(true);
+  const [barShown, setBarShown] = useState(initialBarShown);
   /** Taeller op ved hvert tryk, saa uret til at gemme bjaelken starter forfra. */
   const [activity, setActivity] = useState(0);
   // Paa tv: ethvert tryk paa fjernbetjeningen viser bjaelken igen og

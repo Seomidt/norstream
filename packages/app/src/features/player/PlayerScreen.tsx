@@ -802,6 +802,10 @@ export function PlayerScreen({
         video={<VideoView style={StyleSheet.absoluteFill} player={player} nativeControls={!isTV} surfaceType={surfaceTypeForPlatform()} />}
         bar={actions}
         playing={playing}
+        // Paa tv: staar man og spoler (start-forfra/arkiv), skjules bjaelken fra
+        // start, saa pil venstre/hoejre spoler med det samme. Paa en direkte
+        // live-kanal bliver bjaelken fremme, saa "Start forfra" kan ses.
+        initialBarShown={!isTV || !restarted}
         onPlayerKey={(key) => {
           try {
             if (key === 'select' || key === 'playPause') {
