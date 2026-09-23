@@ -42,6 +42,8 @@ export default function App() {
   const listBack = useRef<() => boolean>(() => false);
   /** Taelles op hver gang afspilleren lukker, saa listen ruller tilbage til sin plads. */
   const [returned, setReturned] = useState(0);
+  /** Stationen man kom tilbage fra — den der spillede til sidst, ogsaa efter skift i afspilleren. */
+  const [returnStation, setReturnStation] = useState<string | null>(null);
   /** Stationer der sender titel; laeses igen hver gang man er tilbage paa listen. */
   const [titled, setTitled] = useState<Set<string>>(() => titledStations());
   /** Den skjulte fejlsoegningsside: hold fingeren paa titlen. */
@@ -54,6 +56,8 @@ export default function App() {
     setShowLog(true);
   };
   const closePlayer = (): void => {
+    // Listen skal lande paa den station der spillede, ikke paa toppen.
+    setReturnStation(current().stationId ?? (route.name === 'player' ? route.channel.streamId : null));
     setRoute({ name: 'home' });
     setReturned((count) => count + 1);
     setTitled(titledStations());
@@ -158,6 +162,8 @@ export default function App() {
               backRef={listBack}
               contentBottom={barShown ? BAR_HEIGHT : 0}
               restoreSignal={returned}
+              restoreStationId={returnStation}
+              frozen={route.name !== 'home'}
               titledIds={titled}
               favouritesSignal={favouritesSignal}
               onFavouritesChanged={() => {

@@ -41,6 +41,10 @@ interface Props {
   contentBottom?: number;
   /** Taelles op naar listen skal tilbage til sin gemte plads (afspilleren lukkede). */
   restoreSignal?: number;
+  /** Stationen man kom tilbage fra (den der spillede til sidst); listen lander paa den. */
+  restoreStationId?: string | null;
+  /** Sand mens en skaerm (afspilleren) ligger ovenpaa listen; saa gemmes rulningen ikke imens. */
+  frozen?: boolean;
   /** Stationer der har vist sig at sende titel paa det der spilles; faar ♪ i listen. */
   titledIds?: ReadonlySet<string>;
   /** Kaldes naar en favorit er slaaet til eller fra her, saa bilen kan faa listen med det samme. */
@@ -75,6 +79,11 @@ const STATION_ROW_HEIGHT = 64;
 const stationLayout = (_: unknown, index: number) => ({ length: STATION_ROW_HEIGHT, offset: STATION_ROW_HEIGHT * index, index });
 const COUNTRIES_AT_KEY = 'radio_countries_ms';
 
+/** Pladsen i listen for stationen man kom fra, eller -1. */
+function indexOfStation(list: readonly RadioStation[], id: string | null): number {
+  return id === null ? -1 : list.findIndex((station) => station.id === id);
+}
+
 /**
  * Internetradio: alle verdens stationer fra Radio Browser, delt op i lande
  * med flag, Norden foerst. Favoritterne staar oeverst som deres egen
@@ -89,6 +98,8 @@ export function InternetRadio({
   backRef,
   contentBottom = 0,
   restoreSignal = 0,
+  restoreStationId = null,
+  frozen = false,
   titledIds,
   onFavouritesChanged,
   favouritesSignal = 0,
@@ -352,6 +363,8 @@ export function InternetRadio({
           <RememberedList
             memoryKey={`radio:search:${query}`}
             restoreSignal={restoreSignal}
+            restoreIndex={indexOfStation(results, restoreStationId)}
+            frozen={frozen}
             contentContainerStyle={listPadding}
             data={results}
             keyExtractor={(station) => station.id}
@@ -381,6 +394,8 @@ export function InternetRadio({
           <RememberedList
             memoryKey={`radio:country:${country.code}`}
             restoreSignal={restoreSignal}
+            restoreIndex={indexOfStation(stations, restoreStationId)}
+            frozen={frozen}
             contentContainerStyle={listPadding}
             data={stations}
             keyExtractor={(station) => station.id}
@@ -437,6 +452,8 @@ export function InternetRadio({
           <RememberedList
             memoryKey="radio:mine"
             restoreSignal={restoreSignal}
+            restoreIndex={indexOfStation(favourites, restoreStationId)}
+            frozen={frozen}
             contentContainerStyle={listPadding}
             data={favourites}
             keyExtractor={(station) => station.id}
@@ -463,6 +480,7 @@ export function InternetRadio({
         <RememberedList
           memoryKey="radio:countries"
           restoreSignal={restoreSignal}
+          frozen={frozen}
           contentContainerStyle={listPadding}
           data={countries}
           keyExtractor={(entry) => entry.code}

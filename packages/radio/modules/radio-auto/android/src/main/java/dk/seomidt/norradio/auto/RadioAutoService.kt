@@ -207,8 +207,10 @@ class RadioAutoService : MediaLibraryService() {
     built.addListener(buttonListener)
     reconnect = Reconnect(this, built, main).also { it.start() }
     player = built
+    // Sessionen (bil, rat, Bluetooth, notifikation, appen) faar afspilleren
+    // gennem LivePlayer, saa afspil efter en pause altid starter paa live.
     session =
-      MediaLibrarySession.Builder(this, built, Callback(this))
+      MediaLibrarySession.Builder(this, LivePlayer(built), Callback(this))
         .setMediaButtonPreferences(buttons())
         .build()
   }
@@ -324,6 +326,29 @@ class RadioAutoService : MediaLibraryService() {
         },
         service.fetcher,
       )
+    }
+
+    // Kun til logsiden: bilen abonnerer paa en mappe naar den vises, og
+    // afmelder naar den forlades. Hopper bilens liste til toppen efter
+    // tilbage, viser loggen om den tegner mappen forfra (nyt abonnement) eller
+    // bare spoerger igen.
+    override fun onSubscribe(
+      session: MediaLibrarySession,
+      browser: MediaSession.ControllerInfo,
+      parentId: String,
+      params: LibraryParams?,
+    ): ListenableFuture<LibraryResult<Void>> {
+      AutoLog.add("abonnerer $parentId fra ${browser.packageName}")
+      return super.onSubscribe(session, browser, parentId, params)
+    }
+
+    override fun onUnsubscribe(
+      session: MediaLibrarySession,
+      browser: MediaSession.ControllerInfo,
+      parentId: String,
+    ): ListenableFuture<LibraryResult<Void>> {
+      AutoLog.add("afmelder $parentId fra ${browser.packageName}")
+      return super.onUnsubscribe(session, browser, parentId)
     }
 
     override fun onGetLibraryRoot(
