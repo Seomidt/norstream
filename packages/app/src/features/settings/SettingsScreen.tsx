@@ -178,6 +178,8 @@ export function SettingsScreen({
   const [updateBusy, setUpdateBusy] = useState(false);
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [providersOpen, setProvidersOpen] = useState(false);
+  /** De avancerede fejlfindings-knapper er foldet sammen som standard. */
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [videoSurface, setVideoSurfaceState] = useState<VideoSurface>('surface');
   const [guideInfo, setGuideInfo] = useState<GuideInfoMode>('clock');
   /** Hvornaar kanaler, vejr og nyheder sidst blev hentet — til status-linjerne. */
@@ -410,9 +412,7 @@ export function SettingsScreen({
         <>
           <Text style={styles.sectionTitle}>Guidens info-område</Text>
           <Text style={styles.hint}>
-            Ved siden af forhåndsvisningen i guiden: et stort ur med vejret,
-            en nyhedsstribe i bunden med tid, vejr og danske overskrifter, eller
-            intet — så fylder forhåndsvisningen mere.
+            Ved siden af forhåndsvisningen i guiden: ur med vejr, nyhedsstribe, eller intet.
           </Text>
           <View style={styles.choices}>
             {GUIDE_INFO_CHOICES.map((option) => (
@@ -532,10 +532,7 @@ export function SettingsScreen({
       )}
 
       <Text style={styles.sectionTitle}>Tema</Text>
-      <Text style={styles.hint}>
-        Følg solen: lyst fra solopgang til solnedgang, mørkt når det er mørkt udenfor, så
-        skærmen ikke trætter øjnene om aftenen.
-      </Text>
+      <Text style={styles.hint}>Følg solen: lyst om dagen, mørkt om aftenen.</Text>
       <View style={styles.choices}>
         {THEME_MODES.filter((mode) => mode !== 'system' || !isTV).map((mode) => (
           <TvPressable
@@ -566,8 +563,7 @@ export function SettingsScreen({
 
       <Text style={styles.sectionTitle}>Undertekster</Text>
       <Text style={styles.hint}>
-        Sproget der vælges af sig selv, når en film eller et afsnit har det. Findes det ikke i
-        filen, prøves engelsk. Du kan stadig skifte spor i afspilleren.
+        Sproget der vælges automatisk. Findes det ikke, prøves engelsk. Du kan skifte spor i afspilleren.
       </Text>
       <View style={styles.choices}>
         {SUBTITLE_CHOICES.map((option) => (
@@ -587,61 +583,58 @@ export function SettingsScreen({
         ))}
       </View>
 
-      <Text style={styles.sectionTitle}>Streamformat</Text>
-      <Text style={styles.hint}>
-        Automatisk vælger det formatet der plejer at virke bedst på enheden.
-        Løber underteksterne foran billedet, er HLS værd at prøve: rå TS
-        bærer ingen tidslinje, så afspilleren må gætte sig frem.
-      </Text>
-      <View style={styles.choices}>
-        {STREAM_FORMATS.map((option) => (
-          <TvPressable
-            key={option.value}
-            style={[
-              styles.choice,
-              streamFormat === option.value && styles.choiceSelected,
-            ]}
-            onPress={() => {
-              void chooseStreamFormat(option.value);
-            }}
-          >
-            <Text
-              style={[
-                styles.choiceText,
-                streamFormat === option.value && styles.choiceTextSelected,
-              ]}
-            >
-              {option.label}
-            </Text>
-          </TvPressable>
-        ))}
-      </View>
-      <Text style={styles.hint}>
-        Skiftet gælder næste gang du åbner en kanal, også når du starter forfra.
-      </Text>
+      <Text style={styles.sectionTitle}>Avanceret</Text>
+      <TvPressable style={styles.row} onPress={() => setAdvancedOpen((open) => !open)}>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Streamformat og videogengivelse</Text>
+          <Text style={styles.rowHint}>Til fejlfinding. Brug kun, hvis billede eller undertekster driller.</Text>
+        </View>
+        <Text style={styles.actionText}>{advancedOpen ? '▴ Skjul' : '▾ Vis'}</Text>
+      </TvPressable>
+      {advancedOpen && (
+        <>
+          <Text style={styles.subLabel}>Streamformat</Text>
+          <Text style={styles.hint}>
+            Automatisk plejer at virke. Løber underteksterne foran billedet, er HLS værd at prøve.
+            Gælder næste kanal du åbner.
+          </Text>
+          <View style={styles.choices}>
+            {STREAM_FORMATS.map((option) => (
+              <TvPressable
+                key={option.value}
+                style={[styles.choice, streamFormat === option.value && styles.choiceSelected]}
+                onPress={() => {
+                  void chooseStreamFormat(option.value);
+                }}
+              >
+                <Text style={[styles.choiceText, streamFormat === option.value && styles.choiceTextSelected]}>
+                  {option.label}
+                </Text>
+              </TvPressable>
+            ))}
+          </View>
 
-      <Text style={styles.sectionTitle}>Videogengivelse</Text>
-      <Text style={styles.hint}>
-        Grøn skærm med lyd, fx når en udsendelse startes forfra? Prøv Alternativ. Den tegner
-        videoen på en anden måde; Standard er bedst til HDR. Gælder næste gang du åbner en kanal.
-      </Text>
-      <View style={styles.choices}>
-        {VIDEO_SURFACES.map((option) => (
-          <TvPressable
-            key={option.value}
-            style={[styles.choice, videoSurface === option.value && styles.choiceSelected]}
-            onPress={() => chooseVideoSurface(option.value)}
-          >
-            <Text style={[styles.choiceText, videoSurface === option.value && styles.choiceTextSelected]}>{option.label}</Text>
-          </TvPressable>
-        ))}
-      </View>
+          <Text style={styles.subLabel}>Videogengivelse</Text>
+          <Text style={styles.hint}>
+            Grøn skærm med lyd? Prøv Alternativ. Standard er bedst til HDR. Gælder næste kanal.
+          </Text>
+          <View style={styles.choices}>
+            {VIDEO_SURFACES.map((option) => (
+              <TvPressable
+                key={option.value}
+                style={[styles.choice, videoSurface === option.value && styles.choiceSelected]}
+                onPress={() => chooseVideoSurface(option.value)}
+              >
+                <Text style={[styles.choiceText, videoSurface === option.value && styles.choiceTextSelected]}>{option.label}</Text>
+              </TvPressable>
+            ))}
+          </View>
+        </>
+      )}
 
       <Text style={styles.sectionTitle}>Plakater</Text>
       <Text style={styles.hint}>
-        Udbyderen giver ikke alle film og serier en plakat, og nogle peger på en server der er
-        død. Med en nøgle til The Movie Database (TMDB) slår appen dem op, der mangler, én gang
-        hver, og husker svaret.
+        Med en gratis TMDB-nøgle henter appen de plakater panelet mangler, én gang hver.
       </Text>
       {tmdbLocked && tmdbKey.trim().length > 0 ? (
         <TvPressable style={styles.row} onPress={() => setTmdbLocked(false)}>
@@ -688,10 +681,7 @@ export function SettingsScreen({
 
       <Text style={styles.sectionTitle}>Forside</Text>
       <Text style={styles.hint}>
-        Vælg de streamingtjenester du har. Forsiden viser en hylde for hver med det der er
-        populært på den lige nu, og ugens mest sete. De danske står først; bagefter de
-        britiske (BBC iPlayer, ITVX), mærket UK, med det de har derovre. Trykker du på en titel, spilles den fra din
-        egen pakke når den findes der, ellers åbnes tjenestens app. Kræver TMDB-nøglen ovenfor.
+        Vælg de streamingtjenester du har. Forsiden viser populære titler fra hver. Kræver TMDB-nøglen ovenfor.
       </Text>
       {tmdbKey.trim().length === 0 ? null : providers === null ? (
         <Text style={styles.hint}>Henter tjenesterne …</Text>
@@ -798,10 +788,7 @@ export function SettingsScreen({
         </View>
       </View>
       <Text style={styles.hint}>
-        Appen kommer ikke fra Play Store.{' '}
-        {isTV
-          ? 'Boksen ser selv efter en nyere udgave, når den starter — du kan også søge her.'
-          : 'Søg her efter en nyere udgave og installér den — også på en boks i en anden by.'}{' '}
+        Appen kommer ikke fra Play Store — den henter selv nye udgaver.
         Første gang skal enheden tillade “installér ukendte apps” for NorStream.
       </Text>
       <TvPressable style={styles.row} disabled={updateBusy} onPress={() => void lookForUpdate()}>
@@ -947,13 +934,26 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   choiceTextSelected: { color: colors.text },
   container: { flex: 1, backgroundColor: colors.background },
   content: { padding: theme.spacing.md, paddingBottom: theme.spacing.xl },
+  // En tydelig overskrift med en streg over: saa staar sektionerne ikke bare
+  // lige efter hinanden, men er til at skimme og finde rundt i.
   sectionTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '700',
+    marginTop: theme.spacing.lg,
+    marginBottom: theme.spacing.sm,
+    paddingTop: theme.spacing.md,
+    borderTopColor: colors.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  /** Underoverskrift inde i en sektion (fx Tema, Undertekster under Udseende). */
+  subLabel: {
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
     textTransform: 'uppercase',
-    marginTop: theme.spacing.lg,
-    marginBottom: theme.spacing.sm,
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.xs,
   },
   row: {
     flexDirection: 'row',
