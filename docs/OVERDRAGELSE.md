@@ -32,6 +32,32 @@ panelets egen EPG per kanal (`get_short_epg`) er nok. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
 
+### 23. september 2026 — NorRadio: afspil efter pause = live; listen lander på stationen
+
+Brugeren: (1) tilbage fra en station hoppede listen til toppen — både på
+telefonen og i bilen, både i et land og i Mine stationer; (2) efter en pause
+(eller når man steg ud af bilen) spillede den den gamle buffer færdig og
+hoppede så til live.
+
+- **Buffer:** appens afspil-knap gik allerede til live (`seekToDefaultPosition`),
+  men bilen, rattet, Bluetooth og notifikationen trykker afspil direkte på
+  afspilleren. Nu får sessionen afspilleren gennem `LivePlayer.kt`
+  (ForwardingPlayer): har der været pause (af hvem som helst, også Bluetooth
+  der afbrydes), kastes bufferen og der forbindes forfra ved live-kanten. Samme
+  efter et opkald (lyden holdt tilbage ≥ 3 s). Modulets `resume` er nu bare `play`.
+- **Telefon-listen:** `RememberedList` har fået `frozen` (gemmer ikke rulning
+  mens afspilleren ligger ovenpå — Android kunne sætte listen til toppen, og den
+  top blev gemt) og `restoreIndex` (lander på stationen der spillede, også efter
+  frem/tilbage i afspilleren). Ekstra forsøg efter 300 ms, medmindre brugeren ruller.
+- **Bilen (Android Auto):** bilen styrer selv sin rulning; vi har ingen
+  "rul hertil". Logsiden (hold på "NorRadio"-titlen) viser nu også
+  `abonnerer`/`afmelder` pr. mappe, så man kan se hvad bilen gør ved tilbage.
+  Ikke løst endnu — kræver loggen fra en tur i bilen.
+- **Udgivelse:** byg-kørsel 428 (run `35845428033`, artefakt `norradio-apk`).
+  `udgiv-apk.yml` (variant `norradio`) meldte succes TO gange og satte titlen
+  til v219, men `NorRadio.apk` på `latest-norradio` blev IKKE udskiftet (samme
+  asset-id 578681329 fra 21. sep). Uafklaret; hent derfor fra artefakten.
+
 ### 23. september 2026 — v319: favorit-gen-hægtning må ALDRIG bytte land (LÆS DENNE FØRST)
 
 **Regression fra v310, meldt af brugeren:** efter en synk var favoritterne
