@@ -40,41 +40,18 @@ export const XMLTV_INTERVAL_MS = 24 * 60 * 60_000;
 const XMLTV_RETRY_MS = 60 * 60_000;
 
 /**
- * Version af de indbyggede EPG-feeds. Aendrer listen sig (nye/andre feeds), skal
- * de hentes med det samme efter en opdatering — ikke foerst naar den gamle
- * "sidst hentet" er et doegn gammel. Naar tallet her er hoejere end det gemte,
- * nulstilles XMLTV-hentetiderne én gang, saa de nye feeds kommer ind straks.
- * **Haev det her, hver gang DEFAULT_XMLTV_URLS aendres.**
+ * Version af XMLTV-haandteringen. Aendrer maaden programoversigten hentes eller
+ * ryddes paa, saettes tallet op, saa hentetiderne nulstilles én gang efter en
+ * opdatering og alt bygges rent op igen.
  */
 // 2: bredere navne-matchning. 3: loft paa navne-matchning (generiske navne som
 // "SPORT" gangede programtabellen op og gjorde appen tung) + ryd den oppustede
-// programtabel én gang, saa den bygges rent op igen.
-const XMLTV_DEFAULTS_VERSION = 3;
+// programtabel én gang. 4: de indbyggede DK/UK/US-feeds fjernet helt — de
+// hentede+parsede fem store filer per kilde ved hver synk og gjorde boksen
+// ubrugelig tung. Kun kildens egen XMLTV-adresse bruges nu; panelet har sin
+// egen EPG. Ryd programtabellen én gang mere, saa resterne efter feedsene er vaek.
+const XMLTV_DEFAULTS_VERSION = 4;
 const XMLTV_DEFAULTS_VERSION_KEY = 'xmltv_defaults_version';
-
-/**
- * Indbyggede EPG-filer der bruges for ALLE kilder, oven i det brugeren selv har
- * skrevet ind. Saa er programoversigten bred fra foerste start — panelets egen
- * EPG daekker sjaeldent de mange kanaler, og de her fylder hullerne paa DK, UK
- * og US uden at man skal taste noget.
- *
- * Kun feeds MAALT til at passe under loftet (40 MB upakket, se
- * scripts/maal/epgfeeds.mjs). Den fulde US er 156 MB / den store US-cable-fil
- * 76 MB — for stort til en tv-boks; US daekkes derfor af de gratis FAST-feeds
- * (nyheder, film, underholdning), ~1.700 kanaler tilsammen, der passer sikkert.
- */
-const DEFAULT_XMLTV_URLS = [
-  // Danmark — 217 kanaler, 9,9 MB upakket
-  'https://epgshare01.online/epgshare01/epg_ripper_DK1.xml.gz',
-  // Storbritannien — 486 kanaler, 22,4 MB upakket
-  'https://epgshare01.online/epgshare01/epg_ripper_UK1.xml.gz',
-  // USA (FAST) — nyheder + underholdning (CBS/ABC/NBC/FOX news m.fl.), 582 kanaler, 3,0 MB
-  'https://i.mjh.nz/SamsungTVPlus/us.xml.gz',
-  // USA (FAST) — film og serier (AMC, ION m.fl.), 693 kanaler, 14,8 MB
-  'https://i.mjh.nz/Plex/us.xml.gz',
-  // USA (FAST) — Pluto TV, 430 kanaler, 7,4 MB
-  'https://i.mjh.nz/PlutoTV/us.xml.gz',
-];
 
 /**
  * Logo-registret hentes hoejst én gang om ugen.
@@ -137,9 +114,8 @@ export async function syncAllSources(
     // Med vilje: oprydningen er en ekstra sikkerhed, ikke en forudsaetning.
   }
 
-  // Er de indbyggede EPG-feeds skiftet siden sidst (ny app-udgave), saa nulstil
-  // XMLTV-hentetiderne én gang, saa de nye feeds hentes STRAKS — ikke foerst naar
-  // den gamle "sidst hentet" er et doegn gammel.
+  // Er XMLTV-haandteringen aendret siden sidst (ny app-udgave), saa nulstil
+  // hentetiderne og ryd programtabellen én gang, saa alt bygges rent op igen.
   try {
     await maybeInvalidateXmltvDefaults(db);
   } catch {
@@ -243,10 +219,13 @@ async function maybeXmltv(
   now: Date,
   force: boolean,
 ): Promise<void> {
-  // Koeres for ALLE kilder, ogsaa dem uden egen XMLTV-adresse: de indbyggede
-  // standard-feeds (DK/UK/US) gaelder alle, saa programoversigten er bred fra
-  // start. Et panel har tit kanaler uden EPG, og filerne fylder hullerne.
+  // Kun kildens egen XMLTV-adresse. De indbyggede DK/UK/US-feeds er fjernet:
+  // fem store filer hentet+parset per kilde ved hver synk gjorde boksen ubrugelig
+  // tung, og panelet har sin egen EPG. Har kilden ingen egen adresse, er der
+  // ingenting at hente — spring den over.
   const { source } = access;
+  const own = (source.xmltvUrl ?? '').split(/[\s,]+/).map((url) => url.trim()).filter((url) => url.length > 0);
+  if (own.length === 0) return;
 
   const last = await getLastXmltvMs(db, source.id);
   if (!force && last !== null && now.getTime() - last < XMLTV_INTERVAL_MS) return;
@@ -256,16 +235,9 @@ async function maybeXmltv(
   // saa proever den forfra hver eneste gang appen aabnes. Med en tung fil er
   // det en app der fryser ved hver start. EPG er ikke kritisk; ét forsoeg i
   // doegnet er rigeligt, ogsaa naar det gik galt. Naeste doegn proever den igen.
-  // Marker forsoeget **foer** hentningen, saa en app der lukkes midt i parsen
-  // ikke koerer forfra ved hver start.
   await setLastXmltvMs(db, source.id, now.getTime());
-  // De indbyggede feeds foerst, saa kildens egne adresser oven i — afdupliceret,
-  // saa den samme adresse ikke hentes to gange. syncXmltv laeser xmltvUrl, saa
-  // vi giver den en kopi af kilden med den sammensatte adresse.
-  const own = (source.xmltvUrl ?? '').split(/[\s,]+/).map((url) => url.trim()).filter((url) => url.length > 0);
-  const merged = [...new Set([...DEFAULT_XMLTV_URLS, ...own])].join(' ');
   try {
-    await syncXmltv(db, { ...source, xmltvUrl: merged }, fetchImpl);
+    await syncXmltv(db, { ...source, xmltvUrl: own.join(' ') }, fetchImpl);
     // Lykkedes (mindst én feed): behold doegnrytmen (tidsstemplet staar).
   } catch {
     // ALLE feeds fejlede (syncXmltv kaster kun da). Saet tidsstemplet tilbage,
@@ -277,22 +249,21 @@ async function maybeXmltv(
 }
 
 /**
- * Nulstiller XMLTV-hentetiderne én gang, naar de indbyggede feeds er skiftet.
+ * Nulstiller XMLTV-hentetiderne og rydder programtabellen én gang, naar
+ * XMLTV-haandteringen er aendret (ny app-udgave).
  *
- * Uden det ville en app-udgave med nye/andre EPG-feeds foerst hente dem naar
- * den gamle "sidst hentet" var et doegn gammel — saa den brede EPG lod vente paa
- * sig efter en opdatering. Sammenligner en gemt version med koden; er de ens,
- * goeres intet.
+ * Sammenligner en gemt version med koden; er de ens, goeres intet.
  */
 async function maybeInvalidateXmltvDefaults(db: SqlDatabase): Promise<void> {
   const stored = await getSetting(db, XMLTV_DEFAULTS_VERSION_KEY);
   if (stored === String(XMLTV_DEFAULTS_VERSION)) return;
   // Alle kilders XMLTV-hentetid ryddes, saa maybeXmltv henter forfra naeste gang.
   await db.runAsync("DELETE FROM settings WHERE key LIKE 'last_xmltv_ms:%'");
-  // Ryd programtabellen én gang: v2's for-brede matchning kunne have blaest den
-  // op med snesevis af kopier per program, og der er ingen kilde-markering til
-  // at fjerne netop dem. Den bygges rent op igen — XMLTV forfra (ovenfor) og
-  // panelets egen EPG per kanal ved browse/guide. Kun ved et versionsskift.
+  // Ryd programtabellen én gang: tidligere versioners for-brede matchning og de
+  // nu fjernede indbyggede feeds kunne have blaest den op med kopier per program,
+  // og der er ingen kilde-markering til at fjerne netop dem. Den bygges rent op
+  // igen — kildens egen XMLTV forfra og panelets egen EPG per kanal ved
+  // browse/guide. Kun ved et versionsskift.
   if (stored !== null) {
     await db.runAsync('DELETE FROM programmes');
     await db.runAsync("DELETE FROM epg_fetch");

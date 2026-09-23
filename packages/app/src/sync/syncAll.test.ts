@@ -169,6 +169,48 @@ describe('doegnrytmen', () => {
   });
 });
 
+describe('XMLTV: ingen indbyggede feeds', () => {
+  // De indbyggede DK/UK/US-feeds blev fjernet: fem store filer hentet+parset
+  // per kilde ved hver synk gjorde boksen ubrugelig tung, og panelet har sin
+  // egen EPG. En kilde uden egen XMLTV-adresse maa derfor ikke hente nogen EPG-fil.
+  it('henter ingen EPG-fil for en kilde uden egen xmltvUrl', async () => {
+    const fetchImpl = world();
+    const accesses: SourceAccess[] = [{ source: source('p1', 'xtream'), creds }];
+
+    await syncAllSources(db, accesses, fetchImpl, { force: true });
+
+    const calls = (fetchImpl as unknown as { mock: { calls: string[][] } }).mock.calls;
+    // Ingen af de gamle indbyggede vaerter maa laengere blive kaldt.
+    expect(calls.some((call) => call[0]?.includes('epgshare01'))).toBe(false);
+    expect(calls.some((call) => call[0]?.includes('mjh.nz'))).toBe(false);
+  });
+
+  it('henter stadig kildens egen xmltvUrl', async () => {
+    let asked = '';
+    const fetchImpl: FetchLike = ((url: string) => {
+      if (url.includes('min-epg.example')) {
+        asked = url;
+        // Tom (men gyldig) XMLTV — nok til at hentningen taeller som gennemfoert.
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          text: async () => '<?xml version="1.0"?><tv></tv>',
+          json: async () => ({}),
+          arrayBuffer: async () => new TextEncoder().encode('<?xml version="1.0"?><tv></tv>').buffer,
+        });
+      }
+      return (world() as unknown as (u: string) => Promise<unknown>)(url);
+    }) as unknown as FetchLike;
+
+    const src = { ...source('p1', 'xtream'), xmltvUrl: 'http://min-epg.example/epg.xml' };
+    const accesses: SourceAccess[] = [{ source: src, creds }];
+
+    await syncAllSources(db, accesses, fetchImpl, { force: true });
+
+    expect(asked).toBe('http://min-epg.example/epg.xml');
+  });
+});
+
 describe('logo-registret', () => {
   // Registret laa foerst i synkroniseringen. Det er to filer paa flere
   // megabyte og 36.000 raekker i databasen, og saa laenge det stod der,
