@@ -217,6 +217,22 @@ describe('naar kanalen ingen tvg-id har', () => {
     }
   });
 
+  it('haenger IKKE EPG paa et generisk navn delt af mange kanaler', async () => {
+    // Ni kanaler hedder alle "SPORT" (normaliseret). Det er ikke samme kanal;
+    // et program paa dem alle ville gange programtabellen op. Over loftet -> drop.
+    for (let i = 1; i <= 9; i += 1) {
+      await panelChannel(`DNK| SPORT ${i}`, 'SPORT', `p1:${i}`);
+    }
+    const xml = `<?xml version="1.0"?>
+<tv>
+  <programme start="20260906180000 +0000" stop="20260906190000 +0000" channel="sport.dk">
+    <title>Kamp</title>
+  </programme>
+</tv>`;
+    const result = await syncXmltv(db, PANEL(), serving(xml));
+    expect(result.matched).toBe(0);
+  });
+
   it('matcher paa feed-kanalens visningsnavn naar id er ukendt', async () => {
     // epgshare skriver tit et ordknudret id (`I2.dr1.dk`) men et paent
     // <display-name>DR1</display-name>. Programmet skal ramme paa navnet.

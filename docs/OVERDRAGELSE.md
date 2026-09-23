@@ -23,7 +23,25 @@ telefon mod det rigtige panel, og brugerens ord er "nu er det hele
 efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 `docs/BYG-FRA-CHAT.md`.
 
-### 23. september 2026 — v314: XMLTV-EPG rammer nu panelets kanaler (bredere matchning, LÆS DENNE FØRST)
+### 23. september 2026 — v316: loft på XMLTV-matchning + ryd oppustet EPG; panel-udløbsdato (LÆS DENNE FØRST)
+
+**Vigtig regression fra v314:** den bredere matchning ramte for bredt. Et
+generisk navn (`SPORT`, `NEWS`) deles af mange panel-kanaler, og v314 hængte
+hvert feed-program på dem ALLE → programtabellen blev gauget op med snesevis af
+kopier, og hele appen (især den nu-fyldte guide) blev tung — "10 sek per tryk".
+
+Rettelse (v316):
+- `channelIndex` dropper nu navne delt af > 8 kanaler (generiske tokens); ≤ 8 er
+  rimelige kvalitets-varianter og beholdes. `MAX_NAME_MATCHES = 8`.
+- `XMLTV_DEFAULTS_VERSION` → 3, og ved versionsskift ryddes `programmes` +
+  `epg_fetch` + `epg_archive_fetch` ÉN gang (ingen kilde-markering til at fjerne
+  netop de oppustede rækker), så tabellen bygges rent op igen.
+
+Desuden (v315, rullet ind i v316): **panel-udløbsdato** under Indstillinger →
+kilder. `XtreamClient.getAccountInfo()` læser `exp_date`/`status`; SourcesScreen
+viser "Abonnement udløber DD.MM.YYYY (om N dage)" / "ubegrænset" / "udløbet".
+
+### 23. september 2026 — v314: XMLTV-EPG rammer panelets kanaler (bredere matchning)
 
 Bruger: de indbyggede DK+UK+US-EPG-filer "virker ikke" — der kom ingen EPG på
 kanalerne fra dem. Rod i `syncXmltv.channelIndex`: når panelet har flere

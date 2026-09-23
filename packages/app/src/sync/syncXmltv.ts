@@ -268,8 +268,25 @@ async function channelIndex(db: SqlDatabase, sourceId: string): Promise<ChannelI
     else list.push(row.id);
   }
 
+  // Et navn delt af nogle faa kanaler er kvalitets-varianter (`DR1 HD/HEVC/FHD`)
+  // — dem skal EPG'en paa alle. Men et navn delt af MANGE kanaler er et generisk
+  // token (`SPORT`, `NEWS`, `24/7`), ikke samme kanal: haenger man et programme
+  // paa dem alle, blaeser programtabellen op (hvert feed-program ganges med
+  // snesevis), og hele appen bliver tung. Saadanne navne droppes — som det
+  // flertydige foer, men kun de meget brede.
+  for (const [key, list] of byName) {
+    if (list.length > MAX_NAME_MATCHES) byName.delete(key);
+  }
+
   return { byEpgId, byName };
 }
+
+/**
+ * Loftet for hvor mange kanaler ét navn maa haenge EPG paa. Nok til alle
+ * rimelige kvalitets-varianter, lavt nok til at et generisk navn ikke kan
+ * gange programtabellen op til det ubrugelige.
+ */
+const MAX_NAME_MATCHES = 8;
 
 /**
  * Alle appens kanaler en XMLTV-kanal peger paa. Id'et foerst (entydigt), ellers

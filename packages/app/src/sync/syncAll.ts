@@ -46,9 +46,10 @@ const XMLTV_RETRY_MS = 60 * 60_000;
  * nulstilles XMLTV-hentetiderne én gang, saa de nye feeds kommer ind straks.
  * **Haev det her, hver gang DEFAULT_XMLTV_URLS aendres.**
  */
-// 2: bredere navne-matchning (rammer alle kvalitets-varianter + feed-kanalens
-// visningsnavne), saa DK/UK/US-filerne faktisk saetter EPG paa panelets kanaler.
-const XMLTV_DEFAULTS_VERSION = 2;
+// 2: bredere navne-matchning. 3: loft paa navne-matchning (generiske navne som
+// "SPORT" gangede programtabellen op og gjorde appen tung) + ryd den oppustede
+// programtabel én gang, saa den bygges rent op igen.
+const XMLTV_DEFAULTS_VERSION = 3;
 const XMLTV_DEFAULTS_VERSION_KEY = 'xmltv_defaults_version';
 
 /**
@@ -288,6 +289,15 @@ async function maybeInvalidateXmltvDefaults(db: SqlDatabase): Promise<void> {
   if (stored === String(XMLTV_DEFAULTS_VERSION)) return;
   // Alle kilders XMLTV-hentetid ryddes, saa maybeXmltv henter forfra naeste gang.
   await db.runAsync("DELETE FROM settings WHERE key LIKE 'last_xmltv_ms:%'");
+  // Ryd programtabellen én gang: v2's for-brede matchning kunne have blaest den
+  // op med snesevis af kopier per program, og der er ingen kilde-markering til
+  // at fjerne netop dem. Den bygges rent op igen — XMLTV forfra (ovenfor) og
+  // panelets egen EPG per kanal ved browse/guide. Kun ved et versionsskift.
+  if (stored !== null) {
+    await db.runAsync('DELETE FROM programmes');
+    await db.runAsync("DELETE FROM epg_fetch");
+    await db.runAsync("DELETE FROM epg_archive_fetch");
+  }
   await setSetting(db, XMLTV_DEFAULTS_VERSION_KEY, String(XMLTV_DEFAULTS_VERSION));
 }
 
