@@ -68,6 +68,28 @@ describe('XtreamClient.authenticate', () => {
   });
 });
 
+describe('XtreamClient.getAccountInfo', () => {
+  it('laeser udloeb og status fra user_info', async () => {
+    const client = new XtreamClient(
+      creds,
+      respondWith({ user_info: { exp_date: '1774000000', status: 'Active' } }),
+    );
+    expect(await client.getAccountInfo()).toEqual({ expDate: 1774000000, status: 'Active' });
+  });
+
+  it('giver null udloeb for ubegraenset (0/tom/mangler)', async () => {
+    for (const exp of [0, '0', '', null, undefined]) {
+      const client = new XtreamClient(creds, respondWith({ user_info: { exp_date: exp } }));
+      expect((await client.getAccountInfo()).expDate).toBeNull();
+    }
+  });
+
+  it('taaler et svar helt uden user_info', async () => {
+    const client = new XtreamClient(creds, respondWith({}));
+    expect(await client.getAccountInfo()).toEqual({ expDate: null, status: null });
+  });
+});
+
 describe('XtreamClient.getLiveCategories', () => {
   it('kalder det rigtige endpoint og mapper svaret', async () => {
     const fetchImpl = respondWith([{ category_id: '1', category_name: 'Danmark' }]);

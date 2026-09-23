@@ -43,7 +43,7 @@ export {
 export type { RawXtreamCategory, RawXtreamStream } from './xtream/mapping.js';
 
 export { XtreamAuthError, XtreamClient, XtreamNetworkError } from './xtream/client.js';
-export type { FetchLike, FetchLikeResponse } from './xtream/client.js';
+export type { FetchLike, FetchLikeResponse, XtreamAccountInfo } from './xtream/client.js';
 
 export { detectTimeshiftDialect } from './xtream/probe.js';
 

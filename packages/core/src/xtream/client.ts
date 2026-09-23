@@ -58,6 +58,24 @@ interface UserInfoResponse {
   user_info?: { auth?: number | string };
 }
 
+/** Kontoens tilstand hos panelet, fra `user_info`. */
+export interface XtreamAccountInfo {
+  /** Unix-sekunder for udloeb, eller `null` for ubegraenset / uoplyst. */
+  expDate: number | null;
+  /** Panelets status, fx `Active`, `Expired`, `Banned` — eller `null`. */
+  status: string | null;
+}
+
+/** exp_date kan komme som tal eller talstreng; 0/""/null betyder ubegraenset. */
+function parseExpDate(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value.trim(), 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return null;
+}
+
 export class XtreamClient {
   private readonly baseUrl: string;
 
@@ -118,6 +136,23 @@ export class XtreamClient {
     if (!truthyFlag(auth)) {
       throw new XtreamAuthError();
     }
+  }
+
+  /**
+   * Kontoens udloebsdato og status, fra samme `user_info` som login.
+   *
+   * Til Indstillinger, saa man kan se hvornaar panelet udloeber. Et rent
+   * opslag uden action — samme svar som `authenticate` laeser `auth` fra.
+   */
+  async getAccountInfo(): Promise<XtreamAccountInfo> {
+    const body = (await this.request()) as {
+      user_info?: { exp_date?: unknown; status?: unknown };
+    };
+    const info = body?.user_info;
+    return {
+      expDate: parseExpDate(info?.exp_date),
+      status: typeof info?.status === 'string' ? info.status : null,
+    };
   }
 
   async getLiveCategories(): Promise<Category[]> {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -8,7 +8,8 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import type { Source, SourceKind } from '@norstream/core';
+import { XtreamClient } from '@norstream/core';
+import type { Source, SourceKind, XtreamAccountInfo } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import {
   clearSourceCredentials,
@@ -33,6 +34,34 @@ interface Props {
   onSourcesChanged: () => void;
 }
 
+/** Panelets udloeb: hentes, hentet, eller kunne ikke hentes. */
+type ExpiryState = XtreamAccountInfo | 'loading' | 'error' | undefined;
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/**
+ * Linjen der viser hvornaar panelet udloeber. `warn` = udloebet eller taet paa
+ * (14 dage), saa den staar med advarsels-farven.
+ */
+function expiryLine(state: ExpiryState, now: number = Date.now()): { text: string; warn: boolean } | null {
+  if (state === undefined || state === 'loading') return { text: 'Abonnement: henter …', warn: false };
+  if (state === 'error') return { text: 'Abonnement: kunne ikke hentes', warn: false };
+  if (state.expDate === null) return { text: 'Abonnement: ubegrænset', warn: false };
+
+  const ms = state.expDate * 1000;
+  const d = new Date(ms);
+  const date = `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}`;
+  if (ms <= now) return { text: `Abonnement udløbet ${date}`, warn: true };
+
+  const days = Math.ceil((ms - now) / 86_400_000);
+  return {
+    text: `Abonnement udløber ${date} (om ${days} ${days === 1 ? 'dag' : 'dage'})`,
+    warn: days <= 14,
+  };
+}
+
 /**
  * Kilderne: paneler og M3U-lister.
  *
@@ -54,6 +83,11 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
   /** Har kilden fundet vejen til udbyderens arkiv? Slaaet op paa kilde-id. */
   const [archive, setArchive] = useState<Record<string, boolean>>({});
   const [probing, setProbing] = useState<string | null>(null);
+  /** Panelets udloeb/status, hentet fra panelet. Slaaet op paa kilde-id. */
+  const [expiry, setExpiry] = useState<Record<string, ExpiryState>>({});
+  // Hentet én gang per (kilde + adresse): retter man panelet, skifter adressen,
+  // og saa hentes udloebet forfra fra den nye server.
+  const fetchedExpiry = useRef<Set<string>>(new Set());
 
   const reload = useCallback(async (): Promise<void> => {
     const rows = await listSources(session.db);
@@ -76,6 +110,37 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
       }
     })();
   }, [reload]);
+
+  // Panelets udloebsdato hentes fra panelet (kun Xtream — en M3U-liste har
+  // ingen konto). Et let opslag per panel, kun her under Indstillinger; svaret
+  // er samme `user_info` som login. Fejler det, staar der bare "kunne ikke
+  // hentes" i stedet for at vaelte skaermen.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      for (const source of sources) {
+        if (source.kind !== 'xtream') continue;
+        const key = `${source.id}:${source.url}`;
+        if (fetchedExpiry.current.has(key)) continue;
+        fetchedExpiry.current.add(key);
+        setExpiry((current) => ({ ...current, [source.id]: 'loading' }));
+        try {
+          const creds = await loadSourceCredentials(source.id);
+          if (creds === null) {
+            if (!cancelled) setExpiry((current) => ({ ...current, [source.id]: 'error' }));
+            continue;
+          }
+          const info = await new XtreamClient(creds, session.fetchImpl).getAccountInfo();
+          if (!cancelled) setExpiry((current) => ({ ...current, [source.id]: info }));
+        } catch {
+          if (!cancelled) setExpiry((current) => ({ ...current, [source.id]: 'error' }));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sources, session.fetchImpl]);
 
   async function toggle(source: Source, enabled: boolean): Promise<void> {
     await setSourceEnabled(session.db, source.id, enabled);
@@ -190,6 +255,15 @@ export function SourcesScreen({ session, onSourcesChanged }: Props) {
             <Text style={styles.rowMeta} numberOfLines={1}>
               {source.kind === 'xtream' ? 'Panel' : 'M3U-liste'} · {hostOf(source.url)}
             </Text>
+            {source.kind === 'xtream' &&
+              (() => {
+                const line = expiryLine(expiry[source.id]);
+                return line === null ? null : (
+                  <Text style={line.warn ? styles.rowWarn : styles.rowOk} numberOfLines={1}>
+                    {line.text}
+                  </Text>
+                );
+              })()}
             {source.kind === 'xtream' && (
               <View style={styles.archiveLine}>
                 <Text style={archive[source.id] === true ? styles.rowOk : styles.rowWarn}>
