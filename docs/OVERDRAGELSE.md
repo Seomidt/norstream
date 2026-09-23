@@ -18,12 +18,73 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
-**12. september 2026.** Appen kører på brugerens Google TV Streamer og
-telefon mod det rigtige panel, og brugerens ord er "nu er det hele
-efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
-`docs/BYG-FRA-CHAT.md`.
+**23. september 2026.** Appen kører på brugerens to Google TV Streamere og
+telefon mod det rigtige panel. Efter denne omgang (v317–v319) er brugerens ord
+"nu kører det hele dejligt hurtigt igen og alt fungerer". Alt bygges via GitHub,
+aldrig EAS; se `docs/BYG-FRA-CHAT.md`. Nyeste udgivelse: **versionCode 319** på
+begge faste mærkater (`latest-norstream`, `latest-norstream-tv`).
 
-### 23. september 2026 — v316: loft på XMLTV-matchning + ryd oppustet EPG; panel-udløbsdato (LÆS DENNE FØRST)
+**Vigtigste læring fra denne omgang:** på tv-boksens hardware er det at hente +
+parse store XMLTV-EPG-filer for hver kilde ved hver synk for tungt — hele appen
+blev ubrugelig langsom. Byg ALDRIG generel bred XMLTV-matchning eller indbyggede
+standard-feeds ind igen (det var v305/v314/v316-sporet, netto en fejlvej her);
+panelets egen EPG per kanal (`get_short_epg`) er nok. Og favoritter/grupper er
+brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
+ellers byttes danske kanaler til svenske (v319).
+
+### 23. september 2026 — v319: favorit-gen-hægtning må ALDRIG bytte land (LÆS DENNE FØRST)
+
+**Regression fra v310, meldt af brugeren:** efter en synk var favoritterne
+pludselig byttet om — danske kanaler erstattet med svenske, UK Sky med tyske.
+Rod: v310's `relinkOrphanedFavorites` finder en flyttet favorit igen på det
+**rensede navn** (`favorites.match_key`), og `normaliseChannelName` fjerner
+landet — `DNK| DR1 HD` og `SWE| DR1` bliver begge `dr1`. Når panelet
+omnummererede sine kanaler (nyt `stream_id` → favoritten forældreløs), hægtede
+den om til den **første** kanal med det navn efter `sort_order` — uanset land.
+
+Rettelse (skema v24):
+- `favorites.country` gemmes på favoritten (backfyldt fra kanalen). `setFavorite`
+  og `addCategoryToFavorites` gemmer nu både `match_key` og `country`.
+- `relinkOrphanedFavorites` matcher på **kilde + navn + LAND**. Er landet ukendt
+  (gammel favorit fra før v24, hvis kanal allerede var væk), gættes ALDRIG på
+  tværs: kun hvis navnet er entydigt i kilden (præcis én kanal) hægtes den om;
+  ellers står favoritten hellere tom, til den kan hentes fra en sky-backup.
+- `restoreBackup` (matchByName, brugt af sky-gendan + onboarding) matcher også på
+  **land + navn** — landet udledt af det gemte fulde navns eget præfiks via
+  `deriveCountryLoose` — med entydigt navn som reserve. Så lander en
+  sky-gendannelse favoritterne på de RIGTIGE lande igen.
+
+**De allerede forkert-byttede favoritter** kan ikke rettes af koden (databasen
+har mistet det oprindelige land): de hentes tilbage via **Indstillinger → Hent
+fra skyen**. Bemærk faren: en boks med forkerte favoritter må IKKE trykke "Gem i
+skyen" før den har hentet ned, ellers overskrives den gode sky-kopi (v311-guarden
+fanger kun HELT tomme kopier, ikke forkert-udfyldte). versionCode 319.
+
+### 23. september 2026 — v318: de indbyggede DK-UK-US-EPG-feeds fjernet HELT
+
+**Årsagen til den vedvarende langsomhed** (v316 løste den ikke — brugeren: "kan
+overhovedet ikke klikke rundt"). De fem indbyggede standard-feeds (`DK1`, `UK1`,
+`SamsungTVPlus/us`, `Plex/us`, `PlutoTV/us`, tidl. `DEFAULT_XMLTV_URLS`) blev
+hentet + pakket ud + matchet mod alle kanaler for **hver kilde ved hver synk** —
+en tv-boks kunne ikke bære det. Panelet har sin egen EPG.
+
+Rettelse: `DEFAULT_XMLTV_URLS` slettet helt. `maybeXmltv` bruger nu KUN kildens
+egen `xmltvUrl`; har en kilde ingen, springes EPG-hentningen over. Brugerens egne
+XMLTV-adresser (per kilde, redigeres i Redigér panel/M3U) virker uændret.
+`XMLTV_DEFAULTS_VERSION` → 4, så `programmes` + `epg_fetch` + `epg_archive_fetch`
+ryddes én gang mere og resterne efter feedsene forsvinder. versionCode 318.
+**Brugeren bekræftede: "nu kører det hele dejligt hurtigt igen".** Dvs. hele
+XMLTV-sporet (v305/v314/v316) var netto en fejlvej på denne hardware — panelets
+egen EPG per kanal er nok.
+
+### 23. september 2026 — v317: Indstillinger gjort mere overskuelig
+
+Brugeren: svært for andre at finde rundt, "alt står bare efter hinanden". Fede
+sektionsoverskrifter med skillelinjer, sjældent brugte valg (Streamformat,
+Videogengivelse) foldet ind under "Avanceret", trimmede hjælpetekster. Ingen
+funktionsændring, kun layout i `SettingsScreen.tsx`.
+
+### 23. september 2026 — v316: loft på XMLTV-matchning + ryd oppustet EPG; panel-udløbsdato
 
 **Vigtig regression fra v314:** den bredere matchning ramte for bredt. Et
 generisk navn (`SPORT`, `NEWS`) deles af mange panel-kanaler, og v314 hængte
@@ -61,7 +122,17 @@ kører XMLTV forfra og henter den brede matchning. versionCode 314.
 ### 22. september 2026 — v313: pil venstre/højre spoler i film og start-forfra på TV
 
 initialBarShown på LandscapePlayer: på TV starter bjælken skjult i film/arkiv,
-så pil venstre/højre spoler med det samme (pil op henter knapperne).
+så pil venstre/højre spoler med det samme (pil op henter knapperne). Samme omgang
+løste også bund-menuen (spol 3 min frem/tilbage) der ikke kunne nås med fokus på
+TV — årsag var samme: bjælken lå oven på og fangede fokus.
+
+### 22. september 2026 — v312: trailer i slow-motion på ny boks
+
+Ny Google-streamer viste YouTube-trailere i slowmotion (hakkede mellem hvert
+billede) i den indlejrede WebView. Rettelse: `androidLayerType="hardware"` på
+`TrailerScreen`'s WebView. Bemærk: kun den ENE boks var ramt, og problemet
+"forsvandt af sig selv" senere på boksen — så hardware-laget var sandsynligvis
+ikke hele forklaringen, men det gør ingen skade. Film/live var aldrig ramt.
 
 ### 22. september 2026 — v311: en tom sky-kopi kan ikke overskrive en god
 
