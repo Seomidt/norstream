@@ -93,6 +93,48 @@ describe('favoritter overlever at kanal-id skifter', () => {
     expect(favs[0]!.id).toBe(`${s.id}:1`);
   });
 
+  it('gen-haegter IKKE en dansk favorit paa en svensk kanal med samme navn', async () => {
+    // Det rod v24 retter: navnet renses for land ("DNK| DR1 HD" og "SWE| DR1"
+    // bliver begge "dr1"), saa uden landet med ville en dansk favorit kunne
+    // blive hgtet paa en svensk kanal.
+    const s = await addSource(db, { kind: 'xtream', name: 'Hakuna', url: 'http://h' });
+    await replaceCategories(db, s.id, [{ id: 'c1', name: 'Blandet' }]);
+    // Svensk DR1 staar foerst (lavere sort_order); dansk DR1 favoriseres.
+    await replaceChannels(db, s.id, [ch('1', 'SWE| DR1'), ch('2', 'DNK| DR1 HD')]);
+    const dansk = (await listChannels(db, {})).find((c) => c.name === 'DNK| DR1 HD');
+    await setFavorite(db, dansk!.id, true);
+
+    // Panelet omnummererer begge kanaler.
+    await replaceChannels(db, s.id, [ch('11', 'SWE| DR1'), ch('22', 'DNK| DR1 HD')]);
+    expect((await listChannels(db, { favouritesOnly: true })).length).toBe(0);
+
+    await relinkOrphanedFavorites(db);
+
+    const favs = await listChannels(db, { favouritesOnly: true });
+    expect(favs.length).toBe(1);
+    // Skal ramme den DANSKE kanal igen, ikke den svenske.
+    expect(favs[0]!.name).toBe('DNK| DR1 HD');
+    expect(favs[0]!.id).toBe(`${s.id}:22`);
+  });
+
+  it('gaetter ikke paa tvaers naar landet er ukendt og navnet er flertydigt', async () => {
+    // Gammel favorit fra foer v24: intet land gemt. Er der to kanaler med samme
+    // navn (fx dansk og svensk DR1), maa den hellere staa tom end gaette.
+    const s = await addSource(db, { kind: 'xtream', name: 'Hakuna', url: 'http://h' });
+    await replaceCategories(db, s.id, [{ id: 'c1', name: 'Blandet' }]);
+    await replaceChannels(db, s.id, [ch('11', 'SWE| DR1'), ch('22', 'DNK| DR1 HD')]);
+    // Foraeldet favorit med match_key men UDEN land (country = NULL).
+    await db.runAsync(
+      "INSERT INTO favorites (channel_id, match_key, country, position) VALUES (?, 'dr1', NULL, 0)",
+      [`${s.id}:gammel`],
+    );
+
+    await relinkOrphanedFavorites(db);
+
+    // Flertydigt navn uden land: ingen gen-haegtning.
+    expect((await listChannels(db, { favouritesOnly: true })).length).toBe(0);
+  });
+
   it('addCategoryToFavorites gemmer ogsaa navnet', async () => {
     const s = await addSource(db, { kind: 'xtream', name: 'Hakuna', url: 'http://h' });
     await replaceCategories(db, s.id, [{ id: 'c1', name: 'DK' }]);

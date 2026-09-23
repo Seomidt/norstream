@@ -162,6 +162,30 @@ describe('restoreBackup', () => {
     expect(override?.channel_key).toBe(`${freshId}:bb`);
   });
 
+  it('gendanner en dansk favorit paa den danske kanal, ikke en svensk med samme navn', async () => {
+    const backup = await createBackup(old.db);
+    // Et andet panel der har BAADE en svensk og en dansk DR1. Navnet alene
+    // ("dr1") kan ikke skelne dem — landet skal.
+    const fresh = createTestDatabase();
+    await migrate(fresh);
+    const freshId = (await addSource(fresh, { kind: 'xtream', name: 'Andet', url: 'http://andet.example', username: 'bruger2' })).id;
+    await replaceCategories(fresh, freshId, [{ id: '99', name: 'ALT' }]);
+    // Svensk DR1 staar foerst (ville vinde uden land-match).
+    await replaceChannels(fresh, freshId, [
+      { id: 'se', name: 'SWE| DR1', number: 1, logoUrl: null, categoryId: '99', epgChannelId: null, hasArchive: false, archiveDays: 0 },
+      { id: 'dk', name: 'DNK| DR1 HD', number: 2, logoUrl: null, categoryId: '99', epgChannelId: null, hasArchive: false, archiveDays: 0 },
+      { id: 'tv2', name: 'DNK| TV 2 HD', number: 3, logoUrl: null, categoryId: '99', epgChannelId: null, hasArchive: false, archiveDays: 0 },
+    ]);
+
+    await restoreBackup(fresh, backup, { matchByName: true });
+
+    const favourites = (await listChannels(fresh, { favouritesOnly: true })).map((c) => c.name).sort();
+    // DR1-favoritten skal ramme den DANSKE kanal, ikke den svenske.
+    expect(favourites).toContain('DNK| DR1 HD');
+    expect(favourites).toContain('DNK| TV 2 HD');
+    expect(favourites).not.toContain('SWE| DR1');
+  });
+
   it('matcher IKKE paa navn uden matchByName (uaendret adfaerd)', async () => {
     const backup = await createBackup(old.db);
     const fresh = await installation('http://andet.example', 'bruger2');

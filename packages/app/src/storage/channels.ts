@@ -223,25 +223,36 @@ export async function deleteOrphanedChannelData(db: SqlDatabase): Promise<void> 
 }
 
 /**
- * Gen-haegter favoritter hvis kanal-id er skiftet, ud fra det gemte navn.
+ * Gen-haegter favoritter hvis kanal-id er skiftet, ud fra det gemte navn+land.
  *
  * Et panel kan omnummerere sine kanaler (nyt `stream_id`), og en M3U kan
  * udlede id'et anderledes efter en opdatering. Saa peger favoritten paa et id
  * der ikke findes mere, og den forsvandt foer stille fra listen — sammen med
- * resten. Her findes kanalen med **samme navn i samme kilde** igen, og
- * favoritten (og dens gruppemedlemskaber) flyttes over paa det nye id.
+ * resten. Her findes kanalen med **samme navn i samme land i samme kilde**
+ * igen, og favoritten (og dens gruppemedlemskaber) flyttes over paa det nye id.
+ *
+ * **Landet er afgoerende.** Det rensede navn rummer ikke landet ("DNK| DR1 HD"
+ * og "SWE| DR1" bliver begge "dr1"), saa uden landet kunne en dansk favorit
+ * blive hgtet paa en svensk kanal med samme navn — praecis det rod v24 retter.
+ * Er landet ukendt (gammel favorit fra foer v24, hvis kanal allerede var vaek),
+ * gaettes der ALDRIG paa tvaers: kun hvis der er praecis én kanal med det navn
+ * i kilden, haegtes den om; ellers staar den hellere tom, til den kan hentes
+ * fra en sikkerhedskopi.
  *
  * Kun inden for samme kilde: en favorit fra Hakuna maa ikke pludselig pege paa
- * en anden fils kanal med samme navn. Er der to kanaler med samme navn i
- * kilden, vinder den foerste i panelets orden. Favoritter uden gemt navn
- * (lavet foer v23, hvis kanal allerede var vaek) kan ikke reddes her.
+ * en anden fils kanal med samme navn. Favoritter uden gemt navn (lavet foer
+ * v23, hvis kanal allerede var vaek) kan ikke reddes her.
  *
  * Koeres ved hver synkronisering, saa en favoritliste ikke kan staa tom fordi
  * panelet gav kanalerne nye numre.
  */
 export async function relinkOrphanedFavorites(db: SqlDatabase): Promise<void> {
-  const orphans = await db.getAllAsync<{ channel_id: string; match_key: string }>(
-    `SELECT channel_id, match_key FROM favorites
+  const orphans = await db.getAllAsync<{
+    channel_id: string;
+    match_key: string;
+    country: string | null;
+  }>(
+    `SELECT channel_id, match_key, country FROM favorites
      WHERE match_key IS NOT NULL AND match_key <> ''
        AND channel_id NOT IN (SELECT id FROM channels)`,
   );
@@ -252,11 +263,26 @@ export async function relinkOrphanedFavorites(db: SqlDatabase): Promise<void> {
     const separator = orphan.channel_id.indexOf(':');
     if (separator === -1) continue;
     const sourceId = orphan.channel_id.slice(0, separator);
-    const target = await db.getFirstAsync<{ id: string }>(
-      `SELECT id FROM channels WHERE source_id = ? AND match_key = ?
-       ORDER BY sort_order, id LIMIT 1`,
-      [sourceId, orphan.match_key],
-    );
+    let target: { id: string } | null | undefined;
+    if (orphan.country !== null && orphan.country !== undefined) {
+      // Kend landet: kun en kanal med samme navn OG land. Er der flere (fx HD
+      // og SD af samme kanal), vinder den foerste i panelets orden — de er reelt
+      // den samme kanal, og en forveksling paa tvaers af lande er umulig.
+      target = await db.getFirstAsync<{ id: string }>(
+        `SELECT id FROM channels WHERE source_id = ? AND match_key = ? AND country = ?
+         ORDER BY sort_order, id LIMIT 1`,
+        [sourceId, orphan.match_key, orphan.country],
+      );
+    } else {
+      // Ukendt land: gaet aldrig paa tvaers. Kun hvis navnet er entydigt i
+      // kilden (praecis én kanal) haegtes favoritten om.
+      const candidates = await db.getAllAsync<{ id: string }>(
+        `SELECT id FROM channels WHERE source_id = ? AND match_key = ?
+         ORDER BY sort_order, id LIMIT 2`,
+        [sourceId, orphan.match_key],
+      );
+      target = candidates.length === 1 ? candidates[0] : undefined;
+    }
     if (target === null || target === undefined) continue;
 
     const already = await db.getFirstAsync<{ x: number }>(
@@ -459,13 +485,15 @@ export async function setFavorite(
 ): Promise<void> {
   if (favorite) {
     // Nederst i listen. Raekkefoelgen er brugerens egen, og en ny favorit
-    // skal ikke dukke op midt i den. match_key gemmes med, saa favoritten kan
-    // gen-haegtes hvis kanalens id senere skifter (se relinkOrphanedFavorites).
+    // skal ikke dukke op midt i den. match_key OG land gemmes med, saa
+    // favoritten kan gen-haegtes hvis kanalens id senere skifter — men kun til
+    // en kanal med samme navn i samme land (se relinkOrphanedFavorites).
     await db.runAsync(
-      `INSERT OR IGNORE INTO favorites (channel_id, source_category_id, match_key, position)
+      `INSERT OR IGNORE INTO favorites (channel_id, source_category_id, match_key, country, position)
        VALUES (?, ?, (SELECT match_key FROM channels WHERE id = ?),
+               (SELECT country FROM channels WHERE id = ?),
                (SELECT COALESCE(MAX(position), -1) + 1 FROM favorites))`,
-      [id, sourceCategoryId, id],
+      [id, sourceCategoryId, id, id],
     );
     // Brugeren vil have den igen; en tidligere fravalgt kanal skal ikke blive
     // ved med at vaere udelukket fra kategoriens opdatering.

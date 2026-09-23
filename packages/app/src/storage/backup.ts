@@ -1,4 +1,4 @@
-import { normaliseChannelName } from '@norstream/core';
+import { deriveCountryLoose, normaliseChannelName } from '@norstream/core';
 import type { SqlDatabase } from './types.js';
 
 /**
@@ -315,16 +315,33 @@ export async function restoreBackup(
   // ikke stod i kopien (eller staar der uden match) beholder deres egne.
   for (const source of current) if (!idMap.has(source.id)) idMap.set(source.id, source.id);
 
-  // Navn -> kanal-noegle for boksens egne kanaler, til at finde de samme
-  // kanaler igen paa et andet panel. Foerste kanal med et givet normaliseret
-  // navn vinder.
+  // Land+navn -> kanal-noegle for boksens egne kanaler, til at finde de samme
+  // kanaler igen paa et andet panel. **Landet skal med:** det rensede navn
+  // rummer det ikke ("DNK| DR1 HD" og "SWE| DR1" bliver begge "dr1"), saa uden
+  // landet kunne en dansk favorit blive gendannet paa en svensk kanal med samme
+  // navn. Foerste kanal med et givet land+navn vinder. `keyOnlyMap` er en
+  // reserve: er navnet entydigt i hele boksen (praecis én kanal), kan det
+  // matches ogsaa uden land — men aldrig naar det ville vaere et gaet.
   let nameMap: Map<string, string> | null = null;
+  let keyOnlyMap: Map<string, string> | null = null;
   if (options.matchByName === true) {
     nameMap = new Map();
-    const channels = await db.getAllAsync<{ id: string; name: string }>('SELECT id, name FROM channels');
+    keyOnlyMap = new Map();
+    const counts = new Map<string, number>();
+    const firstByKey = new Map<string, string>();
+    const channels = await db.getAllAsync<{ id: string; name: string; country: string }>(
+      'SELECT id, name, country FROM channels',
+    );
     for (const channel of channels) {
       const key = normaliseChannelName(channel.name);
-      if (key.length > 0 && !nameMap.has(key)) nameMap.set(key, channel.id);
+      if (key.length === 0) continue;
+      const composite = `${channel.country ?? ''}\u0000${key}`;
+      if (!nameMap.has(composite)) nameMap.set(composite, channel.id);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+      if (!firstByKey.has(key)) firstByKey.set(key, channel.id);
+    }
+    for (const [key, id] of firstByKey) {
+      if (counts.get(key) === 1) keyOnlyMap.set(key, id);
     }
   }
   const backupNames = backup.channelNames ?? {};
@@ -337,14 +354,22 @@ export async function restoreBackup(
     return target === undefined ? null : `${target}${key.slice(separator)}`;
   };
 
-  /** Som `remap`, men falder tilbage til at finde kanalen paa navn (anden fil). */
+  /** Som `remap`, men falder tilbage til at finde kanalen paa land+navn (anden fil). */
   const remapChannel = (key: string): string | null => {
     const byId = remap(key);
     if (byId !== null) return byId;
-    if (nameMap === null) return null;
+    if (nameMap === null || keyOnlyMap === null) return null;
     const name = backupNames[key];
     if (name === undefined) return null;
-    return nameMap.get(normaliseChannelName(name)) ?? null;
+    const nkey = normaliseChannelName(name);
+    if (nkey.length === 0) return null;
+    // Landet udledes af det gemte navns eget praefiks ("DNK| ..."). Rammer det
+    // en kanal med samme land+navn, er det den. Ellers kun hvis navnet er
+    // entydigt i boksen — aldrig et gaet paa tvaers af lande.
+    const country = deriveCountryLoose(name)?.code ?? '';
+    const exact = nameMap.get(`${country}\u0000${nkey}`);
+    if (exact !== undefined) return exact;
+    return keyOnlyMap.get(nkey) ?? null;
   };
 
   const result: RestoreResult = {
@@ -367,9 +392,10 @@ export async function restoreBackup(
     const categoryId =
       favorite.sourceCategoryId === null ? null : remap(favorite.sourceCategoryId);
     await db.runAsync(
-      `INSERT OR REPLACE INTO favorites (channel_id, source_category_id, match_key, position)
-       VALUES (?, ?, (SELECT match_key FROM channels WHERE id = ?), ?)`,
-      [channelId, categoryId, channelId, position],
+      `INSERT OR REPLACE INTO favorites (channel_id, source_category_id, match_key, country, position)
+       VALUES (?, ?, (SELECT match_key FROM channels WHERE id = ?),
+               (SELECT country FROM channels WHERE id = ?), ?)`,
+      [channelId, categoryId, channelId, channelId, position],
     );
     position += 1;
     result.favorites += 1;

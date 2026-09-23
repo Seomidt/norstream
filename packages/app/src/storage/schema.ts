@@ -70,6 +70,12 @@ CREATE TABLE IF NOT EXISTS favorites (
   -- udleder dem anderledes) — ellers forsvandt hele favoritlisten stille naar
   -- id'et skiftede. Se relinkOrphanedFavorites.
   match_key          TEXT,
+  -- Kanalens land (samme som channels.country) gemt paa favoritten selv. Uden
+  -- det matchede gen-haegtningen kun paa navn, og da navnet er renset for land
+  -- ("DNK| DR1 HD" og "SWE| DR1" bliver begge "dr1"), kunne en dansk favorit
+  -- blive hgtet paa en svensk kanal med samme navn. Med landet med kan den
+  -- kun ramme samme land. Se relinkOrphanedFavorites.
+  country            TEXT,
   -- Brugerens egen raekkefoelge. Nye favoritter laegger sig nederst; en hel
   -- kategori laegges nederst i panelets orden. Kan flyttes under Favoritter.
   position           INTEGER
@@ -441,7 +447,9 @@ const TABLES = [
 // v19: radio_stations og radio_favorites. v20: favorite_groups og medlemmer.
 // v21: channel_history, reminders, archive_progress, followed_series.
 // v22: saved_songs. v23: favorites.match_key (gen-haegt favoritter ved id-skift).
-const SCHEMA_VERSION = 23;
+// v24: favorites.country (gen-haegt kun inden for samme land, saa en dansk
+// favorit ikke kan ende paa en svensk kanal med samme navn).
+const SCHEMA_VERSION = 24;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -640,6 +648,34 @@ async function addV23Columns(db: SqlDatabase): Promise<void> {
   );
 }
 
+/**
+ * v24: kanalens land gemt paa favoritten.
+ *
+ * Uden det matchede gen-haegtningen (relinkOrphanedFavorites) kun paa det
+ * rensede navn, og da navnet ikke rummer landet, kunne en dansk favorit blive
+ * hgtet paa en svensk kanal med samme navn ("DR1"). Med landet med kan den kun
+ * ramme samme land.
+ *
+ * De der allerede er favoritter faar landet fyldt ud fra deres nuvaerende
+ * kanal. Er favoritten allerede hgtet forkert (kanalen findes, men er den
+ * forkerte), faar den det forkerte lands kode — men saadan en favorit rettes
+ * kun ved at hente den rigtige tilbage fra en sikkerhedskopi, ikke af
+ * gen-haegtningen (den roerer kun favoritter hvis kanal er vaek).
+ */
+async function addV24Columns(db: SqlDatabase): Promise<void> {
+  try {
+    await db.execAsync('ALTER TABLE favorites ADD COLUMN country TEXT');
+  } catch {
+    // Kolonnen fandtes allerede.
+  }
+  await db.execAsync(
+    `UPDATE favorites
+     SET country = (SELECT c.country FROM channels c WHERE c.id = favorites.channel_id)
+     WHERE country IS NULL
+       AND EXISTS (SELECT 1 FROM channels c WHERE c.id = favorites.channel_id)`,
+  );
+}
+
 /** v15: karakteren fra TMDB ved siden af plakaten. */
 async function addV15Columns(db: SqlDatabase): Promise<void> {
   try {
@@ -714,6 +750,7 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     if (version > 0 && version < 13) await addV13Columns(db);
     if (version === 14) await addV15Columns(db);
     if (version > 0 && version < 23) await addV23Columns(db);
+    if (version > 0 && version < 24) await addV24Columns(db);
     // v17 -> v18: den foerste netsoegning noterede 2.000 kanaler som soegt
     // uden held, fordi alle opslag blev afvist lokalt af panel-pausen. De
     // noter er ikke sande og skal vaek, ellers springes kanalerne over i
