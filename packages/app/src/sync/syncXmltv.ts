@@ -57,6 +57,12 @@ export async function syncXmltv(
   const programmes: Programme[] = [];
   const matched = new Set<string>();
   const logos = new Map<string, string>();
+  // Feed-kanalens id -> appens kanaler, udledt af dens <display-name>. Bruges
+  // som **anden vej** til at matche programmer: har en feed-kanal et ukendt id
+  // (`I2.dr1.dk`) men et genkendeligt navn (`DR1`), rammer programmerne
+  // alligevel. `<channel>` staar foer `<programme>` i en XMLTV-fil, saa kortet
+  // er fyldt naar programmerne kommer.
+  const feedIdToKeys = new Map<string, string[]>();
 
   // Med flere adresser maa én daarlig ikke tage de andre med sig; men fejler
   // ALLE (fx den ene adresse man har skrevet er nede eller for stor), kastes
@@ -75,21 +81,35 @@ export async function syncXmltv(
     }
     const parser = createXmltvParser(
       (programme) => {
-        const key = lookup(index, programme.channelId);
-        if (key === undefined) return;
-        matched.add(key);
-        programmes.push({ ...programme, channelId: key });
-      },
-      // Logoerne staar i <channel><icon> — standardens plads til dem. Kanalen
-      // findes paa id'et som programmerne, og ellers paa et af dens navne.
-      (channel) => {
-        if (channel.iconUrl === null) return;
-        let key = lookup(index, channel.id);
-        for (const name of channel.displayNames) {
-          if (key !== undefined) break;
-          key = lookupName(index, name);
+        // Programmet haenges paa ALLE kanaler med det navn — panelet har
+        // `DR1 HD`, `DR1 HEVC`, `DR1 FHD` som hver sin raekke, og de skal alle
+        // have EPG'en. Rammer id'et ikke, proeves feed-kanalens navne.
+        let keys = keysFor(index, programme.channelId);
+        if (keys.length === 0) keys = feedIdToKeys.get(programme.channelId) ?? [];
+        for (const key of keys) {
+          matched.add(key);
+          programmes.push({ ...programme, channelId: key });
         }
-        if (key !== undefined && !logos.has(key)) logos.set(key, channel.iconUrl);
+      },
+      (channel) => {
+        // Kort feed-kanalens navne til appens kanaler, saa programmer med et
+        // ukendt id stadig kan rammes paa navnet.
+        const keys = new Set<string>();
+        for (const name of channel.displayNames) {
+          for (const key of index.byName.get(normaliseChannelName(name)) ?? []) keys.add(key);
+        }
+        if (keys.size > 0) feedIdToKeys.set(channel.id, [...keys]);
+
+        // Logoerne staar i <channel><icon>. Til et logo kraeves et ENTYDIGT
+        // navn: et forkert logo paa en kanal der ser rigtig ud er vaerre end
+        // intet. (EPG er anderledes — den maa gerne paa alle varianter.)
+        if (channel.iconUrl === null) return;
+        let logoKey = logoLookup(index, channel.id);
+        for (const name of channel.displayNames) {
+          if (logoKey !== undefined) break;
+          logoKey = lookupName(index, name);
+        }
+        if (logoKey !== undefined && !logos.has(logoKey)) logos.set(logoKey, channel.iconUrl);
       },
     );
     await writeChunked(parser, xml);
@@ -210,23 +230,23 @@ async function replaceXmltvLogos(
 interface ChannelIndex {
   /** Kanaler slaaet op paa deres `tvg-id` / `epg_channel_id`. */
   byEpgId: Map<string, string>;
-  /** Kanaler slaaet op paa deres normaliserede navn. */
-  byName: Map<string, string>;
-  /** Navne der gaar igen paa flere kanaler og derfor ikke maa bruges. */
-  ambiguous: Set<string>;
+  /**
+   * Navn -> ALLE kanaler med det navn. Panelet har `DR1 HD`, `DR1 HEVC`,
+   * `DR1 FHD` — samme kanal i tre kvaliteter, samme normaliserede navn. Til
+   * **programmer** skal de alle rammes; derfor en liste, ikke ét id (og ingen
+   * "flertydig, derfor droppet" — det var netop det, der efterlod stort set
+   * hele panelet uden EPG fra filerne).
+   */
+  byName: Map<string, string[]>;
 }
 
 /**
- * Opslag fra en XMLTV-kanal til appens kanalnoegle.
+ * Opslag fra en XMLTV-kanal til appens kanalnoegler.
  *
- * `epg_channel_id` er den rigtige vej, men **87 % af panelets kanaler har
- * ingen**. Derfor er navnet med som anden vej: en XMLTV-fil skriver typisk
- * `channel="DR1.dk"`, og landeendelsen sat til side er det det samme som
- * kanalens navn renset for praefiks og kvalitetsmaerker.
- *
- * Navne der gaar igen paa flere kanaler i samme kilde bruges ikke. Panelet
- * har `DR1 HD` og `DR1 HEVC` som to raekker med samme normaliserede navn, og
- * programmerne ville ellers lande paa en tilfaeldig af dem.
+ * `epg_channel_id` er den rigtige vej, men de fleste af panelets kanaler har
+ * ingen. Derfor er navnet med som anden vej: en XMLTV-fil skriver typisk
+ * `channel="DR1.dk"`, og landeendelsen sat til side er det samme som kanalens
+ * navn renset for praefiks og kvalitetsmaerker (`DNK| DR1 HD` -> `DR1`).
  */
 async function channelIndex(db: SqlDatabase, sourceId: string): Promise<ChannelIndex> {
   const rows = await db.getAllAsync<{
@@ -236,44 +256,56 @@ async function channelIndex(db: SqlDatabase, sourceId: string): Promise<ChannelI
   }>('SELECT id, epg_channel_id, match_key FROM channels WHERE source_id = ?', [sourceId]);
 
   const byEpgId = new Map<string, string>();
-  const byName = new Map<string, string>();
-  const ambiguous = new Set<string>();
+  const byName = new Map<string, string[]>();
 
   for (const row of rows) {
     if (row.epg_channel_id !== null && row.epg_channel_id !== '') {
       byEpgId.set(row.epg_channel_id, row.id);
     }
     if (row.match_key === '') continue;
-    if (byName.has(row.match_key)) ambiguous.add(row.match_key);
-    else byName.set(row.match_key, row.id);
+    const list = byName.get(row.match_key);
+    if (list === undefined) byName.set(row.match_key, [row.id]);
+    else list.push(row.id);
   }
 
-  for (const key of ambiguous) byName.delete(key);
-  return { byEpgId, byName, ambiguous };
-}
-
-/** XMLTV-kanalen til en kanalnoegle, eller `undefined`. */
-function lookup(index: ChannelIndex, xmltvChannel: string): string | undefined {
-  const direct = index.byEpgId.get(xmltvChannel);
-  if (direct !== undefined) return direct;
-
-  // `DR1.dk` -> `DR1`. Landeendelsen er ikke en del af kanalens navn.
-  const withoutSuffix = xmltvChannel.replace(/\.[a-z]{2}$/i, '');
-  return index.byName.get(normaliseChannelName(withoutSuffix));
+  return { byEpgId, byName };
 }
 
 /**
- * Kanalen bag et af filens visningsnavne — `<display-name>DR1</display-name>`.
- *
- * Kun navne der peger paa praecis én kanal i kilden. Panelet har `DR1 HD`
- * og `DR1 HEVC` som to raekker med samme normaliserede navn, og et logo
- * maa ikke lande paa en tilfaeldig af dem — det ville den anden aldrig
- * opdage.
+ * Alle appens kanaler en XMLTV-kanal peger paa. Id'et foerst (entydigt), ellers
+ * navnet — som kan ramme flere kvalitets-varianter, og det skal det.
+ */
+function keysFor(index: ChannelIndex, xmltvChannel: string): string[] {
+  const direct = index.byEpgId.get(xmltvChannel);
+  if (direct !== undefined) return [direct];
+
+  // `DR1.dk` -> `DR1`. Landeendelsen er ikke en del af kanalens navn.
+  const withoutSuffix = xmltvChannel.replace(/\.[a-z]{2}$/i, '');
+  return index.byName.get(normaliseChannelName(withoutSuffix)) ?? [];
+}
+
+/**
+ * Kanalen bag filens id til et **logo** — kun naar navnet er entydigt.
+ * Et forkert logo maa ikke lande paa en kanal der ser rigtig ud.
+ */
+function logoLookup(index: ChannelIndex, xmltvChannel: string): string | undefined {
+  const direct = index.byEpgId.get(xmltvChannel);
+  if (direct !== undefined) return direct;
+  const withoutSuffix = xmltvChannel.replace(/\.[a-z]{2}$/i, '');
+  const list = index.byName.get(normaliseChannelName(withoutSuffix));
+  return list !== undefined && list.length === 1 ? list[0] : undefined;
+}
+
+/**
+ * Kanalen bag et af filens visningsnavne — `<display-name>DR1</display-name>`
+ * — til et logo. Kun navne der peger paa praecis én kanal i kilden, saa et
+ * logo ikke lander paa en tilfaeldig af flere varianter.
  */
 function lookupName(index: ChannelIndex, displayName: string): string | undefined {
   const key = normaliseChannelName(displayName);
-  if (key.length === 0 || index.ambiguous.has(key)) return undefined;
-  return index.byName.get(key);
+  if (key.length === 0) return undefined;
+  const list = index.byName.get(key);
+  return list !== undefined && list.length === 1 ? list[0] : undefined;
 }
 
 function contentType(response: unknown): string | null {

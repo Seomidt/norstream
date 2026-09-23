@@ -23,7 +23,29 @@ telefon mod det rigtige panel, og brugerens ord er "nu er det hele
 efterhånden som det skal være". Alt bygges via GitHub, aldrig EAS; se
 `docs/BYG-FRA-CHAT.md`.
 
-### 22. september 2026 — v311: en tom sky-kopi kan ikke overskrive en god (LÆS DENNE FØRST)
+### 23. september 2026 — v314: XMLTV-EPG rammer nu panelets kanaler (bredere matchning, LÆS DENNE FØRST)
+
+Bruger: de indbyggede DK+UK+US-EPG-filer "virker ikke" — der kom ingen EPG på
+kanalerne fra dem. Rod i `syncXmltv.channelIndex`: når panelet har flere
+kvalitets-varianter med samme normaliserede navn (`DNK| DR1 HD`, `DNK| DR1
+HEVC`, `DNK| DR1 FHD` → alle `DR1`), blev navnet markeret **flertydigt og
+droppet** — og panelet har varianter på næsten alle kanaler, så stort set
+intet matchede.
+
+Rettelse: `byName` er nu `navn → LISTE af kanaler`. Et programme hænges på
+**alle** kanaler med det navn (samme kanal, samme EPG — det er korrekt for EPG,
+i modsætning til logoer hvor et forkert logo er slemt; logoer kræver stadig et
+entydigt navn). Desuden matches programmer nu også på feed-kanalens
+`<display-name>` (så et ordknudret id som `I2.dr1.dk` med navnet `DR1` også
+rammer). `XMLTV_DEFAULTS_VERSION` hævet til 2, så eksisterende installationer
+kører XMLTV forfra og henter den brede matchning. versionCode 314.
+
+### 22. september 2026 — v313: pil venstre/højre spoler i film og start-forfra på TV
+
+initialBarShown på LandscapePlayer: på TV starter bjælken skjult i film/arkiv,
+så pil venstre/højre spoler med det samme (pil op henter knapperne).
+
+### 22. september 2026 — v311: en tom sky-kopi kan ikke overskrive en god
 
 Ny boks: brugeren skrev sit sky-kodeord i Indstillinger **for at hente**
 favoritter ned — men `setSkyCode` slår også den ugentlige kopi til, og

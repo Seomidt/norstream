@@ -198,13 +198,45 @@ describe('naar kanalen ingen tvg-id har', () => {
     expect(stored.map((p) => p.title)).toEqual(['TV Avisen']);
   });
 
-  it('lader vaere naar to kanaler deler navn', async () => {
-    // Panelet har baade DR1 HD og DR1 HEVC. Programmerne ville ellers lande
-    // paa en tilfaeldig af dem, og den anden staa tom.
+  it('saetter EPG paa ALLE kvalitets-varianter med samme navn', async () => {
+    // Panelet har baade DR1 HD og DR1 HEVC — samme kanal, samme EPG. Begge
+    // skal have programmerne; foer droppede den navnet som "flertydigt", og saa
+    // stod stort set hele panelet uden EPG fra filerne.
     await panelChannel('DNK| DR1 HD', 'DR1', 'p1:1');
     await panelChannel('DNK| DR1 HEVC', 'DR1', 'p1:2');
     const result = await syncXmltv(db, PANEL(), serving(XMLTV));
-    expect(result.matched).toBe(0);
+    expect(result.matched).toBe(2);
+    for (const id of ['p1:1', 'p1:2']) {
+      const stored = await listProgrammes(
+        db,
+        id,
+        new Date('2026-09-06T17:00:00Z'),
+        new Date('2026-09-06T20:00:00Z'),
+      );
+      expect(stored.map((p) => p.title)).toEqual(['TV Avisen']);
+    }
+  });
+
+  it('matcher paa feed-kanalens visningsnavn naar id er ukendt', async () => {
+    // epgshare skriver tit et ordknudret id (`I2.dr1.dk`) men et paent
+    // <display-name>DR1</display-name>. Programmet skal ramme paa navnet.
+    await panelChannel('DNK| DR1 HD', 'DR1', 'p1:1');
+    const xml = `<?xml version="1.0"?>
+<tv>
+  <channel id="I2.dr1.dk"><display-name>DR1</display-name></channel>
+  <programme start="20260906180000 +0000" stop="20260906190000 +0000" channel="I2.dr1.dk">
+    <title>TV Avisen</title>
+  </programme>
+</tv>`;
+    const result = await syncXmltv(db, PANEL(), serving(xml));
+    expect(result.matched).toBe(1);
+    const stored = await listProgrammes(
+      db,
+      'p1:1',
+      new Date('2026-09-06T17:00:00Z'),
+      new Date('2026-09-06T20:00:00Z'),
+    );
+    expect(stored.map((p) => p.title)).toEqual(['TV Avisen']);
   });
 
   it('lader tvg-id vinde over navnet', async () => {

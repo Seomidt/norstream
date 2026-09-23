@@ -46,7 +46,9 @@ const XMLTV_RETRY_MS = 60 * 60_000;
  * nulstilles XMLTV-hentetiderne én gang, saa de nye feeds kommer ind straks.
  * **Haev det her, hver gang DEFAULT_XMLTV_URLS aendres.**
  */
-const XMLTV_DEFAULTS_VERSION = 1;
+// 2: bredere navne-matchning (rammer alle kvalitets-varianter + feed-kanalens
+// visningsnavne), saa DK/UK/US-filerne faktisk saetter EPG paa panelets kanaler.
+const XMLTV_DEFAULTS_VERSION = 2;
 const XMLTV_DEFAULTS_VERSION_KEY = 'xmltv_defaults_version';
 
 /**
