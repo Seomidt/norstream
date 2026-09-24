@@ -18,8 +18,8 @@ import type { FeedChannel, WantedChannel } from './panelEpgMatch.js';
  *
  *  - Filen hentes og laeses i en baggrundstraad i native kode (PanelEpgModule),
  *    aldrig i JavaScript og aldrig hele i hukommelsen.
- *  - Kun favoritter uden EPG-id (det guiden viser, og som ellers staar tomt),
- *    og kun et vindue paa tre doegn. Hundreder af kanaler, ikke 22.000.
+ *  - Kun favoritter (det guiden viser) som panelet ikke giver EPG for per
+ *    kanal, og kun et vindue paa tre doegn. Favoritter, ikke alle 22.000.
  *  - Kun panelets fil. Ingen indbyggede DK/UK/US-feeds (se OVERDRAGELSE).
  *  - Matchning paa navn OG land; kan det ikke afgoeres, springes kanalen over.
  *  - Højst én gang i doegnet; "Hent" (force) hoejst én gang i timen.
@@ -38,10 +38,14 @@ const FORCE_MIN_MS = 60 * 60_000;
 const RETRY_MS = 60 * 60_000;
 const BEFORE_MS = 24 * 60 * 60_000;
 const AFTER_MS = 48 * 60 * 60_000;
-/** Et loft saa en kaempe favoritliste ikke goer det tungt. */
-const MAX_WANTED = 600;
+/** Et sikkerhedsloft; langt over en normal favoritliste, saa alle favoritter kommer med. */
+const MAX_WANTED = 5000;
+/** En kanal "har EPG" hvis der ligger programmer i de naeste timer. */
+const HAS_EPG_AHEAD_MS = 6 * 60 * 60_000;
 
-const lastKey = (sourceId: string): string => `last_panel_epg_ms:${sourceId}`;
+// "2": v321 tager alle favoritter med (ogsaa dem med EPG-id uden programmer).
+// Ny noegle, saa den koerer med det samme efter opdateringen i stedet for om et doegn.
+const lastKey = (sourceId: string): string => `last_panel_epg2_ms:${sourceId}`;
 
 let registered: PanelEpgNative | null = null;
 
@@ -90,14 +94,29 @@ export async function syncPanelEpg(
     if (age < (options.force === true ? FORCE_MIN_MS : PANEL_EPG_INTERVAL_MS)) return null;
   }
 
+  // Alle favoritter panelet ikke giver EPG for per kanal:
+  //  - dem uden EPG-id (get_short_epg kan intet for dem), og
+  //  - dem MED EPG-id, hvor panelet er blevet spurgt (epg_fetch) og intet
+  //    gav i de naeste timer. Dem der allerede har EPG, roeres ikke — ellers
+  //    ville hundredvis af danske favoritter blive skrevet dobbelt.
+  const nowMs = now.getTime();
   const wanted = await db.getAllAsync<WantedChannel>(
-    `SELECT c.id AS key, c.name AS name, c.country AS country
+    `SELECT c.id AS key, c.name AS name, c.country AS country, c.epg_channel_id AS epgId
      FROM favorites f
      JOIN channels c ON c.id = f.channel_id
-     WHERE c.source_id = ? AND (c.epg_channel_id IS NULL OR c.epg_channel_id = '')
+     WHERE c.source_id = ?
+       AND (
+         c.epg_channel_id IS NULL OR c.epg_channel_id = ''
+         OR (
+           EXISTS (SELECT 1 FROM epg_fetch e WHERE e.stream_id = c.id)
+           AND NOT EXISTS (
+             SELECT 1 FROM programmes p WHERE p.channel_id = c.id AND p.stop_ms > ? AND p.start_ms < ?
+           )
+         )
+       )
      ORDER BY f.position IS NULL, f.position
      LIMIT ${MAX_WANTED}`,
-    [sourceId],
+    [sourceId, nowMs, nowMs + HAS_EPG_AHEAD_MS],
   );
   if (wanted.length === 0) return null;
 

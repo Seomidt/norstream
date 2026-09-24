@@ -5,6 +5,8 @@ export interface WantedChannel {
   key: string;
   name: string;
   country: string;
+  /** Kanalens EPG-id fra panelet, hvis den har et. Matches direkte, foer navnet. */
+  epgId?: string | null;
 }
 
 /** En kanal i panelets XMLTV-fil, som PanelEpgModule giver den. */
@@ -72,8 +74,23 @@ export function matchPanelEpg(wanted: readonly WantedChannel[], feed: readonly F
     }
   }
 
+  // Filens id'er uden hensyn til store/smaa bogstaver: panelets EPG-id og
+  // filens kanal-id er det samme id, saa det er et opslag, ikke et gaet.
+  const byId = new Map<string, string>();
+  for (const channel of feed) if (channel.id.length > 0) byId.set(channel.id.toLowerCase(), channel.id);
+
   const result = new Map<string, string[]>();
+  const add = (feedId: string, key: string): void => {
+    const keys = result.get(feedId);
+    if (keys === undefined) result.set(feedId, [key]);
+    else keys.push(key);
+  };
   for (const channel of wanted) {
+    const direct = channel.epgId === null || channel.epgId === undefined ? undefined : byId.get(channel.epgId.trim().toLowerCase());
+    if (direct !== undefined) {
+      add(direct, channel.key);
+      continue;
+    }
     const key = normaliseChannelName(channel.name);
     if (key.length === 0) continue;
     const candidates = byName.get(key);
@@ -94,9 +111,7 @@ export function matchPanelEpg(wanted: readonly WantedChannel[], feed: readonly F
       pick = candidates[0];
     }
     if (pick === undefined) continue;
-    const keys = result.get(pick.id);
-    if (keys === undefined) result.set(pick.id, [channel.key]);
-    else keys.push(channel.key);
+    add(pick.id, channel.key);
   }
   return result;
 }

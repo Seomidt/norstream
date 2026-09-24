@@ -66,6 +66,14 @@ describe('matchPanelEpg', () => {
     expect(two.size).toBe(0);
   });
 
+  it('matcher direkte paa panelets EPG-id foer navnet', () => {
+    const result = matchPanelEpg(
+      [{ key: 'p:1', name: 'Helt andet navn', country: 'GB', epgId: 'bbcone.UK' }],
+      [{ id: 'BBCOne.uk', n: ['BBC One'] }],
+    );
+    expect(result.get('BBCOne.uk')).toEqual(['p:1']);
+  });
+
   it('bruger id uden endelse som navn', () => {
     // Ingen display-name i filen: id'et uden ".uk" er nok, for det rensede navn
     // ser bort fra mellemrum ("SkyNews" = "SKY NEWS").

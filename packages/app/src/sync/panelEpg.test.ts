@@ -89,6 +89,34 @@ describe('syncPanelEpg', () => {
     expect(await programmesFor(`${sourceId}:2`)).toEqual([]);
   });
 
+  it('tager ogsaa favoritter MED EPG-id, naar panelet intet gav for dem', async () => {
+    // Panelet er spurgt om DR1 (epg_fetch), men der kom ingen programmer.
+    await db.runAsync('INSERT INTO epg_fetch (stream_id, fetched_at) VALUES (?, ?)', [`${sourceId}:2`, NOW.getTime()]);
+    const native = fakeNative();
+    native.programmes = vi.fn(async (_path: string, idsJson: string) => {
+      native.asked.push(JSON.parse(idsJson) as string[]);
+      return JSON.stringify([{ c: 'DR1.dk', s: NOW.getTime(), e: NOW.getTime() + 3_600_000, t: 'TV Avisen' }]);
+    });
+    await syncPanelEpg(db, sourceId, creds, { now: NOW, native });
+
+    // Matchet direkte paa id'et, ikke paa navnet.
+    expect(native.asked[0]).toContain('DR1.dk');
+    expect(await programmesFor(`${sourceId}:2`)).toEqual([{ title: 'TV Avisen', description: null }]);
+  });
+
+  it('lader favoritter med EPG-id vaere, naar de allerede har programmer', async () => {
+    await db.runAsync('INSERT INTO epg_fetch (stream_id, fetched_at) VALUES (?, ?)', [`${sourceId}:2`, NOW.getTime()]);
+    await db.runAsync('INSERT INTO programmes VALUES (?, ?, ?, ?, NULL)', [
+      `${sourceId}:2`,
+      NOW.getTime(),
+      NOW.getTime() + 3_600_000,
+      'Fra panelet',
+    ]);
+    const native = fakeNative();
+    await syncPanelEpg(db, sourceId, creds, { now: NOW, native });
+    expect(native.asked).toEqual([['BBCOne.uk']]);
+  });
+
   it('henter hoejst én gang i doegnet, og Hent hoejst én gang i timen', async () => {
     await syncPanelEpg(db, sourceId, creds, { now: NOW, native: fakeNative() });
 

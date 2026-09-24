@@ -47,8 +47,10 @@ Løsning, bygget så det IKKE kan fryse boksen igen:
   `<programme>`), `programmes` (kun ønskede feed-id'er i et vindue). Alt i en
   baggrundstråd med lav prioritet, XmlPullParser bid for bid, aldrig på
   JS-tråden, aldrig hele filen i hukommelsen. Fejltekster uden adresse.
-- `src/sync/panelEpg.ts`: kun **favoritter uden `epg_channel_id`** (højst 600),
-  vindue −24/+48 t, højst én gang i døgnet (`last_panel_epg_ms:<kilde>`),
+- `src/sync/panelEpg.ts`: **alle favoritter panelet ikke giver EPG for per kanal**
+  (v321): dem uden `epg_channel_id`, og dem med id hvor panelet er spurgt
+  (`epg_fetch`) men intet gav de næste 6 t — de matches direkte på id'et. Loft 5000,
+  vindue −24/+48 t, højst én gang i døgnet (`last_panel_epg2_ms:<kilde>`),
   Hent (force) højst én gang i timen, efter fejl igen om en time. Startes i
   baggrunden fra `syncAllSources` (`startPanelEpg`), som ikke venter på den.
   Modulet registreres i `App.tsx` (`registerPanelEpgNative`), så sync-koden
