@@ -33,6 +33,25 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
 
+### 24. september 2026 — v322: start forfra stoppede midt i udsendelsen
+
+Bruger: "Start forfra stopper altid midt i en udsendelse." Årsag: panelets
+arkiv leveres som det ligger, NÅR man beder om det. Startes en udsendelse
+forfra mens den sendes, slutter strømmen dér hvor man trykkede. Ved
+`playToEnd` skiftede vi kun til live hvis udsendelsen stadig blev sendt — ellers
+stod billedet stille (og skiftet til live sprang det sendte stykke over). En
+genforbindelse (`handleFailure`) genstartede desuden arkivet fra udsendelsens
+begyndelse.
+
+Rettelse (`features/player/archiveContinuation.ts` + `PlayerScreen.tsx`): når et
+arkiv-stykke slutter før udsendelsen, hentes arkivet igen fra det punkt man nåede
+(rundet ned til helt minut + spol resten frem), indtil udsendelsen er set til
+ende eller live er indhentet (90 s margin); først dér skiftes til live, og kun
+hvis den stadig sendes. To fortsættelser i træk uden fremgang → panelet har ikke
+mere. Genforbindelse under start-forfra fortsætter fra punktet i stedet for at
+starte forfra. "Fortsæt"-fremdriften gemmes som position i hele udsendelsen.
+v322 rummer også v321 (panel-EPG til alle favoritter); v321 blev aldrig udgivet.
+
 ### 24. september 2026 — v320: UK/US-EPG fra panelets EGEN xmltv.php, læst native (LÆS DENNE)
 
 Efter v318 stod UK/US uden EPG, mens TiviMate med **kun panelets login**

@@ -26,6 +26,7 @@ import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { setLastChannelId } from '../../storage/settings.js';
 import { recordChannelWatch, saveArchiveProgress } from '../../storage/history.js';
+import { archiveContinuation } from './archiveContinuation.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback, surfaceTypeForPlatform } from './format.js';
 import { restartBlockFor, restartHint } from './restart.js';
 import { TrackPicker } from './TrackPicker.js';
@@ -155,6 +156,19 @@ export function PlayerScreen({
   const [audioState, setAudioState] = useState<string>('Forbinder …');
   const [radioState, setRadioState] = useState<RadioState>('connecting');
   const [playing, setPlaying] = useState(true);
+  /**
+   * Det arkiv-stykke der spiller: udsendelsen, hvor stykket begynder (ms), og
+   * hvor langt ind der skal spoles naar det er klar. Et stykke slutter dér
+   * hvor panelets arkiv sluttede, da det blev bedt om — ved start-forfra paa
+   * en udsendelse der sendes, er det midt i den. Se archiveContinuation.
+   */
+  const archiveRef = useRef<{ programme: Programme; segmentStart: number; seekSeconds: number } | null>(null);
+  /** Afspillerens position i det nuvaerende stykke, i sekunder. */
+  const positionRef = useRef(0);
+  /** Fortsaettelser i traek uden fremgang: panelet har ikke mere, saa hold op med at spoerge. */
+  const stuckRef = useRef(0);
+  /** playFromStart, til lyttere der er sat op foer den er defineret laengere nede. */
+  const playFromStartRef = useRef<(programme: Programme, from?: Date, seekSeconds?: number) => Promise<void>>(async () => undefined);
 
   // "Se videre" oeverst i favoritterne: den kanal der sidst blev set.
   useEffect(() => {
@@ -173,6 +187,7 @@ export function PlayerScreen({
       setChannel(target);
       setStartFrom(undefined);
       setRestarted(false);
+      archiveRef.current = null;
       setFellBackToLive(false);
       setTriedFallback(false);
       setStreamError(null);
@@ -241,10 +256,15 @@ export function PlayerScreen({
   const resumed = useRef(false);
   useEffect(() => {
     const subscription = player.addListener('timeUpdate', ({ currentTime }: { currentTime: number }) => {
-      if (!restarted || startFrom === undefined || !Number.isFinite(currentTime)) return;
-      if (currentTime - lastSaved.current < 10 && currentTime >= lastSaved.current) return;
-      lastSaved.current = currentTime;
-      void saveArchiveProgress(session.db, channel.id, startFrom, currentTime).catch(() => undefined);
+      if (!Number.isFinite(currentTime)) return;
+      positionRef.current = currentTime;
+      if (!restarted || startFrom === undefined) return;
+      // Positionen i hele udsendelsen, ogsaa naar et senere stykke af arkivet spiller.
+      const segment = archiveRef.current;
+      const absolute = currentTime + (segment === null ? 0 : (segment.segmentStart - startFrom.start.getTime()) / 1000);
+      if (absolute - lastSaved.current < 10 && absolute >= lastSaved.current) return;
+      lastSaved.current = absolute;
+      void saveArchiveProgress(session.db, channel.id, startFrom, absolute).catch(() => undefined);
     });
     return () => subscription.remove();
   }, [player, restarted, startFrom, session.db, channel.id]);
@@ -327,6 +347,24 @@ export function PlayerScreen({
     return () => subscription.remove();
   }, [player]);
 
+  // Et fortsat arkiv-stykke begynder paa et helt minut; spol de sekunder frem
+  // man allerede havde set, saa der hverken gentages eller springes over.
+  useEffect(() => {
+    const subscription = player.addListener('statusChange', ({ status }: { status: string }) => {
+      if (status !== 'readyToPlay') return;
+      const segment = archiveRef.current;
+      if (segment === null || segment.seekSeconds <= 1) return;
+      const seek = segment.seekSeconds;
+      segment.seekSeconds = 0;
+      try {
+        player.currentTime = seek;
+      } catch {
+        // Afspilleren er vaek.
+      }
+    });
+    return () => subscription.remove();
+  }, [player]);
+
   /**
    * Start-forfra naaede den levende kant — fortsaet direkte i stedet for sort.
    *
@@ -345,8 +383,28 @@ export function PlayerScreen({
   useEffect(() => {
     const subscription = player.addListener('playToEnd', () => {
       if (isRadio || !restarted || caughtUpHandled.current) return;
-      const airing = startFrom ?? now;
-      if (airing === null || airing.stop.getTime() <= Date.now()) return;
+      const segment = archiveRef.current;
+      const airing = segment?.programme ?? startFrom ?? now;
+      if (airing === null || airing === undefined) return;
+      const nowMs = Date.now();
+      let next =
+        segment === null
+          ? airing.stop.getTime() > nowMs
+            ? ({ kind: 'live' } as const)
+            : ({ kind: 'done' } as const)
+          : archiveContinuation(airing, segment.segmentStart, positionRef.current, nowMs);
+      if (next.kind === 'continue') {
+        // Arkivet sluttede midt i udsendelsen: hent det igen fra det punkt man
+        // naaede. Kom der intet nyt to gange i traek, har panelet ikke mere.
+        stuckRef.current = positionRef.current < 5 ? stuckRef.current + 1 : 0;
+        if (stuckRef.current < 2) {
+          void playFromStartRef.current(airing, next.from, next.seekSeconds);
+          return;
+        }
+        next = airing.stop.getTime() > nowMs ? { kind: 'live' } : { kind: 'done' };
+      }
+      if (next.kind !== 'live') return;
+      archiveRef.current = null;
       caughtUpHandled.current = true;
       setRestarted(false);
       setCaughtUpToLive(true);
@@ -467,6 +525,16 @@ export function PlayerScreen({
         if (retryTimer !== null) clearTimeout(retryTimer);
         retryTimer = setTimeout(() => {
           if (cancelled || source === null) return;
+          // Start-forfra: genforbind fra det punkt man naaede, ikke fra
+          // udsendelsens begyndelse (samme URL ville starte forfra).
+          const segment = archiveRef.current;
+          if (restarted && segment !== null && positionRef.current > 5) {
+            const next = archiveContinuation(segment.programme, segment.segmentStart, positionRef.current, Date.now());
+            if (next.kind === 'continue') {
+              void playFromStartRef.current(segment.programme, next.from, next.seekSeconds);
+              return;
+            }
+          }
           player.replace(streamSource(source));
           player.play();
         }, attempt * RETRY_BACKOFF_MS);
@@ -566,7 +634,7 @@ export function PlayerScreen({
   }, [player, source, triedFallback, restarted, access, channel, autoSelectSubtitle]);
 
   const playFromStart = useCallback(
-    async (programme: Programme): Promise<void> => {
+    async (programme: Programme, from: Date = programme.start, seekSeconds = 0): Promise<void> => {
       const dialect = await getTimeshiftDialect(session.db, channel.sourceId);
       if (dialect === null || access?.creds == null) {
         // Uden dialekt kan arkiv-URLen ikke bygges. Kom vi fra guiden, staar
@@ -581,9 +649,12 @@ export function PlayerScreen({
       setFellBackToLive(false);
       const offset = await getPanelOffsetMinutes(session.db, channel.sourceId);
 
-      const durationMinutes = Math.ceil(
-        (programme.stop.getTime() - programme.start.getTime()) / 60_000,
-      );
+      // Fra `from` til udsendelsens slutning. Normalt hele udsendelsen; naar
+      // arkivet fortsaettes (se archiveContinuation), resten af den.
+      const durationMinutes = Math.ceil((programme.stop.getTime() - from.getTime()) / 60_000);
+      if (from.getTime() === programme.start.getTime()) stuckRef.current = 0;
+      archiveRef.current = { programme, segmentStart: from.getTime(), seekSeconds };
+      positionRef.current = 0;
       // Samme beholder som live (.ts paa Android): arkivet som HLS gav groen
       // skaerm med lyd paa DR-kanalerne paa tv, mens live i .ts var fint.
       // Streamformat under Indstillinger gaelder ogsaa her.
@@ -591,7 +662,7 @@ export function PlayerScreen({
         buildTimeshiftUrl(
           access.creds,
           channel.streamId,
-          programme.start,
+          from,
           durationMinutes,
           dialect,
           offset,
@@ -602,6 +673,7 @@ export function PlayerScreen({
     },
     [session.db, access, channel],
   );
+  playFromStartRef.current = playFromStart;
 
   /**
    * Raader bod paa det der spaerrer for start-forfra, og opdaterer tilstanden.
