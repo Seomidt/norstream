@@ -30,6 +30,8 @@ import {
   setTmdbApiKey,
   setYoutubeApiKey,
   setMiniPreviewEnabled,
+  getPanelEpgEnabled,
+  setPanelEpgEnabled,
   getGuideInfoMode,
   setGuideInfoMode,
   setStreamFormatSetting,
@@ -180,6 +182,8 @@ export function SettingsScreen({
   const [providersOpen, setProvidersOpen] = useState(false);
   /** De avancerede fejlfindings-knapper er foldet sammen som standard. */
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  /** EPG fra panelets egen fil til favoritter der mangler den (UK, US m.fl.). */
+  const [panelEpg, setPanelEpg] = useState(true);
   const [videoSurface, setVideoSurfaceState] = useState<VideoSurface>('surface');
   const [guideInfo, setGuideInfo] = useState<GuideInfoMode>('clock');
   /** Hvornaar kanaler, vejr og nyheder sidst blev hentet — til status-linjerne. */
@@ -216,6 +220,7 @@ export function SettingsScreen({
     applyVideoSurfaceSetting(surface);
     setThemePlaceState((await getThemePlace(session.db)) ?? themePreference().placeKey);
     setGuideInfo(await getGuideInfoMode(session.db));
+    setPanelEpg(await getPanelEpgEnabled(session.db));
     // Hentetiden gemmes PER kilde (last_sync_ms:<id>), ikke som én faelles
     // vaerdi. Status skal vise den nyeste paa tvaers af kilderne; laeste den den
     // faelles (uden kilde-id), stod der "aldrig hentet" selv om kanalerne var
@@ -582,6 +587,33 @@ export function SettingsScreen({
           </TvPressable>
         ))}
       </View>
+
+      <Text style={styles.sectionTitle}>Programoversigt</Text>
+      <TvPressable
+        style={styles.row}
+        onPress={() => {
+          const next = !panelEpg;
+          setPanelEpg(next);
+          void setPanelEpgEnabled(session.db, next);
+        }}
+      >
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Hent fra panelets store EPG-fil</Text>
+          <Text style={styles.rowHint}>
+            Giver programmer til favoritter, panelet ellers ikke har EPG på (fx UK og US). Hentes i baggrunden
+            én gang i døgnet. Slå fra, hvis boksen bliver langsom.
+          </Text>
+        </View>
+        <Switch
+          value={panelEpg}
+          focusable={false}
+          onValueChange={(value) => {
+            setPanelEpg(value);
+            void setPanelEpgEnabled(session.db, value);
+          }}
+          trackColor={{ true: colors.accent, false: colors.border }}
+        />
+      </TvPressable>
 
       <Text style={styles.sectionTitle}>Avanceret</Text>
       <TvPressable style={styles.row} onPress={() => setAdvancedOpen((open) => !open)}>

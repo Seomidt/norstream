@@ -22,6 +22,7 @@ import { refreshFollowedSeries } from './vodDetails.js';
 import { syncLogoRegistry } from './syncLogoRegistry.js';
 import { forgetLogoMisses } from '../ui/logoCache.js';
 import { syncXmltv } from './syncXmltv.js';
+import { startPanelEpg } from './panelEpg.js';
 
 /** Kanallisten hentes hoejst én gang i doegnet af sig selv. */
 export const CHANNEL_SYNC_INTERVAL_MS = 24 * 60 * 60_000;
@@ -177,6 +178,18 @@ export async function syncAllSources(
   // programoversigt stod i koe bag den. Registret har sin egen uge-rytme, og
   // en knap i indstillinger til dem der vil have det nu.
   await maybeRegistry(db, fetchImpl, now, false);
+
+  // EPG fra panelets egen XMLTV-fil til favoritter uden EPG-id (UK, US m.fl.).
+  // I baggrunden og uden at vente: filen er stor, og hentningen her skal ikke
+  // staa og vente paa den. Selve laesningen sker i native kode i sin egen
+  // traad (PanelEpgModule), saa den ikke kan maerkes paa trykkene.
+  startPanelEpg(
+    db,
+    sources.flatMap((access) =>
+      access.source.kind === 'xtream' && access.creds !== null ? [{ sourceId: access.source.id, creds: access.creds }] : [],
+    ),
+    { now, force },
+  );
 
   // Samme grund: vaerterne har deres egen rytme paa seks timer og deres egen
   // knap. En doed vaert koster ventetid per maaling, og det skal en

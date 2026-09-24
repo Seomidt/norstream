@@ -15,6 +15,8 @@ import type { Playback } from './src/features/vod/VodDetailScreen.js';
 import { VodPlayerScreen } from './src/features/vod/VodPlayerScreen.js';
 import { TrailerScreen } from './src/features/vod/TrailerScreen.js';
 import { createSession, reloadSources } from './src/session.js';
+import { registerPanelEpgNative } from './src/sync/panelEpg.js';
+import { panelEpgNative } from './modules/panel-epg/index.js';
 import type { AppSession } from './src/session.js';
 
 import type { StoredChannel } from './src/storage/channels.js';
@@ -28,6 +30,10 @@ import { startTvKeyTracking } from './src/ui/tvKeys.js';
 import { TvPressable } from './src/ui/TvPressable.js';
 import { ReminderBanner } from './src/features/reminders/ReminderBanner.js';
 import { maybeAutoUpdate } from './src/features/settings/autoUpdate.js';
+
+// Panelets store EPG-fil laeses i native kode (PanelEpgModule). Registreres
+// her, saa synkroniseringen ikke selv traekker React Native med i testene.
+registerPanelEpgNative(panelEpgNative);
 
 type Route =
   | { name: 'loading' }

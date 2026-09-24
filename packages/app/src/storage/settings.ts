@@ -207,6 +207,21 @@ export async function setMiniPreviewEnabled(
   await setSetting(db, KEY_PREVIEW, enabled ? 'on' : 'off');
 }
 
+const KEY_PANEL_EPG = 'panel_epg_enabled';
+
+/**
+ * EPG fra panelets egen XMLTV-fil til favoritter der mangler den (UK, US
+ * m.fl.). Slaaet til som standard; kan slaas fra hvis boksen skulle blive
+ * tung af det. Laeses i en baggrundstraad (PanelEpgModule), én gang i doegnet.
+ */
+export async function getPanelEpgEnabled(db: SqlDatabase): Promise<boolean> {
+  return (await getSetting(db, KEY_PANEL_EPG)) !== 'off';
+}
+
+export async function setPanelEpgEnabled(db: SqlDatabase, enabled: boolean): Promise<void> {
+  await setSetting(db, KEY_PANEL_EPG, enabled ? 'on' : 'off');
+}
+
 const KEY_GUIDE_WEATHER = 'guide_clock_weather';
 
 /**
