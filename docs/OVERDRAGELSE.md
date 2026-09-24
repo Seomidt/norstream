@@ -26,11 +26,42 @@ begge faste mærkater (`latest-norstream`, `latest-norstream-tv`).
 
 **Vigtigste læring fra denne omgang:** på tv-boksens hardware er det at hente +
 parse store XMLTV-EPG-filer for hver kilde ved hver synk for tungt — hele appen
-blev ubrugelig langsom. Byg ALDRIG generel bred XMLTV-matchning eller indbyggede
-standard-feeds ind igen (det var v305/v314/v316-sporet, netto en fejlvej her);
-panelets egen EPG per kanal (`get_short_epg`) er nok. Og favoritter/grupper er
+blev ubrugelig langsom. Byg ALDRIG indbyggede standard-feeds eller XMLTV-parsing
+på JS-tråden ind igen (det var v305/v314/v316-sporet, netto en fejlvej her).
+Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
+**native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 24. september 2026 — v320: UK/US-EPG fra panelets EGEN xmltv.php, læst native (LÆS DENNE)
+
+Efter v318 stod UK/US uden EPG, mens TiviMate med **kun panelets login**
+viste det hele. Forklaring: panelets `get_short_epg` virker kun for kanaler
+med EPG-id (13 %, mest danske); resten ligger kun i panelets store
+`xmltv.php` (~98 MB), som TiviMate læser og matcher på navn. UK/US-EPG'en vi
+havde i v314–v317 kom fra de indbyggede feeds, som frøs boksen.
+
+Løsning, bygget så det IKKE kan fryse boksen igen:
+- Native modul `packages/app/modules/panel-epg` (Kotlin, `PanelEpgModule`):
+  `download` (til cachen), `channels` (kun kanal-listen; stopper ved første
+  `<programme>`), `programmes` (kun ønskede feed-id'er i et vindue). Alt i en
+  baggrundstråd med lav prioritet, XmlPullParser bid for bid, aldrig på
+  JS-tråden, aldrig hele filen i hukommelsen. Fejltekster uden adresse.
+- `src/sync/panelEpg.ts`: kun **favoritter uden `epg_channel_id`** (højst 600),
+  vindue −24/+48 t, højst én gang i døgnet (`last_panel_epg_ms:<kilde>`),
+  Hent (force) højst én gang i timen, efter fejl igen om en time. Startes i
+  baggrunden fra `syncAllSources` (`startPanelEpg`), som ikke venter på den.
+  Modulet registreres i `App.tsx` (`registerPanelEpgNative`), så sync-koden
+  kan køre i tests uden React Native.
+- `src/sync/panelEpgMatch.ts`: navn **og land** (id-endelse `.uk`/`.us` eller
+  landepræfiks). Andet land, generisk navn (> 3 i samme land) eller flertydigt
+  uden land → ingen match.
+- Indstillinger → Programoversigt: "Hent fra panelets store EPG-fil" (til/fra).
+- Kendt begrænsning: kun favoritter. Kanaler uden for favoritterne får stadig
+  kun panelets EPG per kanal. En ny UK-favorit får EPG ved næste kørsel
+  (i morgen, eller med Hent hvis sidste kørsel er > 1 time gammel).
+
+Kun panelets egen fil — de indbyggede DK/UK/US-feeds kommer IKKE tilbage.
 
 ### 23. september 2026 — NorRadio: afspil efter pause = live; listen lander på stationen
 
