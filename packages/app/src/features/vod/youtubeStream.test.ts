@@ -107,6 +107,17 @@ describe('resolveYoutubeStream', () => {
     expect(calls).toEqual(['28']);
   });
 
+  it('giver manifestet filernes fulde laengde, ikke de afrundede sekunder', async () => {
+    const withMs = {
+      playabilityStatus: { status: 'OK' },
+      streamingData: { adaptiveFormats: [video(137, 1080, undefined, { approxDurationMs: '213040' }), audio(140, undefined, { approxDurationMs: '213089' })] },
+      videoDetails: { lengthSeconds: '213' },
+    };
+    const result = await resolveYoutubeStream(async () => withMs, 'dQw4w9WgXcQ');
+    expect(result.kind === 'dash' && result.mpd).toContain('mediaPresentationDuration="PT213.089S"');
+    expect(result).toMatchObject({ seconds: 213 });
+  });
+
   it('proever naeste klient ved bot-tjek, og falder tilbage til webvisningen hvis alle siger nej', async () => {
     const calls: string[] = [];
     const post: PostJson = async (_url, headers) => {

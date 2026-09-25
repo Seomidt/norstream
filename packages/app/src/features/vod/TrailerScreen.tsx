@@ -47,7 +47,7 @@ interface Props {
  */
 type Source =
   /** Videofilen i appens egen afspiller, som Googles butik (se youtubeStream.ts). */
-  | { kind: 'native'; id: string; uri: string }
+  | { kind: 'native'; id: string; uri: string; resumeAt: number; attempt: number }
   | { kind: 'measured'; id: string; checkLength: boolean }
   | { kind: 'plain'; id: string }
   | { kind: 'search'; url: string }
@@ -105,8 +105,12 @@ const EMBED_ORIGIN = 'https://norstream.app';
 const NATIVE_TRAILERS = Platform.OS === 'android';
 /** YouTube svarer paa ~0,1 s; et hængende svar maa ikke holde traileren tilbage. */
 const NATIVE_LOOKUP_TIMEOUT_MS = 6000;
-/** Er afspilleren ikke klar efter saa lang tid, tages webvisningen i stedet. */
+/** Er afspilleren ikke klar efter saa lang tid, regnes den for gaaet i staa. */
 const NATIVE_READY_TIMEOUT_MS = 15000;
+/** Staar den og henter saa laenge midt i traileren, regnes den for gaaet i staa. */
+const NATIVE_STALL_MS = 10000;
+/** Saa mange gange hentes nye adresser og fortsaettes, foer webvisningen tager over. */
+const NATIVE_MAX_RECOVERIES = 3;
 
 /** POST til YouTubes afspiller-API; null ved alt der ikke er et JSON-svar. */
 const postJson: PostJson = async (url, headers, body) => {
@@ -126,9 +130,9 @@ const postJson: PostJson = async (url, headers, body) => {
  * Manifestet skal ligge i en fil: afspilleren tager en adresse. Én fil per
  * video, skrevet forfra hver gang (YouTubes adresser udloeber efter timer).
  */
-function writeManifest(videoId: string, mpd: string): string | null {
+function writeManifest(videoId: string, attempt: number, mpd: string): string | null {
   try {
-    const file = new File(Paths.cache, `trailer-${videoId}.mpd`);
+    const file = new File(Paths.cache, `trailer-${videoId}-${attempt}.mpd`);
     if (file.exists) file.delete();
     file.create();
     file.write(mpd);
@@ -245,10 +249,10 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
           if (stream.kind === 'unavailable') continue;
           if (stream.kind === 'dash') {
             if (next.checkLength && stream.seconds !== null && stream.seconds < MIN_TRAILER_SECONDS) continue;
-            const uri = writeManifest(next.id, stream.mpd);
+            const uri = writeManifest(next.id, 0, stream.mpd);
             if (uri !== null) {
               setLoading(true);
-              setSource({ kind: 'native', id: next.id, uri });
+              setSource({ kind: 'native', id: next.id, uri, resumeAt: 0, attempt: 0 });
               return;
             }
           }
@@ -277,6 +281,29 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     }
     setLoading(true);
     setSource({ kind: 'search', url: youtubeSearchUrl(title, year) });
+  }
+
+  /**
+   * Den native afspilning stoppede foer traileren var slut (fejl, gik i
+   * staa, eller sluttede for tidligt). Brugeren: "det stopper inden
+   * traileren er faerdig hver gang". Hent friske adresser hos YouTube og
+   * fortsaet fra samme sted; efter nogle forsoeg tager webvisningen over.
+   */
+  async function recoverNative(id: string, position: number, attempt: number): Promise<void> {
+    if (!alive.current) return;
+    setLoading(true);
+    if (attempt < NATIVE_MAX_RECOVERIES) {
+      const stream = await resolveYoutubeStream(postJson, id);
+      if (!alive.current) return;
+      if (stream.kind === 'dash') {
+        const uri = writeManifest(id, attempt + 1, stream.mpd);
+        if (uri !== null) {
+          setSource({ kind: 'native', id, uri, resumeAt: position, attempt: attempt + 1 });
+          return;
+        }
+      }
+    }
+    setSource({ kind: 'measured', id, checkLength: false });
   }
 
   useEffect(() => {
@@ -376,13 +403,12 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         )}
         {source.kind === 'native' && (
           <NativeTrailer
-            key={`${source.id}:${source.uri}`}
+            key={`${source.id}:${source.attempt}`}
             uri={source.uri}
+            resumeAt={source.resumeAt}
             onReady={() => setLoading(false)}
-            onFail={() => {
-              // Filen kunne ikke spilles her: samme video i webvisningen.
-              setLoading(true);
-              setSource({ kind: 'measured', id: source.id, checkLength: false });
+            onBroken={(position) => {
+              void recoverNative(source.id, position, source.attempt);
             }}
             // Paa tv lukker traileren naar den er slut, som i Googles butik.
             onEnd={isTV ? onBack : undefined}
@@ -443,23 +469,31 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
  *
  * Buffer: den starter foerst naar fire sekunder er hentet (brugeren: "buffer
  * lidt foerst, saa det ikke hakker"), og holder et halvt minut klar foran.
- * Hjulet vises indtil afspilleren melder klar. Fejler den, eller er den ikke
- * klar i tide, tager webvisningen over med samme video.
+ * Hjulet vises indtil afspilleren melder klar.
+ *
+ * Holder vagt, fordi traileren stoppede foer tid (v329): en fejl, en
+ * afspilning der staar og henter i NATIVE_STALL_MS, eller en slutning mere
+ * end et par sekunder foer videoens laengde meldes som `onBroken` med
+ * positionen, og skaermen fortsaetter derfra med friske adresser.
  */
 function NativeTrailer({
   uri,
+  resumeAt,
   onReady,
-  onFail,
+  onBroken,
   onEnd,
 }: {
   uri: string;
+  /** Sekunder inde, hvor der fortsaettes efter en genopretning. */
+  resumeAt: number;
   onReady: () => void;
-  onFail: () => void;
+  onBroken: (position: number) => void;
   onEnd?: () => void;
 }) {
   const source = useMemo(() => ({ uri, contentType: 'dash' as const }), [uri]);
   const player = useVideoPlayer(source, (p) => {
     p.loop = false;
+    p.timeUpdateEventInterval = 1;
     p.bufferOptions = {
       preferredForwardBufferDuration: 30,
       minBufferForPlayback: 4,
@@ -467,36 +501,74 @@ function NativeTrailer({
     };
     p.play();
   });
-  const handlers = useRef({ onReady, onFail, onEnd });
-  handlers.current = { onReady, onFail, onEnd };
+  const handlers = useRef({ onReady, onBroken, onEnd });
+  handlers.current = { onReady, onBroken, onEnd };
 
   useEffect(() => {
     let ready = false;
     let done = false;
-    const fail = (): void => {
+    /** Holdt her og ikke laest af afspilleren: den kan vaere frigivet naar vi skal bruge tallet. */
+    let position = resumeAt;
+    let duration = 0;
+    let stall: ReturnType<typeof setTimeout> | null = null;
+    const clearStall = (): void => {
+      if (stall !== null) clearTimeout(stall);
+      stall = null;
+    };
+    const broken = (): void => {
       if (done) return;
       done = true;
-      handlers.current.onFail();
+      clearTimeout(timer);
+      clearStall();
+      handlers.current.onBroken(position);
     };
     const timer = setTimeout(() => {
-      if (!ready) fail();
+      if (!ready) broken();
     }, NATIVE_READY_TIMEOUT_MS);
     const status = player.addListener('statusChange', ({ status: next }) => {
-      if (next === 'readyToPlay' && !ready) {
-        ready = true;
-        clearTimeout(timer);
-        handlers.current.onReady();
+      if (next === 'readyToPlay') {
+        clearStall();
+        if (!ready) {
+          ready = true;
+          clearTimeout(timer);
+          try {
+            duration = player.duration;
+            if (resumeAt > 0) player.currentTime = resumeAt;
+          } catch {
+            // Frigivet i mellemtiden; vagten tager resten.
+          }
+          handlers.current.onReady();
+        }
+      } else if (next === 'loading' && ready) {
+        clearStall();
+        stall = setTimeout(broken, NATIVE_STALL_MS);
       } else if (next === 'error') {
-        clearTimeout(timer);
-        fail();
+        broken();
       }
     });
-    const end = player.addListener('playToEnd', () => handlers.current.onEnd?.());
+    const time = player.addListener('timeUpdate', ({ currentTime }) => {
+      if (Number.isFinite(currentTime) && currentTime > 0) position = currentTime;
+    });
+    const end = player.addListener('playToEnd', () => {
+      if (done) return;
+      // Sluttede den mere end et par sekunder foer tid, er det ikke slutningen.
+      if (duration > 0 && position < duration - 3) {
+        broken();
+        return;
+      }
+      done = true;
+      handlers.current.onEnd?.();
+    });
     return () => {
+      done = true;
       clearTimeout(timer);
+      clearStall();
       status.remove();
+      time.remove();
       end.remove();
     };
+    // resumeAt er fast for denne afspiller (ny noegle ved hver genopretning).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [player]);
 
   return (

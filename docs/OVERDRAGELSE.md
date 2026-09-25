@@ -21,7 +21,7 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 **23. september 2026.** Appen kører på brugerens to Google TV Streamere og
 telefon mod det rigtige panel. Efter denne omgang (v317–v319) er brugerens ord
 "nu kører det hele dejligt hurtigt igen og alt fungerer". Alt bygges via GitHub,
-aldrig EAS; se `docs/BYG-FRA-CHAT.md`. Nyeste udgivelse: **versionCode 329** på
+aldrig EAS; se `docs/BYG-FRA-CHAT.md`. Nyeste udgivelse: **versionCode 330** på
 begge faste mærkater (`latest-norstream`, `latest-norstream-tv`).
 
 **Vigtigste læring fra denne omgang:** på tv-boksens hardware er det at hente +
@@ -32,6 +32,23 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 26. september 2026 — v330: native trailer stoppede før tid — vagt og genopretning
+
+Brugeren om v329: "super billede, super godt, men det stopper desværre inden
+trailer er færdig hver gang". Målt (`scripts/maal/youtube-hel.mjs`): YouTube
+udleverer hele filen (81 MB, 39 kald, alle 206) — også hentet i afspilningens
+tempo over minutter (se målingen). Rettelser i `TrailerScreen`/`NativeTrailer`:
+
+- **Vagt:** fejl, `loading` i mere end `NATIVE_STALL_MS` (10 s) midt i, eller
+  `playToEnd` mere end 3 s før videoens længde → `onBroken(position)`.
+- **Genopretning** (`recoverNative`): friske adresser hos YouTube, nyt manifest
+  (`trailer-<id>-<forsøg>.mpd`), og der fortsættes fra positionen (`resumeAt`,
+  sættes når afspilleren er klar). Højst `NATIVE_MAX_RECOVERIES` (3), så
+  webvisningen.
+- **Manifestets længde** er nu den længste af `lengthSeconds` og filernes
+  `approxDurationMs` (lengthSeconds er rundet ned; afspilleren stopper ved
+  manifestets længde).
 
 ### 26. september 2026 — v329: trailer i appens egen afspiller, som Googles butik
 

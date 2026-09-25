@@ -135,7 +135,16 @@ export async function resolveYoutubeStream(post: PostJson, videoId: string): Pro
     const picked = pickFormats(data.streamingData?.adaptiveFormats ?? []);
     if (picked === null) continue;
     const seconds = lengthOf(data.videoDetails?.lengthSeconds, picked.video.approxDurationMs);
-    return { kind: 'dash', mpd: buildMpd(picked.video, picked.audio, seconds), seconds, height: picked.video.height ?? 0 };
+    // Manifestets laengde maa aldrig vaere kortere end filerne: afspilleren
+    // stopper dér. lengthSeconds er rundet ned til hele sekunder; filernes
+    // egne laengder er i millisekunder. Den laengste af dem.
+    const full = Math.max(seconds ?? 0, msToSeconds(picked.video.approxDurationMs), msToSeconds(picked.audio.approxDurationMs));
+    return {
+      kind: 'dash',
+      mpd: buildMpd(picked.video, picked.audio, full > 0 ? full : null),
+      seconds,
+      height: picked.video.height ?? 0,
+    };
   }
   // Kun naar ALLE der svarede sagde "kan ikke ses" er det videoen der er
   // noget galt med; et enkelt nej kan vaere klientens eget.
@@ -166,6 +175,11 @@ function lengthOf(lengthSeconds: string | undefined, approxMs: string | undefine
   if (Number.isFinite(s) && s > 0) return s;
   const ms = Number(approxMs);
   return Number.isFinite(ms) && ms > 0 ? ms / 1000 : null;
+}
+
+function msToSeconds(ms: string | undefined): number {
+  const value = Number(ms);
+  return Number.isFinite(value) && value > 0 ? value / 1000 : 0;
 }
 
 /** Codecs-delen af en mimeType: `video/mp4; codecs="avc1.640028"` -> `avc1.640028`. */
