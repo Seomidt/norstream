@@ -235,6 +235,10 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
       return;
     }
     if (source.kind !== 'measured') return;
+    if (message.type === 'playing') {
+      setLoading(false);
+      return;
+    }
     if (message.type === 'duration' && typeof message.seconds === 'number' && message.seconds > 0) {
       if (source.checkLength && message.seconds < MIN_TRAILER_SECONDS) void playNext();
     } else if (message.type === 'noapi') {
@@ -297,7 +301,11 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             javaScriptEnabled
             domStorageEnabled
             onMessage={onMessage}
-            onLoadEnd={() => setLoading(false)}
+            // Den maalte afspiller skjuler selv hjulet, naar forspringet er hentet
+            // (beskeden `playing`); de andre naar siden er indlaest.
+            onLoadEnd={() => {
+              if (source.kind !== 'measured') setLoading(false);
+            }}
             onError={() => {
               setFailed(true);
               setLoading(false);
@@ -384,14 +392,21 @@ export function measuredEmbedPage(trailerId: string, wide = false): string {
 <style>html,body{margin:0;background:#000;height:100%;overflow:hidden}#p{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
 </head><body><div id="p"></div>
 <script>
-var sent=false;
+var sent=false,primed=false,started=false,t0=0,BUFFER_S=${BUFFER_SECONDS},MAX_WAIT=${MAX_BUFFER_WAIT_MS};
 function post(m){if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify(m));}}
 function report(player){if(sent)return;var d=player.getDuration();if(d>0){sent=true;post({type:'duration',seconds:d});}}
+function begin(p){if(started)return;started=true;try{p.seekTo(0,true);}catch(x){}try{p.unMute();}catch(x){}p.playVideo();post({type:'playing'});}
 function onYouTubeIframeAPIReady(){
-  new YT.Player('p',{videoId:'${id}',playerVars:{autoplay:1,playsinline:1,rel:0,modestbranding:1,vq:'hd1080'},
+  new YT.Player('p',{videoId:'${id}',playerVars:{autoplay:1,mute:1,playsinline:1,rel:0,modestbranding:1,vq:'hd1080'},
     events:{
-      onReady:function(e){try{e.target.setPlaybackQuality('hd1080');}catch(x){}e.target.playVideo();report(e.target);},
-      onStateChange:function(e){report(e.target);},
+      onReady:function(e){var p=e.target;try{p.setPlaybackQuality('hd1080');}catch(x){}try{p.mute();}catch(x){}t0=Date.now();p.playVideo();report(p);
+        var iv=setInterval(function(){
+          if(started){clearInterval(iv);return;}
+          var d=0,f=0;try{d=p.getDuration()||0;f=p.getVideoLoadedFraction()||0;}catch(x){}
+          var enough=d>0&&d*f>=Math.min(BUFFER_S,d*0.9);
+          if((primed&&enough)||Date.now()-t0>MAX_WAIT){clearInterval(iv);begin(p);}
+        },250);},
+      onStateChange:function(e){report(e.target);if(!primed&&e.data===1){primed=true;if(!started){e.target.pauseVideo();}}},
       onError:function(e){post({type:'error',code:e.data});}
     }});
 }
@@ -400,6 +415,16 @@ setTimeout(function(){if(!window.YT||!window.YT.Player){post({type:'noapi'});}},
 <script src="https://www.youtube.com/iframe_api"></script>
 </body></html>`;
 }
+
+/**
+ * Forspring foer traileren starter, saa den ikke hakker: den startes lydloest,
+ * pauses saa snart den spiller, og YouTube henter videre imens. Naar der er
+ * BUFFER_SECONDS hentet (eller efter MAX_BUFFER_WAIT_MS, saa den aldrig
+ * haenger), spoles til start og spilles med lyd. Appen viser hjulet imens
+ * (beskeden `playing` skjuler det).
+ */
+const BUFFER_SECONDS = 15;
+const MAX_BUFFER_WAIT_MS = 6000;
 
 /**
  * Sidens bredde. Paa tv (`wide`) lader siden som om den er 1920 punkter bred

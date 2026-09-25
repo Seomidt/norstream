@@ -33,6 +33,16 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
 
+### 26. september 2026 — v328: trailer bufrer før den starter
+
+Brugeren: "buffer lidt først, så det ikke hakker". `measuredEmbedPage`: traileren
+startes lydløst (`mute:1`), pauses så snart den spiller, og YouTube henter videre
+imens; når `BUFFER_SECONDS` (15) er hentet (`getVideoLoadedFraction`) — eller
+efter `MAX_BUFFER_WAIT_MS` (6 s), så den aldrig hænger — spoles til 0 og spilles
+med lyd, og siden sender `playing`, som skjuler appens hjul (hjulet skjules ikke
+længere ved `onLoadEnd` for den målte afspiller). v327 blev aldrig udgivet; v328
+rummer den (kø + søgning uden nøgle) og v326 (1920-bred side, valg efter opløsning).
+
 ### 26. september 2026 — v327: trailer-kø — spærret i DK? så den næste; søgning uden nøgle
 
 v326 (aldrig udgivet) valgte efter opløsning og ramte for "Tuner" en HD-udgave
