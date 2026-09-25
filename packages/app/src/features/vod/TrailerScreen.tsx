@@ -106,15 +106,6 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
 
   /** TMDB er spurgt én gang; den svarer ikke anderledes anden gang. */
   const tmdbTried = useRef(false);
-  /**
-   * Paa tv spilles traileren i YouTube-appen, ikke her: det er samme slags
-   * afspiller som i Googles butik — fuld kvalitet, ingen hak — hvor den
-   * indlejrede drillede med slowmotion og bot-tjek. Afspilleren her tegnes
-   * foerst hvis appen ikke kan aabnes (saa to afspillere aldrig spiller
-   * samtidig). Paa telefonen spilles den her som foer.
-   */
-  const [inApp, setInApp] = useState(!isTV);
-  const handedOff = useRef(false);
 
   /**
    * Foerste valg: TMDB. Den ved hvad der er en trailer og hvad der er en
@@ -191,16 +182,6 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (!isTV || handedOff.current) return;
-    if (source.kind !== 'plain' && source.kind !== 'measured') return;
-    handedOff.current = true;
-    // Tilbage i YouTube-appen lander man paa filmen i NorStream igen.
-    Linking.openURL(`https://www.youtube.com/watch?v=${source.id}`).then(onBack, () => {
-      setInApp(true);
-    });
-  }, [source, onBack]);
-
   function onMessage(event: WebViewMessageEvent): void {
     let message: { type?: string; seconds?: number; code?: unknown };
     try {
@@ -222,9 +203,8 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     }
   }
 
-  const webSource = !inApp
-    ? null
-    : source.kind === 'measured'
+  const webSource =
+    source.kind === 'measured'
       ? { html: measuredEmbedPage(source.id), baseUrl: EMBED_ORIGIN }
       : source.kind === 'plain'
         ? { html: embedPage(source.id), baseUrl: EMBED_ORIGIN }
