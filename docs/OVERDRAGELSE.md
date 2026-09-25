@@ -33,6 +33,21 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
 
+### 25. september 2026 — v325: trailere på tv i fuld skærm og HD — INDE i appen
+
+Brugeren: trailerne i Googles butik (stemmesøgning) kører "helt perfekt", og
+**traileren skal blive i NorStream**. En v324 der sendte traileren videre til
+YouTube-appen blev rullet tilbage før udgivelse (commit "Tilbage: trailere …") —
+lav den ALDRIG igen. Googles butik har ingen adgang for andre apps. I stedet,
+kun på tv (`TrailerScreen.tsx`):
+- **Fuld skærm** (`frameFull`); titel og "Åbn i YouTube" vises kun hvis den ikke
+  kan spilles. Tilbage på fjernbetjeningen lukker den.
+- **Desktop-Chrome User-Agent** (`DESKTOP_USER_AGENT`) i stedet for mobil:
+  YouTubes mobilafspiller vælger lav kvalitet og spiller dårligere på en stor
+  skærm; desktop-afspilleren vælger kvalitet efter rammens størrelse.
+- Beder om HD (`vq=hd1080`, `setPlaybackQuality`) — uofficielt; YouTube
+  bestemmer til sidst. Telefonen er uændret. Ikke bekræftet på boksen endnu.
+
 ### 25. september 2026 — v323: serier — direkte til nyeste afsnit
 
 Bruger: med 20 afsnit skal man kunne gå til det sidste og se det. `VodDetailScreen`:
