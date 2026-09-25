@@ -11,6 +11,7 @@
 const VIDEOS = [
   ['Rick Astley (3:33)', 'dQw4w9WgXcQ'],
   ['Dune: Part Two, trailer', 'Way9Dexny3w'],
+  ['Oppenheimer, trailer', 'uYPbbksJxIg'],
 ];
 
 const CLIENTS = {
@@ -102,6 +103,7 @@ async function probeUrl(url, ua) {
 }
 
 for (const [label, videoId] of VIDEOS) {
+  await new Promise((resolve) => setTimeout(resolve, 4000));
   console.log(`\n=== ${label} (${videoId})`);
   for (const [name, client] of Object.entries(CLIENTS)) {
     let res;
@@ -134,11 +136,18 @@ for (const [label, videoId] of VIDEOS) {
         `                ${best.itag} ${best.height}p init=${JSON.stringify(best.initRange)} index=${JSON.stringify(best.indexRange)} n=${hasN} pot=${hasPot}` +
           ` -> ${await probeUrl(best.url, client.ua)}`,
       );
+      // Appens afspiller sender ikke klientens User-Agent, naar den spiller en
+      // lokal DASH-fil (manifest i en fil, videoen paa nettet): virker det uden?
+      for (const ua of ['Dalvik/2.1.0 (Linux; U; Android 12; Chromecast Build/STTE.230319.008)', 'ExoPlayerLib/1.4.1']) {
+        console.log(`                ${best.itag} med UA "${ua.slice(0, 20)}" -> ${await probeUrl(best.url, ua)}`);
+      }
       const audio = audios.find((f) => f.itag === 140) ?? audios[0];
       if (audio) console.log(`                lyd ${audio.itag} -> ${await probeUrl(audio.url, client.ua)}`);
     }
     if (sd.hlsManifestUrl) {
       try {
+        const { r: plain } = await timed(sd.hlsManifestUrl, { headers: { 'User-Agent': 'ExoPlayerLib/1.4.1' } });
+        console.log(`                HLS med ExoPlayer-UA -> ${plain.status}`);
         const { r, ms } = await timed(sd.hlsManifestUrl, { headers: { 'User-Agent': client.ua } });
         const m3u8 = await r.text();
         const variants = [...m3u8.matchAll(/RESOLUTION=(\d+x\d+)/g)].map((m) => m[1]);
