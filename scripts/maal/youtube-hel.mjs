@@ -135,7 +135,10 @@ for (const [name, client] of Object.entries(CLIENTS)) {
     // Nye adresser: de gamle er lige blevet hentet hele.
     const fresh = await player(client);
     const f = fresh.streamingData?.adaptiveFormats ?? [];
-    await paced('i tempo', f.find((x) => x.itag === 137), f.find((x) => x.itag === 140));
+    const v = f.find((x) => x.itag === 137);
+    const a = f.find((x) => x.itag === 140);
+    if (v?.url && a?.url) await paced('i tempo', v, a);
+    else console.log(`  i tempo: ingen nye adresser (${fresh.playabilityStatus?.status}); bruger de gamle`), await paced('i tempo (gamle adresser)', video, audio);
   }
   await new Promise((resolve) => setTimeout(resolve, 3000));
 }
