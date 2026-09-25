@@ -103,7 +103,7 @@ describe('resolveYoutubeStream', () => {
       return ok;
     };
     const result = await resolveYoutubeStream(post, 'dQw4w9WgXcQ');
-    expect(result).toMatchObject({ kind: 'dash', seconds: 151, height: 1080 });
+    expect(result).toMatchObject({ kind: 'dash', seconds: 151, height: 1080, client: 'ANDROID_VR', ipFamily: '?' });
     expect(calls).toEqual(['28']);
   });
 
@@ -124,7 +124,7 @@ describe('resolveYoutubeStream', () => {
       calls.push(headers['X-YouTube-Client-Name'] ?? '');
       return { playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'bot' } };
     };
-    expect(await resolveYoutubeStream(post, 'dQw4w9WgXcQ')).toEqual({ kind: 'fallback' });
+    expect(await resolveYoutubeStream(post, 'dQw4w9WgXcQ')).toMatchObject({ kind: 'fallback' });
     expect(calls).toEqual(['28', '5']);
   });
 
@@ -134,20 +134,34 @@ describe('resolveYoutubeStream', () => {
     expect((await resolveYoutubeStream(post, 'dQw4w9WgXcQ')).kind).toBe('dash');
   });
 
+  it('fortaeller om adressen er bundet til IPv4 eller IPv6 — aldrig adressen selv', async () => {
+    const at = (ip: string) => ({
+      playabilityStatus: { status: 'OK' },
+      streamingData: { adaptiveFormats: [video(137, 1080, undefined, { url: `https://rr1.googlevideo.com/videoplayback?ip=${ip}&itag=137` }), audio(140)] },
+    });
+    expect(await resolveYoutubeStream(async () => at('2a02%3A1234%3A%3A1'), 'dQw4w9WgXcQ')).toMatchObject({ ipFamily: 'IPv6' });
+    expect(await resolveYoutubeStream(async () => at('80.62.1.2'), 'dQw4w9WgXcQ')).toMatchObject({ ipFamily: 'IPv4' });
+  });
+
+  it('siger hvorfor, naar den falder tilbage', async () => {
+    const post: PostJson = async () => ({ playabilityStatus: { status: 'LOGIN_REQUIRED' } });
+    expect(await resolveYoutubeStream(post, 'dQw4w9WgXcQ')).toEqual({ kind: 'fallback', why: 'LOGIN_REQUIRED/LOGIN_REQUIRED' });
+  });
+
   it('siger "kan ikke ses" naar alle klienter siger at videoen er spaerret', async () => {
     const post: PostJson = async () => ({ playabilityStatus: { status: 'UNPLAYABLE', reason: 'ikke i dit land' } });
     expect(await resolveYoutubeStream(post, 'dQw4w9WgXcQ')).toEqual({ kind: 'unavailable' });
   });
 
   it('falder tilbage ved netfejl og ved svar uden brugbare formater', async () => {
-    expect(await resolveYoutubeStream(async () => null, 'dQw4w9WgXcQ')).toEqual({ kind: 'fallback' });
+    expect(await resolveYoutubeStream(async () => null, 'dQw4w9WgXcQ')).toMatchObject({ kind: 'fallback' });
     expect(
       await resolveYoutubeStream(async () => {
         throw new Error('net');
       }, 'dQw4w9WgXcQ'),
-    ).toEqual({ kind: 'fallback' });
+    ).toMatchObject({ kind: 'fallback' });
     const empty = { playabilityStatus: { status: 'OK' }, streamingData: { adaptiveFormats: [] } };
-    expect(await resolveYoutubeStream(async () => empty, 'dQw4w9WgXcQ')).toEqual({ kind: 'fallback' });
+    expect(await resolveYoutubeStream(async () => empty, 'dQw4w9WgXcQ')).toMatchObject({ kind: 'fallback' });
   });
 
   it('spoerger ikke YouTube om et id der ikke er et YouTube-id', async () => {

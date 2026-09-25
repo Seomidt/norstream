@@ -21,7 +21,7 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 **23. september 2026.** Appen kører på brugerens to Google TV Streamere og
 telefon mod det rigtige panel. Efter denne omgang (v317–v319) er brugerens ord
 "nu kører det hele dejligt hurtigt igen og alt fungerer". Alt bygges via GitHub,
-aldrig EAS; se `docs/BYG-FRA-CHAT.md`. Nyeste udgivelse: **versionCode 330** på
+aldrig EAS; se `docs/BYG-FRA-CHAT.md`. Nyeste udgivelse: **versionCode 331** på
 begge faste mærkater (`latest-norstream`, `latest-norstream-tv`).
 
 **Vigtigste læring fra denne omgang:** på tv-boksens hardware er det at hente +
@@ -32,6 +32,24 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 26. september 2026 — v331: diagnoselinje i traileren + genopretning der ikke giver op
+
+Brugeren om v330: "alle trailere starter super fint hurtigt og super kvalitet,
+men stopper stadig efter et minut til halvandet minut". Fast tidspunkt → ikke
+tilfældigt. Ukendt årsag (fra GitHub leverer YouTube hele filen, også i tempo).
+Mistanke: YouTube tillader kun det første stykke uden "PO-token" på en
+hjemmeforbindelse, eller IP-skift (IPv4/IPv6, VPN) — adressen er bundet til `ip=`.
+
+- **Diagnoselinje (MIDLERTIDIG — fjern når årsagen er fundet):** nederst til
+  venstre i traileren: klient · kvalitet · IPv4/IPv6 · længde, og for hver
+  genopretning `m:ss årsag → resultat` (årsag: `fejl 403`, `stod stille`,
+  `sluttede ved …`, `ikke klar`). Kun kategorier og HTTP-kode, aldrig adresser.
+  `resolveYoutubeStream` giver nu `client`, `ipFamily` og ved fallback `why`.
+- **Genopretning tæller kun forsøg uden fremgang** (`failures`, nulstilles når
+  der kom ≥ `NATIVE_PROGRESS_S` = 10 s videre), så en grænse hvert minut bliver
+  til korte pauser i stedet for webvisningen.
+- For tidlig slutning bruger YouTubes længde, hvis afspilleren ikke kender sin.
 
 ### 26. september 2026 — v330: native trailer stoppede før tid — vagt og genopretning
 

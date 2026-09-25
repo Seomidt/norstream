@@ -96,11 +96,19 @@ export interface YoutubeFormat {
 
 export type YoutubeStream =
   /** Et DASH-manifest (tekst) appen skriver til en fil og spiller. */
-  | { kind: 'dash'; mpd: string; seconds: number | null; height: number }
+  | {
+      kind: 'dash';
+      mpd: string;
+      seconds: number | null;
+      height: number;
+      /** Til diagnoselinjen: hvilken klient svarede, og om adressen er bundet til IPv4 eller IPv6. */
+      client: string;
+      ipFamily: 'IPv4' | 'IPv6' | '?';
+    }
   /** YouTube siger nej til netop den video: proev den naeste. */
   | { kind: 'unavailable' }
   /** Det lykkedes ikke her: spil den i webvisningen som foer. */
-  | { kind: 'fallback' };
+  | { kind: 'fallback'; why: string };
 
 /** Statusser der betyder at videoen ikke kan ses — ikke at vi blev afvist som bot. */
 const UNAVAILABLE = new Set(['UNPLAYABLE', 'ERROR']);
@@ -113,6 +121,7 @@ export async function resolveYoutubeStream(post: PostJson, videoId: string): Pro
   if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return { kind: 'unavailable' };
   let unavailable = 0;
   let answered = 0;
+  const why: string[] = [];
   for (const client of CLIENTS) {
     let response: unknown;
     try {
@@ -120,7 +129,10 @@ export async function resolveYoutubeStream(post: PostJson, videoId: string): Pro
     } catch {
       response = null;
     }
-    if (response === null || typeof response !== 'object') continue;
+    if (response === null || typeof response !== 'object') {
+      why.push('net');
+      continue;
+    }
     answered += 1;
     const data = response as {
       playabilityStatus?: { status?: string };
@@ -130,10 +142,14 @@ export async function resolveYoutubeStream(post: PostJson, videoId: string): Pro
     const status = data.playabilityStatus?.status;
     if (status !== 'OK') {
       if (status !== undefined && UNAVAILABLE.has(status)) unavailable += 1;
+      why.push(status ?? '?');
       continue;
     }
     const picked = pickFormats(data.streamingData?.adaptiveFormats ?? []);
-    if (picked === null) continue;
+    if (picked === null) {
+      why.push('format');
+      continue;
+    }
     const seconds = lengthOf(data.videoDetails?.lengthSeconds, picked.video.approxDurationMs);
     // Manifestets laengde maa aldrig vaere kortere end filerne: afspilleren
     // stopper dér. lengthSeconds er rundet ned til hele sekunder; filernes
@@ -144,11 +160,13 @@ export async function resolveYoutubeStream(post: PostJson, videoId: string): Pro
       mpd: buildMpd(picked.video, picked.audio, full > 0 ? full : null),
       seconds,
       height: picked.video.height ?? 0,
+      client: String(client.context.clientName),
+      ipFamily: ipFamilyOf(picked.video.url),
     };
   }
   // Kun naar ALLE der svarede sagde "kan ikke ses" er det videoen der er
   // noget galt med; et enkelt nej kan vaere klientens eget.
-  return answered > 0 && unavailable === answered ? { kind: 'unavailable' } : { kind: 'fallback' };
+  return answered > 0 && unavailable === answered ? { kind: 'unavailable' } : { kind: 'fallback', why: why.join('/') };
 }
 
 function playerHeaders(client: ClientSpec): Record<string, string> {
@@ -175,6 +193,18 @@ function lengthOf(lengthSeconds: string | undefined, approxMs: string | undefine
   if (Number.isFinite(s) && s > 0) return s;
   const ms = Number(approxMs);
   return Number.isFinite(ms) && ms > 0 ? ms / 1000 : null;
+}
+
+/**
+ * YouTubes adresse er bundet til den IP der bad om den (`ip=`). Kun
+ * familien vises (aldrig adressen): skifter boksen mellem IPv4 og IPv6
+ * undervejs, afvises filen.
+ */
+function ipFamilyOf(url: string | undefined): 'IPv4' | 'IPv6' | '?' {
+  const ip = /[?&]ip=([^&]+)/.exec(url ?? '')?.[1];
+  if (ip === undefined) return '?';
+  const decoded = decodeURIComponent(ip);
+  return decoded.includes(':') ? 'IPv6' : /^\d+\.\d+\.\d+\.\d+$/.test(decoded) ? 'IPv4' : '?';
 }
 
 function msToSeconds(ms: string | undefined): number {

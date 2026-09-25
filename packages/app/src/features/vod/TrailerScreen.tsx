@@ -47,7 +47,19 @@ interface Props {
  */
 type Source =
   /** Videofilen i appens egen afspiller, som Googles butik (se youtubeStream.ts). */
-  | { kind: 'native'; id: string; uri: string; resumeAt: number; attempt: number }
+  | {
+      kind: 'native';
+      id: string;
+      uri: string;
+      /** Sekunder inde hvor der fortsaettes (0 fra start). */
+      resumeAt: number;
+      /** Hvilken udgave af adresserne (noegle og filnavn). */
+      attempt: number;
+      /** Genopretninger i traek uden at komme videre. */
+      failures: number;
+      /** Videoens laengde ifoelge YouTube; bruges hvis afspilleren ikke kender den. */
+      seconds: number | null;
+    }
   /** `startAt`: sekunder inde, naar den overtager fra den native afspiller. */
   | { kind: 'measured'; id: string; checkLength: boolean; startAt?: number }
   | { kind: 'plain'; id: string }
@@ -110,8 +122,19 @@ const NATIVE_LOOKUP_TIMEOUT_MS = 6000;
 const NATIVE_READY_TIMEOUT_MS = 15000;
 /** Staar den og henter saa laenge midt i traileren, regnes den for gaaet i staa. */
 const NATIVE_STALL_MS = 10000;
-/** Saa mange gange hentes nye adresser og fortsaettes, foer webvisningen tager over. */
+/**
+ * Saa mange genopretninger i traek UDEN at komme videre, foer webvisningen
+ * tager over. En genopretning der kom mindst NATIVE_PROGRESS_S videre
+ * nulstiller tallet: stopper YouTube hvert minut, bliver det korte pauser.
+ */
 const NATIVE_MAX_RECOVERIES = 3;
+const NATIVE_PROGRESS_S = 10;
+
+/** m:ss til diagnoselinjen. */
+function clock(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
 
 /** POST til YouTubes afspiller-API; null ved alt der ikke er et JSON-svar. */
 const postJson: PostJson = async (url, headers, body) => {
@@ -182,6 +205,13 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   const tried = useRef(new Set<string>());
   /** Hvor langt ned i kilderne vi er naaet (se refill). */
   const stage = useRef(0);
+  /**
+   * Diagnoselinje (midlertidig, v331): hvad den native afspiller gjorde, saa
+   * brugeren kan tage et billede naar traileren stopper. Kun kategorier og
+   * HTTP-koder — aldrig adresser eller raa fejltekst.
+   */
+  const [diag, setDiag] = useState<string[]>([]);
+  const log = (line: string): void => setDiag((lines) => [...lines.slice(-5), line]);
   /** Skaermen er stadig aaben; en soegning der svarer sent maa ikke roere en lukket skaerm. */
   const alive = useRef(true);
 
@@ -252,10 +282,13 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             if (next.checkLength && stream.seconds !== null && stream.seconds < MIN_TRAILER_SECONDS) continue;
             const uri = writeManifest(next.id, 0, stream.mpd);
             if (uri !== null) {
+              log(`${stream.client} · ${stream.height}p · ${stream.ipFamily} · ${stream.seconds === null ? '?' : clock(stream.seconds)}`);
               setLoading(true);
-              setSource({ kind: 'native', id: next.id, uri, resumeAt: 0, attempt: 0 });
+              setSource({ kind: 'native', id: next.id, uri, resumeAt: 0, attempt: 0, failures: 0, seconds: stream.seconds });
               return;
             }
+          } else {
+            log(`YouTube sagde nej (${stream.why}) → webvisning`);
           }
           // fallback: bot-tjek, netfejl, intet brugbart format — webvisningen.
         }
@@ -290,21 +323,31 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
    * traileren er faerdig hver gang". Hent friske adresser hos YouTube og
    * fortsaet fra samme sted; efter nogle forsoeg tager webvisningen over.
    */
-  async function recoverNative(id: string, position: number, attempt: number): Promise<void> {
+  async function recoverNative(
+    from: Extract<Source, { kind: 'native' }>,
+    position: number,
+    reason: string,
+  ): Promise<void> {
     if (!alive.current) return;
     setLoading(true);
-    if (attempt < NATIVE_MAX_RECOVERIES) {
-      const stream = await resolveYoutubeStream(postJson, id);
+    const progressed = position >= from.resumeAt + NATIVE_PROGRESS_S;
+    const failures = progressed ? 0 : from.failures + 1;
+    if (failures < NATIVE_MAX_RECOVERIES) {
+      const stream = await resolveYoutubeStream(postJson, from.id);
       if (!alive.current) return;
       if (stream.kind === 'dash') {
-        const uri = writeManifest(id, attempt + 1, stream.mpd);
+        const uri = writeManifest(from.id, from.attempt + 1, stream.mpd);
         if (uri !== null) {
-          setSource({ kind: 'native', id, uri, resumeAt: position, attempt: attempt + 1 });
+          log(`${clock(position)} ${reason} → nye adresser (${stream.client}, ${stream.ipFamily})`);
+          setSource({ ...from, uri, resumeAt: position, attempt: from.attempt + 1, failures, seconds: stream.seconds ?? from.seconds });
           return;
         }
       }
+      log(`${clock(position)} ${reason} → ingen nye adresser (${stream.kind === 'fallback' ? stream.why : stream.kind}) → webvisning`);
+    } else {
+      log(`${clock(position)} ${reason} → ${failures} gange uden fremgang → webvisning`);
     }
-    setSource({ kind: 'measured', id, checkLength: false, startAt: position });
+    setSource({ kind: 'measured', id: from.id, checkLength: false, startAt: position });
   }
 
   useEffect(() => {
@@ -407,13 +450,23 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             key={`${source.id}:${source.attempt}`}
             uri={source.uri}
             resumeAt={source.resumeAt}
+            expectedSeconds={source.seconds}
             onReady={() => setLoading(false)}
-            onBroken={(position) => {
-              void recoverNative(source.id, position, source.attempt);
+            onBroken={(position, reason) => {
+              void recoverNative(source, position, reason);
             }}
             // Paa tv lukker traileren naar den er slut, som i Googles butik.
             onEnd={isTV ? onBack : undefined}
           />
+        )}
+        {diag.length > 0 && (source.kind === 'native' || source.kind === 'measured' || source.kind === 'looking') && (
+          <View style={styles.diag} pointerEvents="none">
+            {diag.map((line, index) => (
+              <Text key={index} style={styles.diagText} numberOfLines={1}>
+                {line}
+              </Text>
+            ))}
+          </View>
         )}
         {source.kind === 'none' && (
           <View style={styles.overlay}>
@@ -480,6 +533,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
 function NativeTrailer({
   uri,
   resumeAt,
+  expectedSeconds,
   onReady,
   onBroken,
   onEnd,
@@ -487,8 +541,11 @@ function NativeTrailer({
   uri: string;
   /** Sekunder inde, hvor der fortsaettes efter en genopretning. */
   resumeAt: number;
+  /** YouTubes laengde, hvis afspilleren ikke selv kender den. */
+  expectedSeconds: number | null;
   onReady: () => void;
-  onBroken: (position: number) => void;
+  /** `reason`: kort kategori til diagnoselinjen (fx "fejl 403", "stod stille"). */
+  onBroken: (position: number, reason: string) => void;
   onEnd?: () => void;
 }) {
   const source = useMemo(() => ({ uri, contentType: 'dash' as const }), [uri]);
@@ -510,30 +567,30 @@ function NativeTrailer({
     let done = false;
     /** Holdt her og ikke laest af afspilleren: den kan vaere frigivet naar vi skal bruge tallet. */
     let position = resumeAt;
-    let duration = 0;
+    let duration = expectedSeconds ?? 0;
     let stall: ReturnType<typeof setTimeout> | null = null;
     const clearStall = (): void => {
       if (stall !== null) clearTimeout(stall);
       stall = null;
     };
-    const broken = (): void => {
+    const broken = (reason: string): void => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       clearStall();
-      handlers.current.onBroken(position);
+      handlers.current.onBroken(position, reason);
     };
     const timer = setTimeout(() => {
-      if (!ready) broken();
+      if (!ready) broken('ikke klar');
     }, NATIVE_READY_TIMEOUT_MS);
-    const status = player.addListener('statusChange', ({ status: next }) => {
+    const status = player.addListener('statusChange', ({ status: next, error }) => {
       if (next === 'readyToPlay') {
         clearStall();
         if (!ready) {
           ready = true;
           clearTimeout(timer);
           try {
-            duration = player.duration;
+            if (player.duration > 0) duration = player.duration;
             if (resumeAt > 0) player.currentTime = resumeAt;
           } catch {
             // Frigivet i mellemtiden; vagten tager resten.
@@ -542,9 +599,11 @@ function NativeTrailer({
         }
       } else if (next === 'loading' && ready) {
         clearStall();
-        stall = setTimeout(broken, NATIVE_STALL_MS);
+        stall = setTimeout(() => broken('stod stille'), NATIVE_STALL_MS);
       } else if (next === 'error') {
-        broken();
+        // Kun HTTP-koden; fejlteksten kan rumme adressen.
+        const code = /\b([45]\d\d)\b/.exec(error?.message ?? '')?.[1];
+        broken(code === undefined ? 'fejl' : `fejl ${code}`);
       }
     });
     const time = player.addListener('timeUpdate', ({ currentTime }) => {
@@ -554,7 +613,7 @@ function NativeTrailer({
       if (done) return;
       // Sluttede den mere end et par sekunder foer tid, er det ikke slutningen.
       if (duration > 0 && position < duration - 3) {
-        broken();
+        broken(`sluttede ved ${clock(position)} af ${clock(duration)}`);
         return;
       }
       done = true;
@@ -682,6 +741,17 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     padding: theme.spacing.md,
   },
   overlayText: { color: colors.textMuted, marginTop: theme.spacing.sm },
+  /** Diagnoselinjen: lille og halvgennemsigtig nederst til venstre, over videoen. */
+  diag: {
+    position: 'absolute',
+    left: theme.spacing.sm,
+    bottom: theme.spacing.sm,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  diagText: { color: '#FFFFFF', fontSize: 11, opacity: 0.85 },
   errorText: { color: colors.text, textAlign: 'center' },
   info: { flex: 1, padding: theme.spacing.md, backgroundColor: colors.background },
   title: { color: colors.text, fontSize: 18, fontWeight: '700' },
