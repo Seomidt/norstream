@@ -50,6 +50,44 @@ async function player(client) {
   return r.json();
 }
 
+/**
+ * Som afspilleren: i afspilningens tempo, 30 s foran. Hvert stykke venter
+ * til dets tidspunkt i videoen minus bufferen. Sig hvornaar (sekunder inde)
+ * det evt. gaar galt.
+ */
+async function paced(label, video, audio) {
+  const t0 = Date.now();
+  const seconds = Number(video.approxDurationMs) / 1000;
+  const bytesPerSecond = Number(video.contentLength) / seconds;
+  let got = 0;
+  let audioGot = 0;
+  const audioPerSecond = Number(audio.contentLength) / seconds;
+  const want = (fmt, from, to) =>
+    fetch(fmt.url, { headers: { 'User-Agent': 'ExoPlayerLib/1.4.1', Range: `bytes=${from}-${to}` } }).then(async (r) => [r.status, (await r.arrayBuffer()).byteLength]);
+  while (got < Number(video.contentLength)) {
+    const at = got / bytesPerSecond;
+    const wait = (at - 30) * 1000 - (Date.now() - t0);
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    const end = Math.min(got + 512 * 1024, Number(video.contentLength)) - 1;
+    const [status, bytes] = await want(video, got, end).catch((e) => [`FEJL ${e.name}`, 0]);
+    if (status !== 206) {
+      console.log(`  ${label}: STOP ved ${at.toFixed(0)} s inde i videoen, ${((Date.now() - t0) / 1000).toFixed(0)} s efter start, status ${status}`);
+      return;
+    }
+    got += bytes;
+    const audioEnd = Math.min(Math.round(got / bytesPerSecond * audioPerSecond) + 65536, Number(audio.contentLength)) - 1;
+    if (audioEnd > audioGot) {
+      const [aStatus, aBytes] = await want(audio, audioGot, audioEnd).catch((e) => [`FEJL ${e.name}`, 0]);
+      if (aStatus !== 206) {
+        console.log(`  ${label}: LYD STOP ved ${at.toFixed(0)} s inde, status ${aStatus}`);
+        return;
+      }
+      audioGot += aBytes;
+    }
+  }
+  console.log(`  ${label}: HELE vejen i afspilningstempo (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
+}
+
 async function whole(label, format) {
   const total = Number(format.contentLength);
   const t0 = Date.now();
@@ -93,5 +131,11 @@ for (const [name, client] of Object.entries(CLIENTS)) {
     await whole('video 137', video);
   }
   if (audio?.url) await whole('lyd 140', audio);
+  if (video?.url && audio?.url && name === 'ANDROID_VR') {
+    // Nye adresser: de gamle er lige blevet hentet hele.
+    const fresh = await player(client);
+    const f = fresh.streamingData?.adaptiveFormats ?? [];
+    await paced('i tempo', f.find((x) => x.itag === 137), f.find((x) => x.itag === 140));
+  }
   await new Promise((resolve) => setTimeout(resolve, 3000));
 }
