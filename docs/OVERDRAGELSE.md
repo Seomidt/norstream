@@ -33,6 +33,18 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
 
+### 25. september 2026 — v324: trailere på tv spilles i YouTube-appen
+
+Bruger: trailerne i Googles butik (stemmesøgning) kører "meget bedre, super
+billeder, ingen hak". Googles butik har ingen adgang for andre apps, men dens
+trailere er YouTube-videoer i en rigtig afspiller. Derfor sender `TrailerScreen`
+nu på tv traileren direkte til YouTube-appen (`https://www.youtube.com/watch?v=…`,
+samme adresse som knappen "Åbn i YouTube") så snart den er fundet, og går selv
+tilbage til filmen — Tilbage i YouTube lander på filmsiden. Den indlejrede
+afspiller tegnes på tv kun hvis appen ikke kan åbnes (`inApp`), så to afspillere
+aldrig spiller samtidig. Telefonen er uændret. Konsekvens: udbyderens trailer
+måles ikke længere for "for kort" på tv (TMDB er stadig første valg).
+
 ### 25. september 2026 — v323: serier — direkte til nyeste afsnit
 
 Bruger: med 20 afsnit skal man kunne gå til det sidste og se det. `VodDetailScreen`:
