@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import { VideoView, useVideoPlayer } from 'expo-video';
+import { File, Paths } from 'expo-file-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { WebViewMessageEvent } from 'react-native-webview';
 import type { AppSession } from '../../session.js';
@@ -12,6 +14,9 @@ import { isTV } from '../../ui/tv.js';
 import { MIN_TRAILER_SECONDS, findLongerTrailer, searchYoutubeTrailers, youtubeSearchUrl } from './trailerSearch.js';
 import type { FetchText } from './trailerSearch.js';
 import { webView } from './webview.js';
+import { resolveYoutubeStream } from './youtubeStream.js';
+import type { PostJson } from './youtubeStream.js';
+import { surfaceTypeForPlatform } from '../player/format.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
 /** Webvisningen, eller null paa tv, hvor den ikke findes. */
@@ -41,6 +46,8 @@ interface Props {
  * - `looking`: soegningen gennem Data API'et er i gang.
  */
 type Source =
+  /** Videofilen i appens egen afspiller, som Googles butik (se youtubeStream.ts). */
+  | { kind: 'native'; id: string; uri: string }
   | { kind: 'measured'; id: string; checkLength: boolean }
   | { kind: 'plain'; id: string }
   | { kind: 'search'; url: string }
@@ -51,9 +58,11 @@ type Source =
 /**
  * Traileren, inde i appen.
  *
- * YouTubes egen indlejrede afspiller i en webvisning. Det er den maade
- * YouTube selv stiller til raadighed — at traekke videofilen ud og spille den
- * i appens afspiller goer de ikke, og det ville braekke naar de aendrer noget.
+ * Paa Android foerst som rigtig video i appens egen afspiller (som Googles
+ * tv-butik): videofilen hentes fra YouTube, se youtubeStream.ts. Det er
+ * uofficielt og kan holde op med at virke naar YouTube aendrer noget; saa
+ * spilles traileren i YouTubes egen indlejrede afspiller i en webvisning,
+ * som beskrevet her.
  *
  * **Afspilleren ligger i en lille side med en neutral base-adresse.** Det er
  * maalt, ikke gaettet — i en rigtig browser paa GitHubs maskine, efter to
@@ -91,6 +100,43 @@ const fetchText: FetchText = async (url, headers) => {
 };
 
 const EMBED_ORIGIN = 'https://norstream.app';
+
+/** Den native vej findes kun paa Android (DASH i ExoPlayer). */
+const NATIVE_TRAILERS = Platform.OS === 'android';
+/** YouTube svarer paa ~0,1 s; et hængende svar maa ikke holde traileren tilbage. */
+const NATIVE_LOOKUP_TIMEOUT_MS = 6000;
+/** Er afspilleren ikke klar efter saa lang tid, tages webvisningen i stedet. */
+const NATIVE_READY_TIMEOUT_MS = 15000;
+
+/** POST til YouTubes afspiller-API; null ved alt der ikke er et JSON-svar. */
+const postJson: PostJson = async (url, headers, body) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), NATIVE_LOOKUP_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { method: 'POST', headers, body, signal: controller.signal });
+    return response.ok ? ((await response.json()) as unknown) : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+/**
+ * Manifestet skal ligge i en fil: afspilleren tager en adresse. Én fil per
+ * video, skrevet forfra hver gang (YouTubes adresser udloeber efter timer).
+ */
+function writeManifest(videoId: string, mpd: string): string | null {
+  try {
+    const file = new File(Paths.cache, `trailer-${videoId}.mpd`);
+    if (file.exists) file.delete();
+    file.create();
+    file.write(mpd);
+    return file.uri;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * En rigtig Chrome-browser-streng, ikke webvisningens egen.
@@ -192,6 +238,22 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         tried.current.add(next.id);
         if (!alive.current) return;
         setNote(next.note);
+        if (NATIVE_TRAILERS) {
+          const stream = await resolveYoutubeStream(postJson, next.id);
+          if (!alive.current) return;
+          // Spaerret i Danmark, fjernet: webvisningen ville fejle ligesaa.
+          if (stream.kind === 'unavailable') continue;
+          if (stream.kind === 'dash') {
+            if (next.checkLength && stream.seconds !== null && stream.seconds < MIN_TRAILER_SECONDS) continue;
+            const uri = writeManifest(next.id, stream.mpd);
+            if (uri !== null) {
+              setLoading(true);
+              setSource({ kind: 'native', id: next.id, uri });
+              return;
+            }
+          }
+          // fallback: bot-tjek, netfejl, intet brugbart format — webvisningen.
+        }
         setLoading(true);
         setSource({ kind: 'measured', id: next.id, checkLength: next.checkLength });
         return;
@@ -261,7 +323,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
           ? { uri: source.url }
           : null;
   const openUrl =
-    source.kind === 'measured' || source.kind === 'plain'
+    source.kind === 'measured' || source.kind === 'plain' || source.kind === 'native'
       ? `https://www.youtube.com/watch?v=${source.id}`
       : youtubeSearchUrl(title, year);
 
@@ -312,6 +374,20 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             }}
           />
         )}
+        {source.kind === 'native' && (
+          <NativeTrailer
+            key={`${source.id}:${source.uri}`}
+            uri={source.uri}
+            onReady={() => setLoading(false)}
+            onFail={() => {
+              // Filen kunne ikke spilles her: samme video i webvisningen.
+              setLoading(true);
+              setSource({ kind: 'measured', id: source.id, checkLength: false });
+            }}
+            // Paa tv lukker traileren naar den er slut, som i Googles butik.
+            onEnd={isTV ? onBack : undefined}
+          />
+        )}
         {source.kind === 'none' && (
           <View style={styles.overlay}>
             <Text style={styles.errorText}>Ingen trailer fundet til «{title}». Prøv "Åbn i YouTube" nedenfor.</Text>
@@ -359,6 +435,78 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
       </>
       )}
     </View>
+  );
+}
+
+/**
+ * Traileren i appens egen afspiller (ExoPlayer), fra DASH-manifestet.
+ *
+ * Buffer: den starter foerst naar fire sekunder er hentet (brugeren: "buffer
+ * lidt foerst, saa det ikke hakker"), og holder et halvt minut klar foran.
+ * Hjulet vises indtil afspilleren melder klar. Fejler den, eller er den ikke
+ * klar i tide, tager webvisningen over med samme video.
+ */
+function NativeTrailer({
+  uri,
+  onReady,
+  onFail,
+  onEnd,
+}: {
+  uri: string;
+  onReady: () => void;
+  onFail: () => void;
+  onEnd?: () => void;
+}) {
+  const source = useMemo(() => ({ uri, contentType: 'dash' as const }), [uri]);
+  const player = useVideoPlayer(source, (p) => {
+    p.loop = false;
+    p.bufferOptions = {
+      preferredForwardBufferDuration: 30,
+      minBufferForPlayback: 4,
+      prioritizeTimeOverSizeThreshold: true,
+    };
+    p.play();
+  });
+  const handlers = useRef({ onReady, onFail, onEnd });
+  handlers.current = { onReady, onFail, onEnd };
+
+  useEffect(() => {
+    let ready = false;
+    let done = false;
+    const fail = (): void => {
+      if (done) return;
+      done = true;
+      handlers.current.onFail();
+    };
+    const timer = setTimeout(() => {
+      if (!ready) fail();
+    }, NATIVE_READY_TIMEOUT_MS);
+    const status = player.addListener('statusChange', ({ status: next }) => {
+      if (next === 'readyToPlay' && !ready) {
+        ready = true;
+        clearTimeout(timer);
+        handlers.current.onReady();
+      } else if (next === 'error') {
+        clearTimeout(timer);
+        fail();
+      }
+    });
+    const end = player.addListener('playToEnd', () => handlers.current.onEnd?.());
+    return () => {
+      clearTimeout(timer);
+      status.remove();
+      end.remove();
+    };
+  }, [player]);
+
+  return (
+    <VideoView
+      style={StyleSheet.absoluteFill}
+      player={player}
+      nativeControls={!isTV}
+      contentFit="contain"
+      surfaceType={surfaceTypeForPlatform()}
+    />
   );
 }
 

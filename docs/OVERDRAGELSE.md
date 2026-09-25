@@ -21,7 +21,7 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 **23. september 2026.** Appen kører på brugerens to Google TV Streamere og
 telefon mod det rigtige panel. Efter denne omgang (v317–v319) er brugerens ord
 "nu kører det hele dejligt hurtigt igen og alt fungerer". Alt bygges via GitHub,
-aldrig EAS; se `docs/BYG-FRA-CHAT.md`. Nyeste udgivelse: **versionCode 319** på
+aldrig EAS; se `docs/BYG-FRA-CHAT.md`. Nyeste udgivelse: **versionCode 329** på
 begge faste mærkater (`latest-norstream`, `latest-norstream-tv`).
 
 **Vigtigste læring fra denne omgang:** på tv-boksens hardware er det at hente +
@@ -32,6 +32,35 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 26. september 2026 — v329: trailer i appens egen afspiller, som Googles butik
+
+Brugeren: Googles tv-butik starter traileren med det samme og i flot HD — "det må
+kunne lade sig gøre". Butikken henter YouTubes videofil og spiller den native.
+Brugeren valgte selv (AskUserQuestion) den uofficielle vej, velvidende at den kan
+holde op med at virke, når YouTube ændrer noget.
+
+- **`features/vod/youtubeStream.ts`**: `resolveYoutubeStream` spørger YouTubes
+  app-klienter (`ANDROID_VR`, så `IOS`) via `/youtubei/v1/player` og får direkte
+  adresser til video og lyd. `pickFormats` tager H.264 op til 1080p (VP9 kun som
+  reserve) + AAC-lyd (originalsproget); `buildMpd` samler dem i et lille statisk
+  DASH-manifest med **én** videokvalitet, så den starter i HD. Svar:
+  `dash` / `unavailable` (alle klienter siger UNPLAYABLE/ERROR — spærret, fjernet:
+  næste kandidat) / `fallback` (bot-tjek, netfejl, intet format: webvisningen).
+- **`TrailerScreen`**: på Android prøves hver kandidat først native
+  (`NativeTrailer`: expo-video, `contentType: 'dash'`, manifestet skrevet til
+  `Paths.cache/trailer-<id>.mpd`, buffer 4 s før start / 30 s frem). Fejl eller
+  ikke klar på 15 s → samme video i webvisningen som før (v328). Længde-tjekket
+  (teaser under et minut) bruger `videoDetails.lengthSeconds`. På tv lukker
+  traileren, når den er slut.
+- **Målt** med `scripts/maal/youtube-stroem.mjs` (motor `maal`): ANDROID_VR/IOS
+  giver 1080p/4K, filerne svarer 206 på få ms, og de er ligeglade med
+  User-Agent (vigtigt: manifestet ligger i en fil, så ExoPlayer sender sin egen).
+  GitHubs maskine fik "bekræft at du ikke er en bot" efter første video — det er
+  datacenter-IP'en; hjemme er det sjældent, og så tager webvisningen over.
+- **Holder det op med at virke:** kør målingen igen og opdatér klient-versionerne
+  i `CLIENTS` (samme vej som yt-dlp/NewPipe). Det her er IKKE v324's fejlvej
+  (at sende brugeren over i YouTube-appen) — traileren bliver i NorStream.
 
 ### 26. september 2026 — v328: trailer bufrer før den starter
 
