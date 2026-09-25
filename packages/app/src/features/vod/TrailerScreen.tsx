@@ -89,6 +89,16 @@ const EMBED_ORIGIN = 'https://norstream.app';
  * sjaeldnere. Det er ikke en garanti — tjekket sidder ogsaa paa YouTubes side
  * — men "Aabn i YouTube" er der stadig som sikker vej.
  */
+/**
+ * Paa tv: en desktop-Chrome-streng. Med mobilstrengen faar man YouTubes
+ * mobilafspiller, som paa en stor skaerm vaelger lav kvalitet og spiller
+ * daarligere; desktop-afspilleren vaelger kvalitet efter rammens stoerrelse
+ * (fuld skaerm paa tv'et = HD). Samme bot-hensyn som mobilstrengen: en
+ * rigtig browser, ikke webvisningens egen.
+ */
+const DESKTOP_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+
 const BROWSER_USER_AGENT =
   'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36';
 
@@ -218,7 +228,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
 
   return (
     <View style={styles.container}>
-      <View style={[styles.frame, source.kind === 'search' && styles.frameTall]}>
+      <View style={[styles.frame, source.kind === 'search' && styles.frameTall, isTV && styles.frameFull]}>
         {WebView === null && (
           <View style={styles.overlay}>
             <Text style={styles.errorText}>Trailere fra YouTube kan ikke vises på Apple TV. Se den på telefonen.</Text>
@@ -241,7 +251,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             // saa hakker traileren ("slowmotion"), mens den native filmafspiller
             // koerer glat. Kun Android; ignoreres andre steder.
             androidLayerType="hardware"
-            userAgent={BROWSER_USER_AGENT}
+            userAgent={isTV ? DESKTOP_USER_AGENT : BROWSER_USER_AGENT}
             thirdPartyCookiesEnabled
             sharedCookiesEnabled
             allowsFullscreenVideo
@@ -274,6 +284,10 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
           </View>
         )}
       </View>
+      {/* Paa tv fylder traileren hele skaermen; titel og knap vises kun hvis
+          den ikke kan spilles her. Tilbage paa fjernbetjeningen lukker den. */}
+      {(!isTV || failed || source.kind === 'none') && (
+      <>
       <View style={styles.info}>
         <Text style={styles.title} numberOfLines={2}>
           {title}
@@ -297,6 +311,8 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
           <Text style={styles.buttonText}>Åbn i YouTube</Text>
         </TvPressable>
       </View>
+      </>
+      )}
     </View>
   );
 }
@@ -310,7 +326,7 @@ export function embedPage(trailerId: string): string {
   const id = safeId(trailerId);
   return `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>html,body{margin:0;background:#000;height:100%;overflow:hidden}iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
-</head><body><iframe src="https://www.youtube.com/embed/${id}?autoplay=1&playsinline=1&rel=0&modestbranding=1"
+</head><body><iframe src="https://www.youtube.com/embed/${id}?autoplay=1&playsinline=1&rel=0&modestbranding=1&vq=hd1080"
 allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></body></html>`;
 }
 
@@ -335,9 +351,9 @@ var sent=false;
 function post(m){if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify(m));}}
 function report(player){if(sent)return;var d=player.getDuration();if(d>0){sent=true;post({type:'duration',seconds:d});}}
 function onYouTubeIframeAPIReady(){
-  new YT.Player('p',{videoId:'${id}',playerVars:{autoplay:1,playsinline:1,rel:0,modestbranding:1},
+  new YT.Player('p',{videoId:'${id}',playerVars:{autoplay:1,playsinline:1,rel:0,modestbranding:1,vq:'hd1080'},
     events:{
-      onReady:function(e){e.target.playVideo();report(e.target);},
+      onReady:function(e){try{e.target.setPlaybackQuality('hd1080');}catch(x){}e.target.playVideo();report(e.target);},
       onStateChange:function(e){report(e.target);},
       onError:function(e){post({type:'error',code:e.data});}
     }});
@@ -357,6 +373,8 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   frame: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000000' },
   /** Soegesiden er en hel side, ikke en video; den faar det meste af skaermen. */
   frameTall: { aspectRatio: undefined, flex: 3 },
+  /** Tv: traileren fylder hele skaermen, som i Googles butik. Tilbage lukker den. */
+  frameFull: { aspectRatio: undefined, flex: 1 },
   web: { flex: 1, backgroundColor: '#000000' },
   overlay: {
     position: 'absolute',
