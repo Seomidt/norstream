@@ -33,7 +33,24 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
 
-### 25. september 2026 — v326: trailere i HD (ikke 480p)
+### 26. september 2026 — v327: trailer-kø — spærret i DK? så den næste; søgning uden nøgle
+
+v326 (aldrig udgivet) valgte efter opløsning og ramte for "Tuner" en HD-udgave
+der er spærret i Danmark ("ikke tilgængelig i dit land"), hvor den gamle virkede.
+`TrailerScreen` har nu en **kø af kandidater** (`refill`/`playNext`):
+0. alle TMDB-videoer, bedste først (`findTmdbTrailers`/`pickTmdbTrailers`),
+1. udbyderens eget bud (længden måles; < 60 s = næste),
+2. YouTube Data API hvis der er en nøgle,
+3. **YouTubes egen søgning uden nøgle** (`searchYoutubeTrailers` i
+   `trailerSearch.ts`: læser `ytInitialData` fra søgesiden, samtykke-cookie
+   `SOCS=CAI`; 1–6 min, "trailer" og filmens navn i titlen, ingen
+   anmeldelser/reaktioner).
+Alle spilles med YouTubes IFrame-API (`measuredEmbedPage`), som melder fejl
+(spærret, må ikke indlejres, fjernet) → næste kandidat. Kommer API'et ikke op,
+bruges den rene indlejring (kan så ikke melde fejl). Intet kan vises → tv siger
+det; telefonen viser YouTubes søgeside.
+
+### 25. september 2026 — v326: trailere i HD (ikke 480p) — rullet ind i v327
 
 Efter v325: "meget bedre, men mange i dårlig kvalitet, ikke HD, meget mindre".
 To årsager, begge rettet:

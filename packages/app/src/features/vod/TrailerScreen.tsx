@@ -4,12 +4,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { WebViewMessageEvent } from 'react-native-webview';
 import type { AppSession } from '../../session.js';
 import { getTmdbApiKey, getYoutubeApiKey } from '../../storage/settings.js';
-import { findTmdbTrailer, tmdbFetch } from '../../sync/tmdb.js';
+import { findTmdbTrailers, tmdbFetch } from '../../sync/tmdb.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
-import { MIN_TRAILER_SECONDS, findLongerTrailer, youtubeSearchUrl } from './trailerSearch.js';
+import { MIN_TRAILER_SECONDS, findLongerTrailer, searchYoutubeTrailers, youtubeSearchUrl } from './trailerSearch.js';
+import type { FetchText } from './trailerSearch.js';
 import { webView } from './webview.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
@@ -40,7 +41,7 @@ interface Props {
  * - `looking`: soegningen gennem Data API'et er i gang.
  */
 type Source =
-  | { kind: 'measured'; id: string }
+  | { kind: 'measured'; id: string; checkLength: boolean }
   | { kind: 'plain'; id: string }
   | { kind: 'search'; url: string }
   | { kind: 'looking' }
@@ -76,6 +77,19 @@ type Source =
  * der videre: med en API-noegle vaelger appen selv en lang nok, uden den
  * aabnes YouTubes soegeside herinde, saa man vaelger selv.
  */
+/** En trailer at proeve: YouTube-id, hvor den kom fra, og om laengden skal maales. */
+interface Candidate {
+  id: string;
+  note: string;
+  checkLength: boolean;
+}
+
+/** YouTubes soegeside som tekst (til soegning uden API-noegle). */
+const fetchText: FetchText = async (url, headers) => {
+  const response = await fetch(url, { headers });
+  return response.ok ? await response.text() : null;
+};
+
 const EMBED_ORIGIN = 'https://norstream.app';
 
 /**
@@ -111,72 +125,89 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  /** Der soeges hoejst én gang; ellers kunne en fundet video sende os i ring. */
-  const searched = useRef(false);
-
-  /** TMDB er spurgt én gang; den svarer ikke anderledes anden gang. */
-  const tmdbTried = useRef(false);
+  /** Kandidater der venter, bedste foerst. */
+  const queue = useRef<Candidate[]>([]);
+  /** Videoer der allerede er proevet, saa den samme ikke proeves igen. */
+  const tried = useRef(new Set<string>());
+  /** Hvor langt ned i kilderne vi er naaet (se refill). */
+  const stage = useRef(0);
+  /** Skaermen er stadig aaben; en soegning der svarer sent maa ikke roere en lukket skaerm. */
+  const alive = useRef(true);
 
   /**
-   * Foerste valg: TMDB. Den ved hvad der er en trailer og hvad der er en
-   * teaser, saa der er intet at maale. Kender den ikke titlen, eller er der
-   * ingen noegle, spilles udbyderens eget bud og maales som foer.
+   * Fylder koeen fra naeste kilde, i den raekkefoelge de er bedst:
+   *
+   *  0. TMDB — ved hvad der er en trailer; alle dens bud, bedste foerst.
+   *  1. Udbyderens eget bud — maales, for det kan vaere et klip paa sekunder.
+   *  2. YouTubes Data API, hvis der er en noegle.
+   *  3. YouTubes egen soegning, uden noegle.
+   *
+   * Svarer falsk naar der ikke er flere kilder.
    */
-  async function start(): Promise<void> {
-    const tmdbKey = await getTmdbApiKey(session.db);
-    if (tmdbKey !== null) {
-      tmdbTried.current = true;
-      const name = year === null ? title : `${title} (${year})`;
-      const found = await findTmdbTrailer(tmdbFetch, tmdbKey, kind, name);
-      if (found !== null) {
-        setNote(`Trailer fra TMDB: ${found.name}.`);
-        setSource({ kind: 'plain', id: found.youtubeId });
-        return;
+  async function refill(): Promise<boolean> {
+    const step = stage.current;
+    stage.current += 1;
+    const name = year === null ? title : `${title} (${year})`;
+    switch (step) {
+      case 0: {
+        const tmdbKey = await getTmdbApiKey(session.db);
+        if (tmdbKey === null) return true;
+        for (const found of await findTmdbTrailers(tmdbFetch, tmdbKey, kind, name)) {
+          queue.current.push({ id: found.youtubeId, note: `Trailer fra TMDB: ${found.name}.`, checkLength: false });
+        }
+        return true;
       }
+      case 1:
+        if (trailerId !== null) queue.current.push({ id: trailerId, note: 'Udbyderens trailer.', checkLength: true });
+        return true;
+      case 2: {
+        const apiKey = await getYoutubeApiKey(session.db);
+        if (apiKey === null) return true;
+        const found = await findLongerTrailer(session.fetchImpl, apiKey, title, year, null);
+        if (found !== null) queue.current.push({ id: found.id, note: `Fundet på YouTube: ${found.title}.`, checkLength: false });
+        return true;
+      }
+      case 3:
+        for (const found of await searchYoutubeTrailers(fetchText, title, year)) {
+          queue.current.push({ id: found.id, note: `Fundet på YouTube: ${found.title}.`, checkLength: false });
+        }
+        return true;
+      default:
+        return false;
     }
-    if (trailerId !== null) {
-      setNote(tmdbKey === null ? 'Udbyderens trailer.' : 'TMDB kender ingen trailer til titlen; udbyderens spilles.');
-      setSource({ kind: 'measured', id: trailerId });
-      return;
-    }
-    await lookForBetter('Udbyderen har ingen trailer til titlen.');
   }
 
-  async function lookForBetter(reason: string): Promise<void> {
-    if (searched.current) return;
-    searched.current = true;
+  /**
+   * Spiller den naeste kandidat. Kaldes ved start, og igen naar en video ikke
+   * kan vises her — spaerret i Danmark ("ikke tilgaengelig i dit land"),
+   * ikke maa indlejres, fjernet — eller er for kort til at vaere en trailer.
+   */
+  async function playNext(): Promise<void> {
+    if (!alive.current) return;
     setSource({ kind: 'looking' });
-    const tmdbKey = tmdbTried.current ? null : await getTmdbApiKey(session.db);
-    if (tmdbKey !== null) {
-      tmdbTried.current = true;
-      const name = year === null ? title : `${title} (${year})`;
-      const found = await findTmdbTrailer(tmdbFetch, tmdbKey, kind, name);
-      if (found !== null && found.youtubeId !== trailerId) {
-        setNote(`${reason} Traileren er fundet gennem TMDB: ${found.name}.`);
+    for (;;) {
+      const next = queue.current.shift();
+      if (next !== undefined) {
+        if (tried.current.has(next.id)) continue;
+        tried.current.add(next.id);
+        if (!alive.current) return;
+        setNote(next.note);
         setLoading(true);
-        setSource({ kind: 'plain', id: found.youtubeId });
+        setSource({ kind: 'measured', id: next.id, checkLength: next.checkLength });
         return;
       }
-    }
-    const apiKey = await getYoutubeApiKey(session.db);
-    if (apiKey !== null) {
-      const found = await findLongerTrailer(session.fetchImpl, apiKey, title, year, trailerId);
-      if (found !== null) {
-        setNote(`${reason} Fundet på YouTube: ${found.title} (${Math.round(found.seconds / 60)} min).`);
-        setLoading(true);
-        setSource({ kind: 'plain', id: found.id });
-        return;
+      let more: boolean;
+      try {
+        more = await refill();
+      } catch {
+        more = true;
       }
-      setNote(`${reason} Søgningen fandt ingen lang nok, så her er YouTubes egen søgning.`);
-    } else {
-      setNote(
-        `${reason} ${tmdbTried.current ? 'TMDB kender ingen trailer til titlen, så' : 'Uden en TMDB-nøgle under Indstillinger'} vælger du selv her.`,
-      );
+      if (!more) break;
     }
+    if (!alive.current) return;
+    setNote('Ingen trailer til titlen kan vises her.');
     // Paa tv er YouTubes soegeside inde i appen ikke til at bruge med en
-    // fjernbetjening: den saa ud som "en masse forslag, som om man ikke
-    // har noget". Der siges i stedet hvad der er proevet, og knappen
-    // Aabn i YouTube aabner soegningen i YouTube-appen.
+    // fjernbetjening; der siges i stedet at intet kunne vises.
     if (isTV) {
       setLoading(false);
       setSource({ kind: 'none' });
@@ -187,8 +218,12 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   }
 
   useEffect(() => {
-    void start();
-    // Kun ved foerste visning; id'et aendrer sig ikke mens skaermen er aaben.
+    alive.current = true;
+    void playNext();
+    return () => {
+      alive.current = false;
+    };
+    // Kun ved foerste visning; titlen aendrer sig ikke mens skaermen er aaben.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -201,15 +236,15 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     }
     if (source.kind !== 'measured') return;
     if (message.type === 'duration' && typeof message.seconds === 'number' && message.seconds > 0) {
-      if (message.seconds < MIN_TRAILER_SECONDS) {
-        void lookForBetter(`Udbyderens trailer var kun ${Math.round(message.seconds)} sekunder.`);
-      }
+      if (source.checkLength && message.seconds < MIN_TRAILER_SECONDS) void playNext();
     } else if (message.type === 'noapi') {
-      // Afspiller-API'et kom ikke op. Den rene indlejring virker uden det.
+      // Afspiller-API'et kom ikke op. Den rene indlejring virker uden det
+      // (men kan saa ikke melde fejl).
       setLoading(true);
       setSource({ kind: 'plain', id: source.id });
     } else if (message.type === 'error') {
-      void lookForBetter('Udbyderens trailer kan ikke vises her.');
+      // Spaerret i Danmark, maa ikke indlejres, fjernet: proev den naeste.
+      void playNext();
     }
   }
 

@@ -123,3 +123,124 @@ export async function findLongerTrailer(
     return null;
   }
 }
+
+/** Hent en side som tekst; null ved fejl. Gives med udefra, saa soegningen kan testes. */
+export type FetchText = (url: string, headers: Record<string, string>) => Promise<string | null>;
+
+/** Laengere end det er ikke en trailer, men et klip, en anmeldelse eller hele filmen. */
+export const MAX_TRAILER_SECONDS = 6 * 60;
+
+/** "2:31" eller "1:02:03" til sekunder. Ugyldig giver 0. */
+export function parseClock(text: string): number {
+  const parts = text.trim().split(':');
+  if (parts.length < 2 || parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) return 0;
+  return parts.reduce((total, part) => total * 60 + Number(part), 0);
+}
+
+interface Renderer {
+  videoId?: unknown;
+  title?: { runs?: Array<{ text?: unknown }>; simpleText?: unknown };
+  lengthText?: { simpleText?: unknown };
+}
+
+/**
+ * Videoerne paa YouTubes soegeside, i YouTubes egen raekkefoelge.
+ *
+ * Siden bygges af et stort JSON-objekt (`ytInitialData`); hver video ligger
+ * som en `videoRenderer`. Kan det ikke findes eller laeses, er svaret tomt —
+ * soegningen er en reserve, og den maa aldrig blive til en fejl paa skaermen.
+ */
+export function parseYoutubeSearch(html: string): TrailerCandidate[] {
+  const match = /ytInitialData\s*=\s*(\{[\s\S]*?\});\s*<\/script>/.exec(html);
+  if (match === null) return [];
+  let data: unknown;
+  try {
+    data = JSON.parse(match[1] ?? '');
+  } catch {
+    return [];
+  }
+  const out: TrailerCandidate[] = [];
+  const seen = new Set<string>();
+  const walk = (node: unknown, depth: number): void => {
+    if (depth > 40 || node === null || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child, depth + 1);
+      return;
+    }
+    const record = node as Record<string, unknown>;
+    const renderer = record.videoRenderer as Renderer | undefined;
+    if (renderer !== undefined && typeof renderer === 'object') {
+      const id = typeof renderer.videoId === 'string' ? renderer.videoId : '';
+      if (/^[A-Za-z0-9_-]{11}$/.test(id) && !seen.has(id)) {
+        seen.add(id);
+        const runs = renderer.title?.runs ?? [];
+        const title =
+          runs.map((run) => (typeof run.text === 'string' ? run.text : '')).join('') ||
+          (typeof renderer.title?.simpleText === 'string' ? renderer.title.simpleText : '');
+        const length = typeof renderer.lengthText?.simpleText === 'string' ? renderer.lengthText.simpleText : '';
+        out.push({ id, title, seconds: parseClock(length) });
+      }
+    }
+    for (const value of Object.values(record)) walk(value, depth + 1);
+  };
+  walk(data, 0);
+  return out;
+}
+
+/** Ord der betyder at videoen handler OM filmen, ikke er dens trailer. */
+const NOT_A_TRAILER = /reaction|review|anmeldelse|explained|breakdown|fan ?made|parody|parodi|recap|ending|behind the scenes|full movie|hele filmen/i;
+
+/**
+ * De rigtige trailere blandt soegeresultaterne, bedste foerst: den rette
+ * laengde (et til seks minutter), intet der ligner en anmeldelse eller en
+ * reaktion, helst "trailer" i titlen og helst filmens eget navn i den.
+ * YouTubes relevans-raekkefoelge bevares inden for hver gruppe.
+ */
+export function rankYoutubeTrailers(candidates: readonly TrailerCandidate[], title: string, limit = 5): TrailerCandidate[] {
+  const name = title.toLowerCase().replace(/\s+/g, ' ').trim();
+  const score = (candidate: TrailerCandidate): number => {
+    const lower = candidate.title.toLowerCase();
+    let value = lower.includes('trailer') ? 0 : lower.includes('teaser') ? 2 : 1;
+    if (name.length > 0 && !lower.includes(name)) value += 3;
+    return value;
+  };
+  return candidates
+    .filter(
+      (candidate) =>
+        candidate.seconds >= MIN_TRAILER_SECONDS &&
+        candidate.seconds <= MAX_TRAILER_SECONDS &&
+        !NOT_A_TRAILER.test(candidate.title),
+    )
+    .map((candidate, index) => ({ candidate, index, score: score(candidate) }))
+    .sort((a, b) => a.score - b.score || a.index - b.index)
+    .slice(0, limit)
+    .map((entry) => entry.candidate);
+}
+
+/**
+ * Soeger trailere direkte paa YouTube — uden API-noegle.
+ *
+ * Til naar TMDB ikke kender titlen, eller dens trailere ikke kan vises her.
+ * Samtykke-siden (EU) springes over med YouTubes eget samtykke-cookie, saa
+ * svaret er soegesiden og ikke "Foer du fortsaetter til YouTube".
+ */
+export async function searchYoutubeTrailers(
+  fetchText: FetchText,
+  title: string,
+  year: number | null,
+): Promise<TrailerCandidate[]> {
+  const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(trailerQuery(title, year))}&hl=da&gl=DK`;
+  let html: string | null;
+  try {
+    html = await fetchText(url, {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'Accept-Language': 'da,en;q=0.8',
+      Cookie: 'SOCS=CAI; CONSENT=YES+1',
+    });
+  } catch {
+    return [];
+  }
+  if (html === null) return [];
+  return rankYoutubeTrailers(parseYoutubeSearch(html), title);
+}

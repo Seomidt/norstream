@@ -224,8 +224,24 @@ export async function findTmdbTrailer(
   kind: 'movie' | 'series',
   name: string,
 ): Promise<TmdbTrailer | null> {
+  return (await findTmdbTrailers(fetchImpl, apiKey, kind, name))[0] ?? null;
+}
+
+/**
+ * Alle titlens brugbare videoer hos TMDB, bedste foerst (se pickTmdbTrailers).
+ *
+ * En liste frem for én: den bedste kan vaere spaerret i Danmark ("ikke
+ * tilgaengelig i dit land") eller ikke maa indlejres, og saa proever
+ * trailerskaermen den naeste i stedet for at give op.
+ */
+export async function findTmdbTrailers(
+  fetchImpl: TmdbFetch,
+  apiKey: string,
+  kind: 'movie' | 'series',
+  name: string,
+): Promise<TmdbTrailer[]> {
   const found = await searchTmdb(fetchImpl, apiKey, kind, name).catch(() => null);
-  if (found === null) return null;
+  if (found === null) return [];
   const endpoint = kind === 'series' ? 'tv' : 'movie';
   const auth = tmdbAuth(apiKey);
   try {
@@ -233,11 +249,11 @@ export async function findTmdbTrailer(
       `${API}/${endpoint}/${found.id}/videos?include_video_language=da,en,null${auth.query}`,
       auth.headers,
     );
-    if (!response.ok) return null;
+    if (!response.ok) return [];
     const parsed = (await response.json()) as { results?: Video[] };
-    return pickTmdbTrailer(parsed.results ?? []);
+    return pickTmdbTrailers(parsed.results ?? []);
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -259,6 +275,11 @@ const VIDEO_TYPES = ['Trailer', 'Teaser', 'Featurette', 'Clip'];
  * dansk upload) over en i 1080p — "virkelig daarlig kvalitet" paa tv'et.
  */
 export function pickTmdbTrailer(videos: readonly Video[]): TmdbTrailer | null {
+  return pickTmdbTrailers(videos)[0] ?? null;
+}
+
+/** Som pickTmdbTrailer, men alle brugbare i raekkefoelge. */
+export function pickTmdbTrailers(videos: readonly Video[]): TmdbTrailer[] {
   const usable = videos.filter(
     (video) =>
       video.site === 'YouTube' &&
@@ -276,7 +297,10 @@ export function pickTmdbTrailer(videos: readonly Video[]): TmdbTrailer | null {
     if (official !== 0) return official;
     return (b.published_at ?? '').localeCompare(a.published_at ?? '');
   });
-  const best = usable[0];
-  if (best === undefined || best.key === undefined) return null;
-  return { youtubeId: best.key, name: best.name ?? best.type ?? 'Trailer' };
+  const out: TmdbTrailer[] = [];
+  for (const video of usable) {
+    if (video.key === undefined) continue;
+    out.push({ youtubeId: video.key, name: video.name ?? video.type ?? 'Trailer' });
+  }
+  return out;
 }
