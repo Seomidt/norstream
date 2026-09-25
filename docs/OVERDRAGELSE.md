@@ -33,6 +33,21 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
 
+### 25. september 2026 — v323: serier — direkte til nyeste afsnit
+
+Bruger: med 20 afsnit skal man kunne gå til det sidste og se det. `VodDetailScreen`:
+knappen **"▶ Nyeste afsnit S? E?"** ved siden af Fortsæt/Se første (vises når
+det nyeste ikke allerede er det den store knap peger på; `latestEpisode` i
+`episodes.ts`). Og på tv kan afsnits-nummeret/fluebenet inde i rækken ikke
+længere få fokus (`focusable={!isTV}`): to stop per række gjorde 20 afsnit til
+40 tryk. Langt tryk på OK på rækken markerer set/ikke set.
+
+**Åbent (start forfra):** efter v322 meldte brugeren at en AFSLUTTET udsendelse
+(slut < 1 time før) starter rigtigt, men hopper til live efter ~10 min. Appen
+skifter ikke selv til live for en afsluttet udsendelse, så det er formentlig
+panelets arkiv for den seneste time, der ikke er færdigt (panelet fortsætter så
+med live). Afventer brugerens test af en udsendelse der sluttede > 2-3 timer før.
+
 ### 24. september 2026 — v322: start forfra stoppede midt i udsendelsen
 
 Bruger: "Start forfra stopper altid midt i en udsendelse." Årsag: panelets

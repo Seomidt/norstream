@@ -12,7 +12,7 @@ import { buildEpisodeUrl, buildMovieUrl } from '@norstream/core';
 import type { VodDetails } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { getVodItem, listEpisodes, setInWatchlist, setWatched } from '../../storage/vod.js';
-import { continueEpisodeFor } from './episodes.js';
+import { continueEpisodeFor, latestEpisode } from './episodes.js';
 import type { StoredEpisode, StoredVodItem } from '../../storage/vod.js';
 import { ensureVodDetails } from '../../sync/vodDetails.js';
 import { followSeries, isFollowed, markSeriesSeen, unfollowSeries } from '../../storage/followedSeries.js';
@@ -208,6 +208,12 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
   // "Fortsaet" for serier: det afsnit man var i gang med, ellers det naeste
   // usete efter det sidste sete.
   const continueEpisode = continueEpisodeFor(episodes) ?? undefined;
+  // Direkte til det nyeste afsnit, uden at bladre gennem hele listen (20
+  // afsnit er mange tryk paa en fjernbetjening). Kun naar det ikke allerede
+  // er det den store knap peger paa.
+  const primaryEpisode = continueEpisode ?? shownEpisodes[0];
+  const newest = latestEpisode(episodes);
+  const showNewest = item.kind === 'series' && newest !== null && episodes.length > 1 && newest.key !== primaryEpisode?.key;
 
   return (
     <View style={styles.container}>
@@ -277,6 +283,13 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
               <Text style={styles.buttonText}>▶ Se første afsnit</Text>
             </TvPressable>
           ) : null}
+          {showNewest && newest !== null && (
+            <TvPressable style={styles.button} onPress={() => playEpisode(newest)}>
+              <Text style={styles.buttonText}>
+                ▶ Nyeste afsnit S{newest.season} E{newest.episode}
+              </Text>
+            </TvPressable>
+          )}
           <TvPressable style={styles.button} onPress={openTrailer}>
             <Text style={styles.buttonText}>Trailer</Text>
           </TvPressable>
@@ -369,9 +382,13 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
                 delayLongPress={400}
               >
                 {/* Fluebenet kan ogsaa trykkes: set eller ikke set, uden at spille. */}
+                {/* Paa tv kan den ikke faa fokus: to stop per raekke gjorde 20 afsnit
+                    til 40 tryk, og fokus kunne haenge i det lille felt. Langt
+                    tryk paa OK paa raekken markerer set/ikke set. */}
                 <TvPressable
                   style={styles.episodeNumber}
                   hitSlop={8}
+                  focusable={!isTV}
                   onPress={() => {
                     void toggleEpisodeWatched(episode);
                   }}

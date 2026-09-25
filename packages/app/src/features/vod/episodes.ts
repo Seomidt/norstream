@@ -41,3 +41,9 @@ export function continueEpisodeFor<T extends EpisodeLike>(episodes: readonly T[]
   if (lastWatched === -1) return null;
   return ordered.slice(lastWatched + 1).find((episode) => !episode.watched) ?? null;
 }
+
+/** Det nyeste afsnit: sidste saeson, sidste afsnit. Null naar serien intet har. */
+export function latestEpisode<T extends EpisodeLike>(episodes: readonly T[]): T | null {
+  const ordered = byOrder(episodes);
+  return ordered[ordered.length - 1] ?? null;
+}

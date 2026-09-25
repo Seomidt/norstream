@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { continueEpisodeFor, nextEpisode } from './episodes.js';
+import { continueEpisodeFor, latestEpisode, nextEpisode } from './episodes.js';
 
 const ep = (season: number, episode: number, extra: Partial<{ positionSeconds: number | null; watched: boolean }> = {}) => ({
   key: `s${season}e${episode}`,
@@ -39,5 +39,16 @@ describe('continueEpisodeFor', () => {
   it('giver null naar man ikke er begyndt, eller alt er set', () => {
     expect(continueEpisodeFor([ep(1, 1), ep(1, 2)])).toBeNull();
     expect(continueEpisodeFor([ep(1, 1, { watched: true })])).toBeNull();
+  });
+});
+
+describe('latestEpisode', () => {
+  it('er sidste afsnit i sidste saeson, uanset raekkefoelgen den kommer i', () => {
+    const list = [ep(2, 1), ep(1, 20), ep(2, 20), ep(1, 1)];
+    expect(latestEpisode(list)?.key).toBe('s2e20');
+  });
+
+  it('er null for en serie uden afsnit', () => {
+    expect(latestEpisode([])).toBeNull();
   });
 });
