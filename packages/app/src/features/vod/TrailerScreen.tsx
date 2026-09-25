@@ -48,7 +48,8 @@ interface Props {
 type Source =
   /** Videofilen i appens egen afspiller, som Googles butik (se youtubeStream.ts). */
   | { kind: 'native'; id: string; uri: string; resumeAt: number; attempt: number }
-  | { kind: 'measured'; id: string; checkLength: boolean }
+  /** `startAt`: sekunder inde, naar den overtager fra den native afspiller. */
+  | { kind: 'measured'; id: string; checkLength: boolean; startAt?: number }
   | { kind: 'plain'; id: string }
   | { kind: 'search'; url: string }
   | { kind: 'looking' }
@@ -303,7 +304,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         }
       }
     }
-    setSource({ kind: 'measured', id, checkLength: false });
+    setSource({ kind: 'measured', id, checkLength: false, startAt: position });
   }
 
   useEffect(() => {
@@ -343,7 +344,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
 
   const webSource =
     source.kind === 'measured'
-      ? { html: measuredEmbedPage(source.id, isTV), baseUrl: EMBED_ORIGIN }
+      ? { html: measuredEmbedPage(source.id, isTV, source.startAt ?? 0), baseUrl: EMBED_ORIGIN }
       : source.kind === 'plain'
         ? { html: embedPage(source.id, isTV), baseUrl: EMBED_ORIGIN }
         : source.kind === 'search'
@@ -606,16 +607,17 @@ allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscree
  * spoerges der baade naar afspilleren er klar og igen naar den begynder at
  * spille, og kun et tal over nul sendes.
  */
-export function measuredEmbedPage(trailerId: string, wide = false): string {
+export function measuredEmbedPage(trailerId: string, wide = false, startAt = 0): string {
   const id = safeId(trailerId);
+  const start = Number.isFinite(startAt) && startAt > 0 ? Math.floor(startAt) : 0;
   return `<!doctype html><html><head><meta name="viewport" content="${viewport(wide)}">
 <style>html,body{margin:0;background:#000;height:100%;overflow:hidden}#p{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
 </head><body><div id="p"></div>
 <script>
-var sent=false,primed=false,started=false,t0=0,BUFFER_S=${BUFFER_SECONDS},MAX_WAIT=${MAX_BUFFER_WAIT_MS};
+var sent=false,primed=false,started=false,t0=0,START=${start},BUFFER_S=${BUFFER_SECONDS},MAX_WAIT=${MAX_BUFFER_WAIT_MS};
 function post(m){if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify(m));}}
 function report(player){if(sent)return;var d=player.getDuration();if(d>0){sent=true;post({type:'duration',seconds:d});}}
-function begin(p){if(started)return;started=true;try{p.seekTo(0,true);}catch(x){}try{p.unMute();}catch(x){}p.playVideo();post({type:'playing'});}
+function begin(p){if(started)return;started=true;try{p.seekTo(START,true);}catch(x){}try{p.unMute();}catch(x){}p.playVideo();post({type:'playing'});}
 function onYouTubeIframeAPIReady(){
   new YT.Player('p',{videoId:'${id}',playerVars:{autoplay:1,mute:1,playsinline:1,rel:0,modestbranding:1,vq:'hd1080'},
     events:{

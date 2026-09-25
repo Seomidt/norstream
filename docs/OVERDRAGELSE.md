@@ -38,7 +38,7 @@ ellers byttes danske kanaler til svenske (v319).
 Brugeren om v329: "super billede, super godt, men det stopper desværre inden
 trailer er færdig hver gang". Målt (`scripts/maal/youtube-hel.mjs`): YouTube
 udleverer hele filen (81 MB, 39 kald, alle 206) — også hentet i afspilningens
-tempo over minutter (se målingen). Rettelser i `TrailerScreen`/`NativeTrailer`:
+tempo over minutter. Rettelser i `TrailerScreen`/`NativeTrailer`:
 
 - **Vagt:** fejl, `loading` i mere end `NATIVE_STALL_MS` (10 s) midt i, eller
   `playToEnd` mere end 3 s før videoens længde → `onBroken(position)`.
@@ -46,6 +46,13 @@ tempo over minutter (se målingen). Rettelser i `TrailerScreen`/`NativeTrailer`:
   (`trailer-<id>-<forsøg>.mpd`), og der fortsættes fra positionen (`resumeAt`,
   sættes når afspilleren er klar). Højst `NATIVE_MAX_RECOVERIES` (3), så
   webvisningen.
+- **Webvisningen som sidste udvej fortsætter fra positionen** (`startAt` →
+  `measuredEmbedPage(id, wide, startAt)` spoler dertil i stedet for til 0).
+- **Målt i tempo:** 183 s i afspilningens tempo, 30 s foran — hele vejen, alle
+  206. YouTube lukker altså ikke adressen undervejs (fra GitHub). Årsagen på
+  boksen er ukendt (ingen log i appen); vagten dækker fejl, stå-stille og for
+  tidlig slutning uanset årsag. Mulig årsag: adressen er bundet til IP (`ip=`),
+  og boksen skifter IPv4/IPv6 eller VPN undervejs.
 - **Manifestets længde** er nu den længste af `lengthSeconds` og filernes
   `approxDurationMs` (lengthSeconds er rundet ned; afspilleren stopper ved
   manifestets længde).
