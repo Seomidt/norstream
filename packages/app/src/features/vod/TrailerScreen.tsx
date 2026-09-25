@@ -215,9 +215,9 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
 
   const webSource =
     source.kind === 'measured'
-      ? { html: measuredEmbedPage(source.id), baseUrl: EMBED_ORIGIN }
+      ? { html: measuredEmbedPage(source.id, isTV), baseUrl: EMBED_ORIGIN }
       : source.kind === 'plain'
-        ? { html: embedPage(source.id), baseUrl: EMBED_ORIGIN }
+        ? { html: embedPage(source.id, isTV), baseUrl: EMBED_ORIGIN }
         : source.kind === 'search'
           ? { uri: source.url }
           : null;
@@ -252,6 +252,8 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             // koerer glat. Kun Android; ignoreres andre steder.
             androidLayerType="hardware"
             userAgent={isTV ? DESKTOP_USER_AGENT : BROWSER_USER_AGENT}
+            // Sidens 1920 punkter (se viewport) skaleres ned til skaermen.
+            scalesPageToFit
             thirdPartyCookiesEnabled
             sharedCookiesEnabled
             allowsFullscreenVideo
@@ -322,9 +324,9 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
  * YouTube-id paa elleve tegn — aldrig fri tekst — saa der kan ikke lukkes
  * noget ind i siden gennem det.
  */
-export function embedPage(trailerId: string): string {
+export function embedPage(trailerId: string, wide = false): string {
   const id = safeId(trailerId);
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+  return `<!doctype html><html><head><meta name="viewport" content="${viewport(wide)}">
 <style>html,body{margin:0;background:#000;height:100%;overflow:hidden}iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
 </head><body><iframe src="https://www.youtube.com/embed/${id}?autoplay=1&playsinline=1&rel=0&modestbranding=1&vq=hd1080"
 allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></body></html>`;
@@ -341,9 +343,9 @@ allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscree
  * spoerges der baade naar afspilleren er klar og igen naar den begynder at
  * spille, og kun et tal over nul sendes.
  */
-export function measuredEmbedPage(trailerId: string): string {
+export function measuredEmbedPage(trailerId: string, wide = false): string {
   const id = safeId(trailerId);
-  return `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+  return `<!doctype html><html><head><meta name="viewport" content="${viewport(wide)}">
 <style>html,body{margin:0;background:#000;height:100%;overflow:hidden}#p{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
 </head><body><div id="p"></div>
 <script>
@@ -362,6 +364,17 @@ setTimeout(function(){if(!window.YT||!window.YT.Player){post({type:'noapi'});}},
 </script>
 <script src="https://www.youtube.com/iframe_api"></script>
 </body></html>`;
+}
+
+/**
+ * Sidens bredde. Paa tv (`wide`) lader siden som om den er 1920 punkter bred
+ * (fuld HD), og webvisningen skalerer den ned til skaermen. YouTubes afspiller
+ * vaelger kvalitet efter afspillerens stoerrelse i web-punkter: med tv'ets egne
+ * ~930 punkter valgte den 480p, selv i fuld skaerm ("ikke HD, meget mindre end
+ * normalt"). Med 1920 er afspilleren 1920 x 1080, og saa vaelges 1080p.
+ */
+function viewport(wide: boolean): string {
+  return wide ? 'width=1920' : 'width=device-width, initial-scale=1';
 }
 
 function safeId(trailerId: string): string {

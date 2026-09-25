@@ -165,6 +165,32 @@ describe('tmdbAuth', () => {
   });
 });
 
+describe('pickTmdbTrailer og kvalitet', () => {
+  it('vaelger traileren i hoejest oploesning, ogsaa foran en officiel i lav kvalitet', () => {
+    const picked = pickTmdbTrailer([
+      { key: 'lav', site: 'YouTube', type: 'Trailer', official: true, size: 480, published_at: '2024-05-01' },
+      { key: 'hd', site: 'YouTube', type: 'Trailer', official: false, size: 1080, published_at: '2024-01-01' },
+    ]);
+    expect(picked?.youtubeId).toBe('hd');
+  });
+
+  it('regner 4K og 1080p lige gode, saa afgoer officiel/nyest', () => {
+    const picked = pickTmdbTrailer([
+      { key: '4k', site: 'YouTube', type: 'Trailer', official: false, size: 2160 },
+      { key: 'fhd', site: 'YouTube', type: 'Trailer', official: true, size: 1080 },
+    ]);
+    expect(picked?.youtubeId).toBe('fhd');
+  });
+
+  it('en rigtig trailer i lav kvalitet slaar stadig en teaser i HD', () => {
+    const picked = pickTmdbTrailer([
+      { key: 'teaser', site: 'YouTube', type: 'Teaser', size: 1080 },
+      { key: 'trailer', site: 'YouTube', type: 'Trailer', size: 720 },
+    ]);
+    expect(picked?.youtubeId).toBe('trailer');
+  });
+});
+
 describe('pickTmdbTrailer uden en rigtig trailer', () => {
   it('tager en teaser naar der ingen trailer er, og et klip som sidste udvej', () => {
     expect(pickTmdbTrailer([{ site: 'YouTube', type: 'Clip', key: 'c' }, { site: 'YouTube', type: 'Teaser', key: 't', name: 'Teaser' }])).toEqual({ youtubeId: 't', name: 'Teaser' });

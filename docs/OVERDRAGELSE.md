@@ -33,6 +33,19 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
 
+### 25. september 2026 — v326: trailere i HD (ikke 480p)
+
+Efter v325: "meget bedre, men mange i dårlig kvalitet, ikke HD, meget mindre".
+To årsager, begge rettet:
+- **Siden var for smal:** YouTubes afspiller vælger kvalitet efter
+  afspillerens størrelse i web-punkter. Tv'ets webvisning melder ~930 punkter,
+  så den valgte 480p selv i fuld skærm. På tv sættes sidens viewport nu til
+  `width=1920` (`viewport(wide)` i `TrailerScreen.tsx`) og `scalesPageToFit`
+  skalerer den ned — afspilleren er 1920×1080, og 1080p vælges.
+- **TMDB-valget så bort fra opløsningen:** `pickTmdbTrailer` (sync/tmdb.ts)
+  vælger nu efter type → **højeste opløsning** (`size`, 1080p+ lige gode) →
+  officiel → nyeste. Før vandt en officiel 480p-upload over en 1080p.
+
 ### 25. september 2026 — v325: trailere på tv i fuld skærm og HD — INDE i appen
 
 Brugeren: trailerne i Googles butik (stemmesøgning) kører "helt perfekt", og

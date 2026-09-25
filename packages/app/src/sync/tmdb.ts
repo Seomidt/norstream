@@ -198,6 +198,8 @@ interface Video {
   site?: string;
   type?: string;
   official?: boolean;
+  /** Videoens hoejde i pixel, som TMDB kender den: 360, 480, 720, 1080, 2160. */
+  size?: number;
   name?: string;
   iso_639_1?: string;
   published_at?: string;
@@ -239,10 +241,23 @@ export async function findTmdbTrailer(
   }
 }
 
+/** Hoejden i pixel, med 1080p som loft: 4K er ikke bedre end fuld HD paa boksen, og ukendt er 0. */
+function qualityOf(video: Video): number {
+  const size = typeof video.size === 'number' && Number.isFinite(video.size) ? video.size : 0;
+  return Math.min(size, 1080);
+}
+
 /** Videotyper der duer som trailer, bedste foerst. Mange titler har kun en teaser eller et klip hos TMDB. */
 const VIDEO_TYPES = ['Trailer', 'Teaser', 'Featurette', 'Clip'];
 
-/** Den bedste af TMDBs videoer: YouTube, helst en Trailer (ellers Teaser, Featurette, Clip), officiel foer uofficiel, nyest foerst. */
+/**
+ * Den bedste af TMDBs videoer: YouTube, helst en Trailer (ellers Teaser,
+ * Featurette, Clip), saa den i **hoejest oploesning** (1080p og derover regnes
+ * lige gode), saa officiel foer uofficiel, nyest foerst.
+ *
+ * Oploesningen blev foer ikke brugt, og saa vandt en trailer i 480p (tit en
+ * dansk upload) over en i 1080p — "virkelig daarlig kvalitet" paa tv'et.
+ */
 export function pickTmdbTrailer(videos: readonly Video[]): TmdbTrailer | null {
   const usable = videos.filter(
     (video) =>
@@ -255,6 +270,8 @@ export function pickTmdbTrailer(videos: readonly Video[]): TmdbTrailer | null {
   usable.sort((a, b) => {
     const rank = VIDEO_TYPES.indexOf(a.type ?? '') - VIDEO_TYPES.indexOf(b.type ?? '');
     if (rank !== 0) return rank;
+    const quality = qualityOf(b) - qualityOf(a);
+    if (quality !== 0) return quality;
     const official = Number(b.official === true) - Number(a.official === true);
     if (official !== 0) return official;
     return (b.published_at ?? '').localeCompare(a.published_at ?? '');
