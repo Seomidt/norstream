@@ -232,7 +232,7 @@ Ikke gjort endnu. Kræver:
 
 **TestFlight-builds udløber efter 90 dage.** Cirka hver tredje måned skal der bygges på ny, og alle skal geninstallere. Android-APK'er udløber aldrig.
 
-**Apple TV kræver desuden at appen kan betjenes med fjernbetjening** — fokus-håndtering og D-pad-navigation. Det findes ikke i appen i dag; den er bygget til touch. Se `docs/OVERDRAGELSE.md`.
+**Apple TV kræver desuden at appen kan betjenes med fjernbetjening.** Det er lavet til Android TV (fokusrammer, D-pad, lærred) og gælder også tvOS, men tvOS er ikke prøvet. Alt om tv står i `docs/ANDROID-TV.md`, inklusive hvordan tv-builds laves i workflowet og installeres på en Google TV Streamer.
 
 ---
 

@@ -1,12 +1,42 @@
+import {
+  channelKey,
+  deriveCountryLoose,
+  logoCandidates,
+  normaliseChannelName,
+  originOf,
+} from '@norstream/core';
 import type { Category, Channel } from '@norstream/core';
+import { deadLogoOrigins } from './logoHosts.js';
+import { invalidateQueryCache } from './queryCache.js';
+import { withTransaction } from './transaction.js';
 import type { SqlDatabase, SqlValue } from './types.js';
 
 export interface StoredChannel extends Channel {
   isFavorite: boolean;
+  /** Kilden kanalen kom fra. */
+  sourceId: string;
+  /** Kanalens id hos kilden. `id` er den sammensatte noegle. */
+  streamId: string;
+  /** Kun M3U: den faerdige adresse. Xtream-kanaler bygger deres selv. */
+  streamUrl: string | null;
+  /**
+   * Adresser at proeve for kanalens logo, i raekkefoelge.
+   *
+   * Mere end én fordi paneler tit oplyser logoer paa en anden vaert end deres
+   * egen, og den vaert kan vaere uden for raekkevidde fra den forbindelse
+   * telefonen sidder paa.
+   */
+  logoUrls: string[];
 }
 
 interface ChannelRow {
   id: string;
+  source_id: string;
+  source_url: string | null;
+  override_logo_url: string | null;
+  registry_logo_url: string | null;
+  stream_id: string;
+  stream_url: string | null;
   name: string;
   number: number | null;
   logo_url: string | null;
@@ -17,9 +47,44 @@ interface ChannelRow {
   is_favorite: number | null;
 }
 
-function toStoredChannel(row: ChannelRow): StoredChannel {
+/**
+ * Adresserne at proeve for kanalens logo, i den raekkefoelge de skal proeves.
+ *
+ * Vaerter der er maalt uden for raekkevidde tages **ud**. `Image` falder selv
+ * tilbage naar en adresse fejler, men en vaert uden rute fejler ikke — den
+ * svarer bare aldrig, og forsoeget staar og venter til det bliver afbrudt.
+ * Saa laenge den staar foerst, naar de oevrige adresser aldrig at blive
+ * proevet, og kanalen staar med en tom firkant selv om der ligger et brugbart
+ * logo laengere nede i raekken. Brugerens panel oplyser netop saadan en vaert.
+ */
+function logoUrlsFor(row: ChannelRow, deadOrigins: ReadonlySet<string>): string[] {
+  const candidates = [
+    // Brugerens eget valg foerst. Det er det eneste led i raekken der ikke
+    // er et gaet, og det maa intet andet kunne overtrumfe.
+    ...(row.override_logo_url === null || row.override_logo_url === undefined
+      ? []
+      : [row.override_logo_url]),
+    ...logoCandidates(row.logo_url, row.source_url ?? ''),
+    // Registrets logo staar sidst: udbyderens eget forsoeges foerst, ogsaa
+    // paa panelets egen vaert, og faerdigt register-logo er sidste udvej.
+    ...(row.registry_logo_url === null || row.registry_logo_url === undefined
+      ? []
+      : [row.registry_logo_url]),
+  ];
+  if (deadOrigins.size === 0) return candidates;
+  return candidates.filter((url) => {
+    const origin = originOf(url);
+    return origin === null || !deadOrigins.has(origin);
+  });
+}
+
+function toStoredChannel(row: ChannelRow, deadOrigins: ReadonlySet<string>): StoredChannel {
   return {
     id: row.id,
+    sourceId: row.source_id,
+    streamId: row.stream_id,
+    streamUrl: row.stream_url,
+    logoUrls: logoUrlsFor(row, deadOrigins),
     name: row.name,
     number: row.number,
     logoUrl: row.logo_url,
@@ -31,17 +96,27 @@ function toStoredChannel(row: ChannelRow): StoredChannel {
   };
 }
 
+/**
+ * Erstatter **denne kildes** kategorier. De andres bliver staaende.
+ *
+ * Kategori-id'et er sammensat af kilde og kategoriens eget id, af samme grund
+ * som kanalernes: to paneler har begge en kategori 1.
+ */
 export async function replaceCategories(
   db: SqlDatabase,
+  sourceId: string,
   categories: Category[],
 ): Promise<void> {
-  await db.runAsync('DELETE FROM categories');
-  for (const category of categories) {
-    await db.runAsync('INSERT INTO categories (id, name) VALUES (?, ?)', [
-      category.id,
-      category.name,
-    ]);
-  }
+  await withTransaction(db, async () => {
+    await db.runAsync('DELETE FROM categories WHERE source_id = ?', [sourceId]);
+    for (const category of categories) {
+      await db.runAsync('INSERT INTO categories (id, source_id, name) VALUES (?, ?, ?)', [
+        channelKey(sourceId, category.id),
+        sourceId,
+        category.name,
+      ]);
+    }
+  });
 }
 
 export async function listCategories(db: SqlDatabase): Promise<Category[]> {
@@ -56,20 +131,33 @@ export async function listCategories(db: SqlDatabase): Promise<Category[]> {
  */
 export async function replaceChannels(
   db: SqlDatabase,
+  sourceId: string,
   channels: Channel[],
+  /** Kun M3U: kanalens faerdige adresse, slaaet op paa kanalens eget id. */
+  streamUrls?: ReadonlyMap<string, string>,
+  /** Landet for hver kategori, saa kanalen kan slaas op i logo-registret. */
+  countryByCategory?: ReadonlyMap<string, string>,
 ): Promise<void> {
-  // Trin 1: Mark alle kanaler som stale
-  await db.runAsync('UPDATE channels SET is_stale = 1');
+  // Én transaktion om det hele: 22.000 raekker som én skrivning, og et
+  // afbrudt sync efterlader den gamle liste hel.
+  await withTransaction(db, async () => {
+  // Trin 1: Mark denne kildes kanaler som stale. De andre kilders roeres ikke.
+  await db.runAsync('UPDATE channels SET is_stale = 1 WHERE source_id = ?', [sourceId]);
 
-  // Trin 2: Upsert hver kanal fra panelet, marker som ikke-stale
+  // Trin 2: Upsert hver kanal fra kilden, marker som ikke-stale
+  const base = await nextSortOrderFor(db, sourceId);
   let order = 0;
   for (const channel of channels) {
     await db.runAsync(
       `INSERT INTO channels
-         (id, name, number, logo_url, category_id, epg_channel_id,
-          has_archive, archive_days, is_stale, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+         (id, source_id, stream_id, stream_url, match_key, country, name, number,
+          logo_url, category_id, epg_channel_id, has_archive, archive_days,
+          is_stale, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
        ON CONFLICT(id) DO UPDATE SET
+         stream_url     = excluded.stream_url,
+         match_key      = excluded.match_key,
+         country        = excluded.country,
          name           = excluded.name,
          number         = excluded.number,
          logo_url       = excluded.logo_url,
@@ -80,26 +168,180 @@ export async function replaceChannels(
          is_stale       = 0,
          sort_order     = excluded.sort_order`,
       [
+        channelKey(sourceId, channel.id),
+        sourceId,
         channel.id,
+        streamUrls?.get(channel.id) ?? null,
+        normaliseChannelName(channel.name),
+        // Kanalens eget praefiks foerst — `DNK| DR1 HD` siger landet selv —
+        // og kategoriens land som anden udvej. Kategorier som `SPORT 1080P`
+        // blander lande, og der er kanalens eget navn det eneste der ved det.
+        // Uden landet slaas logoet kun op paa navne der er entydige i hele
+        // verden, og det er de faerreste.
+        deriveCountryLoose(channel.name)?.code ??
+          (channel.categoryId === null
+            ? undefined
+            : countryByCategory?.get(channel.categoryId)) ??
+          '',
         channel.name,
         channel.number,
         channel.logoUrl,
-        channel.categoryId,
+        channel.categoryId === null ? null : channelKey(sourceId, channel.categoryId),
         channel.epgChannelId,
         channel.hasArchive ? 1 : 0,
         channel.archiveDays,
-        order++,
+        base + order++,
       ],
     );
   }
 
-  // Trin 3: Slet kanaler der stadig er marked som stale (fandtes ikke i det nye panel)
-  await db.runAsync('DELETE FROM channels WHERE is_stale = 1');
+  // Trin 3: Slet denne kildes kanaler der stadig er stale — de fandtes ikke i
+  // den nye liste. En anden kildes kanaler maa ikke ryge med.
+  await db.runAsync('DELETE FROM channels WHERE is_stale = 1 AND source_id = ?', [sourceId]);
+  });
+  // Kanallisten er skiftet: kast de cachede lande-/kategori-opslag vaek.
+  invalidateQueryCache();
+}
+
+/**
+ * Fjerner kanaler og kategorier fra kilder der ikke findes laengere.
+ *
+ * En slettet kilde ryddes af deleteSource, men rester kan staa tilbage — fx
+ * hvis en sletning blev afbrudt, eller data kom ind under et id der siden er
+ * vaek. Saadanne kanaler roder bare i listen og kan ikke afspilles: kilden bag
+ * dem er der ikke. Koeres ved hver synkronisering, saa listen ikke kan samle
+ * spoegelseskanaler fra en fil man har fjernet.
+ *
+ * Deaktiverede kilder staar stadig i `sources` og roeres IKKE — kun kilder der
+ * er helt slettet. Favoritter/EPG for saadanne kanaler er harmloese (de peger
+ * bare paa intet) og ryddes af deres egne veje; her fjernes det synlige rod.
+ */
+export async function deleteOrphanedChannelData(db: SqlDatabase): Promise<void> {
+  await db.runAsync('DELETE FROM channels WHERE source_id NOT IN (SELECT id FROM sources)');
+  await db.runAsync('DELETE FROM categories WHERE source_id NOT IN (SELECT id FROM sources)');
+  invalidateQueryCache();
+}
+
+/**
+ * Gen-haegter favoritter hvis kanal-id er skiftet, ud fra det gemte navn+land.
+ *
+ * Et panel kan omnummerere sine kanaler (nyt `stream_id`), og en M3U kan
+ * udlede id'et anderledes efter en opdatering. Saa peger favoritten paa et id
+ * der ikke findes mere, og den forsvandt foer stille fra listen — sammen med
+ * resten. Her findes kanalen med **samme navn i samme land i samme kilde**
+ * igen, og favoritten (og dens gruppemedlemskaber) flyttes over paa det nye id.
+ *
+ * **Landet er afgoerende.** Det rensede navn rummer ikke landet ("DNK| DR1 HD"
+ * og "SWE| DR1" bliver begge "dr1"), saa uden landet kunne en dansk favorit
+ * blive hgtet paa en svensk kanal med samme navn — praecis det rod v24 retter.
+ * Er landet ukendt (gammel favorit fra foer v24, hvis kanal allerede var vaek),
+ * gaettes der ALDRIG paa tvaers: kun hvis der er praecis én kanal med det navn
+ * i kilden, haegtes den om; ellers staar den hellere tom, til den kan hentes
+ * fra en sikkerhedskopi.
+ *
+ * Kun inden for samme kilde: en favorit fra Hakuna maa ikke pludselig pege paa
+ * en anden fils kanal med samme navn. Favoritter uden gemt navn (lavet foer
+ * v23, hvis kanal allerede var vaek) kan ikke reddes her.
+ *
+ * Koeres ved hver synkronisering, saa en favoritliste ikke kan staa tom fordi
+ * panelet gav kanalerne nye numre.
+ */
+export async function relinkOrphanedFavorites(db: SqlDatabase): Promise<void> {
+  const orphans = await db.getAllAsync<{
+    channel_id: string;
+    match_key: string;
+    country: string | null;
+  }>(
+    `SELECT channel_id, match_key, country FROM favorites
+     WHERE match_key IS NOT NULL AND match_key <> ''
+       AND channel_id NOT IN (SELECT id FROM channels)`,
+  );
+  if (orphans.length === 0) return;
+
+  let healed = 0;
+  for (const orphan of orphans) {
+    const separator = orphan.channel_id.indexOf(':');
+    if (separator === -1) continue;
+    const sourceId = orphan.channel_id.slice(0, separator);
+    let target: { id: string } | null | undefined;
+    if (orphan.country !== null && orphan.country !== undefined) {
+      // Kend landet: kun en kanal med samme navn OG land. Er der flere (fx HD
+      // og SD af samme kanal), vinder den foerste i panelets orden — de er reelt
+      // den samme kanal, og en forveksling paa tvaers af lande er umulig.
+      target = await db.getFirstAsync<{ id: string }>(
+        `SELECT id FROM channels WHERE source_id = ? AND match_key = ? AND country = ?
+         ORDER BY sort_order, id LIMIT 1`,
+        [sourceId, orphan.match_key, orphan.country],
+      );
+    } else {
+      // Ukendt land: gaet aldrig paa tvaers. Kun hvis navnet er entydigt i
+      // kilden (praecis én kanal) haegtes favoritten om.
+      const candidates = await db.getAllAsync<{ id: string }>(
+        `SELECT id FROM channels WHERE source_id = ? AND match_key = ?
+         ORDER BY sort_order, id LIMIT 2`,
+        [sourceId, orphan.match_key],
+      );
+      target = candidates.length === 1 ? candidates[0] : undefined;
+    }
+    if (target === null || target === undefined) continue;
+
+    const already = await db.getFirstAsync<{ x: number }>(
+      'SELECT 1 AS x FROM favorites WHERE channel_id = ?',
+      [target.id],
+    );
+    if (already !== null && already !== undefined) {
+      // Kanalen er allerede favorit under sit nye id; den forael­dede raekke
+      // er overfloedig og ville ellers blokere primaernoeglen.
+      await db.runAsync('DELETE FROM favorites WHERE channel_id = ?', [orphan.channel_id]);
+    } else {
+      await db.runAsync('UPDATE favorites SET channel_id = ? WHERE channel_id = ?', [
+        target.id,
+        orphan.channel_id,
+      ]);
+      // Grupperne peger paa det gamle id; flyt dem med (OR IGNORE: er kanalen
+      // allerede i gruppen under sit nye id, droppes den gamle).
+      await db.runAsync(
+        'UPDATE OR IGNORE favorite_group_members SET channel_id = ? WHERE channel_id = ?',
+        [target.id, orphan.channel_id],
+      );
+    }
+    healed += 1;
+  }
+  if (healed > 0) invalidateQueryCache();
+}
+
+/**
+ * Hvor denne kildes kanaler skal begynde i den samlede raekkefoelge.
+ *
+ * Kilderne staar efter hinanden frem for blandet imellem hinanden: rakte de
+ * ind over hinanden, ville en synkronisering af den ene flytte rundt paa den
+ * andens kanaler midt i listen.
+ */
+async function nextSortOrderFor(db: SqlDatabase, sourceId: string): Promise<number> {
+  const row = await db.getFirstAsync<{ base: number | null }>(
+    'SELECT MIN(sort_order) AS base FROM channels WHERE source_id = ?',
+    [sourceId],
+  );
+  if (row?.base !== null && row?.base !== undefined) return row.base;
+  const max = await db.getFirstAsync<{ next: number | null }>(
+    'SELECT MAX(sort_order) + 1 AS next FROM channels',
+  );
+  return max?.next ?? 0;
 }
 
 export async function listChannels(
   db: SqlDatabase,
-  opts: { categoryId?: string; search?: string; favouritesOnly?: boolean } = {},
+  opts: {
+    categoryId?: string;
+    search?: string;
+    favouritesOnly?: boolean;
+    /** Kun favoritter i denne gruppe (se favoriteGroups.ts). Kraever favouritesOnly. */
+    groupId?: string | null;
+    /** Kun radio: kanaler hvis navn eller kategori siger radio, typisk "(RADIO)". */
+    radioOnly?: boolean;
+    /** Oevre graense paa antal raekker. Soegning paa tvaers af 22.142 kanaler skal have en. */
+    limit?: number;
+  } = {},
 ): Promise<StoredChannel[]> {
   const where: string[] = [];
   const params: SqlValue[] = [];
@@ -118,46 +360,194 @@ export async function listChannels(
 
   if (opts.favouritesOnly === true) {
     where.push('f.channel_id IS NOT NULL');
+    if (opts.groupId !== undefined && opts.groupId !== null) {
+      where.push('c.id IN (SELECT channel_id FROM favorite_group_members WHERE group_id = ?)');
+      params.push(opts.groupId);
+    }
+  }
+  if (opts.radioOnly === true) {
+    where.push("(c.name LIKE '%radio%' OR cat.name LIKE '%radio%')");
   }
 
   const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+
+  let limitClause = '';
+  if (opts.limit !== undefined) {
+    limitClause = 'LIMIT ?';
+    params.push(Math.max(1, Math.trunc(opts.limit)));
+  }
+
   const rows = await db.getAllAsync<ChannelRow>(
-    `SELECT c.id, c.name, c.number, c.logo_url, c.category_id, c.epg_channel_id,
-            c.has_archive, c.archive_days, c.sort_order,
+    `SELECT c.id, c.source_id, c.stream_id, c.stream_url, c.name, c.number, c.logo_url,
+            c.category_id, c.epg_channel_id, c.has_archive, c.archive_days, c.sort_order,
+            s.url AS source_url,
+            lo.url AS override_logo_url,
+            COALESCE(xl.url, ri.url, rc.url, ra.url) AS registry_logo_url,
             CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE NULL END AS is_favorite
      FROM channels c
      LEFT JOIN favorites f ON f.channel_id = c.id
+     LEFT JOIN sources s ON s.id = c.source_id
+     LEFT JOIN categories cat ON cat.id = c.category_id
+     LEFT JOIN logo_overrides lo ON lo.channel_key = c.id
+     -- Udbyderens egen XMLTV-fil foerst: det er dens logo, for dens kanal.
+     LEFT JOIN xmltv_logos xl ON xl.channel_key = c.id
+     -- Saa id'et: registrets id er XMLTV-id'et, det samme som en M3U-listes
+     -- tvg-id og et panels epg_channel_id. Et opslag, ikke et gaet.
+     LEFT JOIN registry_logos ri ON ri.key = 'id:' || LOWER(TRIM(c.epg_channel_id))
+     LEFT JOIN registry_logos rc ON rc.key = c.match_key || ':' || c.country
+     LEFT JOIN registry_logos ra ON ra.key = c.match_key || ':*'
      ${clause}
-     ORDER BY c.sort_order`,
+     ORDER BY ${opts.favouritesOnly === true ? 'f.position IS NULL, f.position, ' : ''}c.sort_order
+     ${limitClause}`,
     params,
   );
-  return rows.map(toStoredChannel);
+  const dead = await deadLogoOrigins(db);
+  return rows.map((row) => toStoredChannel(row, dead));
 }
+
+/**
+ * Selve opslaget bag getChannel/getChannelsByIds: samme kolonner og joins,
+ * kun WHERE skifter. Ét sted, saa de to ikke kan komme til at drive fra
+ * hinanden.
+ */
+const CHANNEL_SELECT = `SELECT c.id, c.source_id, c.stream_id, c.stream_url, c.name, c.number, c.logo_url,
+            c.category_id, c.epg_channel_id, c.has_archive, c.archive_days, c.sort_order,
+            s.url AS source_url,
+            lo.url AS override_logo_url,
+            COALESCE(xl.url, ri.url, rc.url, ra.url) AS registry_logo_url,
+            CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE NULL END AS is_favorite
+     FROM channels c
+     LEFT JOIN favorites f ON f.channel_id = c.id
+     LEFT JOIN sources s ON s.id = c.source_id
+     LEFT JOIN categories cat ON cat.id = c.category_id
+     LEFT JOIN logo_overrides lo ON lo.channel_key = c.id
+     -- Udbyderens egen XMLTV-fil foerst: det er dens logo, for dens kanal.
+     LEFT JOIN xmltv_logos xl ON xl.channel_key = c.id
+     -- Saa id'et: registrets id er XMLTV-id'et, det samme som en M3U-listes
+     -- tvg-id og et panels epg_channel_id. Et opslag, ikke et gaet.
+     LEFT JOIN registry_logos ri ON ri.key = 'id:' || LOWER(TRIM(c.epg_channel_id))
+     LEFT JOIN registry_logos rc ON rc.key = c.match_key || ':' || c.country
+     LEFT JOIN registry_logos ra ON ra.key = c.match_key || ':*'`;
 
 export async function getChannel(
   db: SqlDatabase,
   id: string,
 ): Promise<StoredChannel | null> {
-  const row = await db.getFirstAsync<ChannelRow>(
-    `SELECT c.id, c.name, c.number, c.logo_url, c.category_id, c.epg_channel_id,
-            c.has_archive, c.archive_days, c.sort_order,
-            CASE WHEN f.channel_id IS NOT NULL THEN 1 ELSE NULL END AS is_favorite
-     FROM channels c
-     LEFT JOIN favorites f ON f.channel_id = c.id
-     WHERE c.id = ?`,
-    [id],
-  );
-  return row ? toStoredChannel(row) : null;
+  const row = await db.getFirstAsync<ChannelRow>(`${CHANNEL_SELECT}\n     WHERE c.id = ?`, [id]);
+  if (row === null || row === undefined) return null;
+  return toStoredChannel(row, await deadLogoOrigins(db));
 }
 
+/**
+ * Slaar flere kanaler op i ét opslag, med doede logo-vaerter regnet ud én gang.
+ *
+ * Forsidens "Sidst sete" og "Fortsaet" slog foer hver kanal op for sig med den
+ * fulde seks-join-forespoergsel OG regnede doede logo-vaerter ud per kald —
+ * femten-tyve tunge opslag serielt ved hver hjemaabning. Nu er det ét opslag
+ * (delt i klumper under SQLites variabel-loft) plus én doede-udregning.
+ * Resultatet er en opslagstabel, saa kalderen selv kan holde sin raekkefoelge.
+ */
+export async function getChannelsByIds(
+  db: SqlDatabase,
+  ids: readonly string[],
+): Promise<Map<string, StoredChannel>> {
+  const found = new Map<string, StoredChannel>();
+  if (ids.length === 0) return found;
+  const dead = await deadLogoOrigins(db);
+  const unique = [...new Set(ids)];
+  const CHUNK = 400;
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const slice = unique.slice(i, i + CHUNK);
+    const placeholders = slice.map(() => '?').join(', ');
+    const rows = await db.getAllAsync<ChannelRow>(
+      `${CHANNEL_SELECT}\n     WHERE c.id IN (${placeholders})`,
+      slice,
+    );
+    for (const row of rows) found.set(row.id, toStoredChannel(row, dead));
+  }
+  return found;
+}
+
+/**
+ * `sourceCategoryId` husker hvilken kategori favoritten kom fra, saa
+ * favoritskaermen kan gruppere i sammenklappelige sektioner. Uden det ville
+ * eet tryk paa "Tilfoej alle" for Danmark give 979 kanaler i én flad liste.
+ *
+ * `INSERT OR IGNORE`: er kanalen allerede favorit, beholder den den kategori
+ * den foerst kom fra. Et senere "tilfoej alle" fra en anden kategori maa ikke
+ * flytte den under brugerens fingre.
+ */
 export async function setFavorite(
   db: SqlDatabase,
   id: string,
   favorite: boolean,
+  sourceCategoryId: string | null = null,
 ): Promise<void> {
   if (favorite) {
-    await db.runAsync('INSERT OR IGNORE INTO favorites (channel_id) VALUES (?)', [id]);
-  } else {
-    await db.runAsync('DELETE FROM favorites WHERE channel_id = ?', [id]);
+    // Nederst i listen. Raekkefoelgen er brugerens egen, og en ny favorit
+    // skal ikke dukke op midt i den. match_key OG land gemmes med, saa
+    // favoritten kan gen-haegtes hvis kanalens id senere skifter — men kun til
+    // en kanal med samme navn i samme land (se relinkOrphanedFavorites).
+    await db.runAsync(
+      `INSERT OR IGNORE INTO favorites (channel_id, source_category_id, match_key, country, position)
+       VALUES (?, ?, (SELECT match_key FROM channels WHERE id = ?),
+               (SELECT country FROM channels WHERE id = ?),
+               (SELECT COALESCE(MAX(position), -1) + 1 FROM favorites))`,
+      [id, sourceCategoryId, id, id],
+    );
+    // Brugeren vil have den igen; en tidligere fravalgt kanal skal ikke blive
+    // ved med at vaere udelukket fra kategoriens opdatering.
+    await db.runAsync('DELETE FROM favorite_exclusions WHERE channel_id = ?', [id]);
+    return;
   }
+
+  // Kom favoritten fra en kategori, huskes fravalget. Ellers ville "opdatér"
+  // paa kategorien haente kanalen tilbage, og brugerens oprydning i 979
+  // danske kanaler skulle laves forfra efter hvert tryk.
+  const row = await db.getFirstAsync<{ source_category_id: string | null }>(
+    'SELECT source_category_id FROM favorites WHERE channel_id = ?',
+    [id],
+  );
+  if (row?.source_category_id != null) {
+    await db.runAsync(
+      `INSERT INTO favorite_exclusions (channel_id, category_id) VALUES (?, ?)
+       ON CONFLICT(channel_id) DO UPDATE SET category_id = excluded.category_id`,
+      [id, row.source_category_id],
+    );
+  }
+  await db.runAsync('DELETE FROM favorites WHERE channel_id = ?', [id]);
+}
+
+/**
+ * Den laengste arkivperiode blandt kanalerne, i dage. 0 hvis ingen kanal har
+ * arkiv.
+ *
+ * Bruges til at afgoere hvor langt tilbage programdata er *brugbare*: et
+ * program der ligger uden for panelets arkiv kan ikke startes, saa der er
+ * ingen grund til at gemme det.
+ */
+export async function maxArchiveDays(db: SqlDatabase): Promise<number> {
+  const row = await db.getFirstAsync<{ days: number | null }>(
+    'SELECT MAX(archive_days) AS days FROM channels WHERE has_archive = 1',
+  );
+  const days = row?.days;
+  return typeof days === 'number' && Number.isFinite(days) && days > 0 ? days : 0;
+}
+
+/**
+ * Hvor mange af panelets kanaler der er radio.
+ *
+ * Xtream skiller ikke radio ud som en egen slags i listen appen henter;
+ * det er kategorien eller navnet der siger det. Tallet findes fordi
+ * brugeren spurgte om filen indeholder radio, og det kan kun maales paa
+ * telefonen — panelet laaser linjen til dens adresse.
+ */
+export async function countRadioChannels(db: SqlDatabase): Promise<number> {
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n
+     FROM channels c
+     LEFT JOIN categories cat ON cat.id = c.category_id
+     WHERE cat.name LIKE '%radio%' OR c.name LIKE '%radio%'`,
+  );
+  return row?.n ?? 0;
 }

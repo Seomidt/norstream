@@ -1,88 +1,499 @@
-import { useEffect, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
-import { buildLiveUrl, buildTimeshiftUrl } from '@norstream/core';
-import type { Programme, StreamFormat } from '@norstream/core';
+import type { SubtitleTrack } from 'expo-video';
+import { buildTimeshiftUrl, detectTimeshiftDialect } from '@norstream/core';
+import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { getNowNext } from '../../storage/programmes.js';
-import { getPanelOffsetMinutes, getTimeshiftDialect } from '../../storage/settings.js';
+import {
+  getPanelOffsetMinutes,
+  getSubtitlePreference,
+  getTimeshiftDialect,
+  setTimeshiftDialect,
+} from '../../storage/settings.js';
+import type { SubtitlePreference } from '../../storage/settings.js';
+import { ensureEpg } from '../../sync/epgCache.js';
+import { ChannelLogo } from '../../ui/ChannelLogo.js';
+import { liveUrlFor } from '../../sources/access.js';
+import { streamSource } from '../../net/doh.js';
 import { theme } from '../../ui/theme.js';
+import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import type { ThemeColors } from '../../ui/theme.js';
+import { isTV } from '../../ui/tv.js';
+import { TvPressable } from '../../ui/TvPressable.js';
+import { setLastChannelId } from '../../storage/settings.js';
+import { recordChannelWatch, saveArchiveProgress } from '../../storage/history.js';
+import { archiveContinuation } from './archiveContinuation.js';
+import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback, surfaceTypeForPlatform } from './format.js';
+import { restartBlockFor, restartHint } from './restart.js';
+import { TrackPicker } from './TrackPicker.js';
+import { LandscapePlayer, useLandscape } from './Landscape.js';
+import { isRadioKey } from '../../sync/radioBrowser.js';
+import { RadioView } from './RadioView.js';
+import { useSaveSong } from '../radio/useSaveSong.js';
+import { useRadioNowPlaying } from './useRadioNowPlaying.js';
+import type { RadioState } from './RadioView.js';
+import { pickPreferredSubtitle, sameTrack, trackName } from './tracks.js';
+import type { RestartBlock } from './restart.js';
+import { SeekButtons } from './SeekButtons.js';
 
 interface Props {
   session: AppSession;
   channel: StoredChannel;
   onBack: () => void;
+  /**
+   * Programmet der skal afspilles fra begyndelsen. Saettes af guiden, hvor
+   * start-forfra har sit synlige hjem: man trykker paa et afsluttet program,
+   * ikke paa en knap man skal vide findes.
+   */
+  startFrom?: Programme;
+  /**
+   * Listen kanalen stod i, til at zappe op og ned uden at gaa tilbage.
+   * Uden den er der ingen pile.
+   */
+  zap?: StoredChannel[];
+  /** Forsidens "Fortsaet": spol hertil naar arkivstreamen er klar. */
+  resumeAtSeconds?: number;
 }
-
-/**
- * AVPlayer paa iOS og tvOS kan ikke afspille raa MPEG-TS over HTTP, saa
- * Apple-platforme og web skal have HLS. Android faar .ts for lavere latenstid.
- */
-function formatForPlatform(): StreamFormat {
-  return Platform.OS === 'android' ? 'ts' : 'm3u8';
-}
-
-/**
- * Der findes kun et brugbart fallback-format naar det primaere var .ts, altsaa
- * kun paa Android. Spec sec.8: AVPlayer kan ikke afspille raa MPEG-TS over
- * HTTP, saa paa iOS, tvOS og web ville et skift til .ts vaere en garanteret
- * fejl — og det ville braende det eneste fallback-forsoeg, saa en HLS-hikke
- * der kunne have rettet sig selv ender i en doed stream.
- */
-function hasFormatFallback(): boolean {
-  return formatForPlatform() === 'ts';
-}
-
-/** Det andet containerformat. Kun meningsfuldt naar hasFormatFallback() er sand. */
-const FALLBACK_FORMAT: StreamFormat = 'm3u8';
 
 const MAX_RETRIES = 2;
 const RETRY_BACKOFF_MS = 1500;
-/** Hvor laenge afspilleren maa haenge i buffering foer vi kalder det et udfald. */
+/** Hvor laenge afspilleren maa haenge i buffering MIDT i afspilningen foer vi
+ *  kalder det et udfald og genforbinder. Laengere, saa en kort genbuffring
+ *  ikke river billedet ned. */
 const STALL_TIMEOUT_MS = 15_000;
+/**
+ * Hvor laenge vi venter paa det FOERSTE billede foer vi genforbinder.
+ * Meget kortere end STALL_TIMEOUT_MS: naar panelets ene forbindelse ikke er
+ * naaet at blive fri (preview eller forrige kanal), leverer den nye stream
+ * ingenting og staar bare i "Forbinder …" — foer i 15 sekunder, saa man selv
+ * maatte zappe frem/tilbage for at faa billedet. Nu genforbinder den selv
+ * efter faa sekunder.
+ */
+const INITIAL_STALL_TIMEOUT_MS = 4000;
 
-export function PlayerScreen({ session, channel, onBack }: Props) {
-  const [source, setSource] = useState(() =>
-    buildLiveUrl(session.creds, channel.id, formatForPlatform()),
+export function PlayerScreen({
+  session,
+  channel: initialChannel,
+  onBack,
+  startFrom: initialStartFrom,
+  zap,
+  resumeAtSeconds,
+}: Props) {
+  const styles = useStyles(makeStyles);
+  const { colors } = useTheme();
+  const landscape = useLandscape();
+  /**
+   * Kanalen der spilles. Begynder som den man kom med, og skifter naar man
+   * zapper: samme skaerm, samme afspiller, ny stream — saa panelets ene
+   * forbindelse slippes og tages igen ét sted, ikke gennem en ny skaerm.
+   */
+  const [channel, setChannel] = useState(initialChannel);
+  /** Start-forfra gaelder kun den kanal man kom med; et zap er altid direkte. */
+  const [startFrom, setStartFrom] = useState(initialStartFrom);
+  /** Kanalen foer sidste zap, til ⇄ mellem kampen og nyhederne. */
+  const [previous, setPrevious] = useState<StoredChannel | null>(null);
+  /** Banneret efter et zap: navn og nu-titel, i tre sekunder. */
+  const [bannerUntil, setBannerUntil] = useState(0);
+  // Uden den ligger Tilbage-knappen under telefonens navigationslinje.
+  const insets = useSafeAreaInsets();
+  /**
+   * Null indtil arkiv-URLen er bygget, naar afspilningen kommer fra guiden.
+   *
+   * Panelet tillader én samtidig forbindelse. Startede vi paa live-URLen og
+   * skiftede bagefter, ville arkiv-streamen bede om forbindelse nummer to og
+   * blive afvist — af den stream vi selv lige havde aabnet.
+   */
+  const access = session.access(channel.sourceId);
+  const [source, setSource] = useState<string | null>(() =>
+    startFrom !== undefined ? null : liveUrlFor(access, channel, formatForPlatform()),
   );
   const [now, setNow] = useState<Programme | null>(null);
   const [next, setNext] = useState<Programme | null>(null);
-  const [canRestart, setCanRestart] = useState(false);
-  const [restarted, setRestarted] = useState(false);
+  /**
+   * Hvorfor start-forfra ikke kan bruges lige nu — eller `null` naar den kan.
+   *
+   * Knappen skjulte sig foer, naar en af forudsaetningerne manglede. Det ser
+   * ud som om funktionen ikke findes, og der er ingen vej videre for den der
+   * staar med telefonen. Nu staar den der og siger hvad der mangler.
+   *
+   * `undefined` betyder "ved det ikke endnu": foerste render sker foer
+   * programdata er laest, og hverken knappen eller forklaringen maa blinke
+   * forbi paa et grundlag vi ikke har naaet at faa.
+   */
+  const [restartBlock, setRestartBlock] = useState<RestartBlock | null | undefined>(undefined);
+  const [repairing, setRepairing] = useState(false);
+  /**
+   * Sat naar en start-forfra endte som direkte udsendelse alligevel.
+   *
+   * Foer skete det i stilhed: man trykkede paa et afsluttet program og fik
+   * live-udsendelsen uden et ord om hvorfor. Det ligner en app der ikke
+   * virker, og der er ingen vej videre naar man ikke ved hvad der manglede.
+   */
+  const [fellBackToLive, setFellBackToLive] = useState(false);
+  /**
+   * Sat naar en start-forfra indhentede den levende kant og gled over i
+   * direkte. En udsendelse man ser forfra mens den stadig sendes, har kun
+   * arkiv frem til "nu"; naar afspilningen naar dertil, ville billedet ellers
+   * staa sort midt i udsendelsen. Saa fortsaetter vi direkte i stedet.
+   */
+  const [caughtUpToLive, setCaughtUpToLive] = useState(false);
+  // Kommer vi fra guiden med et program, er afspilningen en start-forfra fra
+  // foerste billede — ogsaa foer dialekten er laest, saa format-fallbacket
+  // aldrig naar at slaa til paa en timeshift-URL.
+  const [restarted, setRestarted] = useState(startFrom !== undefined);
   const [triedFallback, setTriedFallback] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
+  /**
+   * Radio har intet billede, saa der er intet at se paa mens man venter.
+   * Derfor siges det med ord hvor langt afspilleren er: forbinder, spiller
+   * (og med hvor mange lydspor), eller fejl. Det er ogsaa det der skal til
+   * for at kunne sige *hvorfor* en radiokanal er stum.
+   */
+  const [audioState, setAudioState] = useState<string>('Forbinder …');
+  const [radioState, setRadioState] = useState<RadioState>('connecting');
+  const [playing, setPlaying] = useState(true);
+  /**
+   * Det arkiv-stykke der spiller: udsendelsen, hvor stykket begynder (ms), og
+   * hvor langt ind der skal spoles naar det er klar. Et stykke slutter dér
+   * hvor panelets arkiv sluttede, da det blev bedt om — ved start-forfra paa
+   * en udsendelse der sendes, er det midt i den. Se archiveContinuation.
+   */
+  const archiveRef = useRef<{ programme: Programme; segmentStart: number; seekSeconds: number } | null>(null);
+  /** Afspillerens position i det nuvaerende stykke, i sekunder. */
+  const positionRef = useRef(0);
+  /** Fortsaettelser i traek uden fremgang: panelet har ikke mere, saa hold op med at spoerge. */
+  const stuckRef = useRef(0);
+  /** playFromStart, til lyttere der er sat op foer den er defineret laengere nede. */
+  const playFromStartRef = useRef<(programme: Programme, from?: Date, seekSeconds?: number) => Promise<void>>(async () => undefined);
 
-  const player = useVideoPlayer(source, (p) => {
+  // "Se videre" oeverst i favoritterne: den kanal der sidst blev set.
+  useEffect(() => {
+    void setLastChannelId(session.db, channel.id).catch(() => undefined);
+    // Og forsidens "Sidst sete".
+    void recordChannelWatch(session.db, channel.id).catch(() => undefined);
+  }, [session.db, channel.id]);
+
+  const zapList = zap ?? [];
+  const zapIndex = zapList.findIndex((entry) => entry.id === channel.id);
+
+  const zapTo = useCallback(
+    (target: StoredChannel): void => {
+      if (target.id === channel.id) return;
+      setPrevious(channel);
+      setChannel(target);
+      setStartFrom(undefined);
+      setRestarted(false);
+      archiveRef.current = null;
+      setFellBackToLive(false);
+      setTriedFallback(false);
+      setStreamError(null);
+      setRestartBlock(undefined);
+      setNow(null);
+      setNext(null);
+      setBannerUntil(Date.now() + 3_000);
+      setSource(liveUrlFor(session.access(target.sourceId), target, formatForPlatform()));
+    },
+    [channel, session],
+  );
+
+  const [bannerTick, setBannerTick] = useState(0);
+  useEffect(() => {
+    if (bannerUntil === 0) return;
+    const timer = setTimeout(() => setBannerTick((value) => value + 1), Math.max(0, bannerUntil - Date.now()));
+    return () => clearTimeout(timer);
+  }, [bannerUntil]);
+  const bannerShown = bannerUntil > Date.now() && bannerTick >= 0;
+
+  /**
+   * Radio spiller videre naar skaermen slukkes eller appen gaar i baggrunden,
+   * med styring i notifikationen. Kraever supportsBackgroundPlayback i
+   * app.json (forgrundstjeneste paa Android). Tv goer det ikke: et
+   * billede uden skaerm er bare panelets ene forbindelse brugt paa ingenting.
+   */
+  // Radio-behandling (skjult video, baggrundslyd, radio-UI) er for AEGTE
+  // radio: en internetradio-station (isRadioKey), eller en panel-kanal hvis
+  // navn ligner radio OG som viser sig ikke at have billede. Foer var alene
+  // navnet nok — saa en video-kanal med "radio" i navnet (fx en musik-tv-
+  // kanal) fik radio-UI'et, videoen blev skjult, og i fuld skaerm stod den
+  // sort selv om previewet (uden radio-grenen) viste billede. hasVideo
+  // afgoeres naar streamen melder sine spor; indtil da vises billedet.
+  const nameLooksRadio = /radio/i.test(channel.name);
+  const definiteRadio = isRadioKey(channel.id);
+  const [hasVideo, setHasVideo] = useState<boolean | null>(null);
+  useEffect(() => setHasVideo(null), [channel.id]);
+  const isRadio = definiteRadio || (nameLooksRadio && hasVideo === false);
+  // Sang og cover, kun for internetradio (stationens egen Icecast-adresse):
+  // panelets radiokanaler gaar gennem panelet og sender ingen titel.
+  const nowPlaying = useRadioNowPlaying(isRadioKey(channel.id) ? channel.streamUrl : null, channel.name, isRadio && radioState === 'playing');
+  const saveSong = useSaveSong(session.db, nowPlaying, channel.name);
+  const player = useVideoPlayer(source === null ? null : streamSource(source), (p) => {
     p.loop = false;
+    p.staysActiveInBackground = isRadio;
+    p.showNowPlayingNotification = isRadio;
+    // Hvert sekund: hvor langt arkivstreamen er naaet, til "Fortsaet".
+    p.timeUpdateEventInterval = 1;
+    // Live: lille startbuffer, saa billedet kommer hurtigt ("tager lang tid om
+    // at komme i fuld skaerm"). Arkiv/start-forfra beholder det stoerre buffer
+    // som film, saa spoling og genoptagelse er flydende. prioritizeTime holder
+    // sekunderne selv paa hoej bitrate.
+    p.bufferOptions =
+      startFrom !== undefined
+        ? { preferredForwardBufferDuration: 60, minBufferForPlayback: 5, prioritizeTimeOverSizeThreshold: true }
+        : { preferredForwardBufferDuration: 20, minBufferForPlayback: 1, prioritizeTimeOverSizeThreshold: true };
     p.play();
   });
+
+  /**
+   * Fremdrift i arkivet, til forsidens "Fortsaet": gemmes hvert tiende
+   * sekund mens en udsendelse startet forfra spiller. Og "Fortsaet" den
+   * anden vej: naar streamen er klar, spoles der til hvor man slap.
+   */
+  const lastSaved = useRef(0);
+  const resumed = useRef(false);
+  useEffect(() => {
+    const subscription = player.addListener('timeUpdate', ({ currentTime }: { currentTime: number }) => {
+      if (!Number.isFinite(currentTime)) return;
+      positionRef.current = currentTime;
+      if (!restarted || startFrom === undefined) return;
+      // Positionen i hele udsendelsen, ogsaa naar et senere stykke af arkivet spiller.
+      const segment = archiveRef.current;
+      const absolute = currentTime + (segment === null ? 0 : (segment.segmentStart - startFrom.start.getTime()) / 1000);
+      if (absolute - lastSaved.current < 10 && absolute >= lastSaved.current) return;
+      lastSaved.current = absolute;
+      void saveArchiveProgress(session.db, channel.id, startFrom, absolute).catch(() => undefined);
+    });
+    return () => subscription.remove();
+  }, [player, restarted, startFrom, session.db, channel.id]);
+  useEffect(() => {
+    if (resumeAtSeconds === undefined || resumeAtSeconds <= 0) return;
+    const subscription = player.addListener('statusChange', ({ status }: { status: string }) => {
+      if (status !== 'readyToPlay' || resumed.current || !restarted) return;
+      resumed.current = true;
+      try {
+        player.currentTime = resumeAtSeconds;
+      } catch {
+        // Afspilleren er vaek.
+      }
+    });
+    return () => subscription.remove();
+  }, [player, resumeAtSeconds, restarted]);
+  useEffect(() => {
+    try {
+      player.staysActiveInBackground = isRadio;
+      player.showNowPlayingNotification = isRadio;
+    } catch {
+      // Afspilleren er vaek.
+    }
+  }, [player, isRadio]);
+
+  /**
+   * Undertekster i live-tv. Samme regler som for film: det foretrukne sprog
+   * fra Indstillinger vaelges af sig selv naar streamen melder sine spor,
+   * og man kan skifte i vaelgeren. Streamen skifter ved start-forfra og ved
+   * fallback til det andet format, og hver ny stream melder sine spor
+   * paa ny — derfor vaelges der igen for hver kilde, ikke kun én gang.
+   */
+  const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([]);
+  const [subtitle, setSubtitle] = useState<SubtitleTrack | null>(null);
+  const [showingSubtitles, setShowingSubtitles] = useState(false);
+  const preference = useRef<SubtitlePreference | null>(null);
+  /** Kilden der sidst fik valgt spor af sig selv; en ny kilde faar et nyt valg. */
+  const autoPickedFor = useRef<string | null>(null);
+  /** Brugeren har valgt selv for denne kilde; saa roeres der ikke ved det. */
+  const userPickedFor = useRef<string | null>(null);
+
+  const autoSelectSubtitle = useCallback(
+    (tracks: SubtitleTrack[]): void => {
+      const preferred = preference.current;
+      if (preferred === null || source === null) return;
+      if (userPickedFor.current === source || autoPickedFor.current === source) return;
+      const track = pickPreferredSubtitle(tracks, preferred);
+      if (track === null) return;
+      autoPickedFor.current = source;
+      try {
+        player.subtitleTrack = track;
+        setSubtitle(track);
+      } catch {
+        // Afspilleren er vaek.
+      }
+    },
+    [player, source],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void getSubtitlePreference(session.db).then((value) => {
+      if (cancelled) return;
+      preference.current = value;
+      try {
+        autoSelectSubtitle(player.availableSubtitleTracks);
+      } catch {
+        // Afspilleren er vaek.
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session.db, player, autoSelectSubtitle]);
+
+  useEffect(() => {
+    const subscription = player.addListener('playingChange', ({ isPlaying }: { isPlaying: boolean }) => {
+      setPlaying(isPlaying);
+    });
+    return () => subscription.remove();
+  }, [player]);
+
+  // Et fortsat arkiv-stykke begynder paa et helt minut; spol de sekunder frem
+  // man allerede havde set, saa der hverken gentages eller springes over.
+  useEffect(() => {
+    const subscription = player.addListener('statusChange', ({ status }: { status: string }) => {
+      if (status !== 'readyToPlay') return;
+      const segment = archiveRef.current;
+      if (segment === null || segment.seekSeconds <= 1) return;
+      const seek = segment.seekSeconds;
+      segment.seekSeconds = 0;
+      try {
+        player.currentTime = seek;
+      } catch {
+        // Afspilleren er vaek.
+      }
+    });
+    return () => subscription.remove();
+  }, [player]);
+
+  /**
+   * Start-forfra naaede den levende kant — fortsaet direkte i stedet for sort.
+   *
+   * Ser man en udsendelse forfra mens den stadig sendes, findes arkivet kun
+   * frem til "nu". Naar afspilningen indhenter det, melder expo-video
+   * playToEnd, og billedet ville ellers staa sort midt i udsendelsen (en far
+   * meldte netop det paa TV 2). Sender udsendelsen stadig, skifter vi til
+   * live-streamen, saa resten ses direkte. Er programmet rigtigt slut (et
+   * afsluttet program aabnet fra guiden), roeres intet — arkivet sluttede,
+   * fordi udsendelsen sluttede.
+   */
+  const caughtUpHandled = useRef(false);
+  useEffect(() => {
+    if (restarted) caughtUpHandled.current = false;
+  }, [restarted]);
+  useEffect(() => {
+    const subscription = player.addListener('playToEnd', () => {
+      if (isRadio || !restarted || caughtUpHandled.current) return;
+      const segment = archiveRef.current;
+      const airing = segment?.programme ?? startFrom ?? now;
+      if (airing === null || airing === undefined) return;
+      const nowMs = Date.now();
+      let next =
+        segment === null
+          ? airing.stop.getTime() > nowMs
+            ? ({ kind: 'live' } as const)
+            : ({ kind: 'done' } as const)
+          : archiveContinuation(airing, segment.segmentStart, positionRef.current, nowMs);
+      if (next.kind === 'continue') {
+        // Arkivet sluttede midt i udsendelsen: hent det igen fra det punkt man
+        // naaede. Kom der intet nyt to gange i traek, har panelet ikke mere.
+        stuckRef.current = positionRef.current < 5 ? stuckRef.current + 1 : 0;
+        if (stuckRef.current < 2) {
+          void playFromStartRef.current(airing, next.from, next.seekSeconds);
+          return;
+        }
+        next = airing.stop.getTime() > nowMs ? { kind: 'live' } : { kind: 'done' };
+      }
+      if (next.kind !== 'live') return;
+      archiveRef.current = null;
+      caughtUpHandled.current = true;
+      setRestarted(false);
+      setCaughtUpToLive(true);
+      setBannerUntil(Date.now() + 3_000);
+      setSource(liveUrlFor(access, channel, formatForPlatform()));
+    });
+    return () => subscription.remove();
+  }, [player, isRadio, restarted, startFrom, now, access, channel]);
+
+  /**
+   * Videosporet, til én linje i bjaelken paa tv: format, stoerrelse og om
+   * enheden kan afkode det. Groen skaerm med lyd (DR startet forfra) kan
+   * ikke ses herfra, men det kan et "understoettet: nej".
+   */
+  const [videoInfo, setVideoInfo] = useState<string | null>(null);
+  useEffect(() => {
+    const describe = (track: { mimeType: string | null; size: { width: number; height: number }; isSupported: boolean; frameRate?: number | null } | null): string | null => {
+      if (track === null) return null;
+      const codec = (track.mimeType ?? 'ukendt').replace('video/', '');
+      const fps = typeof track.frameRate === 'number' && track.frameRate > 0 ? ` ${Math.round(track.frameRate)} fps` : '';
+      return `${codec} ${track.size.width}×${track.size.height}${fps} · ${track.isSupported ? 'understøttet' : 'IKKE understøttet af enheden'}`;
+    };
+    const subscription = player.addListener('videoTrackChange', ({ videoTrack }: { videoTrack: { mimeType: string | null; size: { width: number; height: number }; isSupported: boolean; frameRate?: number | null } | null }) => {
+      setVideoInfo(describe(videoTrack));
+      // Meldte streamen et billedspor, er det ikke radio (uanset navn). Kun
+      // opgradering til "har billede": et forbigaaende null under opstart maa
+      // ikke faa en video-kanal til at skifte til radio-UI.
+      if (videoTrack !== null) setHasVideo(true);
+    });
+    return () => subscription.remove();
+  }, [player]);
+
+  useEffect(() => {
+    const subscription = player.addListener(
+      'availableSubtitleTracksChange',
+      ({ availableSubtitleTracks }: { availableSubtitleTracks: SubtitleTrack[] }) => {
+        setSubtitleTracks(availableSubtitleTracks);
+        setSubtitle(player.subtitleTrack);
+        autoSelectSubtitle(availableSubtitleTracks);
+      },
+    );
+    return () => subscription.remove();
+  }, [player, autoSelectSubtitle]);
+
+  function chooseSubtitle(track: SubtitleTrack | null): void {
+    if (source !== null) userPickedFor.current = source;
+    player.subtitleTrack = track;
+    setSubtitle(track);
+    setShowingSubtitles(false);
+  }
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadEpg(): Promise<void> {
-      if (channel.epgChannelId === null) return;
-      const result = await getNowNext(session.db, channel.epgChannelId, new Date());
+      // Opslaget sker paa kanalens eget id — Xtreams stream_id. I v1 gik det
+      // gennem epg_channel_id, som 87 % af panelets kanaler ikke har, saa
+      // start-forfra var utilgaengeligt for dem uanset deres arkiv.
+      const result = await getNowNext(session.db, channel.id, new Date());
       if (cancelled) return;
       setNow(result.now);
       setNext(result.next);
 
-      const dialect = await getTimeshiftDialect(session.db);
+      const dialect = await getTimeshiftDialect(session.db, channel.sourceId);
       if (cancelled) return;
-      setCanRestart(channel.hasArchive && dialect !== null && result.now !== null);
+      setRestartBlock(restartBlockFor(channel.hasArchive, dialect !== null, result.now !== null));
+
     }
 
     void loadEpg();
     return () => {
       cancelled = true;
     };
-  }, [session.db, channel]);
+  }, [session.db, channel, startFrom]);
 
   useEffect(() => {
-    player.replace(source);
+    if (source === null) return;
+    player.replace(streamSource(source));
     player.play();
   }, [player, source]);
+
+  // Har afspilleren vist det foerste billede for DENNE stream endnu? Nulstilles
+  // ved hvert kildeskift (ny kanal/format), saa den foerste forbindelse
+  // genforbinder hurtigt (INITIAL_STALL_TIMEOUT_MS), mens en genbuffring midt i
+  // afspilningen faar den laengere snor (STALL_TIMEOUT_MS).
+  const everReady = useRef(false);
+  useEffect(() => {
+    everReady.current = false;
+  }, [source]);
 
   // Spec sec.9: IPTV-streams falder ud hele tiden. To forsoeg med backoff,
   // derefter fallback til det andet containerformat der hvor et saadant
@@ -90,6 +501,8 @@ export function PlayerScreen({ session, channel, onBack }: Props) {
   // haenger midt i. Uden det opfoerer appen sig som de Norlys-anmeldelser
   // der klagede over konstante udfald.
   useEffect(() => {
+    if (source === null) return;
+
     let cancelled = false;
     let attempt = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -111,8 +524,18 @@ export function PlayerScreen({ session, channel, onBack }: Props) {
       if (attempt <= MAX_RETRIES) {
         if (retryTimer !== null) clearTimeout(retryTimer);
         retryTimer = setTimeout(() => {
-          if (cancelled) return;
-          player.replace(source);
+          if (cancelled || source === null) return;
+          // Start-forfra: genforbind fra det punkt man naaede, ikke fra
+          // udsendelsens begyndelse (samme URL ville starte forfra).
+          const segment = archiveRef.current;
+          if (restarted && segment !== null && positionRef.current > 5) {
+            const next = archiveContinuation(segment.programme, segment.segmentStart, positionRef.current, Date.now());
+            if (next.kind === 'continue') {
+              void playFromStartRef.current(segment.programme, next.from, next.seekSeconds);
+              return;
+            }
+          }
+          player.replace(streamSource(source));
           player.play();
         }, attempt * RETRY_BACKOFF_MS);
         return;
@@ -125,7 +548,7 @@ export function PlayerScreen({ session, channel, onBack }: Props) {
       if (hasFormatFallback() && !triedFallback && !restarted) {
         setTriedFallback(true);
         attempt = 0;
-        setSource(buildLiveUrl(session.creds, channel.id, FALLBACK_FORMAT));
+        setSource(liveUrlFor(access, channel, FALLBACK_FORMAT));
         return;
       }
 
@@ -143,14 +566,53 @@ export function PlayerScreen({ session, channel, onBack }: Props) {
 
         if (status === 'readyToPlay') {
           attempt = 0;
+          everReady.current = true;
           clearStallTimer();
           setStreamError(null);
+          try {
+            const audioTracks = player.availableAudioTracks;
+            // Et spor der findes men ikke er valgt, vaelges. ExoPlayer goer
+            // det selv for video; for en stream uden billede har det vist
+            // sig ikke altid at ske.
+            if (player.audioTrack === null && audioTracks.length > 0) {
+              const first = audioTracks[0];
+              if (first !== undefined) player.audioTrack = first;
+            }
+            setAudioState(
+              audioTracks.length === 0
+                ? 'Spiller, men streamen melder intet lydspor'
+                : `Spiller · ${audioTracks.length} lydspor · lyd ${Math.round(player.volume * 100)} %${player.muted ? ' · dæmpet' : ''}`,
+            );
+          } catch {
+            setAudioState('Spiller');
+          }
+          try {
+            // Radio-afgoerelse: er streamen klar helt uden billedspor, er det
+            // lyd alene (en aegte radiokanal). Har den billede, er det video —
+            // ogsaa selv om navnet indeholder "radio". setHasVideo(true) fra
+            // videoTrackChange nedgraderes aldrig.
+            const hasVideoTrack = player.availableVideoTracks.length > 0 || player.videoTrack !== null;
+            setHasVideo((prev) => (prev === true ? true : hasVideoTrack));
+          } catch {
+            // Afspilleren er vaek.
+          }
+          setRadioState('playing');
+          // Sporene kan vaere meldt foer lytteren kom paa. Laeses her igen.
+          setSubtitleTracks(player.availableSubtitleTracks);
+          setSubtitle(player.subtitleTrack);
+          autoSelectSubtitle(player.availableSubtitleTracks);
           return;
         }
 
         if (status === 'error') {
+          setAudioState('Streamen svarede med en fejl');
+          setRadioState('error');
           handleFailure();
           return;
+        }
+        if (status === 'loading') {
+          setAudioState('Forbinder …');
+          setRadioState('connecting');
         }
 
         // Spec sec.9 kraever ogsaa genforbindelse paa buffer-haendelser:
@@ -158,7 +620,7 @@ export function PlayerScreen({ session, channel, onBack }: Props) {
         // streamen faldet ud midt i afspilningen, selv om der aldrig kom en
         // egentlig fejl.
         if (status === 'loading' && stallTimer === null) {
-          stallTimer = setTimeout(handleFailure, STALL_TIMEOUT_MS);
+          stallTimer = setTimeout(handleFailure, everReady.current ? STALL_TIMEOUT_MS : INITIAL_STALL_TIMEOUT_MS);
         }
       },
     );
@@ -169,79 +631,463 @@ export function PlayerScreen({ session, channel, onBack }: Props) {
       if (retryTimer !== null) clearTimeout(retryTimer);
       subscription.remove();
     };
-  }, [player, source, triedFallback, restarted, session.creds, channel.id]);
+  }, [player, source, triedFallback, restarted, access, channel, autoSelectSubtitle]);
 
-  async function restart(): Promise<void> {
-    if (now === null) return;
-    const dialect = await getTimeshiftDialect(session.db);
-    if (dialect === null) return;
-    const offset = await getPanelOffsetMinutes(session.db);
+  const playFromStart = useCallback(
+    async (programme: Programme, from: Date = programme.start, seekSeconds = 0): Promise<void> => {
+      const dialect = await getTimeshiftDialect(session.db, channel.sourceId);
+      if (dialect === null || access?.creds == null) {
+        // Uden dialekt kan arkiv-URLen ikke bygges. Kom vi fra guiden, staar
+        // skaermen sort uden dette: fald tilbage paa live frem for ingenting —
+        // men sig det, i stedet for at lade folk tro at trykket ikke virkede.
+        setSource((current) => current ?? liveUrlFor(access, channel, formatForPlatform()));
+        setRestarted(false);
+        setFellBackToLive(true);
+        setRestartBlock(restartBlockFor(channel.hasArchive, false, true));
+        return;
+      }
+      setFellBackToLive(false);
+      const offset = await getPanelOffsetMinutes(session.db, channel.sourceId);
 
-    const durationMinutes = Math.ceil(
-      (now.stop.getTime() - now.start.getTime()) / 60_000,
+      // Fra `from` til udsendelsens slutning. Normalt hele udsendelsen; naar
+      // arkivet fortsaettes (se archiveContinuation), resten af den.
+      const durationMinutes = Math.ceil((programme.stop.getTime() - from.getTime()) / 60_000);
+      if (from.getTime() === programme.start.getTime()) stuckRef.current = 0;
+      archiveRef.current = { programme, segmentStart: from.getTime(), seekSeconds };
+      positionRef.current = 0;
+      // Samme beholder som live (.ts paa Android): arkivet som HLS gav groen
+      // skaerm med lyd paa DR-kanalerne paa tv, mens live i .ts var fint.
+      // Streamformat under Indstillinger gaelder ogsaa her.
+      setSource(
+        buildTimeshiftUrl(
+          access.creds,
+          channel.streamId,
+          from,
+          durationMinutes,
+          dialect,
+          offset,
+          formatForPlatform(),
+        ),
+      );
+      setRestarted(true);
+    },
+    [session.db, access, channel],
+  );
+  playFromStartRef.current = playFromStart;
+
+  /**
+   * Raader bod paa det der spaerrer for start-forfra, og opdaterer tilstanden.
+   *
+   * Begge veje er billige og kan koeres af brugeren selv: dialekten findes med
+   * de samme to probes som under onboarding, og programdata hentes for netop
+   * denne ene kanal. Alternativet — at bede folk logge ud og ind igen for at
+   * faa onboarding til at koere forfra — er ikke et svar.
+   */
+  const repairRestart = useCallback(async (): Promise<void> => {
+    if (restartBlock === null || restartBlock === undefined) return;
+    if (restartBlock === 'no-archive') return;
+    setRepairing(true);
+    try {
+      if (restartBlock === 'no-dialect') {
+        const offset = await getPanelOffsetMinutes(session.db, channel.sourceId);
+        const found =
+          access?.creds == null
+            ? null
+            : await detectTimeshiftDialect(
+                access.creds,
+                channel.streamId,
+                session.fetchImpl,
+                new Date(),
+                offset,
+              );
+        await setTimeshiftDialect(session.db, found, channel.sourceId);
+      } else {
+        try {
+          await ensureEpg(session.db, session.credsBySource, session.fetchImpl, [channel.id]);
+        } catch {
+          // Kunne panelet ikke naas, staar beskeden bare uaendret.
+        }
+      }
+
+      const [result, dialect] = await Promise.all([
+        getNowNext(session.db, channel.id, new Date()),
+        getTimeshiftDialect(session.db, channel.sourceId),
+      ]);
+      setNow(result.now);
+      setNext(result.next);
+      setRestartBlock(restartBlockFor(channel.hasArchive, dialect !== null, result.now !== null));
+    } finally {
+      setRepairing(false);
+    }
+  }, [restartBlock, session, channel, access]);
+
+
+  // Guiden aabner afspilleren med et afsluttet program: byg arkiv-URLen med
+  // det samme, i stedet for at vente paa at brugeren finder en knap.
+  const startFromHandled = useRef(false);
+  useEffect(() => {
+    if (startFrom === undefined || startFromHandled.current) return;
+    startFromHandled.current = true;
+    void playFromStart(startFrom);
+  }, [startFrom, playFromStart]);
+
+  // Bjaelken bygges op forfra hver gang den kommer frem, og paa tv skal
+  // en knap have fokus med det samme: ellers skulle man trykke sig ned til
+  // den ("skal trykke en masse gange"). Spoler man, er det 30 s frem;
+  // ellers Start forfra; og er den der ikke, Tilbage.
+  const canRestart = !restarted && restartBlock === null && now !== null;
+  // Raekkefoelgen er Googles: den primaere handling foerst, for det er den
+  // fokus lander paa. Start forfra eller spoling, saa tekst, saa zap.
+  const actions = (
+    <>
+      {/* Ingen Tilbage-knap paa tv: Google — "brug fjernbetjeningens
+          Tilbage, vis ikke en knap paa skaermen". */}
+      {!isTV && (
+        <TvPressable style={styles.button} onPress={onBack}>
+          <Text style={styles.buttonText}>Tilbage</Text>
+        </TvPressable>
+      )}
+      {canRestart && (
+        <TvPressable
+          style={[styles.button, styles.buttonAccent]}
+          hasTVPreferredFocus={isTV}
+          onPress={() => {
+            void playFromStart(now);
+          }}
+        >
+          <Text style={styles.buttonText}>Start forfra</Text>
+        </TvPressable>
+      )}
+      {/* Startet forfra paa tv: pause og spoling, saa reklamerne kan
+          springes over. Paa telefonen har afspillerens egne knapper det. */}
+      {restarted && isTV && <SeekButtons player={player} playing={playing} preferFocus />}
+      <TvPressable
+        style={styles.button}
+        hasTVPreferredFocus={isTV && !restarted && !canRestart}
+        onPress={() => {
+          setSubtitleTracks(player.availableSubtitleTracks);
+          setSubtitle(player.subtitleTrack);
+          setShowingSubtitles((value) => !value);
+        }}
+      >
+        <Text style={styles.buttonText}>
+          Tekst{subtitle !== null ? `: ${trackName(subtitle)}` : ''}
+        </Text>
+      </TvPressable>
+      {/* De to zap-pile (‹ ›) er fjernet: paa tv zapper man med fjernbetjeningens
+          pil venstre/hoejre i fuld skaerm, saa knapperne var overfloedige. */}
+      {previous !== null && (
+        <TvPressable style={styles.button} hitSlop={6} onPress={() => zapTo(previous)}>
+          <Text style={styles.buttonText}>⇄ {shortName(previous.name)}</Text>
+        </TvPressable>
+      )}
+      {restarted && isTV && videoInfo !== null && <Text style={styles.videoInfo}>{videoInfo}</Text>}
+    </>
+  );
+
+  const subtitlePicker = showingSubtitles ? (
+    <TrackPicker
+      title="Undertekster"
+      options={[
+        { key: 'none', label: 'Ingen', active: subtitle === null, onPress: () => chooseSubtitle(null) },
+        ...subtitleTracks.map((track, index) => ({
+          key: track.id ?? `${track.language}-${index}`,
+          label: trackName(track),
+          active: subtitle !== null && sameTrack(subtitle, track),
+          onPress: () => chooseSubtitle(track),
+        })),
+      ]}
+      emptyText="Streamen har ingen undertekstspor. De fleste live-kanaler sender teksten indbrændt i billedet eller slet ikke."
+      onClose={() => setShowingSubtitles(false)}
+    />
+  ) : null;
+
+  const banner = bannerShown ? (
+    <View style={styles.banner} pointerEvents="none">
+      <Text style={styles.bannerName} numberOfLines={1}>
+        {zapIndex === -1 ? '' : `${zapIndex + 1} · `}
+        {channel.name}
+      </Text>
+      <Text style={styles.bannerTitle} numberOfLines={1}>
+        {now?.title ?? 'Henter programdata …'}
+        {next !== null ? `  ·  Derefter: ${next.title}` : ''}
+      </Text>
+    </View>
+  ) : null;
+
+  // Mens billedet buffres, staar skaermen ellers sort — det foelte langsomt,
+  // som om kanalen ikke kom. Et roligt lag med logo, navn og "Forbinder …"
+  // giver med det samme svar paa at der sker noget. Kun paa video (radioen har
+  // sin egen skaerm) og kun til billedet er klart (radioState skifter til
+  // 'playing'); en fejl viser sin egen tekst i stedet.
+  const connectingOverlay =
+    !isRadio && radioState === 'connecting' && hasVideo !== true && streamError === null ? (
+      <View style={styles.connecting} pointerEvents="none">
+        <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={48} />
+        <Text style={styles.connectingName} numberOfLines={1}>
+          {channel.name}
+        </Text>
+        <ActivityIndicator color={colors.accent} />
+        <Text style={styles.connectingHint}>Forbinder …</Text>
+      </View>
+    ) : null;
+
+  if (isRadio) {
+    const shown: RadioState = radioState === 'playing' && !playing ? 'paused' : radioState;
+    return (
+      <RadioView
+        channel={channel}
+        state={shown}
+        nowPlaying={nowPlaying}
+        saveSong={saveSong}
+        stateText={shown === 'paused' ? 'Pause' : streamError ?? audioState}
+        hiddenVideo={<VideoView style={styles.hiddenVideo} player={player} nativeControls={false} />}
+        hasPrevious={zapList.length > 1 && zapIndex !== -1}
+        hasNext={zapList.length > 1 && zapIndex !== -1}
+        onBack={onBack}
+        onPrevious={() => {
+          const target = zapList[(zapIndex - 1 + zapList.length) % zapList.length];
+          if (target !== undefined) zapTo(target);
+        }}
+        onNext={() => {
+          const target = zapList[(zapIndex + 1) % zapList.length];
+          if (target !== undefined) zapTo(target);
+        }}
+        onToggle={() => {
+          try {
+            if (player.playing) player.pause();
+            else player.play();
+          } catch {
+            // Afspilleren er vaek.
+          }
+        }}
+      />
     );
-    setSource(
-      buildTimeshiftUrl(
-        session.creds,
-        channel.id,
-        now.start,
-        durationMinutes,
-        dialect,
-        offset,
-      ),
+  }
+
+  if (landscape) {
+    return (
+      <LandscapePlayer
+        // Paa tv uden afspillerens egne knapper: de tog fjernbetjeningen,
+        // saa Tilbage foerst lukkede dem og saa maaske kanalen. Appens egen
+        // bjaelke har det samme, og Tilbage gaar altid til listen.
+        video={<VideoView style={StyleSheet.absoluteFill} player={player} nativeControls={!isTV} surfaceType={surfaceTypeForPlatform()} />}
+        bar={actions}
+        playing={playing}
+        // Paa tv: staar man og spoler (start-forfra/arkiv), skjules bjaelken fra
+        // start, saa pil venstre/hoejre spoler med det samme. Paa en direkte
+        // live-kanal bliver bjaelken fremme, saa "Start forfra" kan ses.
+        initialBarShown={!isTV || !restarted}
+        onPlayerKey={(key) => {
+          try {
+            if (key === 'select' || key === 'playPause') {
+              if (player.playing) player.pause();
+              else player.play();
+              return true;
+            }
+            // Pil venstre/hoejre paa en LIVE-kanal: zap til forrige/naeste kanal
+            // i den liste man kom fra (som en fjernbetjenings kanal-op/-ned).
+            // I arkivet (start forfra) spoler de i stedet — der er noget at spole i.
+            if ((key === 'left' || key === 'right') && !restarted) {
+              if (zapList.length > 1 && zapIndex !== -1) {
+                const target =
+                  key === 'left'
+                    ? zapList[(zapIndex - 1 + zapList.length) % zapList.length]
+                    : zapList[(zapIndex + 1) % zapList.length];
+                if (target !== undefined) {
+                  zapTo(target);
+                  return true;
+                }
+              }
+              return false;
+            }
+            // Spoling kun i arkivet: en live-kanal har intet at spole i.
+            if (!restarted) return false;
+            if (key === 'left' || key === 'rewind') player.seekBy(-10);
+            else player.seekBy(30);
+            return true;
+          } catch {
+            return false;
+          }
+        }}
+        overlays={
+          <>
+            {banner}
+            {connectingOverlay}
+            {subtitlePicker}
+          </>
+        }
+      />
     );
-    setRestarted(true);
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* allowsFullscreen findes ikke i den installerede expo-video (57.0.3) —
           fuldskaerm er slaaet til som standard via fullscreenOptions.enable. */}
-      <VideoView style={styles.video} player={player} nativeControls />
+      <View>
+        <VideoView style={styles.video} player={player} nativeControls />
+        {banner}
+      </View>
 
       <View style={styles.info}>
-        <Text style={styles.channelName}>{channel.name}</Text>
-        <Text style={styles.nowTitle}>{now?.title ?? 'Ingen programdata'}</Text>
-        {next !== null && <Text style={styles.nextTitle}>Derefter: {next.title}</Text>}
+        <View style={styles.channelLine}>
+          <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={36} />
+          <Text style={styles.channelName}>{channel.name}</Text>
+        </View>
+        {/* Kommer vi fra guiden, er det programmet der genafspilles der staar
+            oeverst — ikke det der sendes lige nu. */}
+        <Text style={styles.nowTitle}>
+          {startFrom?.title ?? now?.title ?? 'Ingen programdata'}
+        </Text>
+        {(startFrom ?? now) !== null && (
+          <Text style={styles.airtime}>{airtime(startFrom ?? now)}</Text>
+        )}
+        {startFrom === undefined && next !== null && (
+          <Text style={styles.nextTitle}>Derefter: {next.title}</Text>
+        )}
         {restarted && <Text style={styles.badge}>Afspilles fra begyndelsen</Text>}
+        {caughtUpToLive && (
+          <Text style={styles.badge}>Du er nået til direkte — ser resten live</Text>
+        )}
+        {fellBackToLive && (
+          <Text style={styles.warn}>
+            Udsendelsen kunne ikke hentes fra arkivet. Du ser direkte i stedet.
+          </Text>
+        )}
         {streamError !== null && <Text style={styles.error}>{streamError}</Text>}
       </View>
 
-      <View style={styles.actions}>
-        <Pressable style={styles.button} onPress={onBack}>
-          <Text style={styles.buttonText}>Tilbage</Text>
-        </Pressable>
-        {canRestart && !restarted && (
-          <Pressable
-            style={[styles.button, styles.buttonAccent]}
-            onPress={() => {
-              void restart();
-            }}
-          >
-            <Text style={styles.buttonText}>Start forfra</Text>
-          </Pressable>
-        )}
-      </View>
+      <View style={[styles.actions, { paddingBottom: theme.spacing.md + insets.bottom }]}>{actions}</View>
+
+      {subtitlePicker}
+      {(fellBackToLive || !restarted) && restartBlock !== null && restartBlock !== undefined && (
+        <RestartBlocked
+          block={restartBlock}
+          busy={repairing}
+          onRepair={() => {
+            void repairRestart();
+          }}
+        />
+      )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+/**
+ * Forklaringen paa hvorfor der ikke kan startes forfra, med den handling der
+ * kan aendre det. Egen komponent, saa afspillerens returnering ikke vokser til
+ * noget man skal laese to gange.
+ */
+function RestartBlocked({
+  block,
+  busy,
+  onRepair,
+}: {
+  block: RestartBlock;
+  busy: boolean;
+  onRepair: () => void;
+}) {
+  const { colors } = useTheme();
+  const styles = useStyles(makeStyles);
+  const hint = restartHint(block);
+  return (
+    <View style={styles.blocked}>
+      <Text style={styles.blockedTitle}>Start forfra er ikke klar</Text>
+      <Text style={styles.blockedText}>{hint.text}</Text>
+      {hint.action !== null && (
+        <TvPressable style={styles.blockedAction} disabled={busy} onPress={onRepair}>
+          {busy ? (
+            <ActivityIndicator color={colors.accent} />
+          ) : (
+            <Text style={styles.blockedActionText}>{hint.action}</Text>
+          )}
+        </TvPressable>
+      )}
+    </View>
+  );
+}
+
+/** "13:30 – 14:30", som paa afspillerens tidslinje hos de store udbydere. */
+function airtime(programme: Programme | null | undefined): string {
+  if (programme === null || programme === undefined) return '';
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  const clock = (date: Date): string => `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${clock(programme.start)} – ${clock(programme.stop)}`;
+}
+
+/** Kanalnavnet uden panelets praefiks og kvalitetsmaerke, til en lille knap. */
+function shortName(name: string): string {
+  const withoutPrefix = name.includes('|') ? name.slice(name.lastIndexOf('|') + 1) : name;
+  return withoutPrefix.replace(/\b(FHD|UHD|HD|SD|4K|HEVC|RAW)\b/gi, '').replace(/\s+/g, ' ').trim().slice(0, 14);
+}
+
+const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  banner: {
+    position: 'absolute',
+    top: theme.spacing.sm,
+    left: theme.spacing.sm,
+    right: 64,
+    padding: theme.spacing.sm,
+    borderRadius: theme.radius,
+    backgroundColor: '#000000aa',
+  },
+  bannerName: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  bannerTitle: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
+  connecting: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.sm,
+    backgroundColor: '#000000',
+  },
+  connectingName: { color: colors.text, fontSize: 18, fontWeight: '700' },
+  connectingHint: { color: colors.textMuted, fontSize: 14 },
   container: { flex: 1, backgroundColor: '#000000' },
   video: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000000' },
+  hiddenVideo: { width: 1, height: 1 },
   info: { padding: theme.spacing.md },
-  channelName: { color: theme.colors.text, fontSize: 20, fontWeight: '600' },
-  nowTitle: { color: theme.colors.text, fontSize: 15, marginTop: theme.spacing.xs },
-  nextTitle: { color: theme.colors.textMuted, fontSize: 13, marginTop: 2 },
-  badge: { color: theme.colors.accent, fontSize: 13, marginTop: theme.spacing.sm },
-  error: { color: theme.colors.danger, fontSize: 13, marginTop: theme.spacing.sm },
-  actions: { flexDirection: 'row', padding: theme.spacing.md, gap: theme.spacing.sm },
+  channelLine: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm },
+  channelName: { color: colors.text, fontSize: 20, fontWeight: '600', flexShrink: 1 },
+  airtime: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
+  blocked: {
+    marginHorizontal: theme.spacing.md,
+    padding: theme.spacing.md,
+    borderRadius: theme.radius,
+    backgroundColor: colors.surface,
+  },
+  blockedTitle: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  blockedText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    marginTop: theme.spacing.xs,
+    lineHeight: 18,
+  },
+  blockedAction: { alignSelf: 'flex-start', marginTop: theme.spacing.sm, minHeight: 20 },
+  blockedActionText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
+  nowTitle: { color: colors.text, fontSize: 15, marginTop: theme.spacing.xs },
+  nextTitle: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
+  badge: { color: colors.accent, fontSize: 13, marginTop: theme.spacing.sm },
+  warn: {
+    color: colors.danger,
+    fontSize: 13,
+    marginTop: theme.spacing.sm,
+    lineHeight: 18,
+  },
+  error: { color: colors.danger, fontSize: 13, marginTop: theme.spacing.sm },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', padding: theme.spacing.md, gap: theme.spacing.sm },
   button: {
-    backgroundColor: theme.colors.surfaceRaised,
+    backgroundColor: colors.surfaceRaised,
     borderRadius: theme.radius,
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.lg,
   },
-  buttonAccent: { backgroundColor: theme.colors.accent },
-  buttonText: { color: theme.colors.text, fontSize: 15, fontWeight: '600' },
+  buttonAccent: { backgroundColor: colors.accent },
+  videoInfo: { color: colors.textMuted, fontSize: 12, alignSelf: 'center', paddingHorizontal: theme.spacing.sm },
+  buttonDone: { backgroundColor: colors.surface },
+  buttonText: { color: colors.text, fontSize: 15, fontWeight: '600' },
 });

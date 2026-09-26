@@ -7,6 +7,7 @@ import {
   deleteProgrammesBefore,
   getNowNext,
   listProgrammes,
+  nowTitlesFor,
   upsertProgrammes,
 } from './programmes.js';
 
@@ -41,6 +42,27 @@ describe('upsertProgrammes', () => {
     expect(list[0]?.title).toBe('Ny titel');
   });
 
+  it('afdupliker samme (kanal, starttid) i ét kald — den sidste vinder', async () => {
+    // En batch-INSERT med to ens noegler ville ellers faa SQLite til at kaste.
+    await upsertProgrammes(db, [
+      prog('dr1', 20, 21, 'Foerste'),
+      prog('dr1', 20, 21, 'Sidste'),
+    ]);
+    const list = await listProgrammes(db, 'dr1', T(19), T(22));
+    expect(list).toHaveLength(1);
+    expect(list[0]?.title).toBe('Sidste');
+  });
+
+  it('skriver mange raekker i ét kald (over baade batch- og transaktions-klumpen)', async () => {
+    // Over 1800 raekker, saa det gaar gennem flere transaktioner.
+    const many = Array.from({ length: 2000 }, (_, i) => prog('dr1', i, i + 1, `P${i}`));
+    await upsertProgrammes(db, many);
+    const list = await listProgrammes(db, 'dr1', T(0), T(2001));
+    expect(list).toHaveLength(2000);
+    expect(list[0]?.title).toBe('P0');
+    expect(list[1999]?.title).toBe('P1999');
+  });
+
   it('bevarer beskrivelsen', async () => {
     await upsertProgrammes(db, [
       { ...prog('dr1', 20, 21, 'TV Avisen'), description: 'Nyheder' },
@@ -55,6 +77,35 @@ describe('upsertProgrammes', () => {
     const first = (await listProgrammes(db, 'dr1', T(19), T(22)))[0];
     expect(first?.start).toBeInstanceOf(Date);
     expect(first?.start.toISOString()).toBe('2026-09-04T20:00:00.000Z');
+  });
+});
+
+describe('nowTitlesFor', () => {
+  it('giver nu-titlen for hver kanal i ét opslag', async () => {
+    await upsertProgrammes(db, [
+      prog('dr1', 20, 21, 'TV Avisen'),
+      prog('dr1', 21, 22, 'Bagefter'),
+      prog('tv2', 19, 22, 'Film'),
+      prog('dr2', 8, 9, 'I morges'),
+    ]);
+    const titles = await nowTitlesFor(db, ['dr1', 'tv2', 'dr2', 'ukendt'], T(20));
+    expect(titles.get('dr1')).toBe('TV Avisen');
+    expect(titles.get('tv2')).toBe('Film');
+    // dr2 sender ikke noget kl. 20, og en ukendt kanal har ingen raekke.
+    expect(titles.has('dr2')).toBe(false);
+    expect(titles.has('ukendt')).toBe(false);
+  });
+
+  it('vaelger den senest begyndte ved overlap (som getNowNext)', async () => {
+    await upsertProgrammes(db, [
+      prog('dr1', 18, 22, 'Lang udsendelse'),
+      prog('dr1', 20, 21, 'Indslag'),
+    ]);
+    expect((await nowTitlesFor(db, ['dr1'], T(20))).get('dr1')).toBe('Indslag');
+  });
+
+  it('tom liste giver et tomt opslag', async () => {
+    expect((await nowTitlesFor(db, [], T(20))).size).toBe(0);
   });
 });
 

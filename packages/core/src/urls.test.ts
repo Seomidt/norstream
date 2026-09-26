@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildEpisodeUrl,
   buildLiveUrl,
+  buildMovieUrl,
   buildTimeshiftUrl,
   buildXmltvUrl,
   formatTimeshiftStart,
@@ -112,3 +114,44 @@ describe('buildXmltvUrl', () => {
     );
   });
 });
+
+describe('buildTimeshiftUrl og filformatet', () => {
+  const creds = { baseUrl: 'http://panel.example:8080', username: 'u', password: 'p' };
+  const start = new Date('2026-09-06T20:00:00.000Z');
+
+  it('giver m3u8 som standard, som en afspiller vil have', () => {
+    expect(buildTimeshiftUrl(creds, '1', start, 60, 'path')).toContain('/1.m3u8');
+  });
+
+  it('kan give ts, som er det man kan gemme som fil', () => {
+    // En hentet .m3u8 er spillelisten, ikke udsendelsen.
+    expect(buildTimeshiftUrl(creds, '1', start, 60, 'path', 0, 'ts')).toContain('/1.ts');
+  });
+
+  it('rører ikke php-dialekten, som ingen filendelse har', () => {
+    const asTs = buildTimeshiftUrl(creds, '1', start, 60, 'php', 0, 'ts');
+    expect(asTs).toBe(buildTimeshiftUrl(creds, '1', start, 60, 'php', 0, 'm3u8'));
+    expect(asTs).toContain('timeshift.php?');
+  });
+});
+
+describe('buildMovieUrl', () => {
+  const creds = { baseUrl: 'http://p:8080/', username: 'u', password: 'p' };
+
+  it('bygger adressen med panelets egen filendelse', () => {
+    expect(buildMovieUrl(creds, '4711', 'mkv')).toBe('http://p:8080/movie/u/p/4711.mkv');
+  });
+
+  it('falder tilbage paa mp4 naar panelet ikke oplyser en', () => {
+    expect(buildMovieUrl(creds, '4711', null)).toBe('http://p:8080/movie/u/p/4711.mp4');
+  });
+});
+
+describe('buildEpisodeUrl', () => {
+  it('bruger series-stien', () => {
+    expect(
+      buildEpisodeUrl({ baseUrl: 'http://p', username: 'u', password: 'p' }, '1001', 'mkv'),
+    ).toBe('http://p/series/u/p/1001.mkv');
+  });
+});
+
