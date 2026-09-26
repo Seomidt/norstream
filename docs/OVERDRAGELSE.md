@@ -21,7 +21,7 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 **23. september 2026.** Appen kører på brugerens to Google TV Streamere og
 telefon mod det rigtige panel. Efter denne omgang (v317–v319) er brugerens ord
 "nu kører det hele dejligt hurtigt igen og alt fungerer". Alt bygges via GitHub,
-aldrig EAS; se `docs/BYG-FRA-CHAT.md`. Nyeste udgivelse: **versionCode 333** på
+aldrig EAS; se `docs/BYG-FRA-CHAT.md`. Nyeste udgivelse: **versionCode 334** på
 begge faste mærkater (`latest-norstream`, `latest-norstream-tv`).
 
 **Vigtigste læring fra denne omgang:** på tv-boksens hardware er det at hente +
@@ -32,6 +32,23 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 26. september 2026 — v334: iPhone-filerne i 720p — rækker grænsen længere?
+
+Brugeren om v333: kører "super godt de første 40–50 sekunder", men ved skiftet
+går der ~30 s, og så fortsætter den "i meget dårlig kvalitet" (YouTubes
+afspiller på boksen). Hypotese: grænsen er en datamængde, ikke en tid (0:55 på
+én trailer, 0:45 på en anden). I 720p er datamængden per sekund ca. det halve.
+
+- `youtubeStream.ts`: `LIMITED_MAX_HEIGHT = 720` for iPhone-klientens direkte
+  filer (VR-klienten og HLS stadig op til 1080p).
+- `TrailerScreen`: en kort linje i 15 s når den native del slutter før tid:
+  `Skift ved m:ss · YouTubes afspiller var klar/var IKKE klar` eller
+  `Stop ved m:ss · grænsen blev ikke fundet i tide`. Skiftet (v333) er
+  sikkerhedsnet.
+- **Næste skridt afhænger af svaret:** når 720p hele vejen, er det løsningen
+  (overvej at fjerne linjen). Stopper den stadig ved ~0:50, er grænsen en tid,
+  og så er valget mellem blandingen og kun YouTubes afspiller.
 
 ### 26. september 2026 — v333: blanding — HD-start native, glat skift til YouTubes afspiller
 

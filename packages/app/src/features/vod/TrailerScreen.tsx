@@ -251,6 +251,17 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   const standbyReady = useRef(false);
   const pendingHandover = useRef(false);
   const handedOverRef = useRef(false);
+  /**
+   * En kort linje i 15 s naar den native del slutter foer tid (v334): hvor,
+   * og om YouTubes afspiller var klar. Saa kan brugeren se om 720p rykkede
+   * graensen. Kun tider og ja/nej.
+   */
+  const [switchNote, setSwitchNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (switchNote === null) return undefined;
+    const timer = setTimeout(() => setSwitchNote(null), 15000);
+    return () => clearTimeout(timer);
+  }, [switchNote]);
   /** Hvornaar bufferen sidst voksede, og hvor afspilningen var dengang. */
   const bufferWatch = useRef<{ buffered: number; since: number; position: number } | null>(null);
   /** Skaermen er stadig aaben; en soegning der svarer sent maa ikke roere en lukket skaerm. */
@@ -385,9 +396,10 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
       // Kendt: de filer afvises efter et minut; nye adresser hjaelper ikke.
       // Er YouTubes afspiller allerede gjort klar, tager den over dér.
       if (standby !== null && standby.id === from.id) {
-        handOver();
+        handOver(position);
         return;
       }
+      setSwitchNote(`Stop ved ${clock(position)} · grænsen blev ikke fundet i tide`);
     } else if (failures < NATIVE_MAX_RECOVERIES) {
       const stream = await resolveYoutubeStream(postJson, from.id, getText);
       if (!alive.current) return;
@@ -426,7 +438,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   function onNativeProgress(position: number, buffered: number): void {
     if (source.kind !== 'native' || !source.limited || handedOverRef.current) return;
     if (standby !== null) {
-      if (position >= standby.startAt) handOver();
+      if (position >= standby.startAt) handOver(position);
       return;
     }
     const now = Date.now();
@@ -444,8 +456,11 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   }
 
   /** YouTubes afspiller overtager. Er den ikke klar endnu, vises hjulet til den er. */
-  function handOver(): void {
+  function handOver(position?: number): void {
     if (handedOverRef.current) return;
+    if (position !== undefined) {
+      setSwitchNote(`Skift ved ${clock(position)} · YouTubes afspiller ${standbyReady.current ? 'var klar' : 'var IKKE klar'}`);
+    }
     if (!standbyReady.current) {
       pendingHandover.current = true;
       setLoading(true);
@@ -617,6 +632,11 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
               domStorageEnabled
               onMessage={onStandbyMessage}
             />
+          </View>
+        )}
+        {switchNote !== null && (
+          <View style={styles.note} pointerEvents="none">
+            <Text style={styles.noteText}>{switchNote}</Text>
           </View>
         )}
         {source.kind === 'none' && (
@@ -907,6 +927,17 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   overlayText: { color: colors.textMuted, marginTop: theme.spacing.sm },
   /** YouTubes afspiller mens den goeres klar: usynlig, over den native video. */
   hidden: { opacity: 0 },
+  /** Linjen ved et skift: lille, nederst til venstre. */
+  note: {
+    position: 'absolute',
+    left: theme.spacing.sm,
+    bottom: theme.spacing.sm,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  noteText: { color: '#FFFFFF', fontSize: 12 },
   errorText: { color: colors.text, textAlign: 'center' },
   info: { flex: 1, padding: theme.spacing.md, backgroundColor: colors.background },
   title: { color: colors.text, fontSize: 18, fontWeight: '700' },

@@ -89,6 +89,12 @@ const PLAYER_URL = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false
 
 /** Hoejeste kvalitet der vaelges. Fuld HD er det Googles butik viser; 4K er spild paa en trailer. */
 export const MAX_TRAILER_HEIGHT = 1080;
+/**
+ * iPhone-klientens direkte filer stoppes af YouTube efter ca. 45–55 s i
+ * 1080p (maalt paa brugerens boks). Er graensen en datamaengde og ikke en
+ * tid, rækker den dobbelt saa langt i 720p — maaske hele traileren (v334).
+ */
+export const LIMITED_MAX_HEIGHT = 720;
 
 export interface ByteRange {
   start: string;
@@ -206,7 +212,10 @@ export async function resolveYoutubeStream(post: PostJson, videoId: string, getT
         why.push(`${client.short}:ingen-hls`);
       }
     }
-    const picked = pickFormats(data.streamingData?.adaptiveFormats ?? []);
+    const picked = pickFormats(
+      data.streamingData?.adaptiveFormats ?? [],
+      client.mode === 'hls' ? LIMITED_MAX_HEIGHT : MAX_TRAILER_HEIGHT,
+    );
     if (picked === null) {
       why.push(`${client.short}:format`);
       continue;

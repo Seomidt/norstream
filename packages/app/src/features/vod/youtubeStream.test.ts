@@ -185,6 +185,8 @@ describe('resolveYoutubeStream', () => {
       headers['X-YouTube-Client-Name'] === '28' ? { playabilityStatus: { status: 'LOGIN_REQUIRED' } } : ok;
     const result = await resolveYoutubeStream(post, 'dQw4w9WgXcQ', async () => null);
     expect(result).toMatchObject({ kind: 'dash', client: 'IOS', limited: true, trace: 'VR:LOGIN_REQUIRED IOS:ingen-hls' });
+    // 720p, ikke 1080p: graensen er maaske en datamaengde (v334).
+    expect(result).toMatchObject({ height: 720 });
   });
 
   it('fortaeller om adressen er bundet til IPv4 eller IPv6 — aldrig adressen selv', async () => {
