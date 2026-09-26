@@ -18,6 +18,13 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**26. september 2026 (v335).** Brugeren: "Fantastisk, endelig kører det også,
+EPG ser også ud til at køre nu." Trailere fra IMDb i 1080p (v335) og
+UK/US-programoversigt fra panelets egen `xmltv.php` (v320+) er bekræftet af
+brugeren. Stadig åbent: start forfra på en udsendelse der sluttede for 2–3 timer
+siden (afventer brugerens test), Android Auto-listen der hopper til toppen
+(afventer billede af loggen), og `latest-norradio` der ikke fik ny fil.
+
 **23. september 2026.** Appen kører på brugerens to Google TV Streamere og
 telefon mod det rigtige panel. Efter denne omgang (v317–v319) er brugerens ord
 "nu kører det hele dejligt hurtigt igen og alt fungerer". Alt bygges via GitHub,
