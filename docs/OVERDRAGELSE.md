@@ -44,6 +44,11 @@ offentlige GraphQL (`api.graphql.imdb.com`, samme som deres hjemmeside) virker;
 titelsiderne svarer 202 (AWS-udfordring) — dem bruger vi ikke, og vi prøver
 ALDRIG at komme uden om den.
 
+- **Brugeren om v335 på telefonen: "virker det super perfekt nu"** (tv ikke
+  prøvet endnu). IMDb er DEN rigtige vej til trailere — prøv altid en anden
+  kilde, før man kæmper med YouTubes grænser (v329–v334 var en omvej).
+- Apple/iTunes er afprøvet (`scripts/maal/itunes-trailer.mjs`): søgetjenesten
+  giver 0 film for alle titler, også i den amerikanske butik — lukket.
 - **`sync/tmdb.ts` `findImdbId`:** TMDB-søgning → `/{movie|tv}/{id}/external_ids`
   → `imdb_id`.
 - **`features/vod/imdbTrailer.ts`:** `findImdbTrailers(post, tt…)` →
