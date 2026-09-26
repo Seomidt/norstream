@@ -29,8 +29,20 @@
 
 /** POST af JSON; svarer null ved netfejl eller et svar der ikke er JSON. */
 export type PostJson = (url: string, headers: Record<string, string>, body: string) => Promise<unknown>;
+/** GET af tekst (HLS-manifestet); null ved fejl. */
+export type GetText = (url: string) => Promise<string | null>;
 
 interface ClientSpec {
+  /** Kort navn til diagnoselinjen. */
+  short: string;
+  /**
+   * `dash`: de direkte filer (VR-klienten; ingen PO-token kraevet).
+   * `hls`: HLS-manifestet (iPhone-klienten). Maalt paa brugerens boks (v331):
+   * iPhone-klientens direkte filer afvises med 403 ved 0:55, ogsaa med nye
+   * adresser — YouTubes spaerring af filer uden "PO-token" paa en
+   * hjemmeforbindelse. HLS-manifestet er ikke omfattet.
+   */
+  mode: 'dash' | 'hls';
   id: number;
   context: Record<string, string | number>;
   userAgent: string;
@@ -42,6 +54,8 @@ interface ClientSpec {
  */
 const CLIENTS: ClientSpec[] = [
   {
+    short: 'VR',
+    mode: 'dash',
     id: 28,
     context: {
       clientName: 'ANDROID_VR',
@@ -56,6 +70,8 @@ const CLIENTS: ClientSpec[] = [
       'com.google.android.apps.youtube.vr.oculus/1.62.27 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip',
   },
   {
+    short: 'IOS',
+    mode: 'hls',
     id: 5,
     context: {
       clientName: 'IOS',
@@ -104,6 +120,23 @@ export type YoutubeStream =
       /** Til diagnoselinjen: hvilken klient svarede, og om adressen er bundet til IPv4 eller IPv6. */
       client: string;
       ipFamily: 'IPv4' | 'IPv6' | '?';
+      /** Hvad de klienter der blev sprunget over svarede (fx "VR:LOGIN_REQUIRED"). */
+      trace: string;
+      /**
+       * Filerne afvises efter ca. et minut (iPhone-klientens direkte filer, kun
+       * brugt naar HLS ikke kunne): skaermen skifter saa til webvisningen.
+       */
+      limited: boolean;
+    }
+  /** Et HLS-hovedmanifest (tekst) med én variant, appen skriver til en fil og spiller. */
+  | {
+      kind: 'hls';
+      playlist: string;
+      seconds: number | null;
+      height: number;
+      client: string;
+      ipFamily: 'IPv4' | 'IPv6' | '?';
+      trace: string;
     }
   /** YouTube siger nej til netop den video: proev den naeste. */
   | { kind: 'unavailable' }
@@ -117,11 +150,13 @@ const UNAVAILABLE = new Set(['UNPLAYABLE', 'ERROR']);
  * Spoerger klienterne efter tur, og bygger et manifest af den foerste der
  * svarer OK med brugbare formater.
  */
-export async function resolveYoutubeStream(post: PostJson, videoId: string): Promise<YoutubeStream> {
+export async function resolveYoutubeStream(post: PostJson, videoId: string, getText?: GetText): Promise<YoutubeStream> {
   if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return { kind: 'unavailable' };
   let unavailable = 0;
   let answered = 0;
   const why: string[] = [];
+  /** iPhone-klientens direkte filer: sidste udvej, de stopper efter et minut. */
+  let limited: YoutubeStream | null = null;
   for (const client of CLIENTS) {
     let response: unknown;
     try {
@@ -130,24 +165,50 @@ export async function resolveYoutubeStream(post: PostJson, videoId: string): Pro
       response = null;
     }
     if (response === null || typeof response !== 'object') {
-      why.push('net');
+      why.push(`${client.short}:net`);
       continue;
     }
     answered += 1;
     const data = response as {
       playabilityStatus?: { status?: string };
-      streamingData?: { adaptiveFormats?: YoutubeFormat[] };
+      streamingData?: { adaptiveFormats?: YoutubeFormat[]; hlsManifestUrl?: string };
       videoDetails?: { lengthSeconds?: string };
     };
     const status = data.playabilityStatus?.status;
     if (status !== 'OK') {
       if (status !== undefined && UNAVAILABLE.has(status)) unavailable += 1;
-      why.push(status ?? '?');
+      why.push(`${client.short}:${status ?? '?'}`);
       continue;
+    }
+    if (client.mode === 'hls') {
+      const master = data.streamingData?.hlsManifestUrl;
+      if (typeof master === 'string' && master.startsWith('https://') && getText !== undefined) {
+        let text: string | null = null;
+        try {
+          text = await getText(master);
+        } catch {
+          text = null;
+        }
+        const built = text === null ? null : buildHlsMaster(text, master);
+        if (built !== null) {
+          return {
+            kind: 'hls',
+            playlist: built.playlist,
+            seconds: lengthOf(data.videoDetails?.lengthSeconds, undefined),
+            height: built.height,
+            client: String(client.context.clientName),
+            ipFamily: ipFamilyOf(built.firstUri),
+            trace: why.join(' '),
+          };
+        }
+        why.push(`${client.short}:hls-${text === null ? 'net' : 'format'}`);
+      } else {
+        why.push(`${client.short}:ingen-hls`);
+      }
     }
     const picked = pickFormats(data.streamingData?.adaptiveFormats ?? []);
     if (picked === null) {
-      why.push('format');
+      why.push(`${client.short}:format`);
       continue;
     }
     const seconds = lengthOf(data.videoDetails?.lengthSeconds, picked.video.approxDurationMs);
@@ -155,15 +216,20 @@ export async function resolveYoutubeStream(post: PostJson, videoId: string): Pro
     // stopper dér. lengthSeconds er rundet ned til hele sekunder; filernes
     // egne laengder er i millisekunder. Den laengste af dem.
     const full = Math.max(seconds ?? 0, msToSeconds(picked.video.approxDurationMs), msToSeconds(picked.audio.approxDurationMs));
-    return {
+    const dash: YoutubeStream = {
       kind: 'dash',
       mpd: buildMpd(picked.video, picked.audio, full > 0 ? full : null),
       seconds,
       height: picked.video.height ?? 0,
       client: String(client.context.clientName),
       ipFamily: ipFamilyOf(picked.video.url),
+      trace: why.join(' '),
+      limited: client.mode === 'hls',
     };
+    if (client.mode === 'dash') return dash;
+    limited ??= dash;
   }
+  if (limited !== null) return limited;
   // Kun naar ALLE der svarede sagde "kan ikke ses" er det videoen der er
   // noget galt med; et enkelt nej kan vaere klientens eget.
   return answered > 0 && unavailable === answered ? { kind: 'unavailable' } : { kind: 'fallback', why: why.join('/') };
@@ -201,10 +267,90 @@ function lengthOf(lengthSeconds: string | undefined, approxMs: string | undefine
  * undervejs, afvises filen.
  */
 function ipFamilyOf(url: string | undefined): 'IPv4' | 'IPv6' | '?' {
-  const ip = /[?&]ip=([^&]+)/.exec(url ?? '')?.[1];
+  // Direkte filer: ?ip=…; HLS-manifestets adresser: /ip/…/
+  const ip = /[?&]ip=([^&]+)/.exec(url ?? '')?.[1] ?? /\/ip\/([^/]+)\//.exec(url ?? '')?.[1];
   if (ip === undefined) return '?';
   const decoded = decodeURIComponent(ip);
   return decoded.includes(':') ? 'IPv6' : /^\d+\.\d+\.\d+\.\d+$/.test(decoded) ? 'IPv4' : '?';
+}
+
+/** En variant i et HLS-hovedmanifest. */
+export interface HlsVariant {
+  /** `#EXT-X-STREAM-INF`-linjen, uaendret. */
+  inf: string;
+  uri: string;
+  height: number;
+  bandwidth: number;
+  codecs: string;
+  audio: string | null;
+}
+
+function attribute(line: string, name: string): string | null {
+  const match = new RegExp(`(?:^|[:,])${name}=("([^"]*)"|[^,]*)`).exec(line);
+  if (match === null) return null;
+  return match[2] ?? match[1] ?? null;
+}
+
+function absolute(uri: string, base: string): string {
+  if (/^https?:\/\//.test(uri)) return uri;
+  const origin = /^(https?:\/\/[^/]+)/.exec(base)?.[1] ?? '';
+  if (uri.startsWith('/')) return origin + uri;
+  return base.slice(0, base.lastIndexOf('/') + 1) + uri;
+}
+
+export function parseHlsVariants(text: string, base: string): HlsVariant[] {
+  const lines = text.split(/\r?\n/).map((l) => l.trim());
+  const out: HlsVariant[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const inf = lines[i] ?? '';
+    if (!inf.startsWith('#EXT-X-STREAM-INF:')) continue;
+    let j = i + 1;
+    while (j < lines.length && ((lines[j] ?? '') === '' || (lines[j] ?? '').startsWith('#'))) j++;
+    const uri = lines[j];
+    if (uri === undefined) continue;
+    const resolution = attribute(inf, 'RESOLUTION') ?? '';
+    out.push({
+      inf,
+      uri: absolute(uri, base),
+      height: Number(/x(\d+)$/.exec(resolution)?.[1] ?? 0),
+      bandwidth: Number(attribute(inf, 'BANDWIDTH') ?? 0),
+      codecs: attribute(inf, 'CODECS') ?? '',
+      audio: attribute(inf, 'AUDIO'),
+    });
+  }
+  return out;
+}
+
+/**
+ * Et hovedmanifest med KUN den bedste variant op til maxHeight (H.264 foerst)
+ * og dens lydspor — saa afspilleren starter i HD i stedet for at begynde lavt.
+ * Null hvis manifestet ikke kan laeses.
+ */
+export function buildHlsMaster(
+  text: string,
+  base: string,
+  maxHeight = MAX_TRAILER_HEIGHT,
+): { playlist: string; height: number; firstUri: string } | null {
+  if (!text.startsWith('#EXTM3U')) return null;
+  const variants = parseHlsVariants(text, base).filter((v) => v.height > 0 && v.height <= maxHeight);
+  const byQuality = (a: HlsVariant, b: HlsVariant): number => b.height - a.height || b.bandwidth - a.bandwidth;
+  const h264 = variants.filter((v) => v.codecs.includes('avc1')).sort(byQuality);
+  const chosen = h264[0] ?? [...variants].sort(byQuality)[0];
+  if (chosen === undefined) return null;
+  const lines = ['#EXTM3U'];
+  if (text.includes('#EXT-X-INDEPENDENT-SEGMENTS')) lines.push('#EXT-X-INDEPENDENT-SEGMENTS');
+  if (chosen.audio !== null) {
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line.startsWith('#EXT-X-MEDIA:') || attribute(line, 'GROUP-ID') !== chosen.audio) continue;
+      const uri = attribute(line, 'URI');
+      lines.push(uri === null ? line : line.replace(`URI="${uri}"`, `URI="${absolute(uri, base)}"`));
+    }
+  }
+  // Undertekst-gruppen tages ikke med; henvisningen til den fjernes derfor.
+  const inf = chosen.inf.replace(/,?SUBTITLES="[^"]*"/, '').replace('#EXT-X-STREAM-INF:,', '#EXT-X-STREAM-INF:');
+  lines.push(inf, chosen.uri, '');
+  return { playlist: lines.join('\n'), height: chosen.height, firstUri: chosen.uri };
 }
 
 function msToSeconds(ms: string | undefined): number {

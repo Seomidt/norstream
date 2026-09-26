@@ -21,7 +21,7 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 **23. september 2026.** Appen kører på brugerens to Google TV Streamere og
 telefon mod det rigtige panel. Efter denne omgang (v317–v319) er brugerens ord
 "nu kører det hele dejligt hurtigt igen og alt fungerer". Alt bygges via GitHub,
-aldrig EAS; se `docs/BYG-FRA-CHAT.md`. Nyeste udgivelse: **versionCode 331** på
+aldrig EAS; se `docs/BYG-FRA-CHAT.md`. Nyeste udgivelse: **versionCode 332** på
 begge faste mærkater (`latest-norstream`, `latest-norstream-tv`).
 
 **Vigtigste læring fra denne omgang:** på tv-boksens hardware er det at hente +
@@ -32,6 +32,29 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 26. september 2026 — v332: trailer via iPhone-klientens HLS (ikke dens direkte filer)
+
+**Diagnoselinjen (v331) på brugerens boks viste årsagen:** `IOS · 1080p · IPv6 ·
+1:57` og så `0:55 fejl 403 → nye adresser` tre gange, og webvisning. Altså:
+VR-klienten virker IKKE hjemme hos brugeren (derfor IOS), og iPhone-klientens
+direkte filer afvises ved 0:55 — også med friske adresser. Det er YouTubes
+"GVS PO-token"-spærring (yt-dlp: iOS kræver PO-token for https-formater, ikke
+for HLS). Fra GitHubs maskine ses spærringen ikke; mål aldrig kun derfra.
+
+- **`youtubeStream.ts`:** hver klient har en `mode`. VR → direkte filer (DASH).
+  IOS → `hlsManifestUrl`; `buildHlsMaster` laver et hovedmanifest med KUN den
+  bedste H.264-variant ≤ 1080p + dens lydgruppe (undertekst-henvisningen
+  fjernes), så den starter i HD. Målt (`scripts/maal/youtube-hls.mjs`): variant
+  itag 270 (1920x1080 avc1), lyd-gruppe 234, 38 stykker à ~5 s, alle 200.
+  iPhone-klientens direkte filer bruges kun som sidste udvej (`limited: true`),
+  og ved 403 går skærmen så straks til webvisningen fra samme sted.
+- **`TrailerScreen`:** `prepareStream` skriver `.mpd` eller `.m3u8` og vælger
+  `contentType`; diagnoselinjen viser nu fx
+  `IOS HLS · 1080p · IPv6 [VR:LOGIN_REQUIRED] · 1:57` — i klammerne står hvad de
+  oversprungne klienter svarede.
+- **Åbent:** hvorfor VR-klienten fejler hjemme (klammerne viser det næste gang).
+  Diagnoselinjen er stadig midlertidig.
 
 ### 26. september 2026 — v331: diagnoselinje i traileren + genopretning der ikke giver op
 

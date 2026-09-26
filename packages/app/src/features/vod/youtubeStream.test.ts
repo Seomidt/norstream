@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMpd, codecsOf, pickFormats, resolveYoutubeStream } from './youtubeStream.js';
+import { buildHlsMaster, buildMpd, codecsOf, pickFormats, resolveYoutubeStream } from './youtubeStream.js';
 import type { PostJson, YoutubeFormat } from './youtubeStream.js';
 
 const range = (start: number, end: number) => ({ start: String(start), end: String(end) });
@@ -93,6 +93,49 @@ describe('buildMpd', () => {
   });
 });
 
+const P = (itag: number) => `https://manifest.googlevideo.com/api/manifest/hls_playlist/expire/1/ip/2a02:1::1/itag/${itag}/playlist/index.m3u8`;
+const MASTER = [
+  '#EXTM3U',
+  '#EXT-X-INDEPENDENT-SEGMENTS',
+  `#EXT-X-MEDIA:URI="${P(233)}",TYPE=AUDIO,GROUP-ID="233",NAME="Default",DEFAULT=YES,AUTOSELECT=YES`,
+  `#EXT-X-MEDIA:URI="${P(234)}",TYPE=AUDIO,GROUP-ID="234",NAME="Default",DEFAULT=YES,AUTOSELECT=YES`,
+  '#EXT-X-MEDIA:URI="https://manifest.googlevideo.com/api/timedtext",TYPE=SUBTITLES,GROUP-ID="vtt",LANGUAGE="en",NAME="English"',
+  '#EXT-X-STREAM-INF:BANDWIDTH=1248435,CODECS="avc1.4D401F,mp4a.40.2",RESOLUTION=1280x720,FRAME-RATE=25,AUDIO="234",SUBTITLES="vtt",CLOSED-CAPTIONS=NONE',
+  P(232),
+  '#EXT-X-STREAM-INF:BANDWIDTH=4688074,CODECS="avc1.640028,mp4a.40.2",RESOLUTION=1920x1080,FRAME-RATE=25,AUDIO="234",SUBTITLES="vtt",CLOSED-CAPTIONS=NONE',
+  P(270),
+  '#EXT-X-STREAM-INF:BANDWIDTH=1763840,CODECS="vp09.00.40.08,mp4a.40.2",RESOLUTION=1920x1080,FRAME-RATE=25,AUDIO="234",SUBTITLES="vtt",CLOSED-CAPTIONS=NONE',
+  P(614),
+  '#EXT-X-STREAM-INF:BANDWIDTH=9564454,CODECS="vp09.00.50.08,mp4a.40.2",RESOLUTION=2560x1440,FRAME-RATE=25,AUDIO="234",SUBTITLES="vtt",CLOSED-CAPTIONS=NONE',
+  P(620),
+  '',
+].join('\n');
+
+describe('buildHlsMaster', () => {
+  it('beholder kun H.264 i 1080p og dens lydspor, uden undertekst-henvisning', () => {
+    const built = buildHlsMaster(MASTER, 'https://manifest.googlevideo.com/api/manifest/hls_variant/x');
+    expect(built?.height).toBe(1080);
+    const lines = built?.playlist.split('\n') ?? [];
+    expect(lines[0]).toBe('#EXTM3U');
+    expect(lines.filter((l) => l.startsWith('#EXT-X-STREAM-INF'))).toHaveLength(1);
+    expect(built?.playlist).toContain(P(270));
+    expect(built?.playlist).toContain(`URI="${P(234)}"`);
+    expect(built?.playlist).not.toContain(P(233));
+    expect(built?.playlist).not.toContain('SUBTITLES');
+    expect(built?.playlist).not.toContain('2560x1440');
+  });
+
+  it('giver null for noget der ikke er et HLS-manifest', () => {
+    expect(buildHlsMaster('<html>', 'https://x/y')).toBeNull();
+    expect(buildHlsMaster('#EXTM3U\n', 'https://x/y')).toBeNull();
+  });
+
+  it('goer relative adresser absolutte', () => {
+    const text = '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1,CODECS="avc1.640028",RESOLUTION=1920x1080\nv/1080.m3u8\n';
+    expect(buildHlsMaster(text, 'https://h.example/a/master.m3u8')?.playlist).toContain('https://h.example/a/v/1080.m3u8');
+  });
+});
+
 describe('resolveYoutubeStream', () => {
   const ok = { playabilityStatus: { status: 'OK' }, streamingData: { adaptiveFormats: FORMATS }, videoDetails: { lengthSeconds: '151' } };
 
@@ -128,10 +171,20 @@ describe('resolveYoutubeStream', () => {
     expect(calls).toEqual(['28', '5']);
   });
 
-  it('bruger iPhone-klienten naar VR-klienten ikke kan', async () => {
+  it('bruger iPhone-klientens HLS naar VR-klienten ikke kan — med 1080p-varianten', async () => {
+    const post: PostJson = async (_url, headers) =>
+      headers['X-YouTube-Client-Name'] === '28'
+        ? { playabilityStatus: { status: 'LOGIN_REQUIRED' } }
+        : { ...ok, streamingData: { ...ok.streamingData, hlsManifestUrl: 'https://manifest.googlevideo.com/api/manifest/hls_variant/ip/2a02:1::1/x' } };
+    const result = await resolveYoutubeStream(post, 'dQw4w9WgXcQ', async () => MASTER);
+    expect(result).toMatchObject({ kind: 'hls', height: 1080, client: 'IOS', ipFamily: 'IPv6', trace: 'VR:LOGIN_REQUIRED' });
+  });
+
+  it('tager iPhone-klientens direkte filer som sidste udvej, markeret som begraensede', async () => {
     const post: PostJson = async (_url, headers) =>
       headers['X-YouTube-Client-Name'] === '28' ? { playabilityStatus: { status: 'LOGIN_REQUIRED' } } : ok;
-    expect((await resolveYoutubeStream(post, 'dQw4w9WgXcQ')).kind).toBe('dash');
+    const result = await resolveYoutubeStream(post, 'dQw4w9WgXcQ', async () => null);
+    expect(result).toMatchObject({ kind: 'dash', client: 'IOS', limited: true, trace: 'VR:LOGIN_REQUIRED IOS:ingen-hls' });
   });
 
   it('fortaeller om adressen er bundet til IPv4 eller IPv6 — aldrig adressen selv', async () => {
@@ -145,7 +198,7 @@ describe('resolveYoutubeStream', () => {
 
   it('siger hvorfor, naar den falder tilbage', async () => {
     const post: PostJson = async () => ({ playabilityStatus: { status: 'LOGIN_REQUIRED' } });
-    expect(await resolveYoutubeStream(post, 'dQw4w9WgXcQ')).toEqual({ kind: 'fallback', why: 'LOGIN_REQUIRED/LOGIN_REQUIRED' });
+    expect(await resolveYoutubeStream(post, 'dQw4w9WgXcQ')).toEqual({ kind: 'fallback', why: 'VR:LOGIN_REQUIRED/IOS:LOGIN_REQUIRED' });
   });
 
   it('siger "kan ikke ses" naar alle klienter siger at videoen er spaerret', async () => {

@@ -15,7 +15,7 @@ import { MIN_TRAILER_SECONDS, findLongerTrailer, searchYoutubeTrailers, youtubeS
 import type { FetchText } from './trailerSearch.js';
 import { webView } from './webview.js';
 import { resolveYoutubeStream } from './youtubeStream.js';
-import type { PostJson } from './youtubeStream.js';
+import type { GetText, PostJson, YoutubeStream } from './youtubeStream.js';
 import { surfaceTypeForPlatform } from '../player/format.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
@@ -59,6 +59,9 @@ type Source =
       failures: number;
       /** Videoens laengde ifoelge YouTube; bruges hvis afspilleren ikke kender den. */
       seconds: number | null;
+      contentType: 'dash' | 'hls';
+      /** Filer YouTube afviser efter ca. et minut: ingen genforsoeg, straks webvisningen. */
+      limited: boolean;
     }
   /** `startAt`: sekunder inde, naar den overtager fra den native afspiller. */
   | { kind: 'measured'; id: string; checkLength: boolean; startAt?: number }
@@ -150,20 +153,58 @@ const postJson: PostJson = async (url, headers, body) => {
   }
 };
 
+/** GET af HLS-manifestet; null ved alt andet end et svar. */
+const getText: GetText = async (url) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), NATIVE_LOOKUP_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    return response.ok ? await response.text() : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 /**
  * Manifestet skal ligge i en fil: afspilleren tager en adresse. Én fil per
- * video, skrevet forfra hver gang (YouTubes adresser udloeber efter timer).
+ * video og forsoeg, skrevet forfra (YouTubes adresser udloeber efter timer).
  */
-function writeManifest(videoId: string, attempt: number, mpd: string): string | null {
+function writeManifest(videoId: string, attempt: number, text: string, extension: 'mpd' | 'm3u8'): string | null {
   try {
-    const file = new File(Paths.cache, `trailer-${videoId}-${attempt}.mpd`);
+    const file = new File(Paths.cache, `trailer-${videoId}-${attempt}.${extension}`);
     if (file.exists) file.delete();
     file.create();
-    file.write(mpd);
+    file.write(text);
     return file.uri;
   } catch {
     return null;
   }
+}
+
+/** Et fundet stroem som fil til afspilleren, eller null. */
+function prepareStream(
+  stream: YoutubeStream,
+  videoId: string,
+  attempt: number,
+): { uri: string; contentType: 'dash' | 'hls'; limited: boolean; seconds: number | null; label: string } | null {
+  if (stream.kind !== 'dash' && stream.kind !== 'hls') return null;
+  const uri =
+    stream.kind === 'dash'
+      ? writeManifest(videoId, attempt, stream.mpd, 'mpd')
+      : writeManifest(videoId, attempt, stream.playlist, 'm3u8');
+  if (uri === null) return null;
+  const limited = stream.kind === 'dash' && stream.limited;
+  const kind = stream.kind === 'hls' ? 'HLS' : limited ? 'filer (kun 1. minut)' : 'filer';
+  const skipped = stream.trace === '' ? '' : ` [${stream.trace}]`;
+  return {
+    uri,
+    contentType: stream.kind,
+    limited,
+    seconds: stream.seconds,
+    label: `${stream.client} ${kind} · ${stream.height}p · ${stream.ipFamily}${skipped}`,
+  };
 }
 
 /**
@@ -274,21 +315,31 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         if (!alive.current) return;
         setNote(next.note);
         if (NATIVE_TRAILERS) {
-          const stream = await resolveYoutubeStream(postJson, next.id);
+          const stream = await resolveYoutubeStream(postJson, next.id, getText);
           if (!alive.current) return;
           // Spaerret i Danmark, fjernet: webvisningen ville fejle ligesaa.
           if (stream.kind === 'unavailable') continue;
-          if (stream.kind === 'dash') {
+          if (stream.kind === 'fallback') {
+            log(`YouTube sagde nej (${stream.why}) → webvisning`);
+          } else {
             if (next.checkLength && stream.seconds !== null && stream.seconds < MIN_TRAILER_SECONDS) continue;
-            const uri = writeManifest(next.id, 0, stream.mpd);
-            if (uri !== null) {
-              log(`${stream.client} · ${stream.height}p · ${stream.ipFamily} · ${stream.seconds === null ? '?' : clock(stream.seconds)}`);
+            const ready = prepareStream(stream, next.id, 0);
+            if (ready !== null) {
+              log(`${ready.label} · ${ready.seconds === null ? '?' : clock(ready.seconds)}`);
               setLoading(true);
-              setSource({ kind: 'native', id: next.id, uri, resumeAt: 0, attempt: 0, failures: 0, seconds: stream.seconds });
+              setSource({
+                kind: 'native',
+                id: next.id,
+                uri: ready.uri,
+                resumeAt: 0,
+                attempt: 0,
+                failures: 0,
+                seconds: ready.seconds,
+                contentType: ready.contentType,
+                limited: ready.limited,
+              });
               return;
             }
-          } else {
-            log(`YouTube sagde nej (${stream.why}) → webvisning`);
           }
           // fallback: bot-tjek, netfejl, intet brugbart format — webvisningen.
         }
@@ -332,16 +383,26 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     setLoading(true);
     const progressed = position >= from.resumeAt + NATIVE_PROGRESS_S;
     const failures = progressed ? 0 : from.failures + 1;
-    if (failures < NATIVE_MAX_RECOVERIES) {
-      const stream = await resolveYoutubeStream(postJson, from.id);
+    if (from.limited && reason.includes('403')) {
+      // Kendt: de filer afvises efter et minut; nye adresser hjaelper ikke.
+      log(`${clock(position)} ${reason} → filerne er spaerret herfra → webvisning`);
+    } else if (failures < NATIVE_MAX_RECOVERIES) {
+      const stream = await resolveYoutubeStream(postJson, from.id, getText);
       if (!alive.current) return;
-      if (stream.kind === 'dash') {
-        const uri = writeManifest(from.id, from.attempt + 1, stream.mpd);
-        if (uri !== null) {
-          log(`${clock(position)} ${reason} → nye adresser (${stream.client}, ${stream.ipFamily})`);
-          setSource({ ...from, uri, resumeAt: position, attempt: from.attempt + 1, failures, seconds: stream.seconds ?? from.seconds });
-          return;
-        }
+      const ready = prepareStream(stream, from.id, from.attempt + 1);
+      if (ready !== null) {
+        log(`${clock(position)} ${reason} → nye adresser (${ready.label})`);
+        setSource({
+          ...from,
+          uri: ready.uri,
+          resumeAt: position,
+          attempt: from.attempt + 1,
+          failures,
+          seconds: ready.seconds ?? from.seconds,
+          contentType: ready.contentType,
+          limited: ready.limited,
+        });
+        return;
       }
       log(`${clock(position)} ${reason} → ingen nye adresser (${stream.kind === 'fallback' ? stream.why : stream.kind}) → webvisning`);
     } else {
@@ -451,6 +512,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             uri={source.uri}
             resumeAt={source.resumeAt}
             expectedSeconds={source.seconds}
+            contentType={source.contentType}
             onReady={() => setLoading(false)}
             onBroken={(position, reason) => {
               void recoverNative(source, position, reason);
@@ -519,7 +581,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
 }
 
 /**
- * Traileren i appens egen afspiller (ExoPlayer), fra DASH-manifestet.
+ * Traileren i appens egen afspiller (ExoPlayer), fra DASH- eller HLS-manifestet.
  *
  * Buffer: den starter foerst naar fire sekunder er hentet (brugeren: "buffer
  * lidt foerst, saa det ikke hakker"), og holder et halvt minut klar foran.
@@ -534,6 +596,7 @@ function NativeTrailer({
   uri,
   resumeAt,
   expectedSeconds,
+  contentType,
   onReady,
   onBroken,
   onEnd,
@@ -543,12 +606,13 @@ function NativeTrailer({
   resumeAt: number;
   /** YouTubes laengde, hvis afspilleren ikke selv kender den. */
   expectedSeconds: number | null;
+  contentType: 'dash' | 'hls';
   onReady: () => void;
   /** `reason`: kort kategori til diagnoselinjen (fx "fejl 403", "stod stille"). */
   onBroken: (position: number, reason: string) => void;
   onEnd?: () => void;
 }) {
-  const source = useMemo(() => ({ uri, contentType: 'dash' as const }), [uri]);
+  const source = useMemo(() => ({ uri, contentType }), [uri, contentType]);
   const player = useVideoPlayer(source, (p) => {
     p.loop = false;
     p.timeUpdateEventInterval = 1;
