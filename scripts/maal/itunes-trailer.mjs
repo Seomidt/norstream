@@ -29,11 +29,19 @@ function dimensions(buf) {
 for (const country of ['dk', 'us']) {
   console.log(`\n##### land=${country}`);
   for (const term of TITLES) {
-    const r = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=movie&entity=movie&limit=3&country=${country}`);
-    const d = await r.json().catch(() => ({}));
+    const r = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=movie&limit=3&country=${country}`, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15' },
+    });
+    const text = await r.text();
+    let d = {};
+    try {
+      d = JSON.parse(text);
+    } catch {
+      // vises nedenfor
+    }
     const hit = (d.results ?? [])[0];
     if (!hit) {
-      console.log(`  ${term}: http=${r.status} intet`);
+      console.log(`  ${term}: http=${r.status} type=${r.headers.get('content-type')} resultCount=${d.resultCount} krop="${text.slice(0, 160).replace(/\s+/g, ' ')}"`);
       continue;
     }
     const url = hit.previewUrl;
