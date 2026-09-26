@@ -3,7 +3,7 @@ import { ActivityIndicator, Linking, Platform, StyleSheet, Text, View } from 're
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { File, Paths } from 'expo-file-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { WebViewMessageEvent } from 'react-native-webview';
+import type { WebView as WebViewInstance, WebViewMessageEvent } from 'react-native-webview';
 import type { AppSession } from '../../session.js';
 import { getTmdbApiKey, getYoutubeApiKey } from '../../storage/settings.js';
 import { findTmdbTrailers, tmdbFetch } from '../../sync/tmdb.js';
@@ -188,23 +188,14 @@ function prepareStream(
   stream: YoutubeStream,
   videoId: string,
   attempt: number,
-): { uri: string; contentType: 'dash' | 'hls'; limited: boolean; seconds: number | null; label: string } | null {
+): { uri: string; contentType: 'dash' | 'hls'; limited: boolean; seconds: number | null } | null {
   if (stream.kind !== 'dash' && stream.kind !== 'hls') return null;
   const uri =
     stream.kind === 'dash'
       ? writeManifest(videoId, attempt, stream.mpd, 'mpd')
       : writeManifest(videoId, attempt, stream.playlist, 'm3u8');
   if (uri === null) return null;
-  const limited = stream.kind === 'dash' && stream.limited;
-  const kind = stream.kind === 'hls' ? 'HLS' : limited ? 'filer (kun 1. minut)' : 'filer';
-  const skipped = stream.trace === '' ? '' : ` [${stream.trace}]`;
-  return {
-    uri,
-    contentType: stream.kind,
-    limited,
-    seconds: stream.seconds,
-    label: `${stream.client} ${kind} · ${stream.height}p · ${stream.ipFamily}${skipped}`,
-  };
+  return { uri, contentType: stream.kind, limited: stream.kind === 'dash' && stream.limited, seconds: stream.seconds };
 }
 
 /**
@@ -247,12 +238,21 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   /** Hvor langt ned i kilderne vi er naaet (se refill). */
   const stage = useRef(0);
   /**
-   * Diagnoselinje (midlertidig, v331): hvad den native afspiller gjorde, saa
-   * brugeren kan tage et billede naar traileren stopper. Kun kategorier og
-   * HTTP-koder — aldrig adresser eller raa fejltekst.
+   * Overgangen (v333). iPhone-klientens filer afvises af YouTube efter ca. et
+   * minut (maalt paa brugerens boks: 0:45–0:55). Naar afspillerens buffer
+   * holder op med at vokse mens afspilningen gaar videre, er graensen fundet:
+   * YouTubes egen afspiller goeres klar usynligt, spolet til lige foer
+   * graensen, og overtager naar traileren naar dertil — i stedet for at
+   * stoppe og starte en ny afspiller.
    */
-  const [diag, setDiag] = useState<string[]>([]);
-  const log = (line: string): void => setDiag((lines) => [...lines.slice(-5), line]);
+  const [standby, setStandby] = useState<{ id: string; startAt: number } | null>(null);
+  const [handedOver, setHandedOver] = useState(false);
+  const standbyWeb = useRef<WebViewInstance>(null);
+  const standbyReady = useRef(false);
+  const pendingHandover = useRef(false);
+  const handedOverRef = useRef(false);
+  /** Hvornaar bufferen sidst voksede, og hvor afspilningen var dengang. */
+  const bufferWatch = useRef<{ buffered: number; since: number; position: number } | null>(null);
   /** Skaermen er stadig aaben; en soegning der svarer sent maa ikke roere en lukket skaerm. */
   const alive = useRef(true);
 
@@ -306,6 +306,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
    */
   async function playNext(): Promise<void> {
     if (!alive.current) return;
+    resetHandover();
     setSource({ kind: 'looking' });
     for (;;) {
       const next = queue.current.shift();
@@ -319,13 +320,10 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
           if (!alive.current) return;
           // Spaerret i Danmark, fjernet: webvisningen ville fejle ligesaa.
           if (stream.kind === 'unavailable') continue;
-          if (stream.kind === 'fallback') {
-            log(`YouTube sagde nej (${stream.why}) → webvisning`);
-          } else {
+          if (stream.kind !== 'fallback') {
             if (next.checkLength && stream.seconds !== null && stream.seconds < MIN_TRAILER_SECONDS) continue;
             const ready = prepareStream(stream, next.id, 0);
             if (ready !== null) {
-              log(`${ready.label} · ${ready.seconds === null ? '?' : clock(ready.seconds)}`);
               setLoading(true);
               setSource({
                 kind: 'native',
@@ -385,13 +383,16 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     const failures = progressed ? 0 : from.failures + 1;
     if (from.limited && reason.includes('403')) {
       // Kendt: de filer afvises efter et minut; nye adresser hjaelper ikke.
-      log(`${clock(position)} ${reason} → filerne er spaerret herfra → webvisning`);
+      // Er YouTubes afspiller allerede gjort klar, tager den over dér.
+      if (standby !== null && standby.id === from.id) {
+        handOver();
+        return;
+      }
     } else if (failures < NATIVE_MAX_RECOVERIES) {
       const stream = await resolveYoutubeStream(postJson, from.id, getText);
       if (!alive.current) return;
       const ready = prepareStream(stream, from.id, from.attempt + 1);
       if (ready !== null) {
-        log(`${clock(position)} ${reason} → nye adresser (${ready.label})`);
         setSource({
           ...from,
           uri: ready.uri,
@@ -404,11 +405,84 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         });
         return;
       }
-      log(`${clock(position)} ${reason} → ingen nye adresser (${stream.kind === 'fallback' ? stream.why : stream.kind}) → webvisning`);
-    } else {
-      log(`${clock(position)} ${reason} → ${failures} gange uden fremgang → webvisning`);
     }
+    resetHandover();
     setSource({ kind: 'measured', id: from.id, checkLength: false, startAt: position });
+  }
+
+  function resetHandover(): void {
+    setStandby(null);
+    setHandedOver(false);
+    standbyReady.current = false;
+    pendingHandover.current = false;
+    handedOverRef.current = false;
+    bufferWatch.current = null;
+  }
+
+  /**
+   * Fra den native afspiller hvert halve sekund. Kun for de begraensede
+   * filer: find graensen, goer YouTubes afspiller klar, og skift ved den.
+   */
+  function onNativeProgress(position: number, buffered: number): void {
+    if (source.kind !== 'native' || !source.limited || handedOverRef.current) return;
+    if (standby !== null) {
+      if (position >= standby.startAt) handOver();
+      return;
+    }
+    const now = Date.now();
+    const watch = bufferWatch.current;
+    if (watch === null || buffered > watch.buffered + 0.5) {
+      bufferWatch.current = { buffered, since: now, position };
+      return;
+    }
+    // Bufferen staar stille i 4 s mens der er spillet mindst 3 s videre, og
+    // den er ikke ved slutningen: YouTube vil ikke levere mere.
+    const nearEnd = source.seconds !== null && buffered >= source.seconds - 2;
+    if (!nearEnd && now - watch.since >= 4000 && position - watch.position >= 3) {
+      setStandby({ id: source.id, startAt: Math.max(0, Math.floor(buffered - 1.5)) });
+    }
+  }
+
+  /** YouTubes afspiller overtager. Er den ikke klar endnu, vises hjulet til den er. */
+  function handOver(): void {
+    if (handedOverRef.current) return;
+    if (!standbyReady.current) {
+      pendingHandover.current = true;
+      setLoading(true);
+      return;
+    }
+    handedOverRef.current = true;
+    pendingHandover.current = false;
+    standbyWeb.current?.injectJavaScript('window.__go&&window.__go();true;');
+    setHandedOver(true);
+    setLoading(false);
+  }
+
+  function onStandbyMessage(event: WebViewMessageEvent): void {
+    let message: { type?: string };
+    try {
+      message = JSON.parse(event.nativeEvent.data) as typeof message;
+    } catch {
+      return;
+    }
+    if (message.type === 'standby-ready') {
+      standbyReady.current = true;
+      if (pendingHandover.current) handOver();
+    } else if (message.type === 'playing') {
+      setLoading(false);
+    } else if (message.type === 'error' || message.type === 'noapi') {
+      // YouTubes afspiller kan ikke; er skiftet sket (eller ventet paa), faar
+      // den almindelige webvisning en chance fra samme sted.
+      const startAt = standby?.startAt ?? 0;
+      const id = standby?.id;
+      if ((handedOverRef.current || pendingHandover.current) && id !== undefined) {
+        resetHandover();
+        setLoading(true);
+        setSource({ kind: 'measured', id, checkLength: false, startAt });
+      } else {
+        standbyReady.current = false;
+      }
+    }
   }
 
   useEffect(() => {
@@ -506,7 +580,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             }}
           />
         )}
-        {source.kind === 'native' && (
+        {source.kind === 'native' && !handedOver && (
           <NativeTrailer
             key={`${source.id}:${source.attempt}`}
             uri={source.uri}
@@ -514,6 +588,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             expectedSeconds={source.seconds}
             contentType={source.contentType}
             onReady={() => setLoading(false)}
+            onProgress={onNativeProgress}
             onBroken={(position, reason) => {
               void recoverNative(source, position, reason);
             }}
@@ -521,13 +596,27 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             onEnd={isTV ? onBack : undefined}
           />
         )}
-        {diag.length > 0 && (source.kind === 'native' || source.kind === 'measured' || source.kind === 'looking') && (
-          <View style={styles.diag} pointerEvents="none">
-            {diag.map((line, index) => (
-              <Text key={index} style={styles.diagText} numberOfLines={1}>
-                {line}
-              </Text>
-            ))}
+        {WebView !== null && source.kind === 'native' && standby !== null && standby.id === source.id && (
+          // YouTubes afspiller, gjort klar usynligt; bliver synlig ved skiftet.
+          <View style={[StyleSheet.absoluteFill, !handedOver && styles.hidden]} pointerEvents={handedOver ? 'auto' : 'none'}>
+            <WebView
+              ref={standbyWeb}
+              key={`standby:${standby.id}`}
+              source={{ html: measuredEmbedPage(standby.id, isTV, standby.startAt, true), baseUrl: EMBED_ORIGIN }}
+              originWhitelist={['*']}
+              style={styles.web}
+              androidLayerType="hardware"
+              userAgent={isTV ? DESKTOP_USER_AGENT : BROWSER_USER_AGENT}
+              scalesPageToFit
+              thirdPartyCookiesEnabled
+              sharedCookiesEnabled
+              allowsFullscreenVideo
+              allowsInlineMediaPlayback
+              mediaPlaybackRequiresUserAction={false}
+              javaScriptEnabled
+              domStorageEnabled
+              onMessage={onStandbyMessage}
+            />
           </View>
         )}
         {source.kind === 'none' && (
@@ -598,6 +687,7 @@ function NativeTrailer({
   expectedSeconds,
   contentType,
   onReady,
+  onProgress,
   onBroken,
   onEnd,
 }: {
@@ -608,14 +698,16 @@ function NativeTrailer({
   expectedSeconds: number | null;
   contentType: 'dash' | 'hls';
   onReady: () => void;
-  /** `reason`: kort kategori til diagnoselinjen (fx "fejl 403", "stod stille"). */
+  /** Position og hvor langt der er hentet, hvert halve sekund. */
+  onProgress: (position: number, buffered: number) => void;
+  /** `reason`: kort kategori (fx "fejl 403", "stod stille"). */
   onBroken: (position: number, reason: string) => void;
   onEnd?: () => void;
 }) {
   const source = useMemo(() => ({ uri, contentType }), [uri, contentType]);
   const player = useVideoPlayer(source, (p) => {
     p.loop = false;
-    p.timeUpdateEventInterval = 1;
+    p.timeUpdateEventInterval = 0.5;
     p.bufferOptions = {
       preferredForwardBufferDuration: 30,
       minBufferForPlayback: 4,
@@ -623,8 +715,8 @@ function NativeTrailer({
     };
     p.play();
   });
-  const handlers = useRef({ onReady, onBroken, onEnd });
-  handlers.current = { onReady, onBroken, onEnd };
+  const handlers = useRef({ onReady, onProgress, onBroken, onEnd });
+  handlers.current = { onReady, onProgress, onBroken, onEnd };
 
   useEffect(() => {
     let ready = false;
@@ -670,8 +762,9 @@ function NativeTrailer({
         broken(code === undefined ? 'fejl' : `fejl ${code}`);
       }
     });
-    const time = player.addListener('timeUpdate', ({ currentTime }) => {
+    const time = player.addListener('timeUpdate', ({ currentTime, bufferedPosition }) => {
       if (Number.isFinite(currentTime) && currentTime > 0) position = currentTime;
+      if (!done && ready && Number.isFinite(bufferedPosition)) handlers.current.onProgress(position, bufferedPosition);
     });
     const end = player.addListener('playToEnd', () => {
       if (done) return;
@@ -726,32 +819,39 @@ allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscree
  * egen kode, og `noapi` hvis API'et ikke er kommet op efter tolv sekunder —
  * saa appen kan falde tilbage paa den rene indlejring.
  *
+ * `standby` (v333): siden goeres klar usynligt mens den native afspiller
+ * spiller — starter lydloest ved `startAt`, pauser, henter et forspring og
+ * melder `standby-ready`. Appen kalder saa `window.__go()`, naar den native
+ * afspiller naar dertil: spol til `startAt`, lyd paa, spil.
+ *
  * Varigheden er nul indtil videoen har hentet sine metadata; derfor
  * spoerges der baade naar afspilleren er klar og igen naar den begynder at
  * spille, og kun et tal over nul sendes.
  */
-export function measuredEmbedPage(trailerId: string, wide = false, startAt = 0): string {
+export function measuredEmbedPage(trailerId: string, wide = false, startAt = 0, standby = false): string {
   const id = safeId(trailerId);
   const start = Number.isFinite(startAt) && startAt > 0 ? Math.floor(startAt) : 0;
   return `<!doctype html><html><head><meta name="viewport" content="${viewport(wide)}">
 <style>html,body{margin:0;background:#000;height:100%;overflow:hidden}#p{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
 </head><body><div id="p"></div>
 <script>
-var sent=false,primed=false,started=false,t0=0,START=${start},BUFFER_S=${BUFFER_SECONDS},MAX_WAIT=${MAX_BUFFER_WAIT_MS};
+var sent=false,primed=false,started=false,t0=0,P=null,primedAt=0,readySent=false,STANDBY=${standby ? 'true' : 'false'},START=${start},BUFFER_S=${BUFFER_SECONDS},MAX_WAIT=${MAX_BUFFER_WAIT_MS};
+window.__go=function(){if(P){begin(P);}};
 function post(m){if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify(m));}}
 function report(player){if(sent)return;var d=player.getDuration();if(d>0){sent=true;post({type:'duration',seconds:d});}}
 function begin(p){if(started)return;started=true;try{p.seekTo(START,true);}catch(x){}try{p.unMute();}catch(x){}p.playVideo();post({type:'playing'});}
 function onYouTubeIframeAPIReady(){
-  new YT.Player('p',{videoId:'${id}',playerVars:{autoplay:1,mute:1,playsinline:1,rel:0,modestbranding:1,vq:'hd1080'},
+  new YT.Player('p',{videoId:'${id}',playerVars:{autoplay:1,mute:1,playsinline:1,rel:0,modestbranding:1,vq:'hd1080',start:START},
     events:{
-      onReady:function(e){var p=e.target;try{p.setPlaybackQuality('hd1080');}catch(x){}try{p.mute();}catch(x){}t0=Date.now();p.playVideo();report(p);
+      onReady:function(e){var p=e.target;P=p;try{p.setPlaybackQuality('hd1080');}catch(x){}try{p.mute();}catch(x){}t0=Date.now();p.playVideo();report(p);
         var iv=setInterval(function(){
           if(started){clearInterval(iv);return;}
+          if(STANDBY){if(primed&&!readySent&&Date.now()-primedAt>=3000){readySent=true;clearInterval(iv);post({type:'standby-ready'});}return;}
           var d=0,f=0;try{d=p.getDuration()||0;f=p.getVideoLoadedFraction()||0;}catch(x){}
           var enough=d>0&&d*f>=Math.min(BUFFER_S,d*0.9);
           if((primed&&enough)||Date.now()-t0>MAX_WAIT){clearInterval(iv);begin(p);}
         },250);},
-      onStateChange:function(e){report(e.target);if(!primed&&e.data===1){primed=true;if(!started){e.target.pauseVideo();}}},
+      onStateChange:function(e){report(e.target);if(!primed&&e.data===1){primed=true;primedAt=Date.now();if(!started){e.target.pauseVideo();}}},
       onError:function(e){post({type:'error',code:e.data});}
     }});
 }
@@ -805,17 +905,8 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     padding: theme.spacing.md,
   },
   overlayText: { color: colors.textMuted, marginTop: theme.spacing.sm },
-  /** Diagnoselinjen: lille og halvgennemsigtig nederst til venstre, over videoen. */
-  diag: {
-    position: 'absolute',
-    left: theme.spacing.sm,
-    bottom: theme.spacing.sm,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 4,
-  },
-  diagText: { color: '#FFFFFF', fontSize: 11, opacity: 0.85 },
+  /** YouTubes afspiller mens den goeres klar: usynlig, over den native video. */
+  hidden: { opacity: 0 },
   errorText: { color: colors.text, textAlign: 'center' },
   info: { flex: 1, padding: theme.spacing.md, backgroundColor: colors.background },
   title: { color: colors.text, fontSize: 18, fontWeight: '700' },

@@ -1,6 +1,6 @@
-import type { ComponentType } from 'react';
+import type { ComponentType, Ref } from 'react';
 import { Platform } from 'react-native';
-import type { WebViewProps } from 'react-native-webview';
+import type { WebView, WebViewProps } from 'react-native-webview';
 import { isTV } from '../../ui/tv.js';
 
 /**
@@ -13,7 +13,7 @@ import { isTV } from '../../ui/tv.js';
  * siger det i stedet for at gaa ned. Android TV og Google TV har
  * Androids webvisning, saa dér spiller traileren som paa telefonen.
  */
-export type WebViewComponent = ComponentType<WebViewProps>;
+export type WebViewComponent = ComponentType<WebViewProps & { ref?: Ref<WebView> }>;
 
 /** Kun Apple TV mangler webvisningen. */
 export const webViewMissing: boolean = isTV && Platform.OS === 'ios';

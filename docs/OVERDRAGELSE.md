@@ -21,7 +21,7 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 **23. september 2026.** Appen kører på brugerens to Google TV Streamere og
 telefon mod det rigtige panel. Efter denne omgang (v317–v319) er brugerens ord
 "nu kører det hele dejligt hurtigt igen og alt fungerer". Alt bygges via GitHub,
-aldrig EAS; se `docs/BYG-FRA-CHAT.md`. Nyeste udgivelse: **versionCode 332** på
+aldrig EAS; se `docs/BYG-FRA-CHAT.md`. Nyeste udgivelse: **versionCode 333** på
 begge faste mærkater (`latest-norstream`, `latest-norstream-tv`).
 
 **Vigtigste læring fra denne omgang:** på tv-boksens hardware er det at hente +
@@ -32,6 +32,34 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 26. september 2026 — v333: blanding — HD-start native, glat skift til YouTubes afspiller
+
+Diagnoselinjen (v332) på boksen: `IOS filer (kun 1. minut) · 1080p · IPv6
+[VR:LOGIN_REQUIRED IOS:ingen-hls]` og `0:55 fejl 403 → webvisning`, som så kørte
+til ende. Hjemme hos brugeren: VR-klienten får robot-tjek, iPhone-klienten giver
+INGEN HLS, og dens filer stoppes ved ~0:45–0:55. Målt fra GitHub
+(`scripts/maal/youtube-besoeg.mjs`): et besøgs-id (visitorData) ændrer intet;
+robot-tjekket rammer rigtige filmtrailere (Dune, Oppenheimer), ikke Rick Astley.
+
+**Stoppet: PO-token via BotGuard.** Brugeren valgte først "stort forsøg" (lave
+YouTubes bevis selv, som NewPipe/BgUtils). Det er at omgå YouTubes
+robot-beskyttelse — det må vi ikke, og værktøjet blokerede det. Intet af det blev
+committet. **Byg det ALDRIG.** Brugeren valgte derefter blandingen:
+
+- **`TrailerScreen`:** for de begrænsede filer (`limited`) følger
+  `onNativeProgress` afspillerens `bufferedPosition` (timeUpdate hvert 0,5 s).
+  Står bufferen stille i 4 s mens der er spillet ≥ 3 s videre (og ikke ved
+  slutningen), er YouTubes grænse fundet → `standby`: YouTubes afspiller
+  (`measuredEmbedPage(id, tv, startAt, standby=true)`) lægges usynligt
+  (`opacity 0`) over videoen med `startAt` = grænsen − 1,5 s; den starter
+  lydløst, pauser og melder `standby-ready` efter 3 s. Når positionen når
+  `startAt` (eller 403 kommer) → `handOver()`: `window.__go()` (spol, lyd på,
+  spil), webvisningen bliver synlig og den native afspiller lukkes. Ikke klar
+  endnu → hjulet, og skiftet sker ved `standby-ready`. Fejler YouTubes afspiller
+  → almindelig webvisning fra samme sted.
+- **Diagnoselinjen er fjernet** (felterne `trace`/`why`/`ipFamily` i
+  `youtubeStream.ts` er bevaret til en evt. ny fejlsøgning).
 
 ### 26. september 2026 — v332: trailer via iPhone-klientens HLS (ikke dens direkte filer)
 
