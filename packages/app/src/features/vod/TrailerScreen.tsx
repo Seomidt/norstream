@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { WebView as WebViewInstance, WebViewMessageEvent } from 'react-native-webview';
 import type { AppSession } from '../../session.js';
 import { getTmdbApiKey, getYoutubeApiKey } from '../../storage/settings.js';
-import { findTmdbTrailers, tmdbFetch } from '../../sync/tmdb.js';
+import { findImdbId, findTmdbTrailers, tmdbFetch } from '../../sync/tmdb.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
@@ -15,6 +15,7 @@ import { MIN_TRAILER_SECONDS, findLongerTrailer, searchYoutubeTrailers, youtubeS
 import type { FetchText } from './trailerSearch.js';
 import { webView } from './webview.js';
 import { resolveYoutubeStream } from './youtubeStream.js';
+import { findImdbTrailers } from './imdbTrailer.js';
 import type { GetText, PostJson, YoutubeStream } from './youtubeStream.js';
 import { surfaceTypeForPlatform } from '../player/format.js';
 import { TvPressable } from '../../ui/TvPressable.js';
@@ -59,9 +60,11 @@ type Source =
       failures: number;
       /** Videoens laengde ifoelge YouTube; bruges hvis afspilleren ikke kender den. */
       seconds: number | null;
-      contentType: 'dash' | 'hls';
+      contentType: 'dash' | 'hls' | 'progressive';
       /** Filer YouTube afviser efter ca. et minut: ingen genforsoeg, straks webvisningen. */
       limited: boolean;
+      /** Fra IMDb (v335): en almindelig MP4, ingen graense. `id` er da IMDbs video-id. */
+      imdb?: { titleId: string };
     }
   /** `startAt`: sekunder inde, naar den overtager fra den native afspiller. */
   | { kind: 'measured'; id: string; checkLength: boolean; startAt?: number }
@@ -500,9 +503,63 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     }
   }
 
+  /**
+   * IMDb foerst (v335): de officielle trailere som almindelige videofiler i
+   * 1080p, spillet i appens egen afspiller hele vejen. Kun naar TMDB kan
+   * give filmens IMDb-nummer; ellers, eller uden trailer dér, YouTube-vejen.
+   */
+  async function start(): Promise<void> {
+    if (NATIVE_TRAILERS) {
+      try {
+        const tmdbKey = await getTmdbApiKey(session.db);
+        const name = year === null ? title : `${title} (${year})`;
+        const titleId = tmdbKey === null ? null : await findImdbId(tmdbFetch, tmdbKey, kind, name);
+        const found = titleId === null ? [] : await findImdbTrailers(postJson, titleId);
+        const best = found[0];
+        if (best !== undefined && titleId !== null && alive.current) {
+          setNote(`Trailer fra IMDb: ${best.name}.`);
+          setLoading(true);
+          setSource({
+            kind: 'native',
+            id: best.videoId,
+            uri: best.url,
+            resumeAt: 0,
+            attempt: 0,
+            failures: 0,
+            seconds: best.seconds,
+            contentType: 'progressive',
+            limited: false,
+            imdb: { titleId },
+          });
+          return;
+        }
+      } catch {
+        // IMDb er et tilvalg; YouTube-vejen tager over.
+      }
+    }
+    await playNext();
+  }
+
+  /** IMDb-traileren stoppede: frisk adresse (de er tidsbegraensede) og fortsaet; ellers YouTube. */
+  async function recoverImdb(from: Extract<Source, { kind: 'native' }>, position: number): Promise<void> {
+    if (!alive.current || from.imdb === undefined) return;
+    setLoading(true);
+    const progressed = position >= from.resumeAt + NATIVE_PROGRESS_S;
+    const failures = progressed ? 0 : from.failures + 1;
+    if (failures < NATIVE_MAX_RECOVERIES) {
+      const again = (await findImdbTrailers(postJson, from.imdb.titleId)).find((t) => t.videoId === from.id);
+      if (!alive.current) return;
+      if (again !== undefined) {
+        setSource({ ...from, uri: again.url, resumeAt: position, attempt: from.attempt + 1, failures });
+        return;
+      }
+    }
+    await playNext();
+  }
+
   useEffect(() => {
     alive.current = true;
-    void playNext();
+    void start();
     return () => {
       alive.current = false;
     };
@@ -544,9 +601,11 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
           ? { uri: source.url }
           : null;
   const openUrl =
-    source.kind === 'measured' || source.kind === 'plain' || source.kind === 'native'
-      ? `https://www.youtube.com/watch?v=${source.id}`
-      : youtubeSearchUrl(title, year);
+    source.kind === 'native' && source.imdb !== undefined
+      ? `https://www.imdb.com/video/${source.id}/`
+      : source.kind === 'measured' || source.kind === 'plain' || source.kind === 'native'
+        ? `https://www.youtube.com/watch?v=${source.id}`
+        : youtubeSearchUrl(title, year);
 
   return (
     <View style={styles.container}>
@@ -605,7 +664,8 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             onReady={() => setLoading(false)}
             onProgress={onNativeProgress}
             onBroken={(position, reason) => {
-              void recoverNative(source, position, reason);
+              if (source.imdb !== undefined) void recoverImdb(source, position);
+              else void recoverNative(source, position, reason);
             }}
             // Paa tv lukker traileren naar den er slut, som i Googles butik.
             onEnd={isTV ? onBack : undefined}
@@ -716,7 +776,7 @@ function NativeTrailer({
   resumeAt: number;
   /** YouTubes laengde, hvis afspilleren ikke selv kender den. */
   expectedSeconds: number | null;
-  contentType: 'dash' | 'hls';
+  contentType: 'dash' | 'hls' | 'progressive';
   onReady: () => void;
   /** Position og hvor langt der er hentet, hvert halve sekund. */
   onProgress: (position: number, buffered: number) => void;

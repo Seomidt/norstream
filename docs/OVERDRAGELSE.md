@@ -21,7 +21,7 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 **23. september 2026.** Appen kører på brugerens to Google TV Streamere og
 telefon mod det rigtige panel. Efter denne omgang (v317–v319) er brugerens ord
 "nu kører det hele dejligt hurtigt igen og alt fungerer". Alt bygges via GitHub,
-aldrig EAS; se `docs/BYG-FRA-CHAT.md`. Nyeste udgivelse: **versionCode 334** på
+aldrig EAS; se `docs/BYG-FRA-CHAT.md`. Nyeste udgivelse: **versionCode 335** på
 begge faste mærkater (`latest-norstream`, `latest-norstream-tv`).
 
 **Vigtigste læring fra denne omgang:** på tv-boksens hardware er det at hente +
@@ -32,6 +32,29 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 26. september 2026 — v335: trailere fra IMDb i 1080p — førstevalg
+
+Brugeren: "kan vi ikke forbedre YouTubes egen afspiller eller bruge en anden
+afspiller". Svaret er en anden KILDE: IMDb (Amazon) har de officielle trailere og
+udleverer dem som almindelige MP4-filer i op til 1080p til enhver browser —
+intet robot-bevis, ingen grænse. Målt (`scripts/maal/imdb-trailer.mjs`): Dune:
+Part Two og Oppenheimer i 1080p, hele filen på 1–4 s, alle 200/206. IMDbs
+offentlige GraphQL (`api.graphql.imdb.com`, samme som deres hjemmeside) virker;
+titelsiderne svarer 202 (AWS-udfordring) — dem bruger vi ikke, og vi prøver
+ALDRIG at komme uden om den.
+
+- **`sync/tmdb.ts` `findImdbId`:** TMDB-søgning → `/{movie|tv}/{id}/external_ids`
+  → `imdb_id`.
+- **`features/vod/imdbTrailer.ts`:** `findImdbTrailers(post, tt…)` →
+  `primaryVideos`; `pickImdbTrailers`: kun `Trailer`, 60–360 s (Dunes "Final
+  Trailer" på 31 s springes over), "Official" først; `pickImdbFile`: MP4 op til
+  1080p (ikke HLS).
+- **`TrailerScreen.start()`:** på Android IMDb først (`contentType:
+  'progressive'`, `imdb: { titleId }`, `id` = IMDbs video-id); ingen IMDb-trailer
+  → YouTube-vejen som før (`playNext`). `recoverImdb`: frisk adresse og fortsæt
+  fra positionen (adresserne er tidsbegrænsede), ellers YouTube. "Åbn i
+  YouTube"-knappen peger på IMDb-siden for IMDb-trailere.
 
 ### 26. september 2026 — v334: iPhone-filerne i 720p — rækker grænsen længere?
 

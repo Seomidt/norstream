@@ -257,6 +257,31 @@ export async function findTmdbTrailers(
   }
 }
 
+/**
+ * Titlens IMDb-nummer (tt…), via TMDB. Bruges til trailere fra IMDb (v335):
+ * de udleveres som almindelige videofiler i HD, uden YouTubes graense.
+ * Null naar TMDB ikke kender titlen eller noget gaar galt.
+ */
+export async function findImdbId(
+  fetchImpl: TmdbFetch,
+  apiKey: string,
+  kind: 'movie' | 'series',
+  name: string,
+): Promise<string | null> {
+  const found = await searchTmdb(fetchImpl, apiKey, kind, name).catch(() => null);
+  if (found === null) return null;
+  const endpoint = kind === 'series' ? 'tv' : 'movie';
+  const auth = tmdbAuth(apiKey);
+  try {
+    const response = await fetchImpl(`${API}/${endpoint}/${found.id}/external_ids?x=1${auth.query}`, auth.headers);
+    if (!response.ok) return null;
+    const parsed = (await response.json()) as { imdb_id?: unknown };
+    return typeof parsed.imdb_id === 'string' && /^tt\d{5,}$/.test(parsed.imdb_id) ? parsed.imdb_id : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Hoejden i pixel, med 1080p som loft: 4K er ikke bedre end fuld HD paa boksen, og ukendt er 0. */
 function qualityOf(video: Video): number {
   const size = typeof video.size === 'number' && Number.isFinite(video.size) ? video.size : 0;
