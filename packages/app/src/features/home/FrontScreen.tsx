@@ -47,6 +47,7 @@ import { autoRemindTeams, refreshSportEpg, teamMatchesToday } from '../sport/fin
 import type { Match } from '../sport/findMatches.js';
 import { whenLabel } from '../sport/sportSearch.js';
 import { addReminder, listReminders, removeReminder } from '../../storage/reminders.js';
+import { getSportTeams } from '../../storage/sport.js';
 
 interface Props {
   session: AppSession;
@@ -245,6 +246,12 @@ export function FrontScreen({
       setReminded(new Set(reminders.map((r) => `${r.channelId}@${r.startMs}`)));
     };
     void (async () => {
+      // Uden gemte hold hentes intet: forsiden maa ikke goere tv-boksen tung
+      // for en funktion man ikke bruger.
+      if ((await getSportTeams(session.db).catch(() => [])).length === 0) {
+        setTeamMatches([]);
+        return;
+      }
       await autoRemindTeams(session.db).catch(() => 0);
       await loadTeams();
       if ((await refreshSportEpg(session)) > 0) {

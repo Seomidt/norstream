@@ -65,14 +65,15 @@ Brugeren godkendte designet ("Ja byg den sådan").
 - **Databasen** (`storage/sport.ts`): `searchProgrammes` forsorterer med LIKE
   hvor vokalerne er jokere (`%br%ndb%`), JS afgør resten. `sportChannels`:
   favoritter + sportskanaler (navn/kategori) fra ikke-skjulte lande, dem fra
-  favoritternes lande først, loft 300.
+  favoritternes lande først, loft 150.
 - **Programoversigten:** der søges kun i det der er hentet. `refreshSportEpg`
-  (`features/sport/findMatches.ts`) kører `ensureFullEpg` for de 300 kanaler,
+  (`features/sport/findMatches.ts`) kører `ensureFullEpg` for højst 150 kanaler (`SPORT_CHANNEL_CAP`),
   højst hvert 20. minut (og `ensureFullEpg` springer selv friske over, 6 t).
 - **Mine hold** (`sport_teams`, i sikkerhedskopien): ☆/★ ved søgningen. Uden
   søgning viser fanen holdenes kampe de næste 7 dage.
 - **Forsiden: "Dine hold i dag"** (efter Fortsæt, før Sidst sete): holdenes
-  kampe fra nu til midnat (mindst 6 t frem), uden genudsendelser. OK: live →
+  kampe fra nu til midnat (mindst 6 t frem), uden genudsendelser; kun når der
+  er gemte hold (ellers henter forsiden intet). OK: live →
   kanalen; kommende → påmindelse til/fra.
 - **Automatisk påmindelse** (`sport_auto_remind`, i sikkerhedskopien): når den
   er slået til, sætter forsiden/fanen en påmindelse for hver kamp i dag på den

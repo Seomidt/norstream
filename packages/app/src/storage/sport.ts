@@ -53,8 +53,12 @@ const SPORT_WORDS = [
   'liga', 'viaplay', 'f1', 'nfl', 'nba', 'nhl', 'ufc', 'tennis', 'racing', 'cricket', 'rugby',
 ];
 
-/** Hoejst saa mange kanaler faar appen selv til at hente programoversigt for. */
-export const SPORT_CHANNEL_CAP = 300;
+/**
+ * Hoejst saa mange kanaler faar appen selv til at hente programoversigt for.
+ * Hver er en hel uges programmer i databasen; paa tv-boksen maa det ikke
+ * blive tungt (se OVERDRAGELSE.md om XMLTV-sporet).
+ */
+export const SPORT_CHANNEL_CAP = 150;
 
 export interface SportChannels {
   /** Kanalerne der skal have frisk programoversigt, bedste foerst (favoritter, saa sport fra favoritternes lande). */
