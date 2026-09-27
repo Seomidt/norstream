@@ -40,9 +40,22 @@ export function ChannelOverlay({ session, channels, currentId, onPick, onClose }
   const listRef = useRef<FlatList<StoredChannel>>(null);
   const [pairs, setPairs] = useState<Map<string, NowNextPair>>(new Map());
   const [now, setNow] = useState(Date.now());
-  // Kun ved foerste tegning: ellers sprang fokus tilbage til den spillende
-  // kanal hver gang listen tegnede sig om (nyt "nu og naeste").
+  // Den spillende kanal beder om fokus i ÉN tegning, lidt efter at listen er
+  // kommet frem (som en films side): stod anmodningen fast, sprang fokus
+  // tilbage til den hver gang listen tegnede sig om (nyt "nu og naeste"
+  // hvert minut), og kom den for tidligt, sad raekken ikke i vinduet endnu.
   const initialId = useRef(currentId);
+  const [initialFocus, setInitialFocus] = useState(false);
+  useEffect(() => {
+    if (!isTV) return undefined;
+    const timer = setTimeout(() => setInitialFocus(true), 120);
+    return () => clearTimeout(timer);
+  }, []);
+  useEffect(() => {
+    if (!initialFocus) return undefined;
+    const frame = requestAnimationFrame(() => setInitialFocus(false));
+    return () => cancelAnimationFrame(frame);
+  }, [initialFocus]);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,7 +120,7 @@ export function ChannelOverlay({ session, channels, currentId, onPick, onClose }
               pair={pairs.get(item.id) ?? null}
               now={now}
               playing={item.id === currentId}
-              preferFocus={isTV && item.id === initialId.current}
+              preferFocus={initialFocus && item.id === initialId.current}
               onPress={() => onPick(item)}
               onFocus={() => keepInMiddle(listRef.current, index)}
             />
