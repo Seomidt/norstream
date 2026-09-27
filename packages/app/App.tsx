@@ -30,6 +30,7 @@ import { startTvKeyTracking } from './src/ui/tvKeys.js';
 import { TvPressable } from './src/ui/TvPressable.js';
 import { ReminderBanner } from './src/features/reminders/ReminderBanner.js';
 import { maybeAutoUpdate } from './src/features/settings/autoUpdate.js';
+import { UpdateBanner } from './src/features/settings/UpdateBanner.js';
 
 // Panelets store EPG-fil laeses i native kode (PanelEpgModule). Registreres
 // her, saa synkroniseringen ikke selv traekker React Native med i testene.
@@ -357,6 +358,11 @@ function AppInner() {
       {/* Paamindelser om udsendelser: oven paa alt, ogsaa afspilleren. */}
       {session !== null && route.name !== 'loading' && route.name !== 'onboarding' && (
         <ReminderBanner db={session.db} onOpen={(channel) => setRoute({ name: 'player', channel })} />
+      )}
+      {/* Ny udgave klar: popup uden genstart og uden Indstillinger. Venter
+          mens der afspilles, saa den aldrig afbryder en film. */}
+      {route.name !== 'loading' && (
+        <UpdateBanner quiet={route.name === 'player' || route.name === 'vodPlayer' || route.name === 'trailer'} />
       )}
       </SafeAreaView>
       </View>

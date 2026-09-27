@@ -42,6 +42,18 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
 
+### 27. september 2026 — v337: opdaterings-popup mens appen kører
+
+Brugeren: popup'en om en opdatering skal komme "uden at lukke appen ned og uden
+at skulle gå i indstillinger". **`features/settings/UpdateBanner.tsx`** (samme
+form som `ReminderBanner`): kigger efter en nyere udgave 60 s efter start, ved
+hver `AppState` → `active` og hver 30. minut (`checkForUpdate`, GitHubs
+udgivelse). Ny udgave → bjælke øverst til højre "Ny udgave klar · NorStream
+N" med **Opdater nu** (fokus på tv) → `downloadAndInstall` → Androids
+installation. Senere/Tilbage → samme udgave skjult i 6 timer. `quiet` under
+`player`/`vodPlayer`/`trailer`: vises først når man er ude af afspilleren.
+`maybeAutoUpdate` (tv, ved opstart) er uændret.
+
 ### 27. september 2026 — v336: Apple TV først, så IMDb, så YouTube
 
 Brugeren fandt det: tv.apple.com viser trailere uden login (den gamle iTunes-
