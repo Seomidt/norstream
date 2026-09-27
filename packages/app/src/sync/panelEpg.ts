@@ -3,6 +3,7 @@ import type { Programme, XtreamCredentials } from '@norstream/core';
 import { streamSource } from '../net/doh.js';
 import { upsertProgrammes } from '../storage/programmes.js';
 import { getPanelEpgEnabled, getSetting, setSetting } from '../storage/settings.js';
+import { sportChannels } from '../storage/sport.js';
 import type { SqlDatabase } from '../storage/types.js';
 import { matchPanelEpg } from './panelEpgMatch.js';
 import type { FeedChannel, WantedChannel } from './panelEpgMatch.js';
@@ -20,6 +21,9 @@ import type { FeedChannel, WantedChannel } from './panelEpgMatch.js';
  *    aldrig i JavaScript og aldrig hele i hukommelsen.
  *  - Kun favoritter (det guiden viser) som panelet ikke giver EPG for per
  *    kanal, og kun et vindue paa tre doegn. Favoritter, ikke alle 22.000.
+ *    Fra v342 ogsaa sportskanalerne "Find kampen" soeger i (hoejst 150,
+ *    `storage/sport.ts`), for de fleste af dem (UK, US …) har intet EPG-id
+ *    og fik ellers aldrig programmer — saa fandt Sport kun det danske.
  *  - Kun panelets fil. Ingen indbyggede DK/UK/US-feeds (se OVERDRAGELSE).
  *  - Matchning paa navn OG land; kan det ikke afgoeres, springes kanalen over.
  *  - Højst én gang i doegnet; "Hent" (force) hoejst én gang i timen.
@@ -44,8 +48,16 @@ const MAX_WANTED = 5000;
 const HAS_EPG_AHEAD_MS = 6 * 60 * 60_000;
 
 // "2": v321 tager alle favoritter med (ogsaa dem med EPG-id uden programmer).
-// Ny noegle, saa den koerer med det samme efter opdateringen i stedet for om et doegn.
-const lastKey = (sourceId: string): string => `last_panel_epg2_ms:${sourceId}`;
+// "3": v342 tager sportskanalerne med. Ny noegle hver gang, saa den koerer
+// med det samme efter opdateringen i stedet for om et doegn.
+const lastKey = (sourceId: string): string => `last_panel_epg3_ms:${sourceId}`;
+
+let inFlight: Promise<void> | null = null;
+
+/** Koerslen der er i gang, om nogen — saa Sport kan vente paa den og soege igen. */
+export function panelEpgInFlight(): Promise<void> | null {
+  return inFlight;
+}
 
 let registered: PanelEpgNative | null = null;
 
@@ -118,6 +130,29 @@ export async function syncPanelEpg(
      LIMIT ${MAX_WANTED}`,
     [sourceId, nowMs, nowMs + HAS_EPG_AHEAD_MS],
   );
+  // Sportskanalerne (v342): dem uden programmer forude, uanset EPG-id —
+  // `refreshSportEpg` har allerede spurgt panelet per kanal for dem der kan.
+  const sportInfo = await sportChannels(db).catch(() => null);
+  const sport = sportInfo === null ? [] : sportInfo.refresh.filter((key) => sportInfo.sport.has(key) && key.startsWith(`${sourceId}:`));
+  const known = new Set(wanted.map((entry) => entry.key));
+  for (let i = 0; i < sport.length; i += 300) {
+    const slice = sport.slice(i, i + 300).filter((key) => !known.has(key));
+    if (slice.length === 0) continue;
+    const placeholders = slice.map(() => '?').join(', ');
+    const rows = await db.getAllAsync<WantedChannel>(
+      `SELECT c.id AS key, c.name AS name, c.country AS country, c.epg_channel_id AS epgId
+       FROM channels c
+       WHERE c.id IN (${placeholders})
+         AND NOT EXISTS (
+           SELECT 1 FROM programmes p WHERE p.channel_id = c.id AND p.stop_ms > ? AND p.start_ms < ?
+         )`,
+      [...slice, nowMs, nowMs + HAS_EPG_AHEAD_MS],
+    );
+    for (const row of rows) {
+      known.add(row.key);
+      wanted.push(row);
+    }
+  }
   if (wanted.length === 0) return null;
 
   // Marker foer hentningen: lukkes appen midt i, skal den ikke starte forfra
@@ -187,6 +222,7 @@ export function startPanelEpg(
 ): Promise<void> | null {
   if (running !== null || registered === null || sources.length === 0) return null;
   running = (async () => {
+    // Samme loefte udadtil (panelEpgInFlight), saa Sport kan vente paa den.
     for (const { sourceId, creds } of sources) {
       try {
         await syncPanelEpg(db, sourceId, creds, options);
@@ -196,6 +232,8 @@ export function startPanelEpg(
     }
   })().finally(() => {
     running = null;
+    inFlight = null;
   });
+  inFlight = running;
   return running;
 }

@@ -51,10 +51,11 @@ export async function findMatches(
   const now = options.now ?? Date.now();
   const until = options.until ?? now + SEARCH_DAYS * 86_400_000;
   const [rows, known] = await Promise.all([searchProgrammes(db, terms, now, until), knownSportChannels(db)]);
-  const visible = rows.filter((row) => !known.hidden.has(row.channelId));
-  const hits = groupHits(visible, terms, {
+  // Skjulte lande findes stadig (skjult gaelder Kanaler, ikke soegning), men
+  // deres kanaler staar sidst.
+  const hits = groupHits(rows, terms, {
     now,
-    channelRank: (id) => known.rank.get(id) ?? Number.MAX_SAFE_INTEGER,
+    channelRank: (id) => (known.rank.get(id) ?? Number.MAX_SAFE_INTEGER - 1) + (known.hidden.has(id) ? 1_000_000 : 0),
     descriptionChannels: known.sport,
   }).slice(0, options.limit ?? 80);
   const channels = await getChannelsByIds(

@@ -15,6 +15,7 @@ import { TvPressable } from '../../ui/TvPressable.js';
 import { TvTextInput } from '../../ui/TvTextInput.js';
 import { keepInMiddle, useTvListTail } from '../../ui/tvScroll.js';
 import { autoRemindTeams, findMatches, refreshSportEpg } from './findMatches.js';
+import { panelEpgInFlight, startPanelEpg } from '../../sync/panelEpg.js';
 import type { Match } from './findMatches.js';
 import { normalizeText, whenLabel } from './sportSearch.js';
 
@@ -120,22 +121,31 @@ export function SportScreen({ session, onPlay, focusFirstSignal = 0 }: Props) {
     void search();
   }, [search]);
 
-  // Programoversigten for sportskanalerne, i baggrunden. Kommer der noget
-  // nyt, soeges der igen.
+  // Programoversigten for sportskanalerne, i baggrunden: panelet per kanal
+  // (refreshSportEpg) og panelets XMLTV-fil (v342: de fleste sportskanaler
+  // har intet EPG-id og faar kun programmer derfra). Naar begge er faerdige,
+  // soeges der igen — uanset hvad de gav, det er billigt.
   const searchRef = useRef(search);
   searchRef.current = search;
   useEffect(() => {
     let cancelled = false;
     setRefreshing(true);
-    void refreshSportEpg(session).then(async (fetched) => {
+    void (async () => {
+      await refreshSportEpg(session);
+      const file =
+        startPanelEpg(
+          session.db,
+          session.sources.flatMap((access) =>
+            access.source.kind === 'xtream' && access.creds !== null ? [{ sourceId: access.source.id, creds: access.creds }] : [],
+          ),
+        ) ?? panelEpgInFlight();
+      if (file !== null) await file.catch(() => undefined);
       if (cancelled) return;
       setRefreshing(false);
-      if (fetched > 0) {
-        await searchRef.current();
-        await autoRemindTeams(session.db).catch(() => 0);
-        await loadReminders();
-      }
-    });
+      await searchRef.current();
+      await autoRemindTeams(session.db).catch(() => 0);
+      await loadReminders();
+    })();
     return () => {
       cancelled = true;
     };

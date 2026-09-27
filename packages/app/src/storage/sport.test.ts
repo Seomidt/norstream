@@ -64,8 +64,9 @@ describe('sportChannels', () => {
     invalidateQueryCache();
 
     const result = await sportChannels(db);
-    expect(result.refresh).toEqual(['s:3', 's:2', 's:5', 's:1']);
-    expect([...result.sport].sort()).toEqual(['s:1', 's:2', 's:5']);
+    // Det skjulte lands sportskanal er med, men sidst (soegning finder den, Kanaler viser den ikke).
+    expect(result.refresh).toEqual(['s:3', 's:2', 's:5', 's:1', 's:4']);
+    expect([...result.sport].sort()).toEqual(['s:1', 's:2', 's:4', 's:5']);
     expect(result.hidden.has('s:4')).toBe(true);
     expect(result.rank.get('s:3')).toBe(0);
   });

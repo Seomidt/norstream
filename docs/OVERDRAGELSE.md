@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**27. september 2026 (v342).** Sport: "Formel 1" gav mange kampe på telefonen og én på tv'et. Årsag: de fleste sportskanaler (UK, US …) har intet EPG-id, så panelet giver dem ingen programmer per kanal; de får kun programmer fra panelets XMLTV-fil, som hidtil kun blev læst for **favoritter** — så Sport fandt kun det, favoritterne (flest på telefonen) dækkede. Nu læses filen også for sportskanalerne (≤150), Sport venter på begge hentninger, og skjulte lande findes stadig (bagerst). v341 (opdateringen siger hvorfor) er udgivet på begge mærkater.
+
 **27. september 2026 (v341).** Brugeren (tv): "pop up kommer, installationsskærmen kommer, jeg trykker Installér, men appen er stadig den gamle — kører i ring." Filen på GitHub er tjekket rigtig (versionCode 340, samme debug-signatur 5E:8F:16:06 som telefonens). Årsagen er ikke set på boksen; v341 gør opdateringen til at stole på og får Androids eget svar frem (se nedenfor). **Afventer brugerens svar med teksten fra bjælken.**
 
 **27. september 2026 (v340).** Fire nye ting, valgt af brugeren ("Byg 3-4-5-6"): kanalliste oven på billedet i afspilleren, "I aften" på forsiden, enhederne holdes ens gennem skyen (løbende synk), "Fordi du så …". Afventer brugerens test.
@@ -47,6 +49,34 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 27. september 2026 — v342: Sport finder også UK/US-kampene (panelets fil for sportskanaler)
+
+Brugeren: "Under Sport på telefonen kommer der meget meget mere frem når jeg
+vælger Formel 1, der kommer kun 1 frem på tv." Sport søger kun i det der er
+hentet, og hvad der hentes var forskelligt:
+
+- `ensureFullEpg`/`get_simple_data_table` virker kun for kanaler med EPG-id
+  (13 %, mest danske). Sky Sports F1 & co. har intet — de får programmer
+  **alene** fra panelets `xmltv.php` (`sync/panelEpg.ts`), og den blev kun
+  læst for favoritter. Telefonen har flere (UK-)favoritter end tv'et → flere
+  kampe.
+- **Rettelse:** `syncPanelEpg` tager nu også sportskanalerne med
+  (`storage/sport.ts: sportChannels().refresh ∩ .sport`, højst 150) — dem
+  uden programmer forude, uanset EPG-id. Ny nøgle `last_panel_epg3_ms`, så
+  den kører straks efter opdateringen (ved næste synk/start), ikke om et døgn.
+  Testet i `panelEpg.test.ts`.
+- `SportScreen` venter nu på **begge** hentninger (panel per kanal OG filen:
+  `startPanelEpg` ?? `panelEpgInFlight()`) og søger igen bagefter uanset
+  udbyttet. Status "Henter programoversigten …" står til begge er færdige.
+- **Skjulte lande** udelades ikke længere af Sport (skjult gælder Kanaler,
+  ikke søgning — spec sec.5); deres kanaler står bare sidst (`findMatches`
+  rangerer +1 000 000). `sportChannels` tager dem med i `sport`-sættet og
+  sidst i `refresh`.
+
+Første åbning af Sport efter opdateringen: filen (kan være stor) hentes i
+baggrunden i native kode; på langsomt wi-fi kan det tage nogle minutter, før
+UK/US-kampene dukker op. Den daglige kørsel holder dem ved lige.
 
 ### 27. september 2026 — v341: opdateringen siger hvorfor (Androids svar, én hentning, procent)
 

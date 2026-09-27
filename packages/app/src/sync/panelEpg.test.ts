@@ -84,6 +84,34 @@ describe('syncPanelEpg', () => {
     expect(native.calls.at(-1)).toBe('remove');
   });
 
+  it('tager sportskanaler uden programmer med, ogsaa naar de ikke er favoritter (v342)', async () => {
+    await replaceCategories(db, sourceId, [{ id: 'c1', name: 'Blandet' }, { id: 'c2', name: 'UK| SPORTS' }]);
+    await replaceChannels(db, sourceId, [
+      ch('1', 'UK| BBC ONE HD'),
+      ch('2', 'DNK| DR1 HD', 'DR1.dk'),
+      { ...ch('3', 'UK| SKY SPORTS F1 HD'), categoryId: 'c2' },
+    ]);
+    await setFavorite(db, `${sourceId}:1`, true);
+    const native = fakeNative();
+    native.channels = vi.fn(async () =>
+      JSON.stringify([
+        { id: 'BBCOne.uk', n: ['BBC One'] },
+        { id: 'SkySportsF1.uk', n: ['Sky Sports F1'] },
+      ]),
+    );
+    native.programmes = vi.fn(async (_path: string, idsJson: string) => {
+      native.asked.push(JSON.parse(idsJson) as string[]);
+      return JSON.stringify([
+        { c: 'BBCOne.uk', s: NOW.getTime(), e: NOW.getTime() + 3_600_000, t: 'BBC News' },
+        { c: 'SkySportsF1.uk', s: NOW.getTime(), e: NOW.getTime() + 7_200_000, t: 'Formula 1: Singapore GP' },
+      ]);
+    });
+    const result = await syncPanelEpg(db, sourceId, creds, { now: NOW, native });
+    expect(result).toEqual({ matched: 2, programmes: 2 });
+    expect(native.asked[0]?.sort()).toEqual(['BBCOne.uk', 'SkySportsF1.uk']);
+    expect(await programmesFor(`${sourceId}:3`)).toEqual([{ title: 'Formula 1: Singapore GP', description: null }]);
+  });
+
   it('roerer ikke favoritter med EPG-id (de klares af panelet per kanal)', async () => {
     await syncPanelEpg(db, sourceId, creds, { now: NOW, native: fakeNative() });
     expect(await programmesFor(`${sourceId}:2`)).toEqual([]);

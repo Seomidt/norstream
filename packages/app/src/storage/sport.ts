@@ -63,11 +63,14 @@ export const SPORT_CHANNEL_CAP = 150;
 export interface SportChannels {
   /** Kanalerne der skal have frisk programoversigt, bedste foerst (favoritter, saa sport fra favoritternes lande). */
   refresh: string[];
-  /** Sportskanaler (ikke i skjulte lande): her taeller et fund i beskrivelsen. */
+  /** Sportskanaler: her taeller et fund i beskrivelsen. */
   sport: Set<string>;
-  /** Rang: favoritternes plads, saa sportskanalerne; ukendte bagerst. */
+  /** Rang: favoritternes plads, saa sportskanalerne (skjulte lande sidst); ukendte bagerst. */
   rank: Map<string, number>;
-  /** Kanaler fra lande brugeren har skjult: vises ikke i resultaterne. */
+  /**
+   * Kanaler fra lande brugeren har skjult. De findes stadig (skjult gaelder
+   * Kanaler, ikke soegning — samme regel som spec sec.5), men bagerst.
+   */
   hidden: Set<string>;
 }
 
@@ -96,12 +99,14 @@ export async function sportChannels(db: SqlDatabase): Promise<SportChannels> {
   const sport = new Set<string>();
   const near: string[] = [];
   const far: string[] = [];
+  const away: string[] = [];
   for (const channel of candidates) {
     if (!looksLikeSport(channel.name, channel.category)) continue;
     const country = channel.category_id === null ? undefined : countryOf.get(channel.category_id);
-    if (country !== undefined && hiddenSet.has(country)) continue;
     sport.add(channel.id);
-    (country !== undefined && favouriteCountries.has(country) ? near : far).push(channel.id);
+    if (country !== undefined && hiddenSet.has(country)) away.push(channel.id);
+    else if (country !== undefined && favouriteCountries.has(country)) near.push(channel.id);
+    else far.push(channel.id);
   }
 
   const rank = new Map<string, number>();
@@ -114,13 +119,14 @@ export async function sportChannels(db: SqlDatabase): Promise<SportChannels> {
   for (const favourite of favourites) add(favourite.id);
   for (const id of near) add(id);
   for (const id of far) add(id);
+  for (const id of away) add(id);
 
   const hidden = new Set<string>();
   if (hiddenSet.size > 0) {
     const rows = await db.getAllAsync<{ id: string; category_id: string | null }>('SELECT id, category_id FROM channels WHERE category_id IS NOT NULL');
     for (const row of rows) {
       const country = row.category_id === null ? undefined : countryOf.get(row.category_id);
-      if (country !== undefined && hiddenSet.has(country) && !rank.has(row.id)) hidden.add(row.id);
+      if (country !== undefined && hiddenSet.has(country)) hidden.add(row.id);
     }
   }
   return { refresh: refresh.slice(0, SPORT_CHANNEL_CAP), sport, rank, hidden };
