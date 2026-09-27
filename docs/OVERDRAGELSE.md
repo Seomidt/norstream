@@ -18,7 +18,7 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
-**27. september 2026 (v339).** "Find kampen": ny fane Sport — søg hold/liga i programoversigten på tværs af kanalerne, Mine hold, "Dine hold i dag" på forsiden, automatisk påmindelse.
+**27. september 2026 (v339).** Brugeren: "super godt lavet det med sport". "Find kampen": ny fane Sport — søg hold/liga i programoversigten på tværs af kanalerne, Mine hold, "Dine hold i dag" på forsiden, automatisk påmindelse.
 
 **27. september 2026 (v338).** Danske undertekster fra OpenSubtitles; NorStream i Google TV's "Fortsæt med at se". Trailere: Apple TV → IMDb → YouTube.
 
