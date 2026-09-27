@@ -368,6 +368,65 @@ export async function setTmdbApiKey(db: SqlDatabase, key: string): Promise<void>
   await setSetting(db, KEY_TMDB_API_KEY, key.trim());
 }
 
+/**
+ * OpenSubtitles (v338): API-noegle, valgfrit login og det token login gav.
+ * Noegle og brugernavn kommer med i sikkerhedskopien; kodeord og token goer
+ * ikke. Se features/vod/openSubtitles.ts.
+ */
+const KEY_OS_API_KEY = 'opensubtitles_api_key';
+const KEY_OS_USERNAME = 'opensubtitles_username';
+const KEY_OS_PASSWORD = 'opensubtitles_password';
+const KEY_OS_TOKEN = 'opensubtitles_token';
+
+export interface OpenSubtitlesSettings {
+  apiKey: string | null;
+  username: string | null;
+  password: string | null;
+}
+
+export async function getOpenSubtitlesSettings(db: SqlDatabase): Promise<OpenSubtitlesSettings> {
+  const [apiKey, username, password] = await Promise.all([
+    getSetting(db, KEY_OS_API_KEY),
+    getSetting(db, KEY_OS_USERNAME),
+    getSetting(db, KEY_OS_PASSWORD),
+  ]);
+  const clean = (v: string | null): string | null => (v === null || v.trim().length === 0 ? null : v.trim());
+  return { apiKey: clean(apiKey), username: clean(username), password: password === null || password.length === 0 ? null : password };
+}
+
+export async function setOpenSubtitlesSetting(
+  db: SqlDatabase,
+  field: 'apiKey' | 'username' | 'password',
+  value: string,
+): Promise<void> {
+  const key = field === 'apiKey' ? KEY_OS_API_KEY : field === 'username' ? KEY_OS_USERNAME : KEY_OS_PASSWORD;
+  await setSetting(db, key, field === 'password' ? value : value.trim());
+  // Nyt login eller ny noegle: det gamle token gaelder ikke laengere.
+  await setSetting(db, KEY_OS_TOKEN, '');
+}
+
+/** Token fra login, med hvornaar det blev givet og evt. anden vaert. */
+export async function getOpenSubtitlesToken(
+  db: SqlDatabase,
+): Promise<{ token: string; baseUrl: string | null; issuedMs: number } | null> {
+  const raw = await getSetting(db, KEY_OS_TOKEN);
+  if (raw === null || raw.length === 0) return null;
+  try {
+    const parsed = JSON.parse(raw) as { token?: unknown; baseUrl?: unknown; issuedMs?: unknown };
+    if (typeof parsed.token !== 'string' || typeof parsed.issuedMs !== 'number') return null;
+    return { token: parsed.token, baseUrl: typeof parsed.baseUrl === 'string' ? parsed.baseUrl : null, issuedMs: parsed.issuedMs };
+  } catch {
+    return null;
+  }
+}
+
+export async function setOpenSubtitlesToken(
+  db: SqlDatabase,
+  value: { token: string; baseUrl: string | null; issuedMs: number } | null,
+): Promise<void> {
+  await setSetting(db, KEY_OS_TOKEN, value === null ? '' : JSON.stringify(value));
+}
+
 /** Den kanal der sidst blev aabnet, til "Se videre" oeverst i favoritterne. */
 export async function getLastChannelId(db: SqlDatabase): Promise<string | null> {
   const value = await getSetting(db, KEY_LAST_CHANNEL);

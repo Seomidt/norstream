@@ -68,6 +68,8 @@ const SETTING_KEYS = [
   'mini_preview_enabled',
   'youtube_api_key',
   'tmdb_api_key',
+  'opensubtitles_api_key',
+  'opensubtitles_username',
   'google_search_key',
   'google_search_cx',
   'home_providers',

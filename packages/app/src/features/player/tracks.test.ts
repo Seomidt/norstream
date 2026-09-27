@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pickPreferredSubtitle, sameLanguage, trackName } from './tracks.js';
+import { externalSubtitleLanguage, pickPreferredSubtitle, sameLanguage, trackName } from './tracks.js';
 
 const tracks = [
   { id: '1', language: 'eng', label: 'English' },
@@ -34,5 +34,21 @@ describe('sameLanguage og trackName', () => {
     expect(trackName({ language: 'dan', label: 'Danish' })).toBe('Dansk');
     expect(trackName({ language: 'da', label: 'x', name: 'CC' })).toBe('Dansk (CC)');
     expect(trackName({ language: 'xx', label: 'Mystery' })).toBe('Mystery');
+  });
+});
+
+describe('externalSubtitleLanguage', () => {
+  const tracks = [
+    { language: 'eng', label: 'English' },
+    { language: 'swe', label: 'Svenska' },
+  ];
+  it('henter dansk naar filen ikke har dansk — engelsk er ikke nok', () => {
+    expect(externalSubtitleLanguage(tracks, 'auto', 'da')).toBe('da');
+    expect(externalSubtitleLanguage(tracks, 'da')).toBe('da');
+  });
+  it('henter intet naar filen har sproget, eller brugeren har slaaet undertekster fra', () => {
+    expect(externalSubtitleLanguage([...tracks, { language: 'dan', label: 'Dansk' }], 'auto', 'da')).toBeNull();
+    expect(externalSubtitleLanguage(tracks, 'sv')).toBeNull();
+    expect(externalSubtitleLanguage(tracks, 'off')).toBeNull();
   });
 });

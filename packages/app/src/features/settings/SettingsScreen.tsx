@@ -27,6 +27,8 @@ import {
   setGoogleSearchKey,
   setHomeProviders,
   setSubtitlePreference,
+  getOpenSubtitlesSettings,
+  setOpenSubtitlesSetting,
   setTmdbApiKey,
   setYoutubeApiKey,
   setMiniPreviewEnabled,
@@ -54,6 +56,7 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { TvTextInput } from '../../ui/TvTextInput.js';
+import { testOpenSubtitles } from '../vod/externalSubtitles.js';
 import { CloudBackup } from './CloudBackup.js';
 import { checkForUpdate, currentVersionCode, downloadAndInstall } from './appUpdate.js';
 import type { UpdateInfo } from './appUpdate.js';
@@ -169,6 +172,11 @@ export function SettingsScreen({
   const [googleKey, setGoogleKey] = useState('');
   const [googleCx, setGoogleCx] = useState('');
   const [subtitles, setSubtitles] = useState<SubtitlePreference>('auto');
+  /** OpenSubtitles (v338): noegle og valgfrit login, og hvad "Test" sagde. */
+  const [osKey, setOsKey] = useState('');
+  const [osUser, setOsUser] = useState('');
+  const [osPass, setOsPass] = useState('');
+  const [osStatus, setOsStatus] = useState<string | null>(null);
   /** Tjenesterne forsiden viser hylder for, og dem TMDB kender i landet. */
   const [chosenProviders, setChosenProviders] = useState<HomeProvider[]>([]);
   const [providers, setProviders] = useState<HomeProvider[] | null>(null);
@@ -213,6 +221,10 @@ export function SettingsScreen({
     setTmdbLocked((tmdb ?? '').trim().length > 0);
     setPosterApiKey(tmdb);
     setSubtitles(preferredSubtitles);
+    const os = await getOpenSubtitlesSettings(session.db);
+    setOsKey(os.apiKey ?? '');
+    setOsUser(os.username ?? '');
+    setOsPass(os.password ?? '');
     setVod(counts);
     setThemeModeState(await getThemeMode(session.db));
     const surface = await getVideoSurface(session.db);
@@ -587,6 +599,67 @@ export function SettingsScreen({
           </TvPressable>
         ))}
       </View>
+
+      <Text style={styles.sectionTitle}>Danske undertekster fra OpenSubtitles</Text>
+      <Text style={styles.hint}>
+        Mangler en film eller et afsnit undertekster på sproget ovenfor, henter appen dem selv fra
+        OpenSubtitles og viser dem. Kræver en gratis nøgle: opret en konto på opensubtitles.com, gå til
+        din profil → API consumers → New consumer, og kopiér API-nøglen hertil. Brugernavn og kodeord er
+        valgfrie og giver flere hentninger om dagen. Hentede undertekster gemmes, så samme film ikke
+        hentes igen.
+      </Text>
+      <TvTextInput
+        style={styles.input}
+        value={osKey}
+        onChangeText={(value) => {
+          setOsKey(value);
+          setOsStatus(null);
+          void setOpenSubtitlesSetting(session.db, 'apiKey', value);
+        }}
+        placeholder="OpenSubtitles API-nøgle"
+        autoCorrect={false}
+        autoCapitalize="none"
+      />
+      <TvTextInput
+        style={styles.input}
+        value={osUser}
+        onChangeText={(value) => {
+          setOsUser(value);
+          setOsStatus(null);
+          void setOpenSubtitlesSetting(session.db, 'username', value);
+        }}
+        placeholder="Brugernavn (valgfrit)"
+        autoCorrect={false}
+        autoCapitalize="none"
+      />
+      <TvTextInput
+        style={styles.input}
+        value={osPass}
+        onChangeText={(value) => {
+          setOsPass(value);
+          setOsStatus(null);
+          void setOpenSubtitlesSetting(session.db, 'password', value);
+        }}
+        placeholder="Kodeord (valgfrit)"
+        secureTextEntry
+        autoCorrect={false}
+        autoCapitalize="none"
+      />
+      {osKey.trim().length > 0 && (
+        <TvPressable
+          style={styles.row}
+          onPress={() => {
+            setOsStatus('Tester …');
+            void testOpenSubtitles(session.db).then(setOsStatus);
+          }}
+        >
+          <View style={styles.rowText}>
+            <Text style={styles.rowTitle}>Test forbindelsen</Text>
+            <Text style={styles.rowHint}>{osStatus ?? 'Søger danske undertekster til en kendt film.'}</Text>
+          </View>
+          <Text style={styles.actionText}>Test</Text>
+        </TvPressable>
+      )}
 
       <Text style={styles.sectionTitle}>Programoversigt</Text>
       <TvPressable

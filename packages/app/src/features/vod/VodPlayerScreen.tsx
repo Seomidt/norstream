@@ -7,7 +7,10 @@ import type { AudioTrack, SubtitleTrack } from 'expo-video';
 import type { AppSession } from '../../session.js';
 import { getSubtitlePreference } from '../../storage/settings.js';
 import type { SubtitlePreference } from '../../storage/settings.js';
-import { listEpisodes, saveProgress, setWatched } from '../../storage/vod.js';
+import { getVodItem, listEpisodes, saveProgress, setWatched } from '../../storage/vod.js';
+import { cleanVodTitle } from '../../sync/tmdb.js';
+import { removeWatchNext, updateWatchNext } from './watchNext.js';
+import type { WatchNextEntry } from './watchNext.js';
 import type { StoredEpisode } from '../../storage/vod.js';
 import { buildEpisodeUrl } from '@norstream/core';
 import { nextEpisode } from './episodes.js';
@@ -17,7 +20,10 @@ import type { ThemeColors } from '../../ui/theme.js';
 import type { Playback } from './VodDetailScreen.js';
 import { TrackPicker } from '../player/TrackPicker.js';
 import { LandscapePlayer, useLandscape } from '../player/Landscape.js';
-import { pickPreferredSubtitle, sameTrack, trackName } from '../player/tracks.js';
+import { externalSubtitleLanguage, pickPreferredSubtitle, sameTrack, trackName } from '../player/tracks.js';
+import { SubtitleOverlay } from './SubtitleOverlay.js';
+import { loadExternalSubtitles } from './externalSubtitles.js';
+import type { Cue } from './openSubtitles.js';
 import { SeekButtons } from '../player/SeekButtons.js';
 import { surfaceTypeForPlatform } from '../player/format.js';
 import { TvPressable } from '../../ui/TvPressable.js';
@@ -33,6 +39,12 @@ interface Props {
 const PROGRESS_INTERVAL_MS = 10_000;
 
 type Picker = 'subtitles' | 'audio' | null;
+
+/** Sprogets navn til undertekst-knappen for hentede undertekster. */
+const LANGUAGE_NAMES: Record<string, string> = { da: 'Dansk', en: 'Engelsk', sv: 'Svensk', no: 'Norsk', de: 'Tysk' };
+
+/** Saa laenge efter "klar" ventes paa at filens egne spor er meldt, foer der hentes udefra. */
+const EXTERNAL_DELAY_MS = 3000;
 
 /** Sekunder fra et afsnit slutter til det naeste begynder af sig selv. */
 const NEXT_COUNTDOWN_S = 10;
@@ -69,6 +81,16 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
   const [audio, setAudio] = useState<AudioTrack | null>(null);
   const [error, setError] = useState<string | null>(null);
   const resumed = useRef(false);
+  /**
+   * Undertekster hentet udefra (OpenSubtitles, v338), naar filen ikke selv
+   * har dem paa det oenskede sprog. `active`: de vises (og filens egne er
+   * slaaet fra). Tegnes af SubtitleOverlay.
+   */
+  const [external, setExternal] = useState<{ cues: Cue[]; index: number; count: number; language: string } | null>(null);
+  const [externalActive, setExternalActive] = useState(false);
+  const [externalStatus, setExternalStatus] = useState<{ kind: 'idle' | 'loading' | 'none' | 'nokey' | 'error'; message?: string }>({
+    kind: 'idle',
+  });
 
   const player = useVideoPlayer(streamSource(current.url), (p) => {
     p.loop = false;
@@ -161,6 +183,41 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
     };
   }, [session.db, player, autoSelect]);
 
+  /** Henter undertekster udefra; `index` > 0 er "proev en anden". */
+  const fetchExternal = useCallback(
+    async (language: string, index: number): Promise<void> => {
+      setExternalStatus({ kind: 'loading' });
+      const url = current.url;
+      const result = await loadExternalSubtitles(session.db, {
+        progressKey: current.progressKey,
+        seriesKey: current.seriesKey,
+        episodeKey: current.episodeKey,
+        language,
+        index,
+      });
+      // Et andet afsnit er begyndt imens: svaret gaelder ikke laengere.
+      if (currentUrl.current !== url) return;
+      if (result.kind === 'ok') {
+        setExternal({ cues: result.cues, index: result.index, count: result.count, language });
+        setExternalActive(true);
+        setExternalStatus({ kind: 'idle' });
+        try {
+          player.subtitleTrack = null;
+        } catch {
+          // Afspilleren er vaek.
+        }
+        setSubtitle(null);
+      } else if (result.kind === 'error') {
+        setExternalStatus({ kind: 'error', message: result.message });
+      } else {
+        setExternalStatus({ kind: result.kind });
+      }
+    },
+    [session.db, current.url, current.progressKey, current.seriesKey, current.episodeKey, player],
+  );
+  const currentUrl = useRef(current.url);
+  currentUrl.current = current.url;
+
   // Sporene meldes for sig, og tit et oejeblik **efter** at filen er klar til
   // afspilning. Laeses de kun ved readyToPlay, staar listen tom.
   useEffect(() => {
@@ -198,6 +255,20 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
         setError(null);
         readTracks();
         autoSelect(player.availableSubtitleTracks);
+        // Mangler filen undertekster paa det oenskede sprog, hentes de udefra —
+        // lidt efter, for sporene meldes tit efter "klar".
+        if (!externalTried.current) {
+          externalTried.current = true;
+          setTimeout(() => {
+            try {
+              const preferred = preference.current ?? 'auto';
+              const language = externalSubtitleLanguage(player.availableSubtitleTracks, preferred);
+              if (language !== null) void fetchExternal(language, 0);
+            } catch {
+              // Afspilleren er vaek.
+            }
+          }, EXTERNAL_DELAY_MS);
+        }
         // Foerst her: et hop foer filen er aabnet, bliver ignoreret.
         if (!resumed.current && current.resumeAtSeconds !== null && current.resumeAtSeconds > 0) {
           resumed.current = true;
@@ -211,7 +282,7 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
       }
     });
     return () => subscription.remove();
-  }, [player, current.resumeAtSeconds, readTracks, autoSelect]);
+  }, [player, current.resumeAtSeconds, readTracks, autoSelect, fetchExternal]);
 
   useEffect(() => {
     const subscription = player.addListener('timeUpdate', ({ currentTime }: { currentTime: number }) => {
@@ -228,9 +299,14 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
   }, [player]);
 
   // En ny fil: hop, sprogvalg og kendt position begynder forfra.
+  const externalTried = useRef(false);
   useEffect(() => {
     resumed.current = false;
     autoPicked.current = false;
+    externalTried.current = false;
+    setExternal(null);
+    setExternalActive(false);
+    setExternalStatus({ kind: 'idle' });
     lastKnown.current = { position: current.resumeAtSeconds ?? 0, duration: null };
   }, [current.url, current.resumeAtSeconds]);
 
@@ -242,6 +318,9 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
   useEffect(() => {
     const subscription = player.addListener('playToEnd', () => {
       void setWatched(session.db, current.progressKey, true).catch(() => undefined);
+      // Set til ende: ud af Google TV's "Fortsaet med at se". For en serie
+      // kommer den igen, naar man er i gang med naeste afsnit.
+      if (isTV) void removeWatchNext(current.seriesKey ?? current.progressKey);
       if (current.seriesKey === null || current.episodeKey === null) return;
       const seriesKey = current.seriesKey;
       const episodeKey = current.episodeKey;
@@ -286,24 +365,115 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
 
   // Fremdriften. Skrives hvert tiende sekund og ved afgang — fra `lastKnown`,
   // aldrig fra afspilleren, som kan vaere frigivet naar oprydningen koerer.
-  const persist = useCallback((): void => {
-    const { position, duration } = lastKnown.current;
-    if (position <= 0) return;
-    void saveProgress(session.db, current.progressKey, position, duration).catch(() => undefined);
-  }, [session.db, current.progressKey]);
+  /**
+   * Titel, plakat og afsnit til Google TV's "Fortsaet med at se" (v338,
+   * kun tv). Laeses én gang per fil; posten opdateres naar fremdriften gemmes.
+   */
+  const watchNextInfo = useRef<Omit<WatchNextEntry, 'positionS' | 'durationS'> | null>(null);
+  useEffect(() => {
+    watchNextInfo.current = null;
+    if (!isTV) return undefined;
+    let cancelled = false;
+    const key = current.seriesKey ?? current.progressKey;
+    void (async () => {
+      const item = await getVodItem(session.db, key);
+      if (cancelled || item === null) return;
+      let episode: WatchNextEntry['episode'] = null;
+      if (current.seriesKey !== null && current.episodeKey !== null) {
+        const found = (await listEpisodes(session.db, current.seriesKey)).find((e) => e.key === current.episodeKey);
+        if (found !== undefined) episode = { key: found.key, season: found.season, number: found.episode, title: found.title };
+      }
+      if (cancelled) return;
+      const clean = cleanVodTitle(item.name).title;
+      watchNextInfo.current = {
+        key,
+        title: clean.length > 0 ? clean : item.name,
+        posterUrl: item.foundPosterUrl ?? item.posterUrl,
+        episode,
+      };
+    })().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [session.db, current.seriesKey, current.progressKey, current.episodeKey]);
+
+  const persist = useCallback(
+    (leaving = false): void => {
+      const { position, duration } = lastKnown.current;
+      if (position <= 0) return;
+      void saveProgress(session.db, current.progressKey, position, duration).catch(() => undefined);
+      const info = watchNextInfo.current;
+      if (info !== null) void updateWatchNext({ ...info, positionS: position, durationS: duration }, leaving);
+    },
+    [session.db, current.progressKey],
+  );
 
   useEffect(() => {
-    const timer = setInterval(persist, PROGRESS_INTERVAL_MS);
+    const timer = setInterval(() => persist(false), PROGRESS_INTERVAL_MS);
     return () => {
       clearInterval(timer);
-      persist();
+      persist(true);
     };
   }, [persist]);
 
   function chooseSubtitle(track: SubtitleTrack | null): void {
     player.subtitleTrack = track;
     setSubtitle(track);
+    setExternalActive(false);
     setPicker(null);
+  }
+
+  /** Valgene for undertekster udefra i listen: vis, proev en anden, eller hent. */
+  function externalOptions(): Array<{ key: string; label: string; active: boolean; onPress: () => void }> {
+    if (external !== null) {
+      const name = LANGUAGE_NAMES[external.language] ?? external.language;
+      const options = [
+        {
+          key: 'os',
+          label: `${name} (OpenSubtitles)`,
+          active: externalActive,
+          onPress: () => {
+            player.subtitleTrack = null;
+            setSubtitle(null);
+            setExternalActive(true);
+            setPicker(null);
+          },
+        },
+      ];
+      if (external.index + 1 < external.count) {
+        options.push({
+          key: 'os-next',
+          label: externalStatus.kind === 'loading' ? 'Henter en anden …' : 'Passer den ikke? Prøv en anden',
+          active: false,
+          onPress: () => {
+            if (externalStatus.kind !== 'loading') void fetchExternal(external.language, external.index + 1);
+          },
+        });
+      }
+      return options;
+    }
+    const language = externalSubtitleLanguage([], preference.current ?? 'auto') ?? 'da';
+    const name = (LANGUAGE_NAMES[language] ?? language).toLowerCase();
+    const label =
+      externalStatus.kind === 'loading'
+        ? `Henter ${name} fra OpenSubtitles …`
+        : externalStatus.kind === 'none'
+          ? `OpenSubtitles har ingen ${name} til denne`
+          : externalStatus.kind === 'nokey'
+            ? 'OpenSubtitles: indtast nøgle under Indstillinger'
+            : externalStatus.kind === 'error'
+              ? `OpenSubtitles: ${externalStatus.message ?? 'fejl'}`
+              : `Hent ${name} fra OpenSubtitles`;
+    return [
+      {
+        key: 'os-fetch',
+        label,
+        active: false,
+        onPress: () => {
+          if (externalStatus.kind === 'idle' || externalStatus.kind === 'error') void fetchExternal(language, 0);
+        },
+      },
+    ];
   }
 
   function chooseAudio(track: AudioTrack): void {
@@ -330,7 +500,12 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
         }}
       >
         <Text style={styles.buttonText}>
-          Undertekster{subtitle !== null ? `: ${trackName(subtitle)}` : ''}
+          Undertekster
+          {externalActive && external !== null
+            ? `: ${LANGUAGE_NAMES[external.language] ?? external.language}`
+            : subtitle !== null
+              ? `: ${trackName(subtitle)}`
+              : ''}
         </Text>
       </TvPressable>
       <TvPressable
@@ -363,6 +538,9 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
       </View>
     ) : null;
 
+  const externalOverlay =
+    externalActive && external !== null ? <SubtitleOverlay player={player} cues={external.cues} /> : null;
+
   const pickers = (
     <>
       {nextOverlay}
@@ -370,13 +548,14 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
         <TrackPicker
           title="Undertekster"
           options={[
-            { key: 'none', label: 'Ingen', active: subtitle === null, onPress: () => chooseSubtitle(null) },
+            { key: 'none', label: 'Ingen', active: subtitle === null && !externalActive, onPress: () => chooseSubtitle(null) },
             ...subtitleTracks.map((track, index) => ({
               key: track.id ?? `${track.language}-${index}`,
               label: trackName(track),
-              active: subtitle !== null && sameTrack(subtitle, track),
+              active: subtitle !== null && sameTrack(subtitle, track) && !externalActive,
               onPress: () => chooseSubtitle(track),
             })),
+            ...externalOptions(),
           ]}
           emptyText="Filen har ingen undertekstspor."
           onClose={() => setPicker(null)}
@@ -403,7 +582,12 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
       <LandscapePlayer
         video={<VideoView style={StyleSheet.absoluteFill} player={player} nativeControls={!isTV} surfaceType={surfaceTypeForPlatform()} />}
         bar={actions}
-        overlays={pickers}
+        overlays={
+          <>
+            {externalOverlay}
+            {pickers}
+          </>
+        }
         playing={playing}
         // Paa tv: bjaelken skjult fra start, saa pil venstre/hoejre spoler i
         // filmen med det samme. Pil op henter knapperne (Undertekster, Lyd).
@@ -426,7 +610,10 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <VideoView style={styles.video} player={player} nativeControls />
+      <View style={styles.video}>
+        <VideoView style={StyleSheet.absoluteFill} player={player} nativeControls />
+        {externalActive && external !== null && <SubtitleOverlay player={player} cues={external.cues} bottom={8} />}
+      </View>
 
       <View style={styles.info}>
         <Text style={styles.title} numberOfLines={1}>

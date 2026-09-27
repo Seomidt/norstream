@@ -18,7 +18,7 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
-**27. september 2026 (v336).** Trailere: Apple TV → IMDb → YouTube.
+**27. september 2026 (v338).** Danske undertekster fra OpenSubtitles; NorStream i Google TV's "Fortsæt med at se". Trailere: Apple TV → IMDb → YouTube.
 
 **26. september 2026 (v335).** Brugeren: "Fantastisk, endelig kører det også,
 EPG ser også ud til at køre nu." Trailere fra IMDb i 1080p (v335) og
@@ -41,6 +41,49 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 27. september 2026 — v338: danske undertekster (OpenSubtitles) + Google TV "Fortsæt med at se"
+
+Brugeren valgte to af idéerne (se "Idéer, 27. sep." nedenfor).
+
+**Danske undertekster fra OpenSubtitles** (film og afsnit):
+- `features/vod/openSubtitles.ts` (ren TS, testet): officiel REST-API
+  (`api.opensubtitles.com/api/v1`, `Api-Key` + `User-Agent: NorStream v1`).
+  `searchUrl` (parametre alfabetisk — ellers omdirigerer de): film på
+  `imdb_id`/`tmdb_id`, afsnit på `parent_imdb_id` + `season_number` +
+  `episode_number`, ellers `query`+`year`. `rankSubtitles`: menneske- før
+  maskine-oversat, så flest hentninger. `downloadSubtitle` (`sub_format: srt`),
+  valgfrit `login` (flere hentninger/dag; `base_url` kan være en anden vært).
+  `parseSrt` + `cueAt` (binær søgning).
+- `externalSubtitles.ts`: IMDb-nummer via `findTitleInfo` (TMDB), afsnit fra
+  `listEpisodes`; filer gemmes i `dokumenter/undertekster/<nøgle>-<sprog>-<n>.srt`
+  (samme film bruger ikke kvote igen); token fornyes efter 20 t.
+  `testOpenSubtitles` (Indstillinger → "Test forbindelsen": The Matrix på dansk).
+- **Afspilleren kan IKKE tage undertekster udefra** (expo-video 57 har intet felt
+  til det) → `SubtitleOverlay.tsx` tegner selv teksten over videoen,
+  `timeUpdateEventInterval` 0,25 s mens den vises.
+- `VodPlayerScreen`: 3 s efter "klar" → `externalSubtitleLanguage` (tracks.ts):
+  mangler filen et spor på det ønskede sprog (engelsk tæller IKKE), hentes
+  det og vises automatisk (filens eget spor slås fra). Undertekst-listen:
+  "Dansk (OpenSubtitles)", "Passer den ikke? Prøv en anden", ellers "Hent dansk
+  fra OpenSubtitles"/status. Et valgt filspor slår de hentede fra.
+- Indstillinger: nøgle, brugernavn, kodeord (`opensubtitles_*`); nøgle og
+  brugernavn i sikkerhedskopien, kodeord og token ikke.
+
+**Google TV "Fortsæt med at se"** (kun tv):
+- `modules/watch-next` (Kotlin, `androidx.tvprovider:tvprovider:1.0.0`):
+  `upsert(json)`/`remove(key)` i Watch Next-kanalen (`TYPE_MOVIE`/
+  `TYPE_TV_EPISODE`, `WATCH_NEXT_TYPE_CONTINUE`, position, længde, plakat 2:3,
+  `internalProviderId` = titlens nøgle). Fjernet af brugeren (ikke browsable) →
+  slettes og lægges ind på ny ved ny afspilning. Manifest: READ/WRITE_EPG_DATA.
+- `features/vod/watchNext.ts` (testet): én post per film og per serie; kun når
+  man er ≥ 1 min inde og ikke i de sidste 3 min; højst én opdatering pr. minut
+  (+ ved afgang); set til ende → fjernes. Link `norstream://vod/<nøgle>?episode=<afsnit>`.
+- `app.json` `"scheme": "norstream"`; `App.tsx` lytter på `Linking` →
+  `vodDetail` med `autoPlay`, og `VodDetailScreen` afspiller straks (film, eller
+  afsnittet) hvor man slap (`moviePlayback`/`episodePlayback`).
+- **Uvist:** om Google TV viser Watch Next fra en app uden for Play Store. Er
+  rækken tom efter en film, er det Googles valg — intet går i stykker.
 
 ### 27. september 2026 — v337: opdaterings-popup mens appen kører
 
@@ -1830,3 +1873,9 @@ Brugerens panel-adgangsoplysninger står **ikke** i dette repo og skal ikke skri
    `expo-notifications` og planlagte lokale notifikationer; det er ikke
    sat op, fordi tv'et alligevel viser appen når man ser fjernsyn.
 9. **Emulator i byggekæden** er fravalgt af brugeren indtil videre.
+10. **Idéer, 27. sep. (ikke bygget endnu):** sovetimer (sluk efter 30/60/90 min
+    eller når udsendelsen slutter); **"Find kampen"** (søg hold/kamp i EPG'en på
+    tværs af kanaler, "Mine hold" med række på forsiden og automatisk
+    påmindelse — brugeren spurgte hvordan den ville sidde, afventer svar);
+    billede-i-billede på telefonen; børnesikring med PIN; profiler;
+    flere kanaler på én skærm (tjek panelets antal samtidige forbindelser først).

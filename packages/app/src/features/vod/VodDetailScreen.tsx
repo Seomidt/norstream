@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { buildEpisodeUrl, buildMovieUrl } from '@norstream/core';
-import type { VodDetails } from '@norstream/core';
+import type { VodDetails, XtreamCredentials } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { getVodItem, listEpisodes, setInWatchlist, setWatched } from '../../storage/vod.js';
 import { continueEpisodeFor, latestEpisode } from './episodes.js';
@@ -53,6 +53,39 @@ interface Props {
     year: number | null,
     kind: 'movie' | 'series',
   ) => void;
+  /**
+   * Aabnet fra Google TV's "Fortsaet med at se" (v338): afspil med det samme
+   * — filmen, eller afsnittet — hvor man slap.
+   */
+  autoPlay?: { episodeKey: string | null } | null;
+}
+
+type Creds = XtreamCredentials;
+
+function moviePlayback(item: StoredVodItem, creds: Creds): Playback {
+  return {
+    url: buildMovieUrl(creds, item.id, item.containerExtension),
+    title: item.name,
+    subtitle: null,
+    progressKey: item.key,
+    resumeAtSeconds: item.positionSeconds,
+    sourceId: item.sourceId,
+    seriesKey: null,
+    episodeKey: null,
+  };
+}
+
+function episodePlayback(item: StoredVodItem, episode: StoredEpisode, creds: Creds): Playback {
+  return {
+    url: buildEpisodeUrl(creds, episode.id, episode.containerExtension),
+    title: item.name,
+    subtitle: `S${episode.season} · E${episode.episode} · ${episode.title}`,
+    progressKey: episode.key,
+    resumeAtSeconds: episode.positionSeconds,
+    sourceId: item.sourceId,
+    seriesKey: item.key,
+    episodeKey: episode.key,
+  };
 }
 
 /**
@@ -62,7 +95,7 @@ interface Props {
  * foerst her, og kun én gang om ugen. Traileren spilles inde i appen med
  * YouTubes egen indlejrede afspiller; se `TrailerScreen`.
  */
-export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }: Props) {
+export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer, autoPlay }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
@@ -93,10 +126,28 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
     return () => cancelAnimationFrame(frame);
   }, [focusPulse]);
 
+  /** Google TV-linket afspilles kun én gang, ikke igen naar man kommer tilbage. */
+  const autoPlayed = useRef(false);
   const load = useCallback(async (): Promise<void> => {
     const stored = await getVodItem(session.db, itemKey);
     setItem(stored);
     if (stored === null) return;
+    if (autoPlay !== null && autoPlay !== undefined && !autoPlayed.current) {
+      const creds = session.access(stored.sourceId)?.creds ?? null;
+      if (creds !== null) {
+        if (stored.kind !== 'series') {
+          autoPlayed.current = true;
+          onPlay(moviePlayback(stored, creds));
+          return;
+        }
+        const episode = (await listEpisodes(session.db, stored.key)).find((e) => e.key === autoPlay.episodeKey);
+        if (episode !== undefined) {
+          autoPlayed.current = true;
+          onPlay(episodePlayback(stored, episode, creds));
+          return;
+        }
+      }
+    }
     try {
       const creds = session.access(stored.sourceId)?.creds ?? null;
       const fetched = await ensureVodDetails(session.db, stored, creds, session.fetchImpl);
@@ -114,6 +165,8 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
       setFollowed(following);
       if (following) await markSeriesSeen(session.db, stored.key);
     }
+    // autoPlay og onPlay aendrer sig ikke mens siden er aaben.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, itemKey]);
 
   useEffect(() => {
@@ -153,30 +206,12 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer }:
 
   function playMovie(): void {
     if (creds === null || item === null || item === undefined) return;
-    onPlay({
-      url: buildMovieUrl(creds, item.id, item.containerExtension),
-      title: item.name,
-      subtitle: null,
-      progressKey: item.key,
-      resumeAtSeconds: item.positionSeconds,
-      sourceId: item.sourceId,
-      seriesKey: null,
-      episodeKey: null,
-    });
+    onPlay(moviePlayback(item, creds));
   }
 
   function playEpisode(episode: StoredEpisode): void {
     if (creds === null || item === null || item === undefined) return;
-    onPlay({
-      url: buildEpisodeUrl(creds, episode.id, episode.containerExtension),
-      title: item.name,
-      subtitle: `S${episode.season} · E${episode.episode} · ${episode.title}`,
-      progressKey: episode.key,
-      resumeAtSeconds: episode.positionSeconds,
-      sourceId: item.sourceId,
-      seriesKey: item.key,
-      episodeKey: episode.key,
-    });
+    onPlay(episodePlayback(item, episode, creds));
   }
 
   async function toggleWatched(): Promise<void> {

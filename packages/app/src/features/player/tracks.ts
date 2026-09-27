@@ -60,6 +60,24 @@ export function pickPreferredSubtitle<T extends TrackLike>(
   return null;
 }
 
+/**
+ * Sproget der skal hentes udefra (OpenSubtitles, v338), eller null.
+ *
+ * Kun naar brugeren vil have undertekster (`off` betyder nej), og filen ikke
+ * selv har et spor paa det oenskede sprog. Engelsk regnes IKKE som godt nok
+ * her — brugeren bad netop om danske, naar de mangler.
+ */
+export function externalSubtitleLanguage<T extends TrackLike>(
+  tracks: readonly T[],
+  preference: SubtitlePreference,
+  device: string = deviceLanguage(),
+): string | null {
+  if (preference === 'off') return null;
+  const wanted = preference === 'auto' ? device : preference;
+  if (!/^[a-z]{2}$/.test(wanted)) return null;
+  return tracks.some((track) => sameLanguage(track.language, wanted)) ? null : wanted;
+}
+
 /** Sporets navn til visning: sprog, og navnet fra filen naar det siger mere. */
 export function trackName(track: TrackLike): string {
   const language = LANGUAGES[track.language.toLowerCase()] ?? track.label ?? track.language;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Linking, StyleSheet, Text, View } from 'react-native';
 // Ikke react-natives egen SafeAreaView: den gør **ingenting paa Android**.
 // Telefonens navigationslinje laa derfor oven i appens fanelinje, og det saa
 // ud som et layoutproblem i appen frem for en manglende indramning.
@@ -17,6 +17,8 @@ import { TrailerScreen } from './src/features/vod/TrailerScreen.js';
 import { createSession, reloadSources } from './src/session.js';
 import { registerPanelEpgNative } from './src/sync/panelEpg.js';
 import { panelEpgNative } from './modules/panel-epg/index.js';
+import { parseWatchNextUri, registerWatchNextNative } from './src/features/vod/watchNext.js';
+import { watchNextNative } from './modules/watch-next/index.js';
 import type { AppSession } from './src/session.js';
 
 import type { StoredChannel } from './src/storage/channels.js';
@@ -35,6 +37,7 @@ import { UpdateBanner } from './src/features/settings/UpdateBanner.js';
 // Panelets store EPG-fil laeses i native kode (PanelEpgModule). Registreres
 // her, saa synkroniseringen ikke selv traekker React Native med i testene.
 registerPanelEpgNative(panelEpgNative);
+registerWatchNextNative(watchNextNative);
 
 type Route =
   | { name: 'loading' }
@@ -43,7 +46,8 @@ type Route =
   /** `startFrom` er sat naar afspilningen kommer fra guidens start-forfra. */
   | { name: 'player'; channel: StoredChannel; startFrom?: Programme; zap?: StoredChannel[]; resumeAtSeconds?: number }
   /** En film eller serie. Afspilleren husker hvilken titel den kom fra. */
-  | { name: 'vodDetail'; itemKey: string }
+  /** `autoPlay`: aabnet fra Google TV's "Fortsaet med at se" — afspil med det samme. */
+  | { name: 'vodDetail'; itemKey: string; autoPlay?: { episodeKey: string | null } }
   | { name: 'vodPlayer'; itemKey: string; playback: Playback }
   | {
       name: 'trailer';
@@ -120,6 +124,25 @@ function AppInner() {
       cancelled = true;
     };
   }, [bootAttempt]);
+
+  /**
+   * Links fra Google TV's "Fortsaet med at se" (v338): `norstream://vod/…`
+   * aabner titlen og fortsaetter afspilningen. Baade naar appen startes af
+   * linket og naar den allerede koerer. Foerst naar sessionen er klar.
+   */
+  const sessionReady = session !== null;
+  useEffect(() => {
+    if (!sessionReady) return undefined;
+    const open = (url: string | null): void => {
+      if (url === null) return;
+      const target = parseWatchNextUri(url);
+      if (target === null) return;
+      setRoute({ name: 'vodDetail', itemKey: target.itemKey, autoPlay: { episodeKey: target.episodeKey } });
+    };
+    void Linking.getInitialURL().then(open).catch(() => undefined);
+    const subscription = Linking.addEventListener('url', ({ url }) => open(url));
+    return () => subscription.remove();
+  }, [sessionReady]);
 
   async function afterOnboarding(): Promise<void> {
     try {
@@ -322,6 +345,7 @@ function AppInner() {
           <VodDetailScreen
             session={session}
             itemKey={route.itemKey}
+            autoPlay={route.autoPlay ?? null}
             onBack={() => setRoute({ name: 'home' })}
             onPlay={(playback) => setRoute({ name: 'vodPlayer', itemKey: route.itemKey, playback })}
             onTrailer={(trailerId, title, year, kind) =>
