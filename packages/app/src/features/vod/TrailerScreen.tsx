@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { WebView as WebViewInstance, WebViewMessageEvent } from 'react-native-webview';
 import type { AppSession } from '../../session.js';
 import { getTmdbApiKey, getYoutubeApiKey } from '../../storage/settings.js';
-import { findImdbId, findTmdbTrailers, tmdbFetch } from '../../sync/tmdb.js';
+import { findTitleInfo, findTmdbTrailers, tmdbFetch } from '../../sync/tmdb.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
@@ -14,7 +14,9 @@ import { isTV } from '../../ui/tv.js';
 import { MIN_TRAILER_SECONDS, findLongerTrailer, searchYoutubeTrailers, youtubeSearchUrl } from './trailerSearch.js';
 import type { FetchText } from './trailerSearch.js';
 import { webView } from './webview.js';
-import { resolveYoutubeStream } from './youtubeStream.js';
+import { buildHlsMaster, resolveYoutubeStream } from './youtubeStream.js';
+import { findAppleTrailers } from './appleTrailer.js';
+import type { GetJson } from './appleTrailer.js';
 import { findImdbTrailers } from './imdbTrailer.js';
 import type { GetText, PostJson, YoutubeStream } from './youtubeStream.js';
 import { surfaceTypeForPlatform } from '../player/format.js';
@@ -65,6 +67,8 @@ type Source =
       limited: boolean;
       /** Fra IMDb (v335): en almindelig MP4, ingen graense. `id` er da IMDbs video-id. */
       imdb?: { titleId: string };
+      /** Fra Apple TV (v336): HLS i fuld HD, ingen graense. `id` er da Apples trailer-id. */
+      apple?: boolean;
     }
   /** `startAt`: sekunder inde, naar den overtager fra den native afspiller. */
   | { kind: 'measured'; id: string; checkLength: boolean; startAt?: number }
@@ -148,6 +152,23 @@ const postJson: PostJson = async (url, headers, body) => {
   const timer = setTimeout(() => controller.abort(), NATIVE_LOOKUP_TIMEOUT_MS);
   try {
     const response = await fetch(url, { method: 'POST', headers, body, signal: controller.signal });
+    return response.ok ? ((await response.json()) as unknown) : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+/** GET af JSON (Apple TV's soegning og filmsider); null ved alt andet end et svar. */
+const getJson: GetJson = async (url) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), NATIVE_LOOKUP_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json', Origin: 'https://tv.apple.com' },
+      signal: controller.signal,
+    });
     return response.ok ? ((await response.json()) as unknown) : null;
   } catch {
     return null;
@@ -504,16 +525,46 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   }
 
   /**
-   * IMDb foerst (v335): de officielle trailere som almindelige videofiler i
-   * 1080p, spillet i appens egen afspiller hele vejen. Kun naar TMDB kan
-   * give filmens IMDb-nummer; ellers, eller uden trailer dér, YouTube-vejen.
+   * Trailerkilderne i brugerens raekkefoelge (v336): Apple TV (HLS i fuld HD),
+   * saa IMDb (MP4 i 1080p), saa YouTube-vejen (`playNext`). Apple og IMDb
+   * spilles i appens egen afspiller hele vejen. `skip`: kilder der allerede
+   * er proevet (en der fejlede under afspilning springes over naeste gang).
    */
-  async function start(): Promise<void> {
+  async function start(skip: ReadonlySet<'apple' | 'imdb'> = new Set()): Promise<void> {
     if (NATIVE_TRAILERS) {
       try {
         const tmdbKey = await getTmdbApiKey(session.db);
         const name = year === null ? title : `${title} (${year})`;
-        const titleId = tmdbKey === null ? null : await findImdbId(tmdbFetch, tmdbKey, kind, name);
+        const info = tmdbKey === null ? null : await findTitleInfo(tmdbFetch, tmdbKey, kind, name);
+        if (!alive.current) return;
+
+        if (!skip.has('apple')) {
+          const titles = [info?.englishTitle, info?.originalTitle, title].filter((t): t is string => typeof t === 'string');
+          const apple = (await findAppleTrailers(getJson, kind, titles, info?.year ?? year))[0];
+          const master = apple === undefined ? null : await getText(apple.url);
+          const built = master === null || apple === undefined ? null : buildHlsMaster(master, apple.url);
+          const uri = built === null || apple === undefined ? null : writeManifest(`apple-${apple.id.replace(/[^A-Za-z0-9]/g, '')}`, 0, built.playlist, 'm3u8');
+          if (!alive.current) return;
+          if (apple !== undefined && uri !== null) {
+            setNote(`Trailer fra Apple TV: ${apple.name}.`);
+            setLoading(true);
+            setSource({
+              kind: 'native',
+              id: apple.id,
+              uri,
+              resumeAt: 0,
+              attempt: 0,
+              failures: 0,
+              seconds: apple.seconds,
+              contentType: 'hls',
+              limited: false,
+              apple: true,
+            });
+            return;
+          }
+        }
+
+        const titleId = skip.has('imdb') ? null : info?.imdbId ?? null;
         const found = titleId === null ? [] : await findImdbTrailers(postJson, titleId);
         const best = found[0];
         if (best !== undefined && titleId !== null && alive.current) {
@@ -534,7 +585,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
           return;
         }
       } catch {
-        // IMDb er et tilvalg; YouTube-vejen tager over.
+        // Apple og IMDb er tilvalg; YouTube-vejen tager over.
       }
     }
     await playNext();
@@ -601,7 +652,9 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
           ? { uri: source.url }
           : null;
   const openUrl =
-    source.kind === 'native' && source.imdb !== undefined
+    source.kind === 'native' && source.apple === true
+      ? `https://tv.apple.com/search?term=${encodeURIComponent(title)}`
+      : source.kind === 'native' && source.imdb !== undefined
       ? `https://www.imdb.com/video/${source.id}/`
       : source.kind === 'measured' || source.kind === 'plain' || source.kind === 'native'
         ? `https://www.youtube.com/watch?v=${source.id}`
@@ -664,7 +717,8 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             onReady={() => setLoading(false)}
             onProgress={onNativeProgress}
             onBroken={(position, reason) => {
-              if (source.imdb !== undefined) void recoverImdb(source, position);
+              if (source.apple === true) void start(new Set(['apple']));
+              else if (source.imdb !== undefined) void recoverImdb(source, position);
               else void recoverNative(source, position, reason);
             }}
             // Paa tv lukker traileren naar den er slut, som i Googles butik.
