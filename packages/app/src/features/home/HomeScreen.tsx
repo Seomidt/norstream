@@ -39,6 +39,7 @@ import { runWeeklyCloudBackup } from '../../storage/cloudBackup.js';
 import { loadSourceCredentials } from '../../storage/credentials.js';
 import { saveToCloud } from '../settings/cloudSync.js';
 import { VodScreen } from '../vod/VodScreen.js';
+import { SportScreen } from '../sport/SportScreen.js';
 import type { VodLevel } from '../vod/VodScreen.js';
 import type { StoredVodItem } from '../../storage/vod.js';
 import type { TmdbTitle } from '../../sync/tmdbHome.js';
@@ -78,7 +79,7 @@ interface Props {
   covered?: boolean;
 }
 
-export type Tab = 'home' | 'favorites' | 'browse' | 'guide' | 'vod' | 'radio' | 'settings';
+export type Tab = 'home' | 'favorites' | 'browse' | 'guide' | 'sport' | 'vod' | 'radio' | 'settings';
 
 /** Tryk paa fjernbetjeningen der kan have flyttet fokus ind i eller langs menusoejlen. */
 const RAIL_KEYS = new Set(['left', 'longLeft', 'up', 'longUp', 'down', 'longDown']);
@@ -96,6 +97,8 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'home', label: 'Hjem', icon: '⌂' },
   { id: 'guide', label: 'Guide', icon: '▦' },
   { id: 'favorites', label: 'Favoritter', icon: '★' },
+  // Find kampen (v339): soeg efter hold og liga paa tvaers af kanalerne.
+  { id: 'sport', label: 'Sport', icon: '⚽\uFE0E' },
   { id: 'vod', label: 'Film', icon: '▶' },
   { id: 'radio', label: 'Radio', icon: '♪' },
   { id: 'browse', label: 'Kanaler', icon: '☰' },
@@ -531,7 +534,7 @@ export function HomeScreen({
             {item.icon}
           </Text>
           {(!isTV || railOpen) && (
-            <Text style={[styles.tabLabel, tab === item.id && styles.tabActive]}>
+            <Text style={[styles.tabLabel, tab === item.id && styles.tabActive]} numberOfLines={1} adjustsFontSizeToFit>
               {item.label}
             </Text>
           )}
@@ -632,6 +635,13 @@ export function HomeScreen({
             onBrowse={goBrowse}
             previewEnabled={previewOn}
             previewHandle={previewHandle}
+            focusFirstSignal={enterSignal}
+          />
+        )}
+        {tab === 'sport' && (
+          <SportScreen
+            session={session}
+            onPlay={(channel, neighbours) => open(channel, undefined, neighbours)}
             focusFirstSignal={enterSignal}
           />
         )}
@@ -744,7 +754,8 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.surface,
   },
   railFolded: { width: 44 },
-  railTab: { alignItems: 'center', paddingVertical: theme.spacing.sm, marginHorizontal: theme.spacing.xs, marginBottom: theme.spacing.xs },
+  // Otte faner skal kunne staa udfoldet i laerredets 486 punkter (v339: Sport).
+  railTab: { alignItems: 'center', paddingVertical: theme.spacing.xs + 2, marginHorizontal: theme.spacing.xs, marginBottom: 2 },
   railSettings: { marginTop: 'auto', marginBottom: theme.spacing.md, borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: theme.spacing.md },
   tabBar: {
     flexDirection: 'row',

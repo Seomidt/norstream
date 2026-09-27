@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**27. september 2026 (v339).** "Find kampen": ny fane Sport — søg hold/liga i programoversigten på tværs af kanalerne, Mine hold, "Dine hold i dag" på forsiden, automatisk påmindelse.
+
 **27. september 2026 (v338).** Danske undertekster fra OpenSubtitles; NorStream i Google TV's "Fortsæt med at se". Trailere: Apple TV → IMDb → YouTube.
 
 **26. september 2026 (v335).** Brugeren: "Fantastisk, endelig kører det også,
@@ -41,6 +43,41 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 27. september 2026 — v339: "Find kampen" (fanen Sport)
+
+Brugeren godkendte designet ("Ja byg den sådan").
+
+- **Fanen Sport** (`features/sport/SportScreen.tsx`, i menuen under Favoritter;
+  tv-søjlens faner er gjort lidt lavere, så otte kan stå udfoldet i 486 pkt).
+  Søg på hold, liga eller sport; hver kamp er én række med kanalerne der viser
+  den (favoritter først, højst 6). **Kanalerne er knapperne:** OK på en kamp der
+  kører skifter til kanalen; på en kommende sætter/fjerner den en påmindelse
+  (samme `reminders`-tabel og banner som guiden, 3 min før).
+  På tv ligger søgefeltet bag en knap (fast felt over en liste stjæler fokus);
+  fjernbetjeningens mikrofon virker i feltet.
+- **Reglerne** (`features/sport/sportSearch.ts`, ren TS, testet): tekst uden
+  accenter og med ø→o, æ→ae, å→aa ("brondby" finder "Brøndby"); hvert ord skal
+  være begyndelsen af et ord i titel/beskrivelse; samme titel + starttid på
+  flere kanaler = én kamp; live først, så tid; genudsendelser/højdepunkter
+  markeres. Et fund kun i beskrivelsen tæller kun på sportskanaler (ellers
+  lignede nyheder kampe).
+- **Databasen** (`storage/sport.ts`): `searchProgrammes` forsorterer med LIKE
+  hvor vokalerne er jokere (`%br%ndb%`), JS afgør resten. `sportChannels`:
+  favoritter + sportskanaler (navn/kategori) fra ikke-skjulte lande, dem fra
+  favoritternes lande først, loft 300.
+- **Programoversigten:** der søges kun i det der er hentet. `refreshSportEpg`
+  (`features/sport/findMatches.ts`) kører `ensureFullEpg` for de 300 kanaler,
+  højst hvert 20. minut (og `ensureFullEpg` springer selv friske over, 6 t).
+- **Mine hold** (`sport_teams`, i sikkerhedskopien): ☆/★ ved søgningen. Uden
+  søgning viser fanen holdenes kampe de næste 7 dage.
+- **Forsiden: "Dine hold i dag"** (efter Fortsæt, før Sidst sete): holdenes
+  kampe fra nu til midnat (mindst 6 t frem), uden genudsendelser. OK: live →
+  kanalen; kommende → påmindelse til/fra.
+- **Automatisk påmindelse** (`sport_auto_remind`, i sikkerhedskopien): når den
+  er slået til, sætter forsiden/fanen en påmindelse for hver kamp i dag på den
+  bedste kanal. Appen husker hvilke den selv har sat (`sport_auto_done`), så en
+  påmindelse brugeren lukker, ikke kommer igen.
 
 ### 27. september 2026 — v338: danske undertekster (OpenSubtitles) + Google TV "Fortsæt med at se"
 
@@ -1874,8 +1911,6 @@ Brugerens panel-adgangsoplysninger står **ikke** i dette repo og skal ikke skri
    sat op, fordi tv'et alligevel viser appen når man ser fjernsyn.
 9. **Emulator i byggekæden** er fravalgt af brugeren indtil videre.
 10. **Idéer, 27. sep. (ikke bygget endnu):** sovetimer (sluk efter 30/60/90 min
-    eller når udsendelsen slutter); **"Find kampen"** (søg hold/kamp i EPG'en på
-    tværs af kanaler, "Mine hold" med række på forsiden og automatisk
-    påmindelse — brugeren spurgte hvordan den ville sidde, afventer svar);
-    billede-i-billede på telefonen; børnesikring med PIN; profiler;
+    eller når udsendelsen slutter); ~~"Find kampen"~~ (bygget i v339, se
+    øverst); billede-i-billede på telefonen; børnesikring med PIN; profiler;
     flere kanaler på én skærm (tjek panelets antal samtidige forbindelser først).

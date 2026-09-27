@@ -43,6 +43,10 @@ import { cachedShelf } from '../../sync/shelfCache.js';
 import { TitleCard } from '../../ui/TitleCard.js';
 import { Poster } from '../vod/VodScreen.js';
 import { findInPanel } from './panelMatch.js';
+import { autoRemindTeams, refreshSportEpg, teamMatchesToday } from '../sport/findMatches.js';
+import type { Match } from '../sport/findMatches.js';
+import { whenLabel } from '../sport/sportSearch.js';
+import { addReminder, listReminders, removeReminder } from '../../storage/reminders.js';
 
 interface Props {
   session: AppSession;
@@ -71,6 +75,7 @@ type Row =
   | { kind: 'continue' }
   | { kind: 'archive' }
   | { kind: 'recent' }
+  | { kind: 'teams' }
   | { kind: 'favourites' }
   | { kind: 'group'; group: FavoriteGroup }
   | { kind: 'followed' }
@@ -79,6 +84,8 @@ type Row =
   | { kind: 'trending' }
   | { kind: 'newest' };
 
+/** Kortet for en kamp under "Dine hold i dag". */
+const MATCH_WIDTH = 180;
 /** Bredden paa et kanalkort i raekken, til at regne placeringer ud uden at maale. */
 const CHANNEL_WIDTH = 132;
 /** Kortet for en paabegyndt arkivudsendelse: bredere, der er en titel og en bjaelke. */
@@ -137,6 +144,9 @@ export function FrontScreen({
   // noget lige nu — saa raekken ikke blinker frem naar en gruppe er tom.
   const [hasGroups, setHasGroups] = useState(false);
   const [followed, setFollowed] = useState<FollowedSeries[]>([]);
+  /** "Dine hold i dag" (v339): kampe for Mine hold fra nu til i nat. */
+  const [teamMatches, setTeamMatches] = useState<Match[]>([]);
+  const [reminded, setReminded] = useState<Set<string>>(new Set());
   const [inProgress, setInProgress] = useState<StoredVodItem[]>([]);
   const [newest, setNewest] = useState<StoredVodItem[]>([]);
   const [tmdbKey, setTmdbKey] = useState<string | null>(null);
@@ -222,6 +232,25 @@ export function FrontScreen({
       }
       setFavourites(await withNow(favouriteChannels));
       if (last !== null) setLastNow(await nowFor(last));
+    })();
+    // Dine hold i dag: foerst det der er i programoversigten, saa (hoejst
+    // hvert tyvende minut) sportskanalernes oversigt hentet og en ny runde.
+    // Er automatisk paamindelse slaaet til, saettes den her.
+    const loadTeams = async (): Promise<void> => {
+      const [found, reminders] = await Promise.all([
+        teamMatchesToday(session.db).catch(() => []),
+        listReminders(session.db).catch(() => []),
+      ]);
+      setTeamMatches(found);
+      setReminded(new Set(reminders.map((r) => `${r.channelId}@${r.startMs}`)));
+    };
+    void (async () => {
+      await autoRemindTeams(session.db).catch(() => 0);
+      await loadTeams();
+      if ((await refreshSportEpg(session)) > 0) {
+        await autoRemindTeams(session.db).catch(() => 0);
+        await loadTeams();
+      }
     })();
     setInProgress(progress);
     setNewest(added);
@@ -313,6 +342,7 @@ export function FrontScreen({
   const rows: Row[] = [];
   if (hasContinue) rows.push({ kind: 'continue' });
   if (archive.length > 0) rows.push({ kind: 'archive' });
+  if (teamMatches.length > 0) rows.push({ kind: 'teams' });
   if (recent.length > 0) rows.push({ kind: 'recent' });
   // "Dine kanaler nu" kun naar der IKKE er grupper — ellers er gruppe-raekkerne
   // det samme overblik, bare opdelt som brugeren selv har valgt.
@@ -373,6 +403,61 @@ export function FrontScreen({
                   </View>
                 </TvPressable>
               )}
+            />
+          </Section>
+        );
+      case 'teams':
+        return (
+          <Section title="Dine hold i dag">
+            <Shelf
+              data={teamMatches.map((match) => ({ key: match.key, match }))}
+              width={MATCH_WIDTH}
+              renderItem={({ match }) => {
+                const channel = match.channels[0];
+                if (channel === undefined) return <View />;
+                const nowMs = Date.now();
+                const live = match.startMs <= nowMs && nowMs < match.stopMs;
+                const key = `${channel.id}@${match.startMs}`;
+                return (
+                  <TvPressable
+                    style={styles.archive}
+                    onPress={() => {
+                      if (match.startMs <= Date.now()) {
+                        onSelect(channel, match.channels);
+                        return;
+                      }
+                      // Kommende kamp: paamindelse til/fra paa den bedste kanal.
+                      void (async () => {
+                        if (reminded.has(key)) await removeReminder(session.db, channel.id, match.startMs);
+                        else
+                          await addReminder(session.db, channel.id, {
+                            channelId: channel.id,
+                            title: match.title,
+                            description: match.description,
+                            start: new Date(match.startMs),
+                            stop: new Date(match.stopMs),
+                          });
+                        const list = await listReminders(session.db).catch(() => []);
+                        setReminded(new Set(list.map((r) => `${r.channelId}@${r.startMs}`)));
+                      })();
+                    }}
+                  >
+                    <View style={styles.archiveHead}>
+                      <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={28} />
+                      <Text style={styles.channelNow} numberOfLines={1}>
+                        {channel.name}
+                      </Text>
+                    </View>
+                    <Text style={styles.channelName} numberOfLines={2}>
+                      {match.title}
+                    </Text>
+                    <Text style={[styles.archiveWhere, live && styles.live]}>
+                      {whenLabel(match.startMs, match.stopMs, nowMs)}
+                      {live ? ' · ▶ Se' : reminded.has(key) ? ' · 🔔' : ' · Mind mig'}
+                    </Text>
+                  </TvPressable>
+                );
+              }}
             />
           </Section>
         );
@@ -719,6 +804,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   archiveHead: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.xs },
   archiveWhere: { color: colors.accent, fontSize: 12, fontWeight: '600' },
+  live: { color: colors.danger },
   track: { height: 3, borderRadius: 2, backgroundColor: colors.border, overflow: 'hidden' },
   fill: { height: 3, backgroundColor: colors.accent },
   newEpisodes: { color: colors.accent, fontSize: 11, fontWeight: '600', marginTop: 4, width: POSTER_WIDTH },

@@ -364,6 +364,11 @@ Lys, og stedet solen regnes for.
   `moveFavorite` får de viste id'er med og lægger kanalen foran den, der
   står på pladsen i gruppen. Uden det blev gruppens plads brugt som plads
   i hele listen, og kanalen røg et tilfældigt sted hen ("til toppen").
+- **Sport / Find kampen** (`features/sport/SportScreen.tsx`, v339):
+  søgefeltet er en knap på tv, feltet kommer først frem når man trykker
+  (og forsvinder igen ved søg/Tilbage). Hver kamp er en række uden eget
+  trykpunkt; kanalerne i rækken er knapperne (pil op/ned mellem kampe,
+  venstre/højre mellem kanaler), og den fokuserede holdes i midten.
 - **Et tekstfelt må aldrig ligge fast over en liste man trykker OK i**:
   mister rækken fokus et øjeblik, tager feltet det, og tastaturet kommer
   frem. Vis feltet først når man har bedt om det (Grupper → Omdøb).

@@ -77,6 +77,8 @@ const SETTING_KEYS = [
   'favorite_group',
   'theme_mode',
   'theme_place',
+  'sport_teams',
+  'sport_auto_remind',
 ];
 /** Indstillinger per kilde: noeglen ender paa kildens id. */
 const SCOPED_SETTING_PREFIXES = ['timeshift_dialect:', 'panel_offset_minutes:'];
