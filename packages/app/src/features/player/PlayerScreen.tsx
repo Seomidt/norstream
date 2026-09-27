@@ -6,6 +6,7 @@ import type { SubtitleTrack } from 'expo-video';
 import { buildTimeshiftUrl, detectTimeshiftDialect } from '@norstream/core';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
+import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { getNowNext } from '../../storage/programmes.js';
 import {
@@ -30,6 +31,7 @@ import { archiveContinuation } from './archiveContinuation.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback, surfaceTypeForPlatform } from './format.js';
 import { restartBlockFor, restartHint } from './restart.js';
 import { TrackPicker } from './TrackPicker.js';
+import { ChannelOverlay } from './ChannelOverlay.js';
 import { LandscapePlayer, useLandscape } from './Landscape.js';
 import { isRadioKey } from '../../sync/radioBrowser.js';
 import { RadioView } from './RadioView.js';
@@ -177,8 +179,27 @@ export function PlayerScreen({
     void recordChannelWatch(session.db, channel.id).catch(() => undefined);
   }, [session.db, channel.id]);
 
-  const zapList = zap ?? [];
+  /**
+   * Listen der zappes i: den man kom fra. Aabnes kanallisten (v340) uden
+   * en liste, bliver det favoritterne — ogsaa for pil venstre/hoejre.
+   */
+  const [zapChannels, setZapChannels] = useState<StoredChannel[]>(zap ?? []);
+  const zapList = zapChannels;
   const zapIndex = zapList.findIndex((entry) => entry.id === channel.id);
+  /** Kanallisten oven paa billedet (v340). */
+  const [showingChannels, setShowingChannels] = useState(false);
+  const openChannels = useCallback((): void => {
+    if (zapChannels.length > 1) {
+      setShowingChannels(true);
+      return;
+    }
+    void listChannels(session.db, { favouritesOnly: true, limit: 120 })
+      .then((favourites) => {
+        if (favourites.length > 0) setZapChannels(favourites);
+        setShowingChannels(true);
+      })
+      .catch(() => setShowingChannels(true));
+  }, [zapChannels.length, session.db]);
 
   const zapTo = useCallback(
     (target: StoredChannel): void => {
@@ -774,6 +795,10 @@ export function PlayerScreen({
           Tekst{subtitle !== null ? `: ${trackName(subtitle)}` : ''}
         </Text>
       </TvPressable>
+      {/* Kanallisten oven paa billedet (v340): paa tv ogsaa med pil ned fra billedet. */}
+      <TvPressable style={styles.button} onPress={openChannels}>
+        <Text style={styles.buttonText}>Kanaler</Text>
+      </TvPressable>
       {/* De to zap-pile (‹ ›) er fjernet: paa tv zapper man med fjernbetjeningens
           pil venstre/hoejre i fuld skaerm, saa knapperne var overfloedige. */}
       {previous !== null && (
@@ -799,6 +824,19 @@ export function PlayerScreen({
       ]}
       emptyText="Streamen har ingen undertekstspor. De fleste live-kanaler sender teksten indbrændt i billedet eller slet ikke."
       onClose={() => setShowingSubtitles(false)}
+    />
+  ) : null;
+
+  const channelOverlay = showingChannels ? (
+    <ChannelOverlay
+      session={session}
+      channels={zapChannels}
+      currentId={channel.id}
+      onPick={(target) => {
+        setShowingChannels(false);
+        zapTo(target);
+      }}
+      onClose={() => setShowingChannels(false)}
     />
   ) : null;
 
@@ -878,6 +916,7 @@ export function PlayerScreen({
         // start, saa pil venstre/hoejre spoler med det samme. Paa en direkte
         // live-kanal bliver bjaelken fremme, saa "Start forfra" kan ses.
         initialBarShown={!isTV || !restarted}
+        suspended={showingChannels}
         onPlayerKey={(key) => {
           try {
             if (key === 'select' || key === 'playPause') {
@@ -901,6 +940,12 @@ export function PlayerScreen({
               }
               return false;
             }
+            // Pil ned paa billedet: kanallisten oven paa (v340). Pil op henter bjaelken.
+            if (key === 'down') {
+              openChannels();
+              return true;
+            }
+            if (key === 'up') return false;
             // Spoling kun i arkivet: en live-kanal har intet at spole i.
             if (!restarted) return false;
             if (key === 'left' || key === 'rewind') player.seekBy(-10);
@@ -915,6 +960,7 @@ export function PlayerScreen({
             {banner}
             {connectingOverlay}
             {subtitlePicker}
+            {channelOverlay}
           </>
         }
       />
@@ -961,6 +1007,7 @@ export function PlayerScreen({
       <View style={[styles.actions, { paddingBottom: theme.spacing.md + insets.bottom }]}>{actions}</View>
 
       {subtitlePicker}
+      {channelOverlay}
       {(fellBackToLive || !restarted) && restartBlock !== null && restartBlock !== undefined && (
         <RestartBlocked
           block={restartBlock}

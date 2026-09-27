@@ -35,7 +35,7 @@ export function useLandscape(): boolean {
 const AUTO_HIDE_MS = 5_000;
 
 /** Tasterne fra fjernbetjeningen som afspilleren selv skal tage sig af. */
-export type PlayerKey = 'select' | 'left' | 'right' | 'playPause' | 'rewind' | 'fastForward';
+export type PlayerKey = 'select' | 'left' | 'right' | 'up' | 'down' | 'playPause' | 'rewind' | 'fastForward';
 
 /**
  * De haendelser der taeller som et rigtigt fjernbetjeningstryk.
@@ -69,6 +69,7 @@ export function LandscapePlayer({
   overlays,
   playing = true,
   initialBarShown = true,
+  suspended = false,
   onPlayerKey,
 }: {
   /** Selve videoen; laegges over hele skaermen. */
@@ -86,6 +87,12 @@ export function LandscapePlayer({
    * staar i vejen og aeder tastetrykkene. Options hentes med pil op.
    */
   initialBarShown?: boolean;
+  /**
+   * Noget andet har fjernbetjeningen (kanallisten oven paa billedet, v340):
+   * bjaelken holdes skjult, trykkene roeres ikke, og fladen der ellers
+   * holder paa fokus fjernes, saa listen kan faa det.
+   */
+  suspended?: boolean;
   /**
    * Tv, Googles regler for afspilning (TV-PC, TV-PP): OK pauser og
    * genoptager, pil venstre/hoejre zapper (eller spoler i arkivet), og
@@ -106,8 +113,14 @@ export function LandscapePlayer({
   // frem, ogsaa midt i at man koerte hen til en knap: "knapperne virker ikke".
   const barShownRef = useRef(barShown);
   barShownRef.current = barShown;
+  const suspendedRef = useRef(suspended);
+  suspendedRef.current = suspended;
+  useEffect(() => {
+    if (suspended) setBarShown(false);
+  }, [suspended]);
   useTVEventHandler((event) => {
     if (event.eventType === 'focus' || event.eventType === 'blur') return;
+    if (suspendedRef.current) return;
     // Android sender tryk ned (0) og op (1). Reagér kun naar tasten SLIPPES, saa
     // et tryk taeller én gang — og saa "vis bjaelken"-beslutningen nedenfor sker
     // samtidig med at tasten bruges. Foer skete setBarShown ogsaa paa keydown,
@@ -131,6 +144,17 @@ export function LandscapePlayer({
       onPlayerKey !== undefined &&
       !barShownRef.current &&
       (type === 'left' || type === 'right') &&
+      onPlayerKey(type)
+    ) {
+      return;
+    }
+
+    // Pil op/ned mens bjaelken er skjult: pil ned aabner kanallisten oven paa
+    // billedet (v340, se PlayerScreen); bruges tasten, kommer bjaelken ikke.
+    if (
+      onPlayerKey !== undefined &&
+      !barShownRef.current &&
+      (type === 'up' || type === 'down') &&
       onPlayerKey(type)
     ) {
       return;
@@ -177,10 +201,10 @@ export function LandscapePlayer({
           inde i afspilleren. Uden den flyttede Android fokus UD af afspilleren
           (til menuen bagved), naar den fokuserede knap forsvandt — og saa
           kunne man ikke faa knapperne frem igen. Et tryk henter bjaelken. */}
-      {isTV && !barShown && (
+      {isTV && !barShown && !suspended && (
         <View style={StyleSheet.absoluteFill} focusable hasTVPreferredFocus />
       )}
-      {barShown && (
+      {barShown && !suspended && (
         <View
           style={[
             styles.bar,

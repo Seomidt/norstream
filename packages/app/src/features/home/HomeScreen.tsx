@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, TVFocusGuideView, Text, View, useTVEventHandler } from 'react-native';
+import { AppState, Pressable, StyleSheet, Text, TVFocusGuideView, useTVEventHandler, View } from 'react-native';
 import { XtreamAuthError } from '@norstream/core';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
@@ -37,7 +37,10 @@ import { Notice } from '../../ui/Notice.js';
 import { applyStreamFormatSetting, applyVideoSurfaceSetting } from '../player/format.js';
 import { runWeeklyCloudBackup } from '../../storage/cloudBackup.js';
 import { loadSourceCredentials } from '../../storage/credentials.js';
-import { saveToCloud } from '../settings/cloudSync.js';
+import { loadFromCloud, saveToCloud } from '../settings/cloudSync.js';
+import { runCloudSync } from '../../storage/cloudAutoSync.js';
+import type { CloudSyncOutcome } from '../../storage/cloudAutoSync.js';
+import { forgetLogoMisses, resetLogo } from '../../ui/logoCache.js';
 import { VodScreen } from '../vod/VodScreen.js';
 import { SportScreen } from '../sport/SportScreen.js';
 import type { VodLevel } from '../vod/VodScreen.js';
@@ -258,24 +261,87 @@ export function HomeScreen({
       // Indstillinger har vaeret aabnet.
       applyStreamFormatSetting(format);
       applyVideoSurfaceSetting(surface);
-      // Den ugentlige sikkerhedskopi, naar en mappe (telefon) eller USB
-      // (tv) er valgt. Lidt efter start, saa den ikke staar i vejen for det
-      // foerste billede.
-      setTimeout(() => {
-        // Ugentlig sikkerhedskopi til skyen, naar der er valgt et kodeord.
-        void runWeeklyCloudBackup(
-          session.db,
-          (code, json) => saveToCloud(code, json),
-          Date.now(),
-          false,
-          (id) => loadSourceCredentials(id),
-        );
-      }, 15_000);
     })();
     return () => {
       cancelled = true;
     };
   }, [session.db]);
+
+  /**
+   * Skyen (v340): holder enhederne ens. Koerer lidt efter start, naar appen
+   * kommer frem igen, hvert tiende minut, og lidt efter at noget er aendret
+   * her (favoritter, logoer) eller man kom tilbage fra en film. Er
+   * synkroniseringen slaaet fra, koerer den ugentlige kopi som foer. Kom
+   * skyen ind (en anden boks havde aendret noget), laeses favoritter, logoer
+   * og indstillinger igen — som efter en gendannelse.
+   */
+  const cloudSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const runCloud = useCallback(async (): Promise<CloudSyncOutcome> => {
+    const result = await runCloudSync(
+      session.db,
+      {
+        upload: (code, json) => saveToCloud(code, json),
+        download: async (code) => {
+          try {
+            return await loadFromCloud(code);
+          } catch (cause) {
+            if (cause instanceof Error && cause.message === 'notfound') return null;
+            throw cause;
+          }
+        },
+      },
+      Date.now(),
+      (id) => loadSourceCredentials(id),
+    );
+    if (result.outcome === 'off') {
+      // Ugentlig sikkerhedskopi til skyen, naar der er valgt et kodeord.
+      void runWeeklyCloudBackup(session.db, (code, json) => saveToCloud(code, json), Date.now(), false, (id) => loadSourceCredentials(id));
+    } else if (result.outcome === 'applied') {
+      for (const key of result.restore?.overrideKeys ?? []) await resetLogo(key).catch(() => undefined);
+      await forgetLogoMisses().catch(() => undefined);
+      setFavoritesToken((value) => value + 1);
+      setLogoToken((value) => value + 1);
+      void getMiniPreviewEnabled(session.db).then(setPreviewEnabled);
+      void getStreamFormatSetting(session.db).then(applyStreamFormatSetting);
+    }
+    return result.outcome;
+  }, [session.db]);
+  const scheduleCloudSync = useCallback(
+    (delayMs: number): void => {
+      if (cloudSyncTimer.current !== null) clearTimeout(cloudSyncTimer.current);
+      cloudSyncTimer.current = setTimeout(() => {
+        cloudSyncTimer.current = null;
+        void runCloud().catch(() => undefined);
+      }, delayMs);
+    },
+    [runCloud],
+  );
+  useEffect(() => {
+    scheduleCloudSync(15_000);
+    const interval = setInterval(() => scheduleCloudSync(0), 10 * 60_000);
+    const appState = AppState.addEventListener('change', (state) => {
+      if (state === 'active') scheduleCloudSync(2_000);
+    });
+    return () => {
+      clearInterval(interval);
+      appState.remove();
+      if (cloudSyncTimer.current !== null) clearTimeout(cloudSyncTimer.current);
+    };
+  }, [scheduleCloudSync]);
+  // Noget er aendret her (favoritter, logoer): laeg op lidt efter. Ikke ved
+  // monteringen — der koerer starten allerede.
+  const tokensSeen = useRef(false);
+  useEffect(() => {
+    if (!tokensSeen.current) {
+      tokensSeen.current = true;
+      return;
+    }
+    scheduleCloudSync(20_000);
+  }, [favoritesToken, logoToken, scheduleCloudSync]);
+  // Tilbage fra afspilleren eller en film: fremdriften kan vaere ny.
+  useEffect(() => {
+    if (!covered) scheduleCloudSync(5_000);
+  }, [covered, scheduleCloudSync]);
 
   /**
    * Panelet afviste et kald.
@@ -727,6 +793,7 @@ export function HomeScreen({
               void getMiniPreviewEnabled(session.db).then(setPreviewEnabled);
               void getStreamFormatSetting(session.db).then(applyStreamFormatSetting);
             }}
+            onCloudSync={runCloud}
           />
         )}
       </TVFocusGuideView>

@@ -58,6 +58,7 @@ import { TvPressable } from '../../ui/TvPressable.js';
 import { TvTextInput } from '../../ui/TvTextInput.js';
 import { testOpenSubtitles } from '../vod/externalSubtitles.js';
 import { CloudBackup } from './CloudBackup.js';
+import type { CloudSyncOutcome } from '../../storage/cloudAutoSync.js';
 import { checkForUpdate, currentVersionCode, downloadAndInstall } from './appUpdate.js';
 import type { UpdateInfo } from './appUpdate.js';
 
@@ -77,6 +78,8 @@ interface Props {
   onSignedOut: (notice: string) => void;
   /** En sikkerhedskopi er lagt ind: favoritter, logoer og indstillinger skal laeses igen. */
   onRestored: () => void;
+  /** Synkronisér med skyen nu (v340); svarer med hvad der skete. */
+  onCloudSync?: () => Promise<CloudSyncOutcome>;
 }
 
 const SIGNED_OUT_MESSAGE = 'Du er logget ud. Log ind igen for at fortsætte.';
@@ -146,6 +149,7 @@ export function SettingsScreen({
   onPreviewEnabledChange,
   onSignedOut,
   onRestored,
+  onCloudSync,
 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
@@ -919,6 +923,7 @@ export function SettingsScreen({
         onRestore={async (json) => {
           await restoreFromText(json);
         }}
+        onSync={onCloudSync}
       />
 
       <Text style={styles.sectionTitle}>Status</Text>

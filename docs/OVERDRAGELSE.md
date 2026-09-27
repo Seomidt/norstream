@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**27. september 2026 (v340).** Fire nye ting, valgt af brugeren ("Byg 3-4-5-6"): kanalliste oven på billedet i afspilleren, "I aften" på forsiden, enhederne holdes ens gennem skyen (løbende synk), "Fordi du så …". Afventer brugerens test.
+
 **27. september 2026 (v339).** Brugeren: "super godt lavet det med sport". "Find kampen": ny fane Sport — søg hold/liga i programoversigten på tværs af kanalerne, Mine hold, "Dine hold i dag" på forsiden, automatisk påmindelse.
 
 **27. september 2026 (v338).** Danske undertekster fra OpenSubtitles; NorStream i Google TV's "Fortsæt med at se". Trailere: Apple TV → IMDb → YouTube.
@@ -43,6 +45,67 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 27. september 2026 — v340: kanalliste i afspilleren, "I aften", sky-synk, "Fordi du så …"
+
+Brugeren afviste sovetimer, PIN og profiler; PiP og flere kanaler er umulige
+med én forbindelse. Af de seks forslag valgte brugeren nr. 3, 4, 5 og 6 (nr. 1
+"Gem udsendelsen" og nr. 2 "Følg et program" er IKKE bygget — se punkt 10).
+
+**Kanalliste oven på billedet** (`features/player/ChannelOverlay.tsx`):
+- Mens man ser en kanal: **pil ned** (tv, når bjælken er skjult) eller knappen
+  **Kanaler** i bjælken åbner en liste til venstre over billedet med listen man
+  kom fra (ellers favoritterne, højst 120) og "nu og næste" for hver
+  (`storage/programmes.ts: nowNextFor` — ét opslag for alle, 6 t frem). OK
+  skifter kanal (samme `zapTo` som pilene), Tilbage lukker. Billedet kører
+  videre bagved.
+- `LandscapePlayer` fik `suspended`: mens listen er fremme røres trykkene ikke,
+  bjælken holdes skjult, og fokusfladen fjernes så listen kan få fokus
+  (`TVFocusGuideView` fanger fokus i alle retninger; den spillende kanal har
+  fokus fra start). `PlayerKey` fik `'up' | 'down'`; pil op henter stadig bjælken.
+- Åbnes listen uden en zap-liste (fra en påmindelse fx), bliver favoritterne
+  også listen for pil venstre/højre.
+
+**"I aften" på forsiden** (`features/home/tonight.ts`, testet):
+- Én udsendelse per favoritkanal (højst 60) i favoritternes rækkefølge: den der
+  begynder 19.55–21.15, ellers den længste der sendes i løbet af aftenen (en
+  kamp fra 18 tæller). Vinduet er 19.45–22.30; efter 22.15 hedder rækken
+  "I morgen aften". OK: sender den → kanalen; ellers påmindelse til/fra (samme
+  `ProgrammeCard` som "Dine hold i dag").
+- Programoversigten: `storage/programmes.ts: listProgrammesFor` (ét opslag for
+  alle kanaler i vinduet); favoritternes hele dag hentes via `ensureFullEpg`
+  højst hvert 20. minut (`refreshFavouritesEpg` i FrontScreen).
+
+**Enhederne holdes ens gennem skyen** (`storage/cloudAutoSync.ts`, testet):
+- Indstillinger → Gem i skyen → **"Hold dine enheder ens"** (`sky_sync`,
+  standard FRA). Samme sky og kodeord som den ugentlige kopi.
+- Kører 15 s efter start, når appen kommer frem (AppState), hvert 10. minut,
+  20 s efter en ændring (favoritter/logoer-tokens) og 5 s efter man kom tilbage
+  fra afspilleren/en film (HomeScreen `runCloud`/`scheduleCloudSync`).
+- Regler: **første gang** på en boks: ligger der en *synkroniseret* kopi
+  (`synced: true` i JSON, kun lagt op af synkroniseringen) → boksen retter sig
+  efter den; ellers lægges boksens eget op. **Den boks man slår det til på
+  først bestemmer.** Derefter: skyen nyere end sidst set og intet ændret her →
+  hent; ændret her og skyen uændret → læg op; begge → den nyeste vinder
+  (skyens `exportedMs` mod `sky_dirty_since_ms`). Fingeraftryk = FNV-1a over
+  kopien uden tidspunkt/kodeord (`sky_fp`); `sky_seen_ms` = skyens tidspunkt
+  sidst set. En tom kopi lægges aldrig op.
+- Hentning: `restoreBackup` med `matchByName` og nyt `mergeProgress` (fremdrift
+  i film: nyeste per titel bliver; favoritter, grupper m.m. erstattes). Efter
+  "applied" læser HomeScreen favoritter, logoer og indstillinger igen (som
+  `onRestored`). Manuelt "Hent" og gendan ved opsætning kalder
+  `markCloudApplied`, så det ikke hentes/lægges op igen; opsætning fra skyen
+  slår synk til.
+- Er synk fra, kører den ugentlige kopi som før (`runWeeklyCloudBackup` ved
+  'off').
+
+**"Fordi du så …"** (forsiden, kræver TMDB-nøgle):
+- `storage/vod.ts: recentlyWatchedTitles` (nyeste fremdrift; serien for et
+  afsnit) → `searchTmdb` → `sync/tmdbHome.ts: recommendedTitles`
+  (`/movie|tv/{id}/recommendations`, cachet 6 t via `cachedShelf`
+  `because:<nøgle>`). Hver anbefaling slås op i pakken (`findInPanel`, husket i
+  appens levetid): dem i pakken først som `Poster` med "I din pakke" (spiller
+  direkte), resten som `TitleCard` (bladet med "Se hvor den kan ses").
 
 ### 27. september 2026 — v339: "Find kampen" (fanen Sport)
 
@@ -1911,7 +1974,11 @@ Brugerens panel-adgangsoplysninger står **ikke** i dette repo og skal ikke skri
    `expo-notifications` og planlagte lokale notifikationer; det er ikke
    sat op, fordi tv'et alligevel viser appen når man ser fjernsyn.
 9. **Emulator i byggekæden** er fravalgt af brugeren indtil videre.
-10. **Idéer, 27. sep.:** "Find kampen" er bygget (v339). **Fravalgt af
+10. **Idéer, 27. sep.:** "Find kampen" (v339), kanalliste i afspilleren,
+    "I aften", sky-synk og "Fordi du så …" (v340) er bygget. **Ikke bygget
+    (foreslået, ikke valgt):** "Gem udsendelsen" (gem fra guiden, se fra
+    arkivet senere — række "Gemte udsendelser") og "Følg et program" (nye
+    udsendelser af fx Aftenshowet i en række, fra arkivet). **Fravalgt af
     brugeren — foreslå dem ikke igen:** sovetimer ("gider jeg ikke"),
     børnesikring med PIN, profiler. **Umulige med brugerens fil:**
     billede-i-billede og flere kanaler på én skærm — panelet giver kun **1

@@ -12,6 +12,7 @@ import {
   listVodCategoriesInCountry,
   listVodCountryGroups,
   listVodItems,
+  recentlyWatchedTitles,
   replaceEpisodes,
   replaceVodCategories,
   replaceVodItems,
@@ -199,5 +200,24 @@ describe('naar kilden fjernes', () => {
     expect(await listVodItems(db)).toEqual([]);
     expect(await listVodCountryGroups(db, 'movie')).toEqual([]);
     expect(await getProgress(db, item!.key)).toBeNull();
+  });
+});
+
+describe('recentlyWatchedTitles (v340)', () => {
+  it('nyeste foerst, serien for et afsnit, hver titel én gang', async () => {
+    await replaceVodItems(db, sourceId, 'movie', [movie('1', 'Dune', null), movie('2', 'Heat', null)]);
+    await replaceVodItems(db, sourceId, 'series', [{ ...movie('9', 'Severance', null), kind: 'series', containerExtension: null }]);
+    const [series] = await listVodItems(db, { kind: 'series' });
+    await replaceEpisodes(db, series!.key, [
+      { id: 'e1', seriesId: '9', season: 1, episode: 1, title: 'Et', plot: null, durationMinutes: null, containerExtension: null, airDate: null },
+      { id: 'e2', seriesId: '9', season: 1, episode: 2, title: 'To', plot: null, durationMinutes: null, containerExtension: null, airDate: null },
+    ]);
+    await saveProgress(db, `${sourceId}:movie-1`, 600, 6000, new Date(1000));
+    await saveProgress(db, `${series!.key}:e1`, 600, 3000, new Date(2000));
+    await saveProgress(db, `${series!.key}:e2`, 600, 3000, new Date(3000));
+    await saveProgress(db, `${sourceId}:movie-2`, 600, 6000, new Date(2500));
+    const titles = await recentlyWatchedTitles(db, 5);
+    expect(titles.map((t) => t.name)).toEqual(['Severance', 'Heat', 'Dune']);
+    expect((await recentlyWatchedTitles(db, 1)).map((t) => t.name)).toEqual(['Severance']);
   });
 });

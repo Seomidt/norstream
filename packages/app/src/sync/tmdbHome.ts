@@ -278,6 +278,23 @@ export async function trendingTitles(fetchImpl: TmdbFetch, apiKey: string, limit
 }
 
 /**
+ * Titler der ligner én man har set — TMDB's egne anbefalinger ud fra
+ * titlen — til forsidens "Fordi du saa …" (v340). Film giver film, serier
+ * giver serier; det er saadan TMDB har dem.
+ */
+export async function recommendedTitles(
+  fetchImpl: TmdbFetch,
+  apiKey: string,
+  kind: 'movie' | 'series',
+  tmdbId: number,
+  limit = 20,
+): Promise<TmdbTitle[]> {
+  const endpoint = kind === 'series' ? 'tv' : 'movie';
+  const body = await getJson(fetchImpl, apiKey, `/${endpoint}/${tmdbId}/recommendations`, 'page=1');
+  return titlesOf(body, kind).slice(0, limit);
+}
+
+/**
  * JustWatch-siden for titlen i landet: den viser hvor den kan ses og
  * sender videre til tjenesten. Bruges naar tjenesten ikke har en kendt
  * soegeadresse.

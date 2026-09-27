@@ -59,6 +59,12 @@ export interface Backup {
    * igen paa et andet panel, hvor id'erne er nogle andre.
    */
   channelNames?: Record<string, string>;
+  /**
+   * Lagt op af den loebende synkronisering (v340), ikke af den ugentlige
+   * kopi eller "Gem nu". En boks der slaar synkronisering til, retter sig
+   * efter en saadan kopi; en almindelig kopi overskriver den bare.
+   */
+  synced?: boolean;
 }
 
 /** Indstillinger der er brugerens valg, ikke appens bogholderi om hentetider. */
@@ -267,6 +273,7 @@ export function parseBackup(text: string): Backup {
       typeof candidate.channelNames === 'object' && candidate.channelNames !== null
         ? (candidate.channelNames as Record<string, string>)
         : {},
+    ...(candidate.synced === true ? { synced: true } : {}),
   };
 }
 
@@ -296,6 +303,11 @@ export interface RestoreOptions {
    * panel bare over (som foer).
    */
   matchByName?: boolean;
+  /**
+   * Fremdrift i film og afsnit: behold den lokale naar den er nyere end
+   * kopiens (synkronisering mellem enheder, v340). Uden den vinder kopien.
+   */
+  mergeProgress?: boolean;
 }
 
 export async function restoreBackup(
@@ -479,6 +491,11 @@ export async function restoreBackup(
   for (const entry of backup.progress) {
     const itemKey = remap(entry.itemKey);
     if (itemKey === null || typeof entry.positionS !== 'number') continue;
+    if (options.mergeProgress === true) {
+      const existing = await db.getFirstAsync<{ updated_ms: number }>('SELECT updated_ms FROM vod_progress WHERE item_key = ?', [itemKey]);
+      const incoming = typeof entry.updatedMs === 'number' ? entry.updatedMs : 0;
+      if (existing !== null && existing !== undefined && existing.updated_ms >= incoming) continue;
+    }
     await db.runAsync(
       `INSERT OR REPLACE INTO vod_progress (item_key, position_s, duration_s, updated_ms)
        VALUES (?, ?, ?, ?)`,

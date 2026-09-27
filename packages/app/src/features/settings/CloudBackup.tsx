@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { AppSession } from '../../session.js';
-import { clearSky, getSkyConfig, getSkyLastMs, setSkyCode, setSkyEnabled } from '../../storage/settings.js';
+import { clearSky, getSkyConfig, getSkyLastMs, getSkySync, setSkyCode, setSkyEnabled, setSkySync } from '../../storage/settings.js';
+import { markCloudApplied } from '../../storage/cloudAutoSync.js';
+import type { CloudSyncOutcome } from '../../storage/cloudAutoSync.js';
 import type { SkyBackupConfig } from '../../storage/settings.js';
 import { runWeeklyCloudBackup } from '../../storage/cloudBackup.js';
 import { loadSourceCredentials } from '../../storage/credentials.js';
@@ -16,6 +18,26 @@ interface Props {
   session: AppSession;
   /** Gendanner en hentet kopi (samme vej som Gendan fra link). */
   onRestore: (json: string) => Promise<void>;
+  /** Synkronisér med skyen nu (v340). */
+  onSync?: () => Promise<CloudSyncOutcome>;
+}
+
+/** Hvad en synkronisering gav, sagt saa man forstaar det. */
+function syncText(outcome: CloudSyncOutcome): string {
+  switch (outcome) {
+    case 'uploaded':
+      return 'Lagt op i skyen. Slå det til på dine andre enheder — de retter sig efter denne.';
+    case 'applied':
+      return 'Hentet fra skyen: denne boks er nu som de andre.';
+    case 'unchanged':
+      return 'Alt er allerede ens.';
+    case 'empty':
+      return 'Der er intet at lægge op endnu (ingen favoritter). Slå det til på den boks der har dine favoritter først.';
+    case 'failed':
+      return 'Kunne ikke nå skyen lige nu. Appen prøver igen af sig selv.';
+    default:
+      return 'Skriv et kodeord først.';
+  }
 }
 
 function whenText(ms: number | null): string {
@@ -34,20 +56,22 @@ function whenText(ms: number | null): string {
  * Kun ét tekstfelt — ingen enhedskode, ingen Google, og ingen upaalidelig
  * pil-ned mellem felter paa tv.
  */
-export function CloudBackup({ session, onRestore }: Props) {
+export function CloudBackup({ session, onRestore, onSync }: Props) {
   const styles = useStyles(makeStyles);
   const { colors } = useTheme();
   const db = session.db;
   const [config, setConfig] = useState<SkyBackupConfig | null>(null);
   const [lastMs, setLastMs] = useState<number | null>(null);
+  const [sync, setSync] = useState(false);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const reload = useCallback(async (): Promise<void> => {
-    const [cfg, last] = await Promise.all([getSkyConfig(db), getSkyLastMs(db)]);
+    const [cfg, last, syncOn] = await Promise.all([getSkyConfig(db), getSkyLastMs(db), getSkySync(db)]);
     setConfig(cfg);
     setLastMs(last);
+    setSync(syncOn);
     setCode((current) => (current.length === 0 ? cfg.code : current));
   }, [db]);
 
@@ -100,6 +124,9 @@ export function CloudBackup({ session, onRestore }: Props) {
       const json = await loadFromCloud(trimmed);
       await onRestore(json);
       await setSkyCode(db, trimmed);
+      // Det der ligger her nu ER skyens kopi: synkroniseringen skal hverken
+      // hente den igen eller laegge den op igen.
+      await markCloudApplied(db, json);
       setMessage('Hentet fra skyen. Grupper, favoritter og alt er gendannet.');
     } catch (cause) {
       const msg = cause instanceof Error ? cause.message : '';
@@ -110,6 +137,28 @@ export function CloudBackup({ session, onRestore }: Props) {
             ? 'Ingen forbindelse til skyen. Prøv igen.'
             : 'Kunne ikke hente lige nu. Prøv igen.',
       );
+    } finally {
+      setBusy(false);
+      await reload();
+    }
+  }
+
+  async function toggleSync(): Promise<void> {
+    if (busy) return;
+    const next = !sync;
+    await setSkySync(db, next);
+    setSync(next);
+    if (!next) {
+      setMessage('Enhederne holdes ikke længere ens. Den ugentlige kopi kører som før.');
+      return;
+    }
+    if (onSync === undefined) return;
+    setBusy(true);
+    setMessage('Synkroniserer …');
+    try {
+      setMessage(syncText(await onSync()));
+    } catch {
+      setMessage(syncText('failed'));
     } finally {
       setBusy(false);
       await reload();
@@ -138,6 +187,17 @@ export function CloudBackup({ session, onRestore }: Props) {
       {connected ? (
         <>
           <Text style={styles.hint}>Kopien gemmes i skyen med dit kodeord. {whenText(lastMs)}</Text>
+          <TvPressable style={styles.row} onPress={() => void toggleSync()}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Hold dine enheder ens</Text>
+              <Text style={styles.rowHint}>
+                Favoritter, grupper, "se videre" og hvor langt du er i film følger med mellem tv'erne og telefonen
+                gennem skyen — hver gang noget ændrer sig, og når appen åbnes. Slå det til på den boks der har det
+                rigtige først; de næste retter sig efter den.
+              </Text>
+            </View>
+            <Text style={[styles.actionText, sync && styles.on]}>{sync ? 'Til' : 'Fra'}</Text>
+          </TvPressable>
           <TvPressable style={styles.row} onPress={() => void toggleWeekly()}>
             <View style={styles.rowText}>
               <Text style={styles.rowTitle}>Gem automatisk hver uge</Text>

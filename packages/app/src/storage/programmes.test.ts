@@ -7,6 +7,8 @@ import {
   deleteProgrammesBefore,
   getNowNext,
   listProgrammes,
+  listProgrammesFor,
+  nowNextFor,
   nowTitlesFor,
   upsertProgrammes,
 } from './programmes.js';
@@ -201,5 +203,36 @@ describe('deleteProgrammesBefore', () => {
     expect((await listProgrammes(db, 'dr1', T(17), T(24))).map((p) => p.title)).toEqual(
       ['Nyt'],
     );
+  });
+});
+
+describe('listProgrammesFor / nowNextFor (v340)', () => {
+  beforeEach(async () => {
+    await upsertProgrammes(db, [
+      prog('dr1', 19, 20, 'Nyheder'),
+      prog('dr1', 20, 21, 'Film'),
+      prog('dr1', 21, 23, 'Sen film'),
+      prog('tv2', 18, 22, 'Kampen'),
+      prog('tv2', 22, 23, 'Sporten'),
+      prog('dr2', 23, 24, 'Natten'),
+    ]);
+  });
+
+  it('henter vinduet for flere kanaler i ét opslag, sorteret', async () => {
+    const list = await listProgrammesFor(db, ['dr1', 'tv2', 'ukendt'], T(20), T(22));
+    expect(list.map((p) => `${p.channelId}:${p.title}`)).toEqual(['tv2:Kampen', 'dr1:Film', 'dr1:Sen film']);
+    expect(await listProgrammesFor(db, [], T(20), T(22))).toEqual([]);
+  });
+
+  it('nu og naeste per kanal; kanaler uden data mangler i svaret', async () => {
+    const pairs = await nowNextFor(db, ['dr1', 'tv2', 'dr2'], T(20.5));
+    expect(pairs.get('dr1')?.now?.title).toBe('Film');
+    expect(pairs.get('dr1')?.next?.title).toBe('Sen film');
+    expect(pairs.get('tv2')?.now?.title).toBe('Kampen');
+    expect(pairs.get('tv2')?.next?.title).toBe('Sporten');
+    // dr2 sender intet kl. 20.30, men "naeste" er der.
+    expect(pairs.get('dr2')?.now).toBeNull();
+    expect(pairs.get('dr2')?.next?.title).toBe('Natten');
+    expect(pairs.has('ukendt')).toBe(false);
   });
 });

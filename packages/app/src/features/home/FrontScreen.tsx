@@ -15,8 +15,8 @@ import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { getChannel, listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
-import { getNowNext } from '../../storage/programmes.js';
-import { ensureEpg } from '../../sync/epgCache.js';
+import { getNowNext, listProgrammesFor } from '../../storage/programmes.js';
+import { ensureEpg, ensureFullEpg } from '../../sync/epgCache.js';
 import { describeError } from '../../sync/syncVod.js';
 import { getHomeProviders, getLastChannelId, getSetting, getTmdbApiKey, setSetting } from '../../storage/settings.js';
 import { listArchiveProgress, listRecentChannels } from '../../storage/history.js';
@@ -27,10 +27,10 @@ import { listFollowedSeries } from '../../storage/followedSeries.js';
 import type { FollowedSeries } from '../../storage/followedSeries.js';
 import type { HomeProvider } from '../../storage/settings.js';
 import type { SqlDatabase } from '../../storage/types.js';
-import { listVodItems } from '../../storage/vod.js';
+import { listVodItems, recentlyWatchedTitles } from '../../storage/vod.js';
 import type { StoredVodItem } from '../../storage/vod.js';
-import { tmdbFetch } from '../../sync/tmdb.js';
-import { justWatchLink, providerShelf, serviceSearchUrl, trendingTitles } from '../../sync/tmdbHome.js';
+import { cleanVodTitle, searchTmdb, tmdbFetch } from '../../sync/tmdb.js';
+import { justWatchLink, providerShelf, recommendedTitles, serviceSearchUrl, trendingTitles } from '../../sync/tmdbHome.js';
 import type { TmdbTitle } from '../../sync/tmdbHome.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
@@ -46,6 +46,7 @@ import { findInPanel } from './panelMatch.js';
 import { autoRemindTeams, refreshSportEpg, teamMatchesToday } from '../sport/findMatches.js';
 import type { Match } from '../sport/findMatches.js';
 import { whenLabel } from '../sport/sportSearch.js';
+import { clockRange, eveningWindow, pickTonight } from './tonight.js';
 import { addReminder, listReminders, removeReminder } from '../../storage/reminders.js';
 import { getSportTeams } from '../../storage/sport.js';
 
@@ -77,6 +78,8 @@ type Row =
   | { kind: 'archive' }
   | { kind: 'recent' }
   | { kind: 'teams' }
+  | { kind: 'tonight' }
+  | { kind: 'because' }
   | { kind: 'favourites' }
   | { kind: 'group'; group: FavoriteGroup }
   | { kind: 'followed' }
@@ -85,8 +88,31 @@ type Row =
   | { kind: 'trending' }
   | { kind: 'newest' };
 
-/** Kortet for en kamp under "Dine hold i dag". */
+/** Kortet for en udsendelse under "Dine hold i dag" og "I aften". */
 const MATCH_WIDTH = 180;
+/** Hvor mange favoritter "I aften" ser paa. */
+const TONIGHT_CHANNELS = 60;
+
+/**
+ * Favoritternes programoversigt for hele dagen (til "I aften"), hoejst hvert
+ * 20. minut herfra; `ensureFullEpg` springer selv friske kanaler over (6 t).
+ */
+let favouritesEpgAt = 0;
+/**
+ * "Fordi du saa …": hvilke af anbefalingerne pakken har, husket i appens
+ * levetid per titel. Opslaget er et LIKE per anbefaling over alle film, og
+ * forsiden laeses igen ved hvert besoeg — det skal ikke koste tyve opslag hver gang.
+ */
+const becauseCache = new Map<string, Map<string, StoredVodItem>>();
+async function refreshFavouritesEpg(session: AppSession, channels: readonly StoredChannel[]): Promise<boolean> {
+  if (channels.length === 0 || Date.now() - favouritesEpgAt < 20 * 60_000) return false;
+  favouritesEpgAt = Date.now();
+  try {
+    return (await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, channels)).fetched > 0;
+  } catch {
+    return false;
+  }
+}
 /** Bredden paa et kanalkort i raekken, til at regne placeringer ud uden at maale. */
 const CHANNEL_WIDTH = 132;
 /** Kortet for en paabegyndt arkivudsendelse: bredere, der er en titel og en bjaelke. */
@@ -148,6 +174,27 @@ export function FrontScreen({
   /** "Dine hold i dag" (v339): kampe for Mine hold fra nu til i nat. */
   const [teamMatches, setTeamMatches] = useState<Match[]>([]);
   const [reminded, setReminded] = useState<Set<string>>(new Set());
+  /** "I aften" (v340): aftenens udsendelse paa hver favoritkanal. */
+  const [tonight, setTonight] = useState<{ label: string; entries: Array<{ channel: StoredChannel; programme: Programme }> } | null>(null);
+  /** "Fordi du saa …" (v340): titler der ligner den man sidst saa, og hvilke af dem pakken har. */
+  const [because, setBecause] = useState<{ source: StoredVodItem; titles: TmdbTitle[]; inPanel: Map<string, StoredVodItem> } | null>(null);
+  const loadReminders = useCallback(async (): Promise<void> => {
+    const list = await listReminders(session.db).catch(() => []);
+    setReminded(new Set(list.map((r) => `${r.channelId}@${r.startMs}`)));
+  }, [session.db]);
+  /** OK paa en udsendelse: sender den, skiftes der til kanalen; ellers paamindelse til/fra. */
+  const pressProgramme = (channel: StoredChannel, programme: Programme, neighbours: StoredChannel[]): void => {
+    if (programme.start.getTime() <= Date.now()) {
+      onSelect(channel, neighbours);
+      return;
+    }
+    void (async () => {
+      const startMs = programme.start.getTime();
+      if (reminded.has(`${channel.id}@${startMs}`)) await removeReminder(session.db, channel.id, startMs);
+      else await addReminder(session.db, channel.id, { ...programme, channelId: channel.id });
+      await loadReminders();
+    })();
+  };
   const [inProgress, setInProgress] = useState<StoredVodItem[]>([]);
   const [newest, setNewest] = useState<StoredVodItem[]>([]);
   const [tmdbKey, setTmdbKey] = useState<string | null>(null);
@@ -259,6 +306,35 @@ export function FrontScreen({
         await loadTeams();
       }
     })();
+    // I aften (v340): aftenens udsendelse paa hver favoritkanal. Foerst det
+    // programoversigten har, saa (hoejst hvert 20. minut) favoritternes hele
+    // dag hentet og en ny runde.
+    void loadReminders();
+    const loadTonight = async (): Promise<StoredChannel[]> => {
+      const favs = await listChannels(session.db, { favouritesOnly: true, limit: TONIGHT_CHANNELS }).catch(() => []);
+      if (favs.length === 0) {
+        setTonight(null);
+        return favs;
+      }
+      const window = eveningWindow(Date.now());
+      const programmes = await listProgrammesFor(
+        session.db,
+        favs.map((c) => c.id),
+        new Date(window.from - 2 * 3_600_000),
+        new Date(window.to),
+      ).catch(() => []);
+      const byId = new Map(favs.map((c) => [c.id, c] as const));
+      const entries = pickTonight(programmes, favs.map((c) => c.id), window).flatMap((programme) => {
+        const found = byId.get(programme.channelId);
+        return found === undefined ? [] : [{ channel: found, programme }];
+      });
+      setTonight(entries.length === 0 ? null : { label: window.label, entries });
+      return favs;
+    };
+    void (async () => {
+      const favs = await loadTonight();
+      if (await refreshFavouritesEpg(session, favs)) await loadTonight();
+    })();
     setInProgress(progress);
     setNewest(added);
     setTmdbKey(key);
@@ -314,6 +390,50 @@ export function FrontScreen({
     };
   }, [tmdbKey, providers, session.db]);
 
+  // Fordi du saa … (v340): TMDB's anbefalinger ud fra den titel man sidst
+  // saa, og hvilke af dem pakken har (dem foerst; de aabner direkte). Laeses
+  // igen naar forsiden laeses igen (reloadToken), saa en ny film giver en ny raekke.
+  useEffect(() => {
+    if (tmdbKey === null) {
+      setBecause(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [recent] = await recentlyWatchedTitles(session.db, 1);
+        if (recent === undefined) {
+          if (!cancelled) setBecause(null);
+          return;
+        }
+        const titles = await cachedShelf(session.db, `because:${recent.key}`, async () => {
+          const found = await searchTmdb(tmdbFetch, tmdbKey, recent.kind, recent.name);
+          return found === null ? [] : recommendedTitles(tmdbFetch, tmdbKey, recent.kind, found.id);
+        });
+        if (cancelled) return;
+        if (titles.length === 0) {
+          setBecause(null);
+          return;
+        }
+        const known = becauseCache.get(recent.key);
+        setBecause({ source: recent, titles, inPanel: known ?? new Map() });
+        if (known !== undefined) return;
+        const inPanel = new Map<string, StoredVodItem>();
+        for (const title of titles) {
+          const item = await findInPanel(session.db, title).catch(() => null);
+          if (item !== null) inPanel.set(`${title.kind}:${title.id}`, item);
+        }
+        becauseCache.set(recent.key, inPanel);
+        if (!cancelled) setBecause((current) => (current !== null && current.source.key === recent.key ? { ...current, inPanel } : current));
+      } catch {
+        if (!cancelled) setBecause(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tmdbKey, session.db, reloadToken]);
+
   function openTitle(title: TmdbTitle, provider: HomeProvider | null): void {
     setSheet({ title, provider, inPanel: undefined, message: null });
     void findInPanel(session.db, title).then((found) => {
@@ -355,7 +475,9 @@ export function FrontScreen({
   // det samme overblik, bare opdelt som brugeren selv har valgt.
   if (!hasGroups) rows.push({ kind: 'favourites' });
   for (const entry of groupsNow) rows.push({ kind: 'group', group: entry.group });
+  if (tonight !== null) rows.push({ kind: 'tonight' });
   if (followed.some((entry) => entry.episodes > entry.seenEpisodes)) rows.push({ kind: 'followed' });
+  if (because !== null) rows.push({ kind: 'because' });
   // Kortet om noeglen kun paa telefonen, og kortet "vaelg tjenester" slet
   // ikke: paa tv stod de som fremmede kasser midt paa forsiden, og valget
   // ligger under Indstillinger, hvor man alligevel skal hen.
@@ -423,46 +545,62 @@ export function FrontScreen({
                 const channel = match.channels[0];
                 if (channel === undefined) return <View />;
                 const nowMs = Date.now();
-                const live = match.startMs <= nowMs && nowMs < match.stopMs;
-                const key = `${channel.id}@${match.startMs}`;
                 return (
-                  <TvPressable
-                    style={styles.archive}
-                    onPress={() => {
-                      if (match.startMs <= Date.now()) {
-                        onSelect(channel, match.channels);
-                        return;
-                      }
-                      // Kommende kamp: paamindelse til/fra paa den bedste kanal.
-                      void (async () => {
-                        if (reminded.has(key)) await removeReminder(session.db, channel.id, match.startMs);
-                        else
-                          await addReminder(session.db, channel.id, {
-                            channelId: channel.id,
-                            title: match.title,
-                            description: match.description,
-                            start: new Date(match.startMs),
-                            stop: new Date(match.stopMs),
-                          });
-                        const list = await listReminders(session.db).catch(() => []);
-                        setReminded(new Set(list.map((r) => `${r.channelId}@${r.startMs}`)));
-                      })();
-                    }}
-                  >
-                    <View style={styles.archiveHead}>
-                      <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={28} />
-                      <Text style={styles.channelNow} numberOfLines={1}>
-                        {channel.name}
-                      </Text>
-                    </View>
-                    <Text style={styles.channelName} numberOfLines={2}>
-                      {match.title}
-                    </Text>
-                    <Text style={[styles.archiveWhere, live && styles.live]}>
-                      {whenLabel(match.startMs, match.stopMs, nowMs)}
-                      {live ? ' · ▶ Se' : reminded.has(key) ? ' · 🔔' : ' · Mind mig'}
-                    </Text>
-                  </TvPressable>
+                  <ProgrammeCard
+                    channel={channel}
+                    title={match.title}
+                    when={whenLabel(match.startMs, match.stopMs, nowMs)}
+                    live={match.startMs <= nowMs && nowMs < match.stopMs}
+                    reminded={reminded.has(`${channel.id}@${match.startMs}`)}
+                    onPress={() => pressProgramme(channel, matchProgramme(match), match.channels)}
+                  />
+                );
+              }}
+            />
+          </Section>
+        );
+      case 'tonight':
+        return tonight === null ? null : (
+          <Section title={tonight.label}>
+            <Shelf
+              data={tonight.entries.map((entry) => ({ key: `${entry.channel.id}:${entry.programme.start.getTime()}`, entry }))}
+              width={MATCH_WIDTH}
+              renderItem={({ entry }) => {
+                const nowMs = Date.now();
+                return (
+                  <ProgrammeCard
+                    channel={entry.channel}
+                    title={entry.programme.title}
+                    when={clockRange(entry.programme)}
+                    live={entry.programme.start.getTime() <= nowMs && nowMs < entry.programme.stop.getTime()}
+                    reminded={reminded.has(`${entry.channel.id}@${entry.programme.start.getTime()}`)}
+                    onPress={() => pressProgramme(entry.channel, entry.programme, tonight.entries.map((e) => e.channel))}
+                  />
+                );
+              }}
+            />
+          </Section>
+        );
+      case 'because':
+        return because === null ? null : (
+          <Section title={`Fordi du så ${cleanVodTitle(because.source.name).title}`}>
+            <Shelf
+              data={[...because.titles]
+                .sort(
+                  (x, y) =>
+                    Number(because.inPanel.has(`${y.kind}:${y.id}`)) - Number(because.inPanel.has(`${x.kind}:${x.id}`)),
+                )
+                .map((title) => ({ key: `${title.kind}:${title.id}`, title }))}
+              width={POSTER_WIDTH}
+              renderItem={({ title }) => {
+                const item = because.inPanel.get(`${title.kind}:${title.id}`);
+                return item !== undefined ? (
+                  <View>
+                    <Poster item={item} width={POSTER_WIDTH} onOpen={onOpenVod} />
+                    <Text style={styles.newEpisodes}>I din pakke</Text>
+                  </View>
+                ) : (
+                  <TitleCard title={title} onPress={() => openTitle(title, null)} />
                 );
               }}
             />
@@ -733,6 +871,53 @@ function Section({ title, logoUrl, children }: { title: string; logoUrl?: string
     </View>
   );
 }
+
+/** En kamp som udsendelse paa dens bedste kanal (til paamindelsen). */
+function matchProgramme(match: Match): Programme {
+  return {
+    channelId: match.channels[0]?.id ?? '',
+    title: match.title,
+    description: match.description,
+    start: new Date(match.startMs),
+    stop: new Date(match.stopMs),
+  };
+}
+
+/** Et kort for en udsendelse paa en kanal: "Dine hold i dag" og "I aften". */
+const ProgrammeCard = memo(function ProgrammeCard({
+  channel,
+  title,
+  when,
+  live,
+  reminded,
+  onPress,
+}: {
+  channel: StoredChannel;
+  title: string;
+  when: string;
+  live: boolean;
+  reminded: boolean;
+  onPress: () => void;
+}) {
+  const styles = useStyles(makeStyles);
+  return (
+    <TvPressable style={styles.archive} onPress={onPress}>
+      <View style={styles.archiveHead}>
+        <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={28} />
+        <Text style={styles.channelNow} numberOfLines={1}>
+          {channel.name}
+        </Text>
+      </View>
+      <Text style={styles.channelName} numberOfLines={2}>
+        {title}
+      </Text>
+      <Text style={[styles.archiveWhere, live && styles.live]}>
+        {when}
+        {live ? ' · ▶ Se' : reminded ? ' · 🔔' : ' · Mind mig'}
+      </Text>
+    </TvPressable>
+  );
+});
 
 const ChannelCard = memo(function ChannelCard({
   channel,

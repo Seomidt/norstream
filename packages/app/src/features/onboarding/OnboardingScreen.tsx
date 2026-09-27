@@ -12,7 +12,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createFetchImpl } from '../../net/fetchImpl.js';
 import { openDatabase } from '../../storage/db.js';
 import { parseBackup, restoreBackup } from '../../storage/backup.js';
-import { setSkyCode } from '../../storage/settings.js';
+import { markCloudApplied } from '../../storage/cloudAutoSync.js';
+import { setSkyCode, setSkySync } from '../../storage/settings.js';
 import { connectM3u, connectXtream } from '../../sources/connect.js';
 import { loadFromCloud, MIN_CODE_LENGTH } from '../settings/cloudSync.js';
 import { Aurora } from '../../ui/Aurora.js';
@@ -115,6 +116,10 @@ export function OnboardingScreen({ onDone, notice }: Props) {
       }
       await restoreBackup(db, backup, { matchByName: true });
       await setSkyCode(db, code.trim());
+      // En boks sat op fra skyen holdes ens med de andre (v340); det der
+      // ligger her nu ER skyens kopi.
+      await setSkySync(db, true);
+      await markCloudApplied(db, json);
       if (!connected) {
         setError(
           'Kopien blev hentet, men panelet kunne ikke logge ind automatisk. Log ind på panelet ovenfor — dine grupper og favoritter er gemt og kommer med.',

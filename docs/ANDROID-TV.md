@@ -369,6 +369,20 @@ Lys, og stedet solen regnes for.
   (og forsvinder igen ved søg/Tilbage). Hver kamp er en række uden eget
   trykpunkt; kanalerne i rækken er knapperne (pil op/ned mellem kampe,
   venstre/højre mellem kanaler), og den fokuserede holdes i midten.
+- **Kanallisten oven på billedet** (`features/player/ChannelOverlay.tsx`,
+  v340): pil ned mens bjælken er skjult (eller knappen Kanaler) lægger
+  favoritterne/listen man kom fra over billedet til venstre. Listen ligger i
+  en `TVFocusGuideView` der fanger fokus i alle retninger, den spillende
+  kanal har fokus fra start, rækken holdes i midten, OK skifter, Tilbage
+  lukker (egen `BackHandler`, registreret efter App's, så den vinder).
+  `LandscapePlayer suspended`: imens røres fjernbetjeningens tryk ikke,
+  bjælken holdes skjult, og den usynlige fokusflade fjernes; når listen
+  lukker, kommer fladen igen med `hasTVPreferredFocus`, så fokus er tilbage
+  i afspilleren.
+- **"I aften" og "Fordi du så …"** på forsiden (v340) er almindelige
+  vandrette rækker af `TvPressable`-kort som de andre; ingen knapper inde i
+  kortene. Kortet i "I aften" (`ProgrammeCard`) gør OK-handlingen synlig i
+  teksten: "▶ Se", "🔔" eller "Mind mig".
 - **Et tekstfelt må aldrig ligge fast over en liste man trykker OK i**:
   mister rækken fokus et øjeblik, tager feltet det, og tastaturet kommer
   frem. Vis feltet først når man har bedt om det (Grupper → Omdøb).

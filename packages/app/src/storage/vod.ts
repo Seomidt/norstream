@@ -582,6 +582,29 @@ export async function getProgress(
   return row ? { positionSeconds: row.position_s, durationSeconds: row.duration_s } : null;
 }
 
+/**
+ * De titler man senest har set i — filmen, eller serien for et afsnit —
+ * nyeste foerst. Til forsidens "Fordi du saa …" (v340).
+ */
+export async function recentlyWatchedTitles(db: SqlDatabase, limit = 3): Promise<StoredVodItem[]> {
+  const rows = await db.getAllAsync<{ item_key: string; series_key: string | null }>(
+    `SELECT p.item_key, e.series_key FROM vod_progress p
+     LEFT JOIN episodes e ON e.key = p.item_key
+     ORDER BY p.updated_ms DESC LIMIT 30`,
+  );
+  const seen = new Set<string>();
+  const out: StoredVodItem[] = [];
+  for (const row of rows) {
+    const key = row.series_key ?? row.item_key;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const item = await getVodItem(db, key);
+    if (item !== null) out.push(item);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
 /** Ryd kildens film, serier og alt der haenger paa dem. Til `deleteSource`. */
 export async function deleteVodForSource(db: SqlDatabase, sourceId: string): Promise<void> {
   const prefix = `${sourceId}:%`;

@@ -187,6 +187,74 @@ export async function getNowNext(
   };
 }
 
+/**
+ * Programmerne for mange kanaler i ét vindue, i ét opslag per klump
+ * (v340: "I aften" paa forsiden og kanallisten oven paa afspilleren).
+ * Overlappende, som `listProgrammes`; sorteret paa starttid.
+ */
+export async function listProgrammesFor(
+  db: SqlDatabase,
+  channelIds: readonly string[],
+  from: Date,
+  to: Date,
+): Promise<Programme[]> {
+  const out: Programme[] = [];
+  if (channelIds.length === 0) return out;
+  const CHUNK = 400;
+  const unique = [...new Set(channelIds)];
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    const slice = unique.slice(i, i + CHUNK);
+    const placeholders = slice.map(() => '?').join(', ');
+    const rows = await db.getAllAsync<ProgrammeRow>(
+      `SELECT channel_id, start_ms, stop_ms, title, description FROM programmes
+       WHERE channel_id IN (${placeholders}) AND stop_ms > ? AND start_ms < ?
+       ORDER BY start_ms`,
+      [...slice, from.getTime(), to.getTime()],
+    );
+    for (const row of rows) out.push(toProgramme(row));
+  }
+  return out.sort((a, b) => a.start.getTime() - b.start.getTime());
+}
+
+export interface NowNextPair {
+  now: Programme | null;
+  next: Programme | null;
+}
+
+/**
+ * "Nu og naeste" for mange kanaler paa én gang — til kanallisten oven paa
+ * afspilleren (v340), hvor et `getNowNext` per raekke ville vaere to
+ * forespoergsler per kanal. Samme valg som `getNowNext`: ved overlap vinder
+ * det program der begyndte senest; "naeste" er det foerste efter det.
+ */
+export async function nowNextFor(
+  db: SqlDatabase,
+  channelIds: readonly string[],
+  now: Date,
+): Promise<Map<string, NowNextPair>> {
+  const result = new Map<string, NowNextPair>();
+  if (channelIds.length === 0) return result;
+  const ms = now.getTime();
+  // Seks timer frem er nok til "naeste" paa enhver kanal med programdata.
+  const programmes = await listProgrammesFor(db, channelIds, now, new Date(ms + 6 * 3_600_000));
+  const byChannel = new Map<string, Programme[]>();
+  for (const programme of programmes) {
+    const list = byChannel.get(programme.channelId);
+    if (list === undefined) byChannel.set(programme.channelId, [programme]);
+    else list.push(programme);
+  }
+  for (const [channelId, list] of byChannel) {
+    let current: Programme | null = null;
+    for (const programme of list) {
+      if (programme.start.getTime() <= ms && programme.stop.getTime() > ms) current = programme;
+    }
+    const after = current === null ? ms : current.stop.getTime() - 1;
+    const next = list.find((programme) => programme !== current && programme.start.getTime() > after) ?? null;
+    result.set(channelId, { now: current, next });
+  }
+  return result;
+}
+
 /** Holder databasen fra at vokse ubegraenset efterhaanden som EPG fornys. */
 export async function deleteProgrammesBefore(
   db: SqlDatabase,

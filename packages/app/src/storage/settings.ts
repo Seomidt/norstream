@@ -26,6 +26,13 @@ const KEY_BACKUP_LINK = 'backup_link';
 const KEY_SKY_CODE = 'sky_code';
 const KEY_SKY_ENABLED = 'sky_enabled';
 const KEY_SKY_LAST = 'sky_last_ms';
+// Loebende sky-synk mellem enheder (v340): til/fra, fingeraftrykket af det
+// der sidst blev synkroniseret, hvornaar den sky-udgave vi sidst saa var fra,
+// og hvornaar vi foerst saa en lokal aendring der ikke er lagt op.
+const KEY_SKY_SYNC = 'sky_sync';
+const KEY_SKY_FP = 'sky_fp';
+const KEY_SKY_SEEN = 'sky_seen_ms';
+const KEY_SKY_DIRTY_SINCE = 'sky_dirty_since_ms';
 
 export async function getSetting(
   db: SqlDatabase,
@@ -627,8 +634,49 @@ export async function setSkyLastMs(db: SqlDatabase, ms: number): Promise<void> {
   await setSetting(db, KEY_SKY_LAST, String(Math.trunc(ms)));
 }
 
-/** Glem kodeordet og slaa den ugentlige kopi fra. */
+/** Glem kodeordet og slaa den ugentlige kopi og synkroniseringen fra. */
 export async function clearSky(db: SqlDatabase): Promise<void> {
   await setSetting(db, KEY_SKY_CODE, '');
   await setSetting(db, KEY_SKY_ENABLED, '0');
+  await setSetting(db, KEY_SKY_SYNC, '0');
+  await setSetting(db, KEY_SKY_FP, '');
+}
+
+/** Om enhederne holdes ens gennem skyen (v340). */
+export async function getSkySync(db: SqlDatabase): Promise<boolean> {
+  return (await getSetting(db, KEY_SKY_SYNC)) === '1';
+}
+
+export async function setSkySync(db: SqlDatabase, on: boolean): Promise<void> {
+  await setSetting(db, KEY_SKY_SYNC, on ? '1' : '0');
+  // Slaas den til igen, begynder den forfra: se cloudAutoSync.ts.
+  if (!on) await setSetting(db, KEY_SKY_FP, '');
+}
+
+export interface SkySyncState {
+  /** Fingeraftrykket af det der sidst blev lagt op eller hentet; tom = aldrig synkroniseret. */
+  fingerprint: string;
+  /** `exportedMs` paa den sky-udgave vi sidst lagde op eller hentede. */
+  seenMs: number;
+  /** Hvornaar vi foerst saa en lokal aendring der endnu ikke er lagt op; 0 = ingen. */
+  dirtySinceMs: number;
+}
+
+export async function getSkySyncState(db: SqlDatabase): Promise<SkySyncState> {
+  const [fingerprint, seen, dirty] = await Promise.all([
+    getSetting(db, KEY_SKY_FP),
+    getSetting(db, KEY_SKY_SEEN),
+    getSetting(db, KEY_SKY_DIRTY_SINCE),
+  ]);
+  const num = (value: string | null): number => {
+    const parsed = value === null ? Number.NaN : Number.parseInt(value, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  };
+  return { fingerprint: fingerprint ?? '', seenMs: num(seen), dirtySinceMs: num(dirty) };
+}
+
+export async function setSkySyncState(db: SqlDatabase, state: SkySyncState): Promise<void> {
+  await setSetting(db, KEY_SKY_FP, state.fingerprint);
+  await setSetting(db, KEY_SKY_SEEN, String(Math.trunc(state.seenMs)));
+  await setSetting(db, KEY_SKY_DIRTY_SINCE, String(Math.trunc(state.dirtySinceMs)));
 }
