@@ -160,9 +160,14 @@ Installation:
 
 Fra september 2026 kan en boks i en anden by opdatere sig selv. To dele:
 
-- **Appen** (kun tv) ser efter en nyere udgave ved hver opstart og starter
-  installationen selv — `src/features/settings/autoUpdate.ts`, kaldt fra
-  `App.tsx`. Telefonen beholder den frivillige knap i Indstillinger.
+- **Appen** ser efter en nyere udgave 60 s efter start, når den kommer frem
+  igen og hver halve time (`src/features/settings/UpdateBanner.tsx`, v337+).
+  Er der en, kommer bjælken "Ny udgave klar". På tv hentes filen af sig selv
+  (procent i knappen), og "Installér nu" starter Androids installation; på
+  telefonen henter "Opdater nu" først. Fra v341 læses Androids svar
+  (`EXTRA_RETURN_RESULT`), så bjælken siger hvorfor, hvis der ikke blev
+  installeret. Den gamle `autoUpdate.ts` (boot-installer på tv) er væk:
+  den og bjælken hentede den samme fil oven i hinanden.
 - **Udgivelsen** sker med `.github/workflows/udgiv-apk.yml`, som ligger på
   `main`. Den rører **ikke** byg-opskriften (en ændret byg-fil bliver sat i
   "afventer godkendelse", når den startes), men tager en færdig byg-kørsel,
@@ -193,10 +198,13 @@ Appen sammenligner sit `versionCode` med udgivelsens note (et tal). Derfor:
    bliver `latest-norstream`, `latest-norstream-tv`, `latest-norradio`, og
    appen læser netop det mærkat, der passer til sin udgave.
 
-Første gang skal boksen have en udgave *med* autoUpdate installeret én gang
-(via knappen i Indstillinger → Opdatering). Derefter er alt automatisk.
-Androids egen "Installér?"-skærm kan ingen app springe over — det ene tryk
-bliver, men resten sker af sig selv.
+Første gang skal boksen have en udgave *med* selv-opdatering installeret én
+gang (Send files to TV, se ANDROID-TV.md afsnit 2). Derefter kommer bjælken
+af sig selv. Androids egen "Installér?"-skærm kan ingen app springe over —
+det ene tryk bliver, men resten sker af sig selv. Boksen skal have "Ukendte
+apps" slået til for **NorStream** (Indstillinger → Privatliv → Sikkerhed og
+begrænsninger → Ukendte apps), ellers viser Android en indstillingsside i
+stedet for installationen.
 
 Kun `udgiv-apk.yml` behøver at ligge på `main`; byg-opskriften og app-koden
 bygges fra arbejdsgrenen som altid.
