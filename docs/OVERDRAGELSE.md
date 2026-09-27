@@ -1911,7 +1911,8 @@ Brugerens panel-adgangsoplysninger står **ikke** i dette repo og skal ikke skri
    `expo-notifications` og planlagte lokale notifikationer; det er ikke
    sat op, fordi tv'et alligevel viser appen når man ser fjernsyn.
 9. **Emulator i byggekæden** er fravalgt af brugeren indtil videre.
-10. **Idéer, 27. sep. (ikke bygget endnu):** sovetimer (sluk efter 30/60/90 min
-    eller når udsendelsen slutter); ~~"Find kampen"~~ (bygget i v339, se
-    øverst); billede-i-billede på telefonen; børnesikring med PIN; profiler;
-    flere kanaler på én skærm (tjek panelets antal samtidige forbindelser først).
+10. **Idéer, 27. sep.:** "Find kampen" er bygget (v339). **Fravalgt af
+    brugeren — foreslå dem ikke igen:** sovetimer ("gider jeg ikke"),
+    børnesikring med PIN, profiler. **Umulige med brugerens fil:**
+    billede-i-billede og flere kanaler på én skærm — panelet giver kun **1
+    samtidig forbindelse**, og preview/afspiller deler den allerede.
