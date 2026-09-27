@@ -15,7 +15,7 @@ describe('opdatering: tolkning af udgivelsen', () => {
         { name: 'norstream-tv.apk', browser_download_url: 'https://x/a.apk' },
       ],
     });
-    expect(parsed).toEqual({ versionCode: 228, url: 'https://x/a.apk' });
+    expect(parsed).toEqual({ versionCode: 228, url: 'https://x/a.apk', size: null });
   });
 
   it('kaster naar der ikke er nogen APK eller nummer', () => {

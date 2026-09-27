@@ -31,7 +31,6 @@ import { CanvasContext, TV_SAFE_MARGIN, TV_SCALE, isTV } from './src/ui/tv.js';
 import { startTvKeyTracking } from './src/ui/tvKeys.js';
 import { TvPressable } from './src/ui/TvPressable.js';
 import { ReminderBanner } from './src/features/reminders/ReminderBanner.js';
-import { maybeAutoUpdate } from './src/features/settings/autoUpdate.js';
 import { UpdateBanner } from './src/features/settings/UpdateBanner.js';
 
 // Panelets store EPG-fil laeses i native kode (PanelEpgModule). Registreres
@@ -109,10 +108,10 @@ function AppInner() {
       setThemePreference({ mode, ...(placeKey === null ? {} : { placeKey }) });
       setSession(created);
       setRoute(created.sources.length === 0 ? { name: 'onboarding' } : { name: 'home' });
-      // Se stille efter en nyere udgave og installér den paa en tv-boks selv.
-      // Uden om appens tilstand og uden at blokere: opstarten maa ikke vente
-      // paa netvaerket, og et mislykket opslag maa ikke naa route'n.
-      void maybeAutoUpdate();
+      // Nye udgaver: UpdateBanner ser efter dem lidt efter start, henter paa
+      // tv af sig selv og lader brugeren installere fra bjaelken (v341: foer
+      // startede boksen ogsaa Androids installer af sig selv ved opstart, og
+      // de to veje hentede den samme fil oven i hinanden).
     }
 
     boot().catch(() => {

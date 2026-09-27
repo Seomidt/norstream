@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**27. september 2026 (v341).** Brugeren (tv): "pop up kommer, installationsskærmen kommer, jeg trykker Installér, men appen er stadig den gamle — kører i ring." Filen på GitHub er tjekket rigtig (versionCode 340, samme debug-signatur 5E:8F:16:06 som telefonens). Årsagen er ikke set på boksen; v341 gør opdateringen til at stole på og får Androids eget svar frem (se nedenfor). **Afventer brugerens svar med teksten fra bjælken.**
+
 **27. september 2026 (v340).** Fire nye ting, valgt af brugeren ("Byg 3-4-5-6"): kanalliste oven på billedet i afspilleren, "I aften" på forsiden, enhederne holdes ens gennem skyen (løbende synk), "Fordi du så …". Afventer brugerens test.
 
 **27. september 2026 (v339).** Brugeren: "super godt lavet det med sport". "Find kampen": ny fane Sport — søg hold/liga i programoversigten på tværs af kanalerne, Mine hold, "Dine hold i dag" på forsiden, automatisk påmindelse.
@@ -45,6 +47,51 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 27. september 2026 — v341: opdateringen siger hvorfor (Androids svar, én hentning, procent)
+
+Fejlmelding: på tv'et kommer bjælken "Ny udgave klar", installationsskærmen
+kommer, brugeren trykker Installér — og appen er stadig den gamle, bjælken
+kommer igen. Tjekket herfra: `latest-norstream-tv` har `NorStream-TV.apk`
+(107 MB) med versionCode 340, pakke `dk.seomidt.norstream`, og v2-signatur
+5E:8F:16:06… (React Native-skabelonens faste debug-nøgle — samme som
+telefonens APK og alle CI-builds; `packages/app/android/app/build.gradle`
+bruger `signingConfigs.debug` med `debug.keystore` fra skabelonen). Så hverken
+fil, versionsnummer eller signatur er forkert. Hvad Android svarede, vidste
+appen ikke — det gør den nu.
+
+Ændringer (`features/settings/appUpdate.ts`, `appUpdateParse.ts`, `UpdateBanner.tsx`):
+- **Androids svar læses.** Installeren startes med `EXTRA_RETURN_RESULT`, så
+  `startActivityAsync` svarer med `resultCode` (−1 OK, 0 afbrudt, 1 fejl) og
+  ved fejl `android.intent.extra.INSTALL_RESULT` (PackageManagers
+  `INSTALL_FAILED_*`). `installOutcome`/`installFailureText` (testet)
+  oversætter: −4 ikke plads, −7/−104 anden signatur, −25 ældre fil,
+  −2/−3/−100…−109 beskadiget fil (filen slettes og hentes forfra), −110
+  intern fejl, ellers "kode N". Bjælken og Indstillinger viser teksten.
+- **"Installeret", men stadig gammel:** 20 s efter et OK-svar ser bjælken
+  efter igen; er udgaven stadig den gamle, siger den det ("Genstart enheden").
+- **Én hentning per udgave:** filen hedder `norstream-<nr>.apk` i cachen,
+  genbruges ved næste forsøg (ingen ny 107 MB), og to hentninger af samme
+  udgave bliver til én (`inFlight`). Før skrev to hentninger i den samme fil
+  (`file.delete()` + skriv i expo-file-systems `downloadAsync`), og
+  installeren kunne få en halv. Størrelsen fra udgivelsen (`assets[].size`)
+  tjekkes efter hentningen; en afbrudt hentning sendes aldrig til installeren.
+- **Procent i bjælken** (`createDownloadResumable` med fremdrift,
+  `onDownloadProgress`), og "NorStream 341 · du har 340", så man kan se hvad
+  der kører.
+- **Boot-installeren er væk** (`autoUpdate.ts` slettet, kaldet i App.tsx
+  fjernet): før startede tv'et ved opstart selv en hentning + Androids
+  installer, OG bjælken kom efter 60 s — to veje til den samme fil på én gang.
+  Nu henter bjælken på tv af sig selv når den finder en ny udgave (procent i
+  knappen), og når filen er hel, står der "Installér nu" med fokus; OK
+  starter installeren. Telefonen henter først når man trykker.
+- Indstillinger → Opdatering bruger samme vej og viser samme svar/procent.
+
+**Hvis brugeren melder teksten fra bjælken:** −4 → ryd plads på boksen; −7 →
+afinstallér og installér forfra (favoritter fra skyen); "installeret, men
+stadig udgave N" → noget på boksen blokerer udskiftningen (Play Protect?
+en anden bruger/profil på Google TV?) — undersøg med `adb logcat` fra
+`PackageInstaller`/`PackageManager` (se ANDROID-TV.md om adb).
 
 ### 27. september 2026 — v340: kanalliste i afspilleren, "I aften", sky-synk, "Fordi du så …"
 

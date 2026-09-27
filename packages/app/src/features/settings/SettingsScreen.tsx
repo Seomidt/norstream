@@ -59,7 +59,8 @@ import { TvTextInput } from '../../ui/TvTextInput.js';
 import { testOpenSubtitles } from '../vod/externalSubtitles.js';
 import { CloudBackup } from './CloudBackup.js';
 import type { CloudSyncOutcome } from '../../storage/cloudAutoSync.js';
-import { checkForUpdate, currentVersionCode, downloadAndInstall } from './appUpdate.js';
+import { checkForUpdate, currentVersionCode, discardApk, downloadAndInstall, onDownloadProgress, shouldDiscardAfter } from './appUpdate.js';
+import { percentText } from './appUpdateParse.js';
 import type { UpdateInfo } from './appUpdate.js';
 
 interface Props {
@@ -312,13 +313,29 @@ export function SettingsScreen({
     }
   }
 
+  // Hentningens fremdrift, som i bjaelken (v341).
+  useEffect(
+    () =>
+      onDownloadProgress((progress) => {
+        if (progress === null) return;
+        const percent = percentText(progress.written, progress.total);
+        setUpdateMessage(percent === null ? 'Henter …' : `Henter … ${percent}`);
+      }),
+    [],
+  );
+
   async function installUpdate(): Promise<void> {
     if (update === null) return;
     setUpdateBusy(true);
     setUpdateMessage('Henter …');
     try {
-      await downloadAndInstall(update.url);
-      setUpdateMessage('Følg installationen på skærmen.');
+      const outcome = await downloadAndInstall(update);
+      if (outcome.kind === 'installed') setUpdateMessage('Installeret — appen genstarter.');
+      else if (outcome.kind === 'cancelled') setUpdateMessage('Installationen blev afbrudt.');
+      else {
+        setUpdateMessage(outcome.text);
+        if (shouldDiscardAfter(outcome)) await discardApk(update.versionCode);
+      }
     } catch (cause) {
       setUpdateMessage(cause instanceof Error ? cause.message : 'Kunne ikke installere.');
     } finally {
@@ -891,7 +908,7 @@ export function SettingsScreen({
           <Text style={styles.versionValue}>Udgave {currentVersionCode()}</Text>
           <Text style={styles.rowHint}>
             {isTV
-              ? 'Det er den udgave, boksen kører nu. Den henter selv en nyere ved opstart.'
+              ? 'Det er den udgave, boksen kører nu. En nyere hentes af sig selv og installeres fra bjælken "Ny udgave klar".'
               : 'Det er den udgave, du kører nu.'}
           </Text>
         </View>
