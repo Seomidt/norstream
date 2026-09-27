@@ -342,7 +342,12 @@ export function buildHlsMaster(
 ): { playlist: string; height: number; firstUri: string } | null {
   if (!text.startsWith('#EXTM3U')) return null;
   const variants = parseHlsVariants(text, base).filter((v) => v.height > 0 && v.height <= maxHeight);
-  const byQuality = (a: HlsVariant, b: HlsVariant): number => b.height - a.height || b.bandwidth - a.bandwidth;
+  // Samme hoejde: AAC-lyd (mp4a) foer Dolby (ac-3/ec-3), som ikke alle
+  // telefoner og bokse kan afkode — Apple TV tilbyder hver kvalitet med alle
+  // tre (v336). Saa hoejeste bitrate.
+  const aac = (v: HlsVariant): number => (v.codecs.includes('mp4a') ? 1 : 0);
+  const byQuality = (a: HlsVariant, b: HlsVariant): number =>
+    b.height - a.height || aac(b) - aac(a) || b.bandwidth - a.bandwidth;
   const h264 = variants.filter((v) => v.codecs.includes('avc1')).sort(byQuality);
   const chosen = h264[0] ?? [...variants].sort(byQuality)[0];
   if (chosen === undefined) return null;

@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**27. september 2026 (v336).** Trailere: Apple TV → IMDb → YouTube.
+
 **26. september 2026 (v335).** Brugeren: "Fantastisk, endelig kører det også,
 EPG ser også ud til at køre nu." Trailere fra IMDb i 1080p (v335) og
 UK/US-programoversigt fra panelets egen `xmltv.php` (v320+) er bekræftet af
@@ -39,6 +41,32 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 27. september 2026 — v336: Apple TV først, så IMDb, så YouTube
+
+Brugeren fandt det: tv.apple.com viser trailere uden login (den gamle iTunes-
+søgning er lukket, men Apple TV's egen tjeneste "uts" er åben). Brugeren valgte
+**Apple først, IMDb som reserve**.
+
+- **`features/vod/appleTrailer.ts`:** `findAppleTrailers(getJson, kind, titler,
+  år)` → `tv.apple.com/api/uts/v3/search` (parametrene tv.apple.com selv sender:
+  `utscf`, `utsk`, `caller=web`, `sf=143441`, `v=68`, `pfm=web`) → `matchSearch`:
+  KUN når titel (normaliseret) og år (±1) passer — søgningen er upræcis ("Dune
+  Part Two" gav Zero Dark Thirty) → `/movies/{id}` eller `/shows/{id}` →
+  `pickAppleTrailers`: hylde-items med `localizedType: 'Trailer'`, 60–360 s,
+  `playables[0].assets.hlsUrl`.
+- **Målt** (`scripts/maal/appletv-*.mjs`): trailerne er HLS uden
+  kopibeskyttelse, op til 4K; valgt variant 1918x802 H.264 (fuld HD i
+  biografformat). Hver kvalitet findes med AAC, AC-3 og E-AC-3 —
+  `buildHlsMaster` vælger nu AAC (`mp4a`) før Dolby i samme højde.
+- **Dækning:** søgningen finder især Apple TV+-titler (Napoleon, Severance);
+  Oppenheimer, Dune: Part Two og Another Round findes ikke → IMDb tager over.
+- **`sync/tmdb.ts` `findTitleInfo`:** engelsk + original titel, år og IMDb-nummer
+  i ét kald (`?language=en-US&append_to_response=external_ids`).
+- **`TrailerScreen.start(skip)`:** Apple → IMDb → YouTube (`playNext`). En
+  Apple-trailer der fejler under afspilning → `start({apple})` (IMDb/YouTube).
+- Ændrer Apple parametrene, svarer søgningen ikke, og IMDb tager over. Ret dem
+  i `PARAMS` (se målingerne).
 
 ### 26. september 2026 — v335: trailere fra IMDb i 1080p — førstevalg
 

@@ -125,6 +125,26 @@ describe('buildHlsMaster', () => {
     expect(built?.playlist).not.toContain('2560x1440');
   });
 
+  it('vaelger AAC-lyd frem for Dolby i samme kvalitet (Apple TV)', () => {
+    const apple = [
+      '#EXTM3U',
+      '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="ec3",NAME="English",URI="https://p/ec3.m3u8"',
+      '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aac",NAME="English",URI="https://p/aac.m3u8"',
+      '#EXT-X-STREAM-INF:BANDWIDTH=9000000,CODECS="avc1.640028,ec-3",RESOLUTION=1918x802,AUDIO="ec3"',
+      'https://p/v-ec3.m3u8',
+      '#EXT-X-STREAM-INF:BANDWIDTH=8000000,CODECS="avc1.640028,mp4a.40.2",RESOLUTION=1918x802,AUDIO="aac"',
+      'https://p/v-aac.m3u8',
+      '#EXT-X-STREAM-INF:BANDWIDTH=20000000,CODECS="hvc1.2.20000000.L123.B0,mp4a.40.2",RESOLUTION=3840x1606,AUDIO="aac"',
+      'https://p/v-4k.m3u8',
+      '',
+    ].join('\n');
+    const built = buildHlsMaster(apple, 'https://p/master.m3u8');
+    expect(built?.firstUri).toBe('https://p/v-aac.m3u8');
+    expect(built?.playlist).toContain('URI="https://p/aac.m3u8"');
+    expect(built?.playlist).not.toContain('ec3.m3u8');
+    expect(built?.height).toBe(802);
+  });
+
   it('giver null for noget der ikke er et HLS-manifest', () => {
     expect(buildHlsMaster('<html>', 'https://x/y')).toBeNull();
     expect(buildHlsMaster('#EXTM3U\n', 'https://x/y')).toBeNull();
