@@ -282,6 +282,52 @@ export async function findImdbId(
   }
 }
 
+/**
+ * Titlens engelske og originale titel, aar og IMDb-nummer, via TMDB. Til
+ * trailere fra Apple TV (soeges paa engelsk titel og aar) og IMDb (v336).
+ * Null naar TMDB ikke kender titlen eller noget gaar galt.
+ */
+export async function findTitleInfo(
+  fetchImpl: TmdbFetch,
+  apiKey: string,
+  kind: 'movie' | 'series',
+  name: string,
+): Promise<{ imdbId: string | null; englishTitle: string | null; originalTitle: string | null; year: number | null } | null> {
+  const found = await searchTmdb(fetchImpl, apiKey, kind, name).catch(() => null);
+  if (found === null) return null;
+  const endpoint = kind === 'series' ? 'tv' : 'movie';
+  const auth = tmdbAuth(apiKey);
+  try {
+    const response = await fetchImpl(
+      `${API}/${endpoint}/${found.id}?language=en-US&append_to_response=external_ids${auth.query}`,
+      auth.headers,
+    );
+    if (!response.ok) return null;
+    const d = (await response.json()) as {
+      title?: unknown;
+      name?: unknown;
+      original_title?: unknown;
+      original_name?: unknown;
+      release_date?: unknown;
+      first_air_date?: unknown;
+      imdb_id?: unknown;
+      external_ids?: { imdb_id?: unknown };
+    };
+    const text = (v: unknown): string | null => (typeof v === 'string' && v.trim().length > 0 ? v.trim() : null);
+    const imdb = text(d.imdb_id) ?? text(d.external_ids?.imdb_id);
+    const date = text(d.release_date) ?? text(d.first_air_date);
+    const year = date === null ? null : Number(date.slice(0, 4));
+    return {
+      imdbId: imdb !== null && /^tt\d{5,}$/.test(imdb) ? imdb : null,
+      englishTitle: text(d.title) ?? text(d.name),
+      originalTitle: text(d.original_title) ?? text(d.original_name),
+      year: year !== null && Number.isFinite(year) && year > 1800 ? year : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Hoejden i pixel, med 1080p som loft: 4K er ikke bedre end fuld HD paa boksen, og ukendt er 0. */
 function qualityOf(video: Video): number {
   const size = typeof video.size === 'number' && Number.isFinite(video.size) ? video.size : 0;
