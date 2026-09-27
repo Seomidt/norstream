@@ -71,8 +71,12 @@ søgning er lukket, men Apple TV's egen tjeneste "uts" er åben). Brugeren valgt
   kopibeskyttelse, op til 4K; valgt variant 1918x802 H.264 (fuld HD i
   biografformat). Hver kvalitet findes med AAC, AC-3 og E-AC-3 —
   `buildHlsMaster` vælger nu AAC (`mp4a`) før Dolby i samme højde.
-- **Dækning:** søgningen finder især Apple TV+-titler (Napoleon, Severance);
-  Oppenheimer, Dune: Part Two og Another Round findes ikke → IMDb tager over.
+- **Dækning:** søgningen finder KUN Apple TV+-titler (Napoleon, Killers of the
+  Flower Moon, F1 The Movie, Severance …) plus nogle få. Afprøvet med US, DK
+  (da/en), GB og v68/v90 (`scripts/maal/appletv-butik.mjs`): Oppenheimer, Dune:
+  Part Two, Gladiator II og Another Round/Druk findes ikke i nogen af dem. Brugeren
+  (v336, telefon): "der kommer aldrig trailer fra itunes, imdb hver gang" —
+  forventet for panelets film. IMDb er reelt hovedkilden.
 - **`sync/tmdb.ts` `findTitleInfo`:** engelsk + original titel, år og IMDb-nummer
   i ét kald (`?language=en-US&append_to_response=external_ids`).
 - **`TrailerScreen.start(skip)`:** Apple → IMDb → YouTube (`playNext`). En
