@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**28. september 2026 (v343).** Bruger (telefonen, med en anden fil/kilde): "der kommer slet ikke noget EPG frem på nogen af kanalerne, men Sport finder en masse." Sport fandt det, v342 hentede fra panelets fil for sportskanalerne; favoritterne kom først med i filen når panelet var spurgt per kanal (`epg_fetch`) — og den daglige kørsel var løbet før det, så de stod uden EPG et døgn. v343: alle favoritter uden programmer forude tages med, og filen hentes igen efter en time når listen af kanaler at hente for har ændret sig (ny favorit, nyt hold), ikke først om et døgn.
+
 **27. september 2026 (v342).** Sport: "Formel 1" gav mange kampe på telefonen og én på tv'et. Årsag: de fleste sportskanaler (UK, US …) har intet EPG-id, så panelet giver dem ingen programmer per kanal; de får kun programmer fra panelets XMLTV-fil, som hidtil kun blev læst for **favoritter** — så Sport fandt kun det, favoritterne (flest på telefonen) dækkede. Nu læses filen også for sportskanalerne (≤150), Sport venter på begge hentninger, og skjulte lande findes stadig (bagerst). v341 (opdateringen siger hvorfor) er udgivet på begge mærkater.
 
 **27. september 2026 (v341).** Brugeren (tv): "pop up kommer, installationsskærmen kommer, jeg trykker Installér, men appen er stadig den gamle — kører i ring." Filen på GitHub er tjekket rigtig (versionCode 340, samme debug-signatur 5E:8F:16:06 som telefonens). Årsagen er ikke set på boksen; v341 gør opdateringen til at stole på og får Androids eget svar frem (se nedenfor). **Afventer brugerens svar med teksten fra bjælken.**
@@ -49,6 +51,28 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 28. september 2026 — v343: panelets fil for alle favoritter uden EPG, og igen når listen ændrer sig
+
+Brugeren kører en **anden fil** på telefonen og så ingen EPG i guide/kanalliste,
+men Sport fandt masser (Premier League, tennis). Det var v342's effekt:
+sportskanalerne fik programmer fra panelets XMLTV-fil, favoritterne ikke —
+`syncPanelEpg` tog kun favoritter med EPG-id med når `epg_fetch` fandtes (panelet
+spurgt per kanal først), og den daglige kørsel (ny nøgle) løb ved start, før
+kanallisten var åbnet. Næste chance: om et døgn.
+
+- `wanted` = **alle favoritter uden programmer i de næste 6 t**, uanset EPG-id
+  og `epg_fetch` (dem med programmer røres stadig ikke). Plus sportskanalerne
+  (v342).
+- Kørslen gentages efter **en time** når listen af kanaler at hente for har
+  ændret sig (`panel_epg_wanted:<kilde>` = sorterede nøgler), ellers som før
+  én gang i døgnet. Aldrig oftere end hver time, heller ikke med "Hent".
+- Testene i `panelEpg.test.ts` er rettet til (DR1 med EPG-id uden programmer
+  matches nu på id'et).
+
+Hvis brugerens fil er en M3U med egen XMLTV-adresse, går EPG i stedet gennem
+`syncXmltv` (tvg-id og navn, én gang i døgnet, loft 40 MB) — det er en anden
+vej; panel-filen gælder kun Xtream-kilder.
 
 ### 27. september 2026 — v342: Sport finder også UK/US-kampene (panelets fil for sportskanaler)
 

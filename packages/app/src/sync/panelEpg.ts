@@ -51,6 +51,8 @@ const HAS_EPG_AHEAD_MS = 6 * 60 * 60_000;
 // "3": v342 tager sportskanalerne med. Ny noegle hver gang, saa den koerer
 // med det samme efter opdateringen i stedet for om et doegn.
 const lastKey = (sourceId: string): string => `last_panel_epg3_ms:${sourceId}`;
+/** De kanaler sidste koersel hentede for; aendrer listen sig, koeres der igen (hoejst hver time). */
+const wantedKey = (sourceId: string): string => `panel_epg_wanted:${sourceId}`;
 
 let inFlight: Promise<void> | null = null;
 
@@ -101,30 +103,24 @@ export async function syncPanelEpg(
   const now = options.now ?? new Date();
   const lastRaw = await getSetting(db, lastKey(sourceId));
   const last = lastRaw === null ? null : Number(lastRaw);
-  if (last !== null && Number.isFinite(last)) {
-    const age = now.getTime() - last;
-    if (age < (options.force === true ? FORCE_MIN_MS : PANEL_EPG_INTERVAL_MS)) return null;
-  }
+  const age = last !== null && Number.isFinite(last) ? now.getTime() - last : Number.POSITIVE_INFINITY;
+  // Aldrig oftere end hver time — heller ikke med "Hent".
+  if (age < FORCE_MIN_MS) return null;
 
-  // Alle favoritter panelet ikke giver EPG for per kanal:
-  //  - dem uden EPG-id (get_short_epg kan intet for dem), og
-  //  - dem MED EPG-id, hvor panelet er blevet spurgt (epg_fetch) og intet
-  //    gav i de naeste timer. Dem der allerede har EPG, roeres ikke — ellers
-  //    ville hundredvis af danske favoritter blive skrevet dobbelt.
+  // Alle favoritter uden programmer i de naeste timer, uanset EPG-id (v343).
+  // Foer skulle panelet foerst vaere spurgt per kanal (epg_fetch) foer en
+  // favorit MED EPG-id kom med; koerte den daglige hentning foer det, stod
+  // favoritterne uden EPG et doegn, mens sportskanalerne fik deres. Dem der
+  // allerede har EPG, roeres stadig ikke — ellers blev hundredvis af danske
+  // favoritter skrevet dobbelt.
   const nowMs = now.getTime();
   const wanted = await db.getAllAsync<WantedChannel>(
     `SELECT c.id AS key, c.name AS name, c.country AS country, c.epg_channel_id AS epgId
      FROM favorites f
      JOIN channels c ON c.id = f.channel_id
      WHERE c.source_id = ?
-       AND (
-         c.epg_channel_id IS NULL OR c.epg_channel_id = ''
-         OR (
-           EXISTS (SELECT 1 FROM epg_fetch e WHERE e.stream_id = c.id)
-           AND NOT EXISTS (
-             SELECT 1 FROM programmes p WHERE p.channel_id = c.id AND p.stop_ms > ? AND p.start_ms < ?
-           )
-         )
+       AND NOT EXISTS (
+         SELECT 1 FROM programmes p WHERE p.channel_id = c.id AND p.stop_ms > ? AND p.start_ms < ?
        )
      ORDER BY f.position IS NULL, f.position
      LIMIT ${MAX_WANTED}`,
@@ -154,6 +150,14 @@ export async function syncPanelEpg(
     }
   }
   if (wanted.length === 0) return null;
+
+  // Én gang i doegnet — men er der kommet NYE kanaler at hente for (en ny
+  // favorit, et nyt hold i Sport), koeres den igen efter en time i stedet for
+  // om et doegn (v343). Det er derfor de to tidsgraenser er skilt ad ovenfor.
+  const wantedNow = wanted.map((entry) => entry.key).sort().join('\n');
+  const wantedBefore = (await getSetting(db, wantedKey(sourceId))) ?? '';
+  if (options.force !== true && age < PANEL_EPG_INTERVAL_MS && wantedNow === wantedBefore) return null;
+  await setSetting(db, wantedKey(sourceId), wantedNow);
 
   // Marker foer hentningen: lukkes appen midt i, skal den ikke starte forfra
   // ved hver aabning (samme laere som XMLTV i v298).

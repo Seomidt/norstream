@@ -76,10 +76,11 @@ describe('syncPanelEpg', () => {
     const native = fakeNative();
     const result = await syncPanelEpg(db, sourceId, creds, { now: NOW, native });
 
-    expect(result).toEqual({ matched: 1, programmes: 1 });
+    // BBC One paa navn+land; DR1 (favorit med EPG-id, men uden programmer
+    // endnu) paa id'et — den tyske BBC One ikke.
+    expect(result).toEqual({ matched: 2, programmes: 1 });
     expect(await programmesFor(`${sourceId}:1`)).toEqual([{ title: 'BBC News', description: 'Nyheder' }]);
-    // Kun den britiske kanal blev bedt om, ikke den tyske og ikke DR1.
-    expect(native.asked).toEqual([['BBCOne.uk']]);
+    expect(native.asked[0]?.sort()).toEqual(['BBCOne.uk', 'DR1.dk']);
     // Filen ryddes altid op.
     expect(native.calls.at(-1)).toBe('remove');
   });
@@ -112,7 +113,7 @@ describe('syncPanelEpg', () => {
     expect(await programmesFor(`${sourceId}:3`)).toEqual([{ title: 'Formula 1: Singapore GP', description: null }]);
   });
 
-  it('roerer ikke favoritter med EPG-id (de klares af panelet per kanal)', async () => {
+  it('en favorit med EPG-id faar intet, naar filen intet har for den', async () => {
     await syncPanelEpg(db, sourceId, creds, { now: NOW, native: fakeNative() });
     expect(await programmesFor(`${sourceId}:2`)).toEqual([]);
   });
