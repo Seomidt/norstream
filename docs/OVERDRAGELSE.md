@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**28. september 2026 (v345).** Stadig ingen EPG på telefonens GOLD-fil efter v344 (skærmbillede: alle favoritter "Ingen programdata"). Nok gættet: v345 giver **Indstillinger → Programoversigt → "Test programoversigten"**, som kører hele vejen uden tidsgrænser og skriver trin for trin (favoritter uden EPG, panelets svar per kanal, filen hentet/antal kanaler, parret/ikke parret med filens navne og lande, programmer skrevet). **Afventer brugerens skærmbillede af rapporten.**
+
 **28. september 2026 (v344).** Telefonen havde stadig ingen EPG efter v343. Skærmbillede: kanalerne hedder `GOLD: DR 2 RAW`, `GOLD: DR1 SY…`. `normaliseChannelName` fjernede kun præfiks før `|`, så nøglen blev `GOLDDR2` og matchede hverken programfilen (`DR2`) eller logo-registret. Nu fjernes også et ét-ords præfiks med kolon (`GOLD:`, `UK:`); `MATCH_KEY_VERSION` 5, så kanalerne hentes igen med nye nøgler ved første start.
 
 **28. september 2026 (v343).** Bruger (telefonen, med en anden fil/kilde): "der kommer slet ikke noget EPG frem på nogen af kanalerne, men Sport finder en masse." Sport fandt det, v342 hentede fra panelets fil for sportskanalerne; favoritterne kom først med i filen når panelet var spurgt per kanal (`epg_fetch`) — og den daglige kørsel var løbet før det, så de stod uden EPG et døgn. v343: alle favoritter uden programmer forude tages med, og filen hentes igen efter en time når listen af kanaler at hente for har ændret sig (ny favorit, nyt hold), ikke først om et døgn.
@@ -53,6 +55,25 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 28. september 2026 — v345: "Test programoversigten" (diagnose i Indstillinger)
+
+Efter v342–v344 stod telefonens GOLD-fil stadig uden EPG, og herfra kan man
+ikke se hvilket trin der fejler. `sync/panelEpg.ts: diagnosePanelEpg` koerer
+hele vejen for én kilde uden tidsgraenser og svarer med en rapport:
+
+- favoritter fra kilden / uden programmer forude; den foerste med
+  normaliseret navn, land og EPG-id;
+- panelets svar per kanal (`get_short_epg`) for den foerste;
+- filen hentet (sekunder) og antal kanaler i den; parret X af Y;
+- op til 6 ikke-parrede med filens kandidater (id og land) eller
+  "intet med det navn (taettest: …)";
+- programmer fundet for de parrede (skrives ind — testen retter det den kan).
+
+Adresser (med kodeord i stien) filtreres fra fejltekster (`safeText`).
+Knappen: Indstillinger → Programoversigt → "Test programoversigten"; bagefter
+`onRestored()` saa guiden laeser igen. Naeste skridt: bed brugeren om et
+skaermbillede af rapporten og ret efter det.
 
 ### 28. september 2026 — v344: `GOLD:`-præfiks foran kanalnavne (kolon, ikke lodret streg)
 

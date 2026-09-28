@@ -58,6 +58,7 @@ import { TvPressable } from '../../ui/TvPressable.js';
 import { TvTextInput } from '../../ui/TvTextInput.js';
 import { testOpenSubtitles } from '../vod/externalSubtitles.js';
 import { CloudBackup } from './CloudBackup.js';
+import { diagnosePanelEpg } from '../../sync/panelEpg.js';
 import type { CloudSyncOutcome } from '../../storage/cloudAutoSync.js';
 import { checkForUpdate, currentVersionCode, discardApk, downloadAndInstall, onDownloadProgress, shouldDiscardAfter } from './appUpdate.js';
 import { percentText } from './appUpdateParse.js';
@@ -197,6 +198,8 @@ export function SettingsScreen({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   /** EPG fra panelets egen fil til favoritter der mangler den (UK, US m.fl.). */
   const [panelEpg, setPanelEpg] = useState(true);
+  /** "Test programoversigten": rapporten trin for trin (v345). */
+  const [epgReport, setEpgReport] = useState<string | null>(null);
   const [videoSurface, setVideoSurfaceState] = useState<VideoSurface>('surface');
   const [guideInfo, setGuideInfo] = useState<GuideInfoMode>('clock');
   /** Hvornaar kanaler, vejr og nyheder sidst blev hentet — til status-linjerne. */
@@ -707,6 +710,30 @@ export function SettingsScreen({
           }}
           trackColor={{ true: colors.accent, false: colors.border }}
         />
+      </TvPressable>
+      <TvPressable
+        style={styles.row}
+        onPress={() => {
+          if (epgReport === 'Tester …') return;
+          setEpgReport('Tester …');
+          void (async () => {
+            const parts: string[] = [];
+            for (const access of session.sources) {
+              if (access.source.kind !== 'xtream' || access.creds === null) continue;
+              parts.push(`${access.source.name}:\n${await diagnosePanelEpg(session.db, access.source.id, access.creds, session.fetchImpl)}`);
+            }
+            setEpgReport(parts.length === 0 ? 'Ingen panel-kilder (kun M3U-lister).' : parts.join('\n\n'));
+            onRestored();
+          })();
+        }}
+      >
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Test programoversigten</Text>
+          <Text style={styles.rowHint} selectable>
+            {epgReport ?? 'Henter filen nu og viser trin for trin, hvorfor favoritter står uden programmer.'}
+          </Text>
+        </View>
+        <Text style={styles.actionText}>Test</Text>
       </TvPressable>
 
       <Text style={styles.sectionTitle}>Avanceret</Text>

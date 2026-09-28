@@ -1,11 +1,11 @@
-import { buildXmltvUrl } from '@norstream/core';
-import type { Programme, XtreamCredentials } from '@norstream/core';
+import { XtreamClient, buildXmltvUrl, normaliseChannelName } from '@norstream/core';
+import type { FetchLike, Programme, XtreamCredentials } from '@norstream/core';
 import { streamSource } from '../net/doh.js';
 import { upsertProgrammes } from '../storage/programmes.js';
 import { getPanelEpgEnabled, getSetting, setSetting } from '../storage/settings.js';
 import { sportChannels } from '../storage/sport.js';
 import type { SqlDatabase } from '../storage/types.js';
-import { matchPanelEpg } from './panelEpgMatch.js';
+import { feedCountry, matchPanelEpg } from './panelEpgMatch.js';
 import type { FeedChannel, WantedChannel } from './panelEpgMatch.js';
 
 /**
@@ -210,6 +210,130 @@ export async function syncPanelEpg(
       }
     }
   }
+}
+
+/** Adresser (med panelets kodeord i stien) maa aldrig naa skaermen. */
+function safeText(cause: unknown): string {
+  const text = cause instanceof Error ? cause.message : String(cause);
+  return text.replace(/https?:\/\/\S+/g, '[adresse]').slice(0, 200);
+}
+
+/**
+ * "Test programoversigten" i Indstillinger (v345): koerer hele vejen for én
+ * kilde uden tidsgraenser og fortaeller hvad der skete i hvert trin — er
+ * modulet der, hvad panelet svarer per kanal, kom filen ned, hvor mange
+ * kanaler den har, hvilke favoritter der blev parret og hvilke ikke (og
+ * hvad filen kalder dem). Uden det kunne ingen se HVOR en tom guide gik
+ * galt. Skriver ogsaa de programmer der blev fundet, saa testen retter det
+ * den kan.
+ */
+export async function diagnosePanelEpg(
+  db: SqlDatabase,
+  sourceId: string,
+  creds: XtreamCredentials,
+  fetchImpl: FetchLike,
+  options: { now?: Date; native?: PanelEpgNative | null } = {},
+): Promise<string> {
+  const lines: string[] = [];
+  const native = options.native === undefined ? registered : options.native;
+  const now = options.now ?? new Date();
+  const nowMs = now.getTime();
+  if (!(await getPanelEpgEnabled(db))) lines.push('Hent fra panelets fil er slået FRA i indstillingerne.');
+  if (native === null) lines.push('Det native modul til filen mangler (ikke Android?).');
+
+  const wanted = await db.getAllAsync<WantedChannel>(
+    `SELECT c.id AS key, c.name AS name, c.country AS country, c.epg_channel_id AS epgId
+     FROM favorites f JOIN channels c ON c.id = f.channel_id
+     WHERE c.source_id = ?
+       AND NOT EXISTS (SELECT 1 FROM programmes p WHERE p.channel_id = c.id AND p.stop_ms > ? AND p.start_ms < ?)
+     ORDER BY f.position IS NULL, f.position LIMIT ${MAX_WANTED}`,
+    [sourceId, nowMs, nowMs + HAS_EPG_AHEAD_MS],
+  );
+  const total = await db.getFirstAsync<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM favorites f JOIN channels c ON c.id = f.channel_id WHERE c.source_id = ?',
+    [sourceId],
+  );
+  lines.push(`Favoritter fra kilden: ${total?.n ?? 0}, uden programmer forude: ${wanted.length}.`);
+  const first = wanted[0];
+  if (first !== undefined) {
+    lines.push(`Første: "${first.name}" → navn ${normaliseChannelName(first.name) || '(tomt)'}, land ${first.country || '(ukendt)'}, EPG-id ${first.epgId ?? '(intet)'}.`);
+    // Panelet per kanal: giver det noget for denne?
+    try {
+      const streamId = first.key.slice(first.key.indexOf(':') + 1);
+      const batch = await new XtreamClient(creds, fetchImpl).getShortEpg(streamId, 3);
+      lines.push(`Panelet per kanal (get_short_epg): ${batch.length} programmer for den.`);
+    } catch (cause) {
+      lines.push(`Panelet per kanal svarede ikke: ${safeText(cause)}`);
+    }
+  }
+  if (native === null || wanted.length === 0) return lines.join('\n');
+
+  const source = streamSource(buildXmltvUrl(creds));
+  const url = typeof source === 'string' ? source : source.uri;
+  const headers = typeof source === 'string' ? {} : source.headers;
+  let path: string | null = null;
+  try {
+    const started = Date.now();
+    path = await native.download(url, JSON.stringify(headers));
+    const feed = JSON.parse(await native.channels(path)) as FeedChannel[];
+    lines.push(`Filen hentet på ${Math.round((Date.now() - started) / 1000)} s: ${feed.length} kanaler i filen.`);
+    const matches = matchPanelEpg(wanted, feed);
+    const matchedKeys = new Set([...matches.values()].flat());
+    lines.push(`Parret: ${matchedKeys.size} af ${wanted.length} favoritter.`);
+    const byName = new Map<string, FeedChannel[]>();
+    for (const channel of feed) {
+      for (const name of [...channel.n, channel.id.replace(/\.[a-z]{2}$/i, '')]) {
+        const key = normaliseChannelName(name);
+        if (key.length === 0) continue;
+        const list = byName.get(key);
+        if (list === undefined) byName.set(key, [channel]);
+        else if (!list.includes(channel)) list.push(channel);
+      }
+    }
+    let shown = 0;
+    for (const channel of wanted) {
+      if (matchedKeys.has(channel.key) || shown >= 6) continue;
+      shown += 1;
+      const key = normaliseChannelName(channel.name);
+      const same = byName.get(key) ?? [];
+      if (same.length > 0) {
+        lines.push(
+          `Ikke parret: "${channel.name}" (land ${channel.country || '?'}) — filen har ${same.length} med samme navn: ${same
+            .slice(0, 3)
+            .map((c) => `${c.id} [${feedCountry(c) || 'uden land'}]`)
+            .join(', ')}.`,
+        );
+      } else {
+        const stem = key.slice(0, 3);
+        const near = [...byName.keys()].filter((k) => stem.length > 0 && k.startsWith(stem)).slice(0, 4);
+        lines.push(`Ikke parret: "${channel.name}" → ${key || '(tomt)'}; filen har intet med det navn${near.length > 0 ? ` (tættest: ${near.join(', ')})` : ''}.`);
+      }
+    }
+    if (matches.size === 0) return lines.join('\n');
+    const found = JSON.parse(
+      await native.programmes(path, JSON.stringify([...matches.keys()]), nowMs - BEFORE_MS, nowMs + AFTER_MS),
+    ) as FeedProgramme[];
+    const programmes: Programme[] = [];
+    for (const entry of found) {
+      for (const key of matches.get(entry.c) ?? []) {
+        programmes.push({ channelId: key, start: new Date(entry.s), stop: new Date(entry.e), title: entry.t, description: entry.d ?? null });
+      }
+    }
+    await upsertProgrammes(db, programmes);
+    lines.push(`Programmer fra filen for de parrede: ${programmes.length} (skrevet ind).`);
+    if (programmes.length === 0) lines.push('Filen har kanalerne, men ingen programmer for dem i vinduet (i går–om to dage).');
+  } catch (cause) {
+    lines.push(`Filen kunne ikke hentes/læses: ${safeText(cause)}`);
+  } finally {
+    if (path !== null) {
+      try {
+        native.remove(path);
+      } catch {
+        // Cachen ryddes ogsaa af systemet.
+      }
+    }
+  }
+  return lines.join('\n');
 }
 
 let running: Promise<void> | null = null;
