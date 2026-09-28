@@ -16,6 +16,13 @@ describe('archiveContinuation', () => {
     expect(next).toEqual({ kind: 'continue', from: new Date(at('20:30')), seekSeconds: 42, minutes: 30 });
   });
 
+  it('beder aldrig om arkiv ud i fremtiden paa en udsendelse der stadig sendes (v347)', () => {
+    // Kl. 20:30: arkivet gik til 20:10 (hentet kl. 20:11). Naeste stykke gaar
+    // kun til lidt foer nu (20:28:30), ikke til udsendelsens slutning 21:00.
+    const next = archiveContinuation(show, at('20:00'), 10 * 60, at('20:30'));
+    expect(next).toEqual({ kind: 'continue', from: new Date(at('20:10')), seekSeconds: 0, minutes: 19 });
+  });
+
   it('regner fra det nye stykke, naar der allerede er fortsat én gang', () => {
     const next = archiveContinuation(show, at('20:30'), 10 * 60, at('21:10'));
     expect(next).toMatchObject({ kind: 'continue', from: new Date(at('20:40')), minutes: 20 });

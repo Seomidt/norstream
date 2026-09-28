@@ -33,10 +33,13 @@ export function archiveContinuation(
   if (reached >= end - END_SLACK_MS) return { kind: 'done' };
   if (reached >= nowMs - LIVE_EDGE_LAG_MS) return end > nowMs ? { kind: 'live' } : { kind: 'done' };
   const from = Math.floor(reached / 60_000) * 60_000;
+  // Kun det der ligger i arkivet nu (v347): ikke ud i fremtiden paa en
+  // udsendelse der stadig sendes.
+  const until = Math.min(end, nowMs - LIVE_EDGE_LAG_MS);
   return {
     kind: 'continue',
     from: new Date(from),
     seekSeconds: (reached - from) / 1000,
-    minutes: Math.max(1, Math.ceil((end - from) / 60_000)),
+    minutes: Math.max(1, Math.ceil((until - from) / 60_000)),
   };
 }

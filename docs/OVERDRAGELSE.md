@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**28. september 2026 (v347).** Start forfra på en udsendelse, der stadig sendes, frøs efter ~1 minut på tv (færdige udsendelser spillede igennem). Årsag: arkivet blev bedt om helt til udsendelsens slutning, altså ud i fremtiden. Nu bedes der kun om det, der ligger i arkivet (til 90 s før nu); når stykket er spillet, henter `archiveContinuation` det næste, og til sidst live. Bygget sammen med v346 (Sport i baggrunden).
+
 **28. september 2026 (v346).** Sport henter i baggrunden: sportskanalernes programoversigt hentes 30 s efter start (HomeScreen), ikke først når fanen åbnes; Sport viser listen fra databasen med det samme og kun en lille linje "Opdaterer … i baggrunden", hvis en hentning faktisk tager over 0,8 s. Panel-filens time-genkørsel udløses nu kun af kanaler, der aldrig har været forsøgt (før hver time, så længe én favorit manglede).
 
 **28. september 2026 (v345).** Stadig ingen EPG på telefonens GOLD-fil efter v344 (skærmbillede: alle favoritter "Ingen programdata"). Nok gættet: v345 giver **Indstillinger → Programoversigt → "Test programoversigten"**, som kører hele vejen uden tidsgrænser og skriver trin for trin (favoritter uden EPG, panelets svar per kanal, filen hentet/antal kanaler, parret/ikke parret med filens navne og lande, programmer skrevet). **Afventer brugerens skærmbillede af rapporten.**
@@ -57,6 +59,21 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 28. september 2026 — v347: start forfra på en igangværende udsendelse frøs efter et minut
+
+Brugeren (tv, danske kanaler): "starter godt nok, men stopper efter 1 minut"
+— billedet fryser/sort; færdige udsendelser spiller hele vejen. Forskellen:
+`playFromStart` bad om `duration = stop − from`, dvs. arkiv **ud i fremtiden**
+når udsendelsen stadig sendes. Panelet leverede så en strøm, der frøs.
+
+- `PlayerScreen.playFromStart`: `archiveEnd = min(stop, now − LIVE_EDGE_LAG_MS)`,
+  duration derfra (mindst 1 min). Når stykket er spillet (`playToEnd`),
+  regner `archiveContinuation` det næste stykke ud — nu også begrænset til
+  `now − 90 s` (`minutes`) — og skifter til live, når kanten er nået.
+- Test: `archiveContinuation.test.ts` "beder aldrig om arkiv ud i fremtiden".
+- Gæld: stall-genforbindelsen går samme vej (`archiveContinuation` → `playFromStart`),
+  så et hak midt i fortsætter fra det nåede punkt med et lovligt vindue.
 
 ### 28. september 2026 — v346: Sport henter i baggrunden
 

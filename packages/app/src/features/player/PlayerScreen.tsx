@@ -27,7 +27,7 @@ import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { setLastChannelId } from '../../storage/settings.js';
 import { recordChannelWatch, saveArchiveProgress } from '../../storage/history.js';
-import { archiveContinuation } from './archiveContinuation.js';
+import { LIVE_EDGE_LAG_MS, archiveContinuation } from './archiveContinuation.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback, surfaceTypeForPlatform } from './format.js';
 import { restartBlockFor, restartHint } from './restart.js';
 import { TrackPicker } from './TrackPicker.js';
@@ -670,9 +670,14 @@ export function PlayerScreen({
       setFellBackToLive(false);
       const offset = await getPanelOffsetMinutes(session.db, channel.sourceId);
 
-      // Fra `from` til udsendelsens slutning. Normalt hele udsendelsen; naar
-      // arkivet fortsaettes (se archiveContinuation), resten af den.
-      const durationMinutes = Math.ceil((programme.stop.getTime() - from.getTime()) / 60_000);
+      // Fra `from` til udsendelsens slutning — men aldrig ud i fremtiden
+      // (v347): bedes panelet om arkiv der endnu ikke findes (en udsendelse
+      // der stadig sendes), leverede det en stroem der froes efter et minut
+      // paa tv'et, mens faerdige udsendelser spillede igennem. Nu bedes der
+      // kun om det der ligger dér (til lidt foer nu); naar det stykke er
+      // spillet, henter archiveContinuation det naeste, og til sidst live.
+      const archiveEnd = Math.min(programme.stop.getTime(), Date.now() - LIVE_EDGE_LAG_MS);
+      const durationMinutes = Math.max(1, Math.ceil((archiveEnd - from.getTime()) / 60_000));
       if (from.getTime() === programme.start.getTime()) stuckRef.current = 0;
       archiveRef.current = { programme, segmentStart: from.getTime(), seekSeconds };
       positionRef.current = 0;
