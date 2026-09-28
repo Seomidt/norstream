@@ -119,11 +119,21 @@ export function legacyNamesFor(normalised: string): string[] {
  * **Tael op hver gang reglerne aendres.** Appen sammenligner tallet med det
  * gemte ved opstart og henter kanalerne igen naar de er forskellige.
  */
-export const MATCH_KEY_VERSION = 4;
+export const MATCH_KEY_VERSION = 5;
+
+/**
+ * Et praefiks med kolon: `GOLD: DR 2`, `UK: BBC One`. Ét ord uden mellemrum
+ * foer kolonet, saa `TV 2: Sport` ikke mister sit navn. (v344: en fil med
+ * `GOLD:` foran alle kanaler fik ingen EPG og ingen logoer, fordi GOLDDR2
+ * ikke er DR2.)
+ */
+const COLON_PREFIX = /^\s*[A-Z0-9]{1,12}:\s*/i;
 
 export function normaliseChannelName(name: string): string {
   // Alt foer en lodret streg er panelets eget praefiks: `DNK|`, `DK |`.
-  const withoutPrefix = name.includes('|') ? name.slice(name.lastIndexOf('|') + 1) : name;
+  let withoutPrefix = name.includes('|') ? name.slice(name.lastIndexOf('|') + 1) : name;
+  const withoutColon = withoutPrefix.replace(COLON_PREFIX, '');
+  if (withoutColon.trim().length > 0) withoutPrefix = withoutColon;
 
   const words = withoutPrefix
     .toUpperCase()

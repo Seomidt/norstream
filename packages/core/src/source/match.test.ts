@@ -11,6 +11,10 @@ describe('normaliseChannelName', () => {
   it('fjerner panelets landepraefiks', () => {
     expect(normaliseChannelName('DNK| DR1 HD')).toBe('DR1');
     expect(normaliseChannelName('DK | TV 2')).toBe('TV2');
+    // Praefiks med kolon (v344): ét ord foer kolonet er panelets maerke.
+    expect(normaliseChannelName('GOLD: DR 2 RAW')).toBe('DR2');
+    expect(normaliseChannelName('UK: BBC One HD')).toBe('BBCONE');
+    expect(normaliseChannelName('TV 2: Sport')).toBe('TV2SPORT');
   });
 
   it('fjerner kvalitetsmaerker', () => {

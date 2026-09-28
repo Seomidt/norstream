@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**28. september 2026 (v344).** Telefonen havde stadig ingen EPG efter v343. Skærmbillede: kanalerne hedder `GOLD: DR 2 RAW`, `GOLD: DR1 SY…`. `normaliseChannelName` fjernede kun præfiks før `|`, så nøglen blev `GOLDDR2` og matchede hverken programfilen (`DR2`) eller logo-registret. Nu fjernes også et ét-ords præfiks med kolon (`GOLD:`, `UK:`); `MATCH_KEY_VERSION` 5, så kanalerne hentes igen med nye nøgler ved første start.
+
 **28. september 2026 (v343).** Bruger (telefonen, med en anden fil/kilde): "der kommer slet ikke noget EPG frem på nogen af kanalerne, men Sport finder en masse." Sport fandt det, v342 hentede fra panelets fil for sportskanalerne; favoritterne kom først med i filen når panelet var spurgt per kanal (`epg_fetch`) — og den daglige kørsel var løbet før det, så de stod uden EPG et døgn. v343: alle favoritter uden programmer forude tages med, og filen hentes igen efter en time når listen af kanaler at hente for har ændret sig (ny favorit, nyt hold), ikke først om et døgn.
 
 **27. september 2026 (v342).** Sport: "Formel 1" gav mange kampe på telefonen og én på tv'et. Årsag: de fleste sportskanaler (UK, US …) har intet EPG-id, så panelet giver dem ingen programmer per kanal; de får kun programmer fra panelets XMLTV-fil, som hidtil kun blev læst for **favoritter** — så Sport fandt kun det, favoritterne (flest på telefonen) dækkede. Nu læses filen også for sportskanalerne (≤150), Sport venter på begge hentninger, og skjulte lande findes stadig (bagerst). v341 (opdateringen siger hvorfor) er udgivet på begge mærkater.
@@ -51,6 +53,21 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 28. september 2026 — v344: `GOLD:`-præfiks foran kanalnavne (kolon, ikke lodret streg)
+
+Brugerens anden fil skriver `GOLD: DR 2 RAW`, `GOLD: DR1 SY…`, `GOLD: DK4 RAW`.
+`normaliseChannelName` (`packages/core/src/source/match.ts`) skar kun alt før
+en `|` væk, så nøglen blev `GOLDDR2`. Programfilen (`DR2.dk` / "DR2") og
+logo-registret kender kun `DR2` → ingen EPG, ingen logoer (skærmbilledet viser
+dog logoer — de kommer så fra panelet selv). Rettelse: et præfiks på ét ord
+(bogstaver/tal, ≤12) efterfulgt af kolon fjernes også (`COLON_PREFIX`); `TV 2:
+Sport` (mellemrum før kolonet) røres ikke. `MATCH_KEY_VERSION` 4 → 5: appen
+henter kanalerne igen ved næste start, så `match_key` på hver kanal følger de
+nye regler (ellers stod nøglerne efter de gamle). Testet i `match.test.ts`.
+
+Landet for `GOLD:`-kanalerne kommer fra kategorinavnet; kan det ikke udledes,
+matcher programfilen kun når navnet er entydigt i hele filen (DR2 er).
 
 ### 28. september 2026 — v343: panelets fil for alle favoritter uden EPG, og igen når listen ændrer sig
 
