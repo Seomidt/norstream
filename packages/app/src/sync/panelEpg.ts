@@ -154,10 +154,14 @@ export async function syncPanelEpg(
   // Én gang i doegnet — men er der kommet NYE kanaler at hente for (en ny
   // favorit, et nyt hold i Sport), koeres den igen efter en time i stedet for
   // om et doegn (v343). Det er derfor de to tidsgraenser er skilt ad ovenfor.
-  const wantedNow = wanted.map((entry) => entry.key).sort().join('\n');
-  const wantedBefore = (await getSetting(db, wantedKey(sourceId))) ?? '';
-  if (options.force !== true && age < PANEL_EPG_INTERVAL_MS && wantedNow === wantedBefore) return null;
-  await setSetting(db, wantedKey(sourceId), wantedNow);
+  // "Nye" = kanaler der ikke var med i nogen tidligere koersel. Kanaler filen
+  // ikke kunne give noget, bliver ved med at mangle programmer, og de maa
+  // ikke udloese en ny hentning hver time (v346: det gjorde de).
+  const tried = new Set(((await getSetting(db, wantedKey(sourceId))) ?? '').split('\n').filter((key) => key.length > 0));
+  const fresh = wanted.some((entry) => !tried.has(entry.key));
+  if (options.force !== true && age < PANEL_EPG_INTERVAL_MS && !fresh) return null;
+  for (const entry of wanted) tried.add(entry.key);
+  await setSetting(db, wantedKey(sourceId), [...tried].sort().join('\n'));
 
   // Marker foer hentningen: lukkes appen midt i, skal den ikke starte forfra
   // ved hver aabning (samme laere som XMLTV i v298).

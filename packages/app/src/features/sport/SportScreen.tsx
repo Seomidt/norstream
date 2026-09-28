@@ -129,7 +129,12 @@ export function SportScreen({ session, onPlay, focusFirstSignal = 0 }: Props) {
   searchRef.current = search;
   useEffect(() => {
     let cancelled = false;
-    setRefreshing(true);
+    // Listen kommer fra det der allerede er hentet (databasen). Kun hvis
+    // hentningen i baggrunden faktisk tager tid (foerste gang i en session),
+    // siges det med en lille linje — ikke ved hver aabning (v346).
+    const slow = setTimeout(() => {
+      if (!cancelled) setRefreshing(true);
+    }, 800);
     void (async () => {
       await refreshSportEpg(session);
       const file =
@@ -140,6 +145,7 @@ export function SportScreen({ session, onPlay, focusFirstSignal = 0 }: Props) {
           ),
         ) ?? panelEpgInFlight();
       if (file !== null) await file.catch(() => undefined);
+      clearTimeout(slow);
       if (cancelled) return;
       setRefreshing(false);
       await searchRef.current();
@@ -148,6 +154,7 @@ export function SportScreen({ session, onPlay, focusFirstSignal = 0 }: Props) {
     })();
     return () => {
       cancelled = true;
+      clearTimeout(slow);
     };
   }, [session, loadReminders]);
 
@@ -274,7 +281,7 @@ export function SportScreen({ session, onPlay, focusFirstSignal = 0 }: Props) {
       {refreshing && (
         <View style={styles.status}>
           <ActivityIndicator color={colors.accent} size="small" />
-          <Text style={styles.statusText}>Henter programoversigten for sportskanalerne …</Text>
+          <Text style={styles.statusText}>Opdaterer programoversigten i baggrunden — listen viser det, der allerede er hentet.</Text>
         </View>
       )}
     </View>

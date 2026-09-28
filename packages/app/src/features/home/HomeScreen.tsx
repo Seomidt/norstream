@@ -43,6 +43,7 @@ import type { CloudSyncOutcome } from '../../storage/cloudAutoSync.js';
 import { forgetLogoMisses, resetLogo } from '../../ui/logoCache.js';
 import { VodScreen } from '../vod/VodScreen.js';
 import { SportScreen } from '../sport/SportScreen.js';
+import { refreshSportEpg } from '../sport/findMatches.js';
 import type { VodLevel } from '../vod/VodScreen.js';
 import type { StoredVodItem } from '../../storage/vod.js';
 import type { TmdbTitle } from '../../sync/tmdbHome.js';
@@ -342,6 +343,14 @@ export function HomeScreen({
   useEffect(() => {
     if (!covered) scheduleCloudSync(5_000);
   }, [covered, scheduleCloudSync]);
+
+  // Sportskanalernes programoversigt hentes i baggrunden lidt efter start
+  // (v346), saa Sport staar klar med det samme i stedet for at hente naar
+  // man aabner den. Hoejst hvert 20. minut, og friske kanaler springes over.
+  useEffect(() => {
+    const timer = setTimeout(() => void refreshSportEpg(session).catch(() => 0), 30_000);
+    return () => clearTimeout(timer);
+  }, [session]);
 
   /**
    * Panelet afviste et kald.

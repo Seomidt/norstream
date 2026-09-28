@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**28. september 2026 (v346).** Sport henter i baggrunden: sportskanalernes programoversigt hentes 30 s efter start (HomeScreen), ikke først når fanen åbnes; Sport viser listen fra databasen med det samme og kun en lille linje "Opdaterer … i baggrunden", hvis en hentning faktisk tager over 0,8 s. Panel-filens time-genkørsel udløses nu kun af kanaler, der aldrig har været forsøgt (før hver time, så længe én favorit manglede).
+
 **28. september 2026 (v345).** Stadig ingen EPG på telefonens GOLD-fil efter v344 (skærmbillede: alle favoritter "Ingen programdata"). Nok gættet: v345 giver **Indstillinger → Programoversigt → "Test programoversigten"**, som kører hele vejen uden tidsgrænser og skriver trin for trin (favoritter uden EPG, panelets svar per kanal, filen hentet/antal kanaler, parret/ikke parret med filens navne og lande, programmer skrevet). **Afventer brugerens skærmbillede af rapporten.**
 
 **28. september 2026 (v344).** Telefonen havde stadig ingen EPG efter v343. Skærmbillede: kanalerne hedder `GOLD: DR 2 RAW`, `GOLD: DR1 SY…`. `normaliseChannelName` fjernede kun præfiks før `|`, så nøglen blev `GOLDDR2` og matchede hverken programfilen (`DR2`) eller logo-registret. Nu fjernes også et ét-ords præfiks med kolon (`GOLD:`, `UK:`); `MATCH_KEY_VERSION` 5, så kanalerne hentes igen med nye nøgler ved første start.
@@ -55,6 +57,23 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 28. september 2026 — v346: Sport henter i baggrunden
+
+Brugeren: "Skal den stå og loade sådan hver gang? Kan den ikke gøre det i
+baggrunden og gemme i cache?" Listen kom allerede fra databasen (cachen) med
+det samme, men status-linjen "Henter programoversigten …" stod ved hver
+åbning, til både panel-per-kanal og filen var færdige.
+
+- `HomeScreen`: `refreshSportEpg(session)` 30 s efter start i baggrunden
+  (hoejst hvert 20. minut; `ensureFullEpg` springer friske over).
+- `SportScreen`: status-linjen vises kun hvis hentningen tager over 0,8 s
+  ("Opdaterer programoversigten i baggrunden — listen viser det, der
+  allerede er hentet"); listen tegnes uanset.
+- `syncPanelEpg`: time-genkørslen udløses kun af kanaler der aldrig har været
+  forsøgt (`panel_epg_wanted` = alle nogensinde forsøgte nøgler), ikke af
+  at listen "uden programmer" ændrede sig — ellers hentede den filen hver
+  time, så længe én favorit ikke fandtes i filen.
 
 ### 28. september 2026 — v345: "Test programoversigten" (diagnose i Indstillinger)
 
