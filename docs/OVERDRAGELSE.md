@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**29. september 2026 (v351).** Brugeren: "Jeg vil faktisk godt have sport stadig tager alt med, men den skal bare gøre det stille i baggrunden." Så alle 150 sportskanaler hentes igen (`SportChannels.api` er væk, kun `refresh`), men i køen bag alt synligt og med 1 s pause mellem kaldene (`BACKGROUND_PAUSE_MS` i `epgCache.ts`); hele runden tager nogle minutter, og det er meningen.
+
 **29. september 2026 (v350).** "Hele appen kører super langsomt og indlæser hele tiden." Årsag (fra koden; skyen frikendt — kun to kopier ligger der): siden v339 hentede Sport hele programtabellen for **150** kanaler i baggrunden (alle sportskanaler i verden), samtidig med at forsiden, guiden og kanallisten bad om deres — mod et panel der kun tåler ét kald ad gangen. Nu: **én kø for alle panelkald** (`sync/panelGate.ts`), forgrund før baggrund; Sport spørger kun favoritter + sport fra favoritternes lande (højst 60, `SportChannels.api`), resten kommer fra panelets EPG-fil; sport-hentningen starter først 90 s efter start; EPG-filens hentning står også i køen. Baggrundsjobs skriver varighed i loggen (`baggrund:`). Indeholder også v349 (loggen), som aldrig blev udgivet.
 
 **29. september 2026 (v349).** Brugeren har 348 på tv'et, og alle tre fejl (start forfra fryser efter ~1 min, guiden springer udsendelser over i kanten, bjælken kan ikke nås) gælder stadig — så ingen flere gæt: appen har nu en **fejlfindings-log** (`src/diagnostics/log.ts`, ring på 300 linjer, adresser fjernes). Afspilleren skriver hvad den beder om (arkiv fra/længde/offset), hvornår den er klar, buffrer, fejler, prøver igen, skifter format og opgiver; guiden skriver kant-tryk. Indstillinger → avancerede → **Vis loggen**. Næste skridt: brugeren fremkalder fejlene og sender et skærmbillede af loggen; ret derefter ud fra det den viser.
@@ -65,6 +67,15 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 29. september 2026 — v351: Sport tager alt med igen, men stille
+
+v350 skar Sport ned til favoritter + sport fra egne lande (60). Brugeren vil
+have alle 150 med — bare stille. Køen (panelGate) gør det muligt: hvert af de
+150 kald venter på, at intet synligt beder om panelet, og mellem kaldene
+holdes `BACKGROUND_PAUSE_MS = 1000` ms (forgrund: 150 ms), så hverken panelet
+eller boksen mærker det. `runBounded` fik `pauseMs`; baggrundskaldere
+(`{ background: true }`) får den lange pause. `SportChannels.api` er fjernet igen.
 
 ### 29. september 2026 — v350: én kø til panelet — appen var blevet langsom
 

@@ -66,8 +66,6 @@ describe('sportChannels', () => {
     const result = await sportChannels(db);
     // Det skjulte lands sportskanal er med, men sidst (soegning finder den, Kanaler viser den ikke).
     expect(result.refresh).toEqual(['s:3', 's:2', 's:5', 's:1', 's:4']);
-    // Panelet spoerges kun om favoritter og sport fra favoritternes lande; resten faar filen.
-    expect(result.api).toEqual(['s:3', 's:2', 's:5']);
     expect([...result.sport].sort()).toEqual(['s:1', 's:2', 's:4', 's:5']);
     expect(result.hidden.has('s:4')).toBe(true);
     expect(result.rank.get('s:3')).toBe(0);

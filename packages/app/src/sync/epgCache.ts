@@ -35,6 +35,12 @@ const DEFAULT_LIMIT = 12;
 const MAX_PARALLEL = 1;
 /** En kort pause mellem kaldene, saa en byge ikke ligner et angreb. */
 const PAUSE_MS = 150;
+/**
+ * I baggrunden (Sport over 150 kanaler, forhaandshentning): en laengere
+ * pause, saa boksen og panelet faar luft mellem hver uges programmer der
+ * skrives (v351). 150 kanaler tager saa nogle minutter — det er meningen.
+ */
+export const BACKGROUND_PAUSE_MS = 1_000;
 
 /**
  * Hvor mange dage bagud guiden OG dagssiden viser (DRAG_MIN_MINUTES = 7 dage,
@@ -90,6 +96,7 @@ async function runBounded<T>(
   limit: number,
   shouldStop: () => boolean,
   worker: (item: T) => Promise<void>,
+  pauseMs: number = PAUSE_MS,
 ): Promise<void> {
   let next = 0;
   const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
@@ -100,7 +107,7 @@ async function runBounded<T>(
       const item = items[index];
       if (index >= items.length || item === undefined) return;
       await worker(item);
-      if (PAUSE_MS > 0) await new Promise((resolve) => setTimeout(resolve, PAUSE_MS));
+      if (pauseMs > 0) await new Promise((resolve) => setTimeout(resolve, pauseMs));
     }
   });
   await Promise.all(runners);
@@ -184,7 +191,7 @@ export async function ensureEpg(
     await markEpgFetched(db, key, now);
     fetched += 1;
     programmes += batch.length;
-  });
+  }, background ? BACKGROUND_PAUSE_MS : PAUSE_MS);
   }
 
   if (authFailure !== null) throw authFailure;
@@ -257,7 +264,7 @@ export async function ensureFullEpg(
       await markArchiveFetched(db, key, now);
       fetched += 1;
       programmes += batch.length;
-    });
+    }, background ? BACKGROUND_PAUSE_MS : PAUSE_MS);
   }
 
   if (authFailure !== null) throw authFailure;

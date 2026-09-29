@@ -131,10 +131,11 @@ let running: Promise<number> | null = null;
  * timer); her hoejst hvert tyvende minut, og aldrig to gange paa én gang.
  * Svarer med antal kanaler der blev hentet for.
  *
- * v350: kun `api`-listen (favoritter + sport fra favoritternes lande, hoejst
- * 60), i baggrunden bag alt synligt. Foer var det 150 kanaler — alle
- * sportskanaler i verden — og det gjorde hele appen langsom. Resten faar
- * sin oversigt fra panelets EPG-fil (én hentning i doegnet).
+ * Alle 150 kanaler (brugeren vil have alt med, v351) — men stille: hvert
+ * kald staar i koe bag alt synligt (panelGate), og der holdes en pause
+ * mellem kaldene (BACKGROUND_PAUSE_MS), saa panelet og boksen faar luft. Foer
+ * v350 loeb de 150 kald side om side med forsidens og guidens, og saa stod
+ * hele appen og indlaeste.
  */
 export async function refreshSportEpg(
   session: Pick<AppSession, 'db' | 'credsBySource' | 'fetchImpl'>,
@@ -151,12 +152,12 @@ export async function refreshSportEpg(
         session.db,
         session.credsBySource,
         session.fetchImpl,
-        known.api.map((id) => ({ id })),
+        known.refresh.map((id) => ({ id })),
         new Date(),
         { background: true },
       );
       if (result.fetched > 0) {
-        logEvent('baggrund', `sport-EPG: ${result.fetched} af ${known.api.length} kanaler hentet, ${result.programmes} programmer, ${Math.round((Date.now() - startedAt) / 1000)} s`);
+        logEvent('baggrund', `sport-EPG: ${result.fetched} af ${known.refresh.length} kanaler hentet, ${result.programmes} programmer, ${Math.round((Date.now() - startedAt) / 1000)} s`);
       }
       return result.fetched;
     } catch {
