@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**29. september 2026 (v352).** Brugeren: "Ved ikke om det kun er 150 ud af de 22.000 kanaler der er." Rigtigt set: 150 er et loft, og en pakke på 22.000 kanaler har typisk et par tusind der ligner sport. Panelet spørges stadig kun for 150 (ét kald per kanal), men **panelets EPG-fil** dækker nu **alle** pakkens sportskanaler (`FILE_SPORT_CAP = 2500`, bedste først) i én hentning om dagen, læst ud i klumper af 300 feed-id'er (`PROGRAMME_CHUNK`), så native-svaret aldrig bliver stort.
+
 **29. september 2026 (v351).** Brugeren: "Jeg vil faktisk godt have sport stadig tager alt med, men den skal bare gøre det stille i baggrunden." Så alle 150 sportskanaler hentes igen (`SportChannels.api` er væk, kun `refresh`), men i køen bag alt synligt og med 1 s pause mellem kaldene (`BACKGROUND_PAUSE_MS` i `epgCache.ts`); hele runden tager nogle minutter, og det er meningen.
 
 **29. september 2026 (v350).** "Hele appen kører super langsomt og indlæser hele tiden." Årsag (fra koden; skyen frikendt — kun to kopier ligger der): siden v339 hentede Sport hele programtabellen for **150** kanaler i baggrunden (alle sportskanaler i verden), samtidig med at forsiden, guiden og kanallisten bad om deres — mod et panel der kun tåler ét kald ad gangen. Nu: **én kø for alle panelkald** (`sync/panelGate.ts`), forgrund før baggrund; Sport spørger kun favoritter + sport fra favoritternes lande (højst 60, `SportChannels.api`), resten kommer fra panelets EPG-fil; sport-hentningen starter først 90 s efter start; EPG-filens hentning står også i køen. Baggrundsjobs skriver varighed i loggen (`baggrund:`). Indeholder også v349 (loggen), som aldrig blev udgivet.
@@ -67,6 +69,21 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 29. september 2026 — v352: EPG-filen dækker alle sportskanaler
+
+"Ved ikke om det kun er 150 ud af de 22.000 kanaler der er." Det var det: både
+panel-kaldene (`refresh`, 150) og filen (`refresh ∩ sport`) stoppede ved 150.
+Nu bruger `syncPanelEpg` hele `sportInfo.sport` (alle kanaler der ligner sport,
+`looksLikeSport`) for kilden, sorteret efter `rank` (favoritter, favoritternes
+lande, resten, skjulte lande sidst), højst `FILE_SPORT_CAP = 2500`. De 150
+panel-kald er uændrede. Native `programmes()` kaldes nu per klump af 300
+feed-id'er — hver klump er ét gennemløb af filen (streaming, XmlPullParser) og
+et JSON-svar på få MB, skrevet i SQLite før den næste læses. Prisen: nogle
+flere gennemløb af filen i baggrunden én gang i døgnet; gevinsten: Sport finder
+kampe på alle pakkens sportskanaler, ikke kun de 150 første. Programtabellen
+bliver større (op mod nogle hundrede tusind rækker); `searchProgrammes` er en
+LIKE-scanning, så hold øje med Sport-søgningens svartid i loggen.
 
 ### 29. september 2026 — v351: Sport tager alt med igen, men stille
 

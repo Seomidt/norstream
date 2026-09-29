@@ -23,9 +23,13 @@ import type { FeedChannel, WantedChannel } from './panelEpgMatch.js';
  *    aldrig i JavaScript og aldrig hele i hukommelsen.
  *  - Kun favoritter (det guiden viser) som panelet ikke giver EPG for per
  *    kanal, og kun et vindue paa tre doegn. Favoritter, ikke alle 22.000.
- *    Fra v342 ogsaa sportskanalerne "Find kampen" soeger i (hoejst 150,
- *    `storage/sport.ts`), for de fleste af dem (UK, US …) har intet EPG-id
- *    og fik ellers aldrig programmer — saa fandt Sport kun det danske.
+ *    Fra v342 ogsaa sportskanalerne "Find kampen" soeger i, for de fleste af
+ *    dem (UK, US …) har intet EPG-id og fik ellers aldrig programmer — saa
+ *    fandt Sport kun det danske. Fra v352 ALLE sportskanaler i pakken
+ *    (hoejst FILE_SPORT_CAP), ikke kun de 150 panelet spoerges om per kanal:
+ *    filen er én hentning, uanset hvor mange kanaler den daekker. Programmerne
+ *    laeses ud i klumper (PROGRAMME_CHUNK feed-id'er ad gangen), saa JSON-svaret
+ *    fra native aldrig bliver stort.
  *  - Kun panelets fil. Ingen indbyggede DK/UK/US-feeds (se OVERDRAGELSE).
  *  - Matchning paa navn OG land; kan det ikke afgoeres, springes kanalen over.
  *  - Højst én gang i doegnet; "Hent" (force) hoejst én gang i timen.
@@ -48,6 +52,15 @@ const AFTER_MS = 48 * 60 * 60_000;
 const MAX_WANTED = 5000;
 /** En kanal "har EPG" hvis der ligger programmer i de naeste timer. */
 const HAS_EPG_AHEAD_MS = 6 * 60 * 60_000;
+/**
+ * Hoejst saa mange sportskanaler filen bruges til (v352). Brugeren vil have
+ * alt med; en pakke paa 22.000 kanaler har typisk et par tusind der ligner
+ * sport. Bedste foerst (favoritter, favoritternes lande, resten), saa loftet
+ * rammer de fjerneste.
+ */
+export const FILE_SPORT_CAP = 2500;
+/** Feed-id'er per native laesning; hver er ét gennemloeb af filen, og svaret holdes paa faa MB. */
+const PROGRAMME_CHUNK = 300;
 
 // "2": v321 tager alle favoritter med (ogsaa dem med EPG-id uden programmer).
 // "3": v342 tager sportskanalerne med. Ny noegle hver gang, saa den koerer
@@ -130,8 +143,15 @@ export async function syncPanelEpg(
   );
   // Sportskanalerne (v342): dem uden programmer forude, uanset EPG-id —
   // `refreshSportEpg` har allerede spurgt panelet per kanal for dem der kan.
+  // v352: alle pakkens sportskanaler i rang-orden, ikke kun de 150 i `refresh`.
   const sportInfo = await sportChannels(db).catch(() => null);
-  const sport = sportInfo === null ? [] : sportInfo.refresh.filter((key) => sportInfo.sport.has(key) && key.startsWith(`${sourceId}:`));
+  const sport =
+    sportInfo === null
+      ? []
+      : [...sportInfo.sport]
+          .filter((key) => key.startsWith(`${sourceId}:`))
+          .sort((a, b) => (sportInfo.rank.get(a) ?? Number.MAX_SAFE_INTEGER) - (sportInfo.rank.get(b) ?? Number.MAX_SAFE_INTEGER))
+          .slice(0, FILE_SPORT_CAP);
   const known = new Set(wanted.map((entry) => entry.key));
   for (let i = 0; i < sport.length; i += 300) {
     const slice = sport.slice(i, i + 300).filter((key) => !known.has(key));
@@ -186,27 +206,34 @@ export async function syncPanelEpg(
 
     const from = now.getTime() - BEFORE_MS;
     const to = now.getTime() + AFTER_MS;
-    const found = JSON.parse(await native.programmes(path, JSON.stringify([...matches.keys()]), from, to)) as FeedProgramme[];
-
-    const programmes: Programme[] = [];
-    for (const entry of found) {
-      const keys = matches.get(entry.c);
-      if (keys === undefined) continue;
-      for (const key of keys) {
-        programmes.push({
-          channelId: key,
-          start: new Date(entry.s),
-          stop: new Date(entry.e),
-          title: entry.t,
-          description: entry.d ?? null,
-        });
+    // I klumper: hver klump er ét gennemloeb af filen i native kode og et
+    // JSON-svar paa faa MB, skrevet foer den naeste laeses (v352).
+    const feedIds = [...matches.keys()];
+    let written = 0;
+    for (let i = 0; i < feedIds.length; i += PROGRAMME_CHUNK) {
+      const slice = feedIds.slice(i, i + PROGRAMME_CHUNK);
+      const found = JSON.parse(await native.programmes(path, JSON.stringify(slice), from, to)) as FeedProgramme[];
+      const programmes: Programme[] = [];
+      for (const entry of found) {
+        const keys = matches.get(entry.c);
+        if (keys === undefined) continue;
+        for (const key of keys) {
+          programmes.push({
+            channelId: key,
+            start: new Date(entry.s),
+            stop: new Date(entry.e),
+            title: entry.t,
+            description: entry.d ?? null,
+          });
+        }
       }
+      await upsertProgrammes(db, programmes);
+      written += programmes.length;
     }
-    await upsertProgrammes(db, programmes);
     let matched = 0;
     for (const keys of matches.values()) matched += keys.length;
-    logEvent('baggrund', `panel-fil: ${programmes.length} programmer skrevet, i alt ${Math.round((Date.now() - startedAt) / 1000)} s`);
-    return { matched, programmes: programmes.length };
+    logEvent('baggrund', `panel-fil: ${written} programmer skrevet for ${matched} kanaler, i alt ${Math.round((Date.now() - startedAt) / 1000)} s`);
+    return { matched, programmes: written };
   } catch (cause) {
     // Proev igen om en time frem for om et doegn: en midlertidig netfejl maa
     // ikke holde programoversigten vaek en hel dag.

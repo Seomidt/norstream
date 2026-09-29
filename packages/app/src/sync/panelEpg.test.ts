@@ -113,6 +113,30 @@ describe('syncPanelEpg', () => {
     expect(await programmesFor(`${sourceId}:3`)).toEqual([{ title: 'Formula 1: Singapore GP', description: null }]);
   });
 
+  it('daekker alle sportskanaler, ikke kun 150, og laeser programmerne i klumper (v352)', async () => {
+    await replaceCategories(db, sourceId, [{ id: 'c1', name: 'Blandet' }, { id: 'c2', name: 'UK| SPORTS' }]);
+    const count = 320;
+    const channels = [ch('1', 'UK| BBC ONE HD')];
+    for (let i = 0; i < count; i += 1) channels.push({ ...ch(String(100 + i), `UK| SPORT CHANNEL ${i} HD`), categoryId: 'c2' });
+    await replaceChannels(db, sourceId, channels);
+    await setFavorite(db, `${sourceId}:1`, true);
+    const native = fakeNative();
+    native.channels = vi.fn(async () =>
+      JSON.stringify(Array.from({ length: count }, (_, i) => ({ id: `SportChannel${i}.uk`, n: [`Sport Channel ${i}`] }))),
+    );
+    native.programmes = vi.fn(async (_path: string, idsJson: string) => {
+      const ids = JSON.parse(idsJson) as string[];
+      native.asked.push(ids);
+      return JSON.stringify(ids.map((id) => ({ c: id, s: NOW.getTime(), e: NOW.getTime() + 3_600_000, t: `Kamp paa ${id}` })));
+    });
+    const result = await syncPanelEpg(db, sourceId, creds, { now: NOW, native });
+    expect(result).toEqual({ matched: count, programmes: count });
+    // 320 feed-id'er i klumper af 300: to gennemloeb, ingen over 300.
+    expect(native.asked.map((ids) => ids.length)).toEqual([300, 20]);
+    // En kanal langt bag de 150 foerste faar ogsaa sine programmer.
+    expect(await programmesFor(`${sourceId}:${100 + 310}`)).toEqual([{ title: 'Kamp paa SportChannel310.uk', description: null }]);
+  });
+
   it('en favorit med EPG-id faar intet, naar filen intet har for den', async () => {
     await syncPanelEpg(db, sourceId, creds, { now: NOW, native: fakeNative() });
     expect(await programmesFor(`${sourceId}:2`)).toEqual([]);
