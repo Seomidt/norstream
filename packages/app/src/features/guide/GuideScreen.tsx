@@ -23,6 +23,7 @@ import { addReminder, hasReminder, removeReminder } from '../../storage/reminder
 import type { FavoriteGroup } from '../../storage/favoriteGroups.js';
 import { ensureFullEpg, ensureEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
+import { logEvent } from '../../diagnostics/log.js';
 import { Notice } from '../../ui/Notice.js';
 import type { NoticeState } from '../../ui/Notice.js';
 import { theme } from '../../ui/theme.js';
@@ -204,9 +205,11 @@ export const GuideScreen = memo(function GuideScreen({
     // staaende paa den samme udsendelse, og en kort udsendelse i kanten
     // kunne springes over — "kan ikke vaelge den".
     if (event.eventType === 'right' && cell.index === cell.count - 1) {
+      logEvent('guide', `pil hoejre i kanten (celle ${cell.index + 1} af ${cell.count}): vinduet +60 min, fokus paa naeste`);
       setFocusTarget({ channelId: cell.channelId, key: `>${cell.key}` });
       setOffsetMinutes((value) => Math.min(DRAG_MAX_MINUTES, value + 60));
     } else if (event.eventType === 'left' && cell.index === 0) {
+      logEvent('guide', `pil venstre i kanten (celle 1 af ${cell.count}): vinduet −60 min, fokus paa forrige`);
       setFocusTarget({ channelId: cell.channelId, key: `<${cell.key}` });
       setOffsetMinutes((value) => Math.max(DRAG_MIN_MINUTES, value - 60));
     }

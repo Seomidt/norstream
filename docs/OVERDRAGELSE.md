@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**29. september 2026 (v349).** Brugeren har 348 på tv'et, og alle tre fejl (start forfra fryser efter ~1 min, guiden springer udsendelser over i kanten, bjælken kan ikke nås) gælder stadig — så ingen flere gæt: appen har nu en **fejlfindings-log** (`src/diagnostics/log.ts`, ring på 300 linjer, adresser fjernes). Afspilleren skriver hvad den beder om (arkiv fra/længde/offset), hvornår den er klar, buffrer, fejler, prøver igen, skifter format og opgiver; guiden skriver kant-tryk. Indstillinger → avancerede → **Vis loggen**. Næste skridt: brugeren fremkalder fejlene og sender et skærmbillede af loggen; ret derefter ud fra det den viser.
+
 **29. september 2026 (v348).** Tv: (1) opdaterings-bjælken kunne ikke nås med pilene (den ligger uden for indholdets fokusfælde, og knappen bad om fokus fast → greb det ved hver procent-opdatering); nu én puls ved visning og når filen er hel. (2) Guiden: pil venstre/højre i kanten lander nu på nabo-udsendelsen efter vinduesskiftet ('<'/'>' foran nøglen), ikke den samme igen — en kort udsendelse i kanten kunne springes over. (3) Start forfra på igangværende udsendelse meldes stadig fejlende — men tv'et kører formentlig stadig 339 (opdatering aldrig gået igennem); v347-rettelsen er ikke prøvet endnu. Anbefalet vej: Send files to TV med NorStream-TV.apk.
 
 **28. september 2026 (v347).** Start forfra på en udsendelse, der stadig sendes, frøs efter ~1 minut på tv (færdige udsendelser spillede igennem). Årsag: arkivet blev bedt om helt til udsendelsens slutning, altså ud i fremtiden. Nu bedes der kun om det, der ligger i arkivet (til 90 s før nu); når stykket er spillet, henter `archiveContinuation` det næste, og til sidst live. Bygget sammen med v346 (Sport i baggrunden).
@@ -61,6 +63,28 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 29. september 2026 — v349: en log i appen, så tv-fejlene kan ses
+
+"Har 348 på nu og alle de fejl jeg nævnte før er stadig gældende, intet af det
+virker." v347 og v348 var rettelser ud fra teori, og de ramte ikke. Uden adb
+ved sofaen mangler beviser, så appen fører nu selv en lille log i hukommelsen:
+`logEvent(tag, tekst)` i `src/diagnostics/log.ts` (300 linjer, `safe` erstatter
+alle `http…`-adresser og `password=` — adressen har panelets kodeord).
+
+- **Afspilleren** (`PlayerScreen`): `arkiv: beder om <dialekt>-arkiv fra HH:MM:SS,
+  N min (udsendelse …–…, offset …, spol … s)`; `afspiller: klar (arkiv|live)`;
+  `buffrer ved N s`; `status: error ved N s`; `fejl/hængt ved N s, forsøg X af Y`;
+  `skifter til det andet format`; `opgiver`; og når stykket slutter:
+  `strømmen sluttede ved N s → continue|live|done`.
+- **Guiden** (`GuideScreen`): `pil venstre/højre i kanten (celle X af Y)`.
+- **Indstillinger → avancerede → Vis loggen** viser de sidste 40 linjer, så et
+  skærmbillede fortæller hvad der skete. Ny test: `diagnostics/log.test.ts`.
+
+Sådan læses den: fryser start forfra efter ~1 min, se om der står `buffrer`
+(panelet stopper med at levere), `status: error` (panelet lukker), eller
+`strømmen sluttede` med for få sekunder (arkivet var kortere end bedt om →
+`archiveContinuation`). Springer guiden, se om kant-linjen overhovedet skrives.
 
 ### 29. september 2026 — v348: bjælken kan nås på tv, og guiden lander på nabo-udsendelsen
 

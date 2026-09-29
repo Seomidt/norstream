@@ -59,6 +59,7 @@ import { TvTextInput } from '../../ui/TvTextInput.js';
 import { testOpenSubtitles } from '../vod/externalSubtitles.js';
 import { CloudBackup } from './CloudBackup.js';
 import { diagnosePanelEpg } from '../../sync/panelEpg.js';
+import { recentLog } from '../../diagnostics/log.js';
 import type { CloudSyncOutcome } from '../../storage/cloudAutoSync.js';
 import { checkForUpdate, currentVersionCode, discardApk, downloadAndInstall, onDownloadProgress, shouldDiscardAfter } from './appUpdate.js';
 import { percentText } from './appUpdateParse.js';
@@ -200,6 +201,8 @@ export function SettingsScreen({
   const [panelEpg, setPanelEpg] = useState(true);
   /** "Test programoversigten": rapporten trin for trin (v345). */
   const [epgReport, setEpgReport] = useState<string | null>(null);
+  /** Fejlfindings-loggen (v349): de sidste linjer fra afspiller og guide. */
+  const [logLines, setLogLines] = useState<string[] | null>(null);
   const [videoSurface, setVideoSurfaceState] = useState<VideoSurface>('surface');
   const [guideInfo, setGuideInfo] = useState<GuideInfoMode>('clock');
   /** Hvornaar kanaler, vejr og nyheder sidst blev hentet — til status-linjerne. */
@@ -746,6 +749,23 @@ export function SettingsScreen({
       </TvPressable>
       {advancedOpen && (
         <>
+          <Text style={styles.subLabel}>Log fra afspilleren og guiden</Text>
+          <Text style={styles.hint}>
+            De sidste linjer om hvad afspilleren bad om og svarede (start forfra, genforbindelser) og guidens
+            bladring. Tag et skærmbillede af dem, når noget går galt. Ingen adresser skrives her.
+          </Text>
+          <TvPressable style={styles.row} onPress={() => setLogLines(recentLog(40))}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Vis loggen</Text>
+              {logLines !== null && (
+                <Text style={styles.rowHint} selectable>
+                  {logLines.length === 0 ? 'Loggen er tom endnu.' : logLines.join('\n')}
+                </Text>
+              )}
+            </View>
+            <Text style={styles.actionText}>Vis</Text>
+          </TvPressable>
+
           <Text style={styles.subLabel}>Streamformat</Text>
           <Text style={styles.hint}>
             Automatisk plejer at virke. Løber underteksterne foran billedet, er HLS værd at prøve.

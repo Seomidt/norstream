@@ -28,6 +28,7 @@ import { TvPressable } from '../../ui/TvPressable.js';
 import { setLastChannelId } from '../../storage/settings.js';
 import { recordChannelWatch, saveArchiveProgress } from '../../storage/history.js';
 import { LIVE_EDGE_LAG_MS, archiveContinuation } from './archiveContinuation.js';
+import { clockOf, logEvent } from '../../diagnostics/log.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback, surfaceTypeForPlatform } from './format.js';
 import { restartBlockFor, restartHint } from './restart.js';
 import { TrackPicker } from './TrackPicker.js';
@@ -414,6 +415,10 @@ export function PlayerScreen({
             ? ({ kind: 'live' } as const)
             : ({ kind: 'done' } as const)
           : archiveContinuation(airing, segment.segmentStart, positionRef.current, nowMs);
+      logEvent(
+        'arkiv',
+        `stroemmen sluttede ved ${Math.round(positionRef.current)} s (stykke fra ${segment === null ? '?' : clockOf(segment.segmentStart)}) → ${next.kind}${next.kind === 'continue' ? ` fra ${clockOf(next.from.getTime())} +${Math.round(next.seekSeconds)} s` : ''}`,
+      );
       if (next.kind === 'continue') {
         // Arkivet sluttede midt i udsendelsen: hent det igen fra det punkt man
         // naaede. Kom der intet nyt to gange i traek, har panelet ikke mere.
@@ -542,6 +547,7 @@ export function PlayerScreen({
       clearStallTimer();
 
       attempt += 1;
+      logEvent('afspiller', `fejl/haengt ved ${Math.round(positionRef.current)} s, forsoeg ${attempt} af ${MAX_RETRIES}${restarted ? ' (arkiv)' : ''}`);
       if (attempt <= MAX_RETRIES) {
         if (retryTimer !== null) clearTimeout(retryTimer);
         retryTimer = setTimeout(() => {
@@ -569,10 +575,12 @@ export function PlayerScreen({
       if (hasFormatFallback() && !triedFallback && !restarted) {
         setTriedFallback(true);
         attempt = 0;
+        logEvent('afspiller', `skifter til det andet format (${FALLBACK_FORMAT})`);
         setSource(liveUrlFor(access, channel, FALLBACK_FORMAT));
         return;
       }
 
+      logEvent('afspiller', 'opgiver: "Streamen kunne ikke afspilles"');
       // Den raa besked fra expo-video maa aldrig vises. Den stammer fra
       // ExoPlayer eller AVPlayer, som rutinemaessigt skriver den fejlende URI
       // ind i teksten — og live-URLen har panelets adgangskode som et
@@ -586,6 +594,7 @@ export function PlayerScreen({
         if (cancelled) return;
 
         if (status === 'readyToPlay') {
+          if (!everReady.current) logEvent('afspiller', `klar${restarted ? ' (arkiv)' : ' (live)'}`);
           attempt = 0;
           everReady.current = true;
           clearStallTimer();
@@ -626,12 +635,14 @@ export function PlayerScreen({
         }
 
         if (status === 'error') {
+          logEvent('afspiller', `status: error ved ${Math.round(positionRef.current)} s`);
           setAudioState('Streamen svarede med en fejl');
           setRadioState('error');
           handleFailure();
           return;
         }
         if (status === 'loading') {
+          if (everReady.current) logEvent('afspiller', `buffrer ved ${Math.round(positionRef.current)} s`);
           setAudioState('Forbinder …');
           setRadioState('connecting');
         }
@@ -679,6 +690,10 @@ export function PlayerScreen({
       const archiveEnd = Math.min(programme.stop.getTime(), Date.now() - LIVE_EDGE_LAG_MS);
       const durationMinutes = Math.max(1, Math.ceil((archiveEnd - from.getTime()) / 60_000));
       if (from.getTime() === programme.start.getTime()) stuckRef.current = 0;
+      logEvent(
+        'arkiv',
+        `beder om ${dialect}-arkiv fra ${clockOf(from.getTime())}, ${durationMinutes} min (udsendelse ${clockOf(programme.start.getTime())}–${clockOf(programme.stop.getTime())}, offset ${offset} min, spol ${Math.round(seekSeconds)} s)`,
+      );
       archiveRef.current = { programme, segmentStart: from.getTime(), seekSeconds };
       positionRef.current = 0;
       // Samme beholder som live (.ts paa Android): arkivet som HLS gav groen
