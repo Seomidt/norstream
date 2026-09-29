@@ -160,6 +160,24 @@ export function UpdateBanner({ quiet }: { quiet: boolean }) {
     }
   };
 
+  // Paa tv ligger bjaelken uden for indholdets fokusfaelde, saa pilene kan
+  // ikke naa den: knappen faar fokus i én tegning naar bjaelken kommer frem,
+  // og igen naar filen er hel ("Installér nu") — ikke fast, for saa greb den
+  // fokus ved hver procent-opdatering (v348: "kan umuligt komme hen og
+  // trykke opdater").
+  const [grabFocus, setGrabFocus] = useState(false);
+  useEffect(() => {
+    if (!isTV || !visible) return undefined;
+    if (phase !== 'idle' && phase !== 'ready') return undefined;
+    const timer = setTimeout(() => setGrabFocus(true), 120);
+    return () => clearTimeout(timer);
+  }, [visible, phase]);
+  useEffect(() => {
+    if (!grabFocus) return undefined;
+    const frame = requestAnimationFrame(() => setGrabFocus(false));
+    return () => cancelAnimationFrame(frame);
+  }, [grabFocus]);
+
   // Tilbage = senere, foer den goer noget andet.
   useEffect(() => {
     if (!visible) return undefined;
@@ -195,7 +213,7 @@ export function UpdateBanner({ quiet }: { quiet: boolean }) {
         </View>
         <TvPressable
           style={[styles.button, styles.buttonAccent]}
-          hasTVPreferredFocus={isTV}
+          hasTVPreferredFocus={grabFocus}
           disabled={busy}
           onPress={() => void install()}
         >

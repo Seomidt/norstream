@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**29. september 2026 (v348).** Tv: (1) opdaterings-bjælken kunne ikke nås med pilene (den ligger uden for indholdets fokusfælde, og knappen bad om fokus fast → greb det ved hver procent-opdatering); nu én puls ved visning og når filen er hel. (2) Guiden: pil venstre/højre i kanten lander nu på nabo-udsendelsen efter vinduesskiftet ('<'/'>' foran nøglen), ikke den samme igen — en kort udsendelse i kanten kunne springes over. (3) Start forfra på igangværende udsendelse meldes stadig fejlende — men tv'et kører formentlig stadig 339 (opdatering aldrig gået igennem); v347-rettelsen er ikke prøvet endnu. Anbefalet vej: Send files to TV med NorStream-TV.apk.
+
 **28. september 2026 (v347).** Start forfra på en udsendelse, der stadig sendes, frøs efter ~1 minut på tv (færdige udsendelser spillede igennem). Årsag: arkivet blev bedt om helt til udsendelsens slutning, altså ud i fremtiden. Nu bedes der kun om det, der ligger i arkivet (til 90 s før nu); når stykket er spillet, henter `archiveContinuation` det næste, og til sidst live. Bygget sammen med v346 (Sport i baggrunden).
 
 **28. september 2026 (v346).** Sport henter i baggrunden: sportskanalernes programoversigt hentes 30 s efter start (HomeScreen), ikke først når fanen åbnes; Sport viser listen fra databasen med det samme og kun en lille linje "Opdaterer … i baggrunden", hvis en hentning faktisk tager over 0,8 s. Panel-filens time-genkørsel udløses nu kun af kanaler, der aldrig har været forsøgt (før hver time, så længe én favorit manglede).
@@ -59,6 +61,28 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 29. september 2026 — v348: bjælken kan nås på tv, og guiden lander på nabo-udsendelsen
+
+Brugeren (tv): "Når opdaterings-pop-up'en kommer frem, kan jeg umuligt komme
+hen og trykke opdater." Bjælken (`UpdateBanner`, i App.tsx) ligger uden for
+HomeScreens `TVFocusGuideView`, som fanger fokus op/ned/højre — pilene kan
+aldrig nå den. Knappen havde `hasTVPreferredFocus={isTV}` fast: den greb
+fokus ved hver tegning (procent under hentning) og tabte det ellers.
+Nu: `grabFocus` i én tegning 120 ms efter at bjælken kommer frem, og igen når
+fasen bliver 'ready' ("Installér nu"). Tilbage = senere som før.
+
+"Hvis jeg trykker tilbage på en udsendelse i EPG springer den 30 minutter
+hver gang, men nogle gange springer den en udsendelse over, man gerne vil se,
+og kan ikke vælge den." Pil venstre på første celle flyttede vinduet en time og
+satte fokus på **samme** udsendelse (`focusTarget.key`); en kort udsendelse
+der nu lå til venstre kunne så ligge halvt i kanten og blive sprunget over.
+Nu sættes `'<' + key` (venstre) / `'>' + key` (højre), og `GuideRow` regner
+`targetIndex` = naboen (findes udsendelsen ikke mere: første/sidste celle).
+
+Start forfra på igangværende udsendelse: meldt "stadig problemer", men tv'et
+har efter alt at dømme aldrig fået v347 (sidder på 339, se v341). Afvent test
+på en boks med ≥ v347 før der graves videre.
 
 ### 28. september 2026 — v347: start forfra på en igangværende udsendelse frøs efter et minut
 

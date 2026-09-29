@@ -199,11 +199,15 @@ export const GuideScreen = memo(function GuideScreen({
     // den foerste: en time tilbage, saa man kan lede efter noget der har
     // vaeret uden at vide hvilken kanal. Gitteret holder paa fokus til begge
     // sider (TVFocusGuideView), saa man ikke ryger ud paa logoet eller i menuen.
+    // Fokus lander paa NABO-udsendelsen efter skiftet ('<'/'>' foran
+    // noeglen, se GuideRow), ikke paa den samme igen (v348): foer blev man
+    // staaende paa den samme udsendelse, og en kort udsendelse i kanten
+    // kunne springes over — "kan ikke vaelge den".
     if (event.eventType === 'right' && cell.index === cell.count - 1) {
-      setFocusTarget({ channelId: cell.channelId, key: cell.key });
+      setFocusTarget({ channelId: cell.channelId, key: `>${cell.key}` });
       setOffsetMinutes((value) => Math.min(DRAG_MAX_MINUTES, value + 60));
     } else if (event.eventType === 'left' && cell.index === 0) {
-      setFocusTarget({ channelId: cell.channelId, key: cell.key });
+      setFocusTarget({ channelId: cell.channelId, key: `<${cell.key}` });
       setOffsetMinutes((value) => Math.max(DRAG_MIN_MINUTES, value - 60));
     }
   });
@@ -1212,9 +1216,17 @@ const GuideRow = memo(function GuideRow({
     () => layoutRow(programmes, new Date(windowStartMs), new Date(windowEndMs), new Date(nowMs)),
     [programmes, windowStartMs, windowEndMs, nowMs],
   );
-  // Efter et vinduesskift: samme udsendelse hvis den stadig er i vinduet,
-  // ellers den foerste celle i raekken.
-  const targetIndex = focusKey === null ? -1 : Math.max(0, cells.findIndex((cell) => cell.key === focusKey));
+  // Efter et vinduesskift: '<noegle' = udsendelsen FOER den, '>noegle' =
+  // den EFTER (v348); ellers samme udsendelse hvis den stadig er i vinduet.
+  // Findes udsendelsen ikke laengere, tages foerste/sidste celle i raekken.
+  let targetIndex = -1;
+  if (focusKey !== null) {
+    const side = focusKey.startsWith('<') ? -1 : focusKey.startsWith('>') ? 1 : 0;
+    const bare = side === 0 ? focusKey : focusKey.slice(1);
+    const found = cells.findIndex((cell) => cell.key === bare);
+    if (found === -1) targetIndex = side === 1 ? Math.max(0, cells.length - 1) : 0;
+    else targetIndex = Math.min(Math.max(0, found + side), Math.max(0, cells.length - 1));
+  }
   /**
    * Fokus maa ikke forsvinde naar cellerne skifter under fjernbetjeningen.
    *
