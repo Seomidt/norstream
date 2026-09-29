@@ -6,6 +6,8 @@ import { getPanelEpgEnabled, getSetting, setSetting } from '../storage/settings.
 import { sportChannels } from '../storage/sport.js';
 import type { SqlDatabase } from '../storage/types.js';
 import { feedCountry, matchPanelEpg } from './panelEpgMatch.js';
+import { withPanel } from './panelGate.js';
+import { logEvent } from '../diagnostics/log.js';
 import type { FeedChannel, WantedChannel } from './panelEpgMatch.js';
 
 /**
@@ -172,10 +174,14 @@ export async function syncPanelEpg(
   const headers = typeof source === 'string' ? {} : source.headers;
 
   let path: string | null = null;
+  const startedAt = Date.now();
   try {
-    path = await native.download(url, JSON.stringify(headers));
+    // Filen er panelets ene forbindelse i flere minutter: i koe bag alt
+    // synligt, som de andre baggrundskald (v350).
+    path = await withPanel(true, () => native.download(url, JSON.stringify(headers)));
     const feed = JSON.parse(await native.channels(path)) as FeedChannel[];
     const matches = matchPanelEpg(wanted, feed);
+    logEvent('baggrund', `panel-fil: hentet paa ${Math.round((Date.now() - startedAt) / 1000)} s, ${feed.length} kanaler i filen, ${matches.size} af ${wanted.length} fundet`);
     if (matches.size === 0) return { matched: 0, programmes: 0 };
 
     const from = now.getTime() - BEFORE_MS;
@@ -199,6 +205,7 @@ export async function syncPanelEpg(
     await upsertProgrammes(db, programmes);
     let matched = 0;
     for (const keys of matches.values()) matched += keys.length;
+    logEvent('baggrund', `panel-fil: ${programmes.length} programmer skrevet, i alt ${Math.round((Date.now() - startedAt) / 1000)} s`);
     return { matched, programmes: programmes.length };
   } catch (cause) {
     // Proev igen om en time frem for om et doegn: en midlertidig netfejl maa

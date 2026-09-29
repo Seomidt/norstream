@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**29. september 2026 (v350).** "Hele appen kører super langsomt og indlæser hele tiden." Årsag (fra koden; skyen frikendt — kun to kopier ligger der): siden v339 hentede Sport hele programtabellen for **150** kanaler i baggrunden (alle sportskanaler i verden), samtidig med at forsiden, guiden og kanallisten bad om deres — mod et panel der kun tåler ét kald ad gangen. Nu: **én kø for alle panelkald** (`sync/panelGate.ts`), forgrund før baggrund; Sport spørger kun favoritter + sport fra favoritternes lande (højst 60, `SportChannels.api`), resten kommer fra panelets EPG-fil; sport-hentningen starter først 90 s efter start; EPG-filens hentning står også i køen. Baggrundsjobs skriver varighed i loggen (`baggrund:`). Indeholder også v349 (loggen), som aldrig blev udgivet.
+
 **29. september 2026 (v349).** Brugeren har 348 på tv'et, og alle tre fejl (start forfra fryser efter ~1 min, guiden springer udsendelser over i kanten, bjælken kan ikke nås) gælder stadig — så ingen flere gæt: appen har nu en **fejlfindings-log** (`src/diagnostics/log.ts`, ring på 300 linjer, adresser fjernes). Afspilleren skriver hvad den beder om (arkiv fra/længde/offset), hvornår den er klar, buffrer, fejler, prøver igen, skifter format og opgiver; guiden skriver kant-tryk. Indstillinger → avancerede → **Vis loggen**. Næste skridt: brugeren fremkalder fejlene og sender et skærmbillede af loggen; ret derefter ud fra det den viser.
 
 **29. september 2026 (v348).** Tv: (1) opdaterings-bjælken kunne ikke nås med pilene (den ligger uden for indholdets fokusfælde, og knappen bad om fokus fast → greb det ved hver procent-opdatering); nu én puls ved visning og når filen er hel. (2) Guiden: pil venstre/højre i kanten lander nu på nabo-udsendelsen efter vinduesskiftet ('<'/'>' foran nøglen), ikke den samme igen — en kort udsendelse i kanten kunne springes over. (3) Start forfra på igangværende udsendelse meldes stadig fejlende — men tv'et kører formentlig stadig 339 (opdatering aldrig gået igennem); v347-rettelsen er ikke prøvet endnu. Anbefalet vej: Send files to TV med NorStream-TV.apk.
@@ -63,6 +65,45 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 29. september 2026 — v350: én kø til panelet — appen var blevet langsom
+
+Brugeren: "hele appen er begyndt at køre super langsomt og indlæser og
+indlæser hele tiden, alt kører meget langsommere end det har gjort."
+
+Først udelukket med beviser: sky-synken (v340) pingponger ikke — `sky_backup`
+i Supabase har to rækker, sidst opdateret 28/9 18:08 og 26/9. Så er det ikke
+den, der genindlæser alt hvert tiende minut.
+
+Det der ER kommet til siden 338, og som koster: `refreshSportEpg` (v339/v346)
+hentede `get_simple_data_table` for op til 150 kanaler — favoritter, så alle
+sportskanaler i verden — 30 s efter start og ved hvert Sport-besøg (20 min),
+én ad gangen med 150 ms pause, hver med en uges programmer skrevet i SQLite
+på JS-tråden. `ensureEpg`/`ensureFullEpg` holdt sig hver til ét kald ad gangen,
+men lagene kendte ikke hinanden: Sport i baggrunden + forsiden + guiden +
+kanallisten + favorit-forhåndshentning + EPG-filen kunne alle have et kald i
+luften mod et panel, der blokerer ved fire (403, se epgCache). Så stod alt og
+ventede på panelet.
+
+Rettelsen:
+
+- **`sync/panelGate.ts`**: `withPanel(isBackground, work)` — højst ét panelkald
+  i luften i hele appen. To køer: forgrund (det man kan se) går altid før
+  baggrund. `ensureEpg`/`ensureFullEpg` tager `{ background: true }` og tager
+  køen **per kanal**, så guiden højst venter på ét kald. Baggrund: Sport,
+  `prefetchFavouritesEpg`, forsidens I aften-hentning, guidens forhåndshentning
+  af hele listen, og EPG-filens download (`native.download`).
+- **`SportChannels.api`** (højst `SPORT_API_CAP = 60`): favoritter + sport fra
+  favoritternes lande. Kun dem spørges panelet om. `refresh` (150) bruges
+  stadig til EPG-filen, så Sky Sports F1 & co. stadig findes — fra filen.
+- Sport-hentningen starter 90 s efter start (før 30 s).
+- Loggen (v349) får `baggrund:`-linjer: sport-EPG, favoritternes EPG,
+  panel-fil, sky-synk — med antal og sekunder. Står appen og indlæser, viser
+  Vis loggen hvad der kørte.
+
+Ikke rørt, men værd at vide hvis det stadig er tungt: `sportChannels(db)` er en
+LIKE-scanning over alle kanaler (21 ord × 2), kaldt ved sport-hentning (15 min
+cache) og i `syncPanelEpg`; forsidens `withNow` er ét `getNowNext` per kort.
 
 ### 29. september 2026 — v349: en log i appen, så tv-fejlene kan ses
 

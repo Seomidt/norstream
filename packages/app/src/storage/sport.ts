@@ -59,10 +59,19 @@ const SPORT_WORDS = [
  * blive tungt (se OVERDRAGELSE.md om XMLTV-sporet).
  */
 export const SPORT_CHANNEL_CAP = 150;
+/**
+ * Hoejst saa mange kanaler der spoerges panelet om per kanal (`get_simple_data_table`),
+ * i baggrunden: favoritterne og sportskanalerne fra favoritternes lande. 150 kald
+ * mod et panel med én forbindelse gjorde hele appen langsom (v350). Resten af
+ * sportskanalerne daekkes af panelets EPG-fil, én hentning i doegnet.
+ */
+export const SPORT_API_CAP = 60;
 
 export interface SportChannels {
-  /** Kanalerne der skal have frisk programoversigt, bedste foerst (favoritter, saa sport fra favoritternes lande). */
+  /** Kanalerne der skal have frisk programoversigt, bedste foerst (favoritter, saa sport fra favoritternes lande). Til panelets EPG-fil. */
   refresh: string[];
+  /** De foerste af `refresh` uden sport fra fremmede lande: dem panelet spoerges om kanal for kanal. */
+  api: string[];
   /** Sportskanaler: her taeller et fund i beskrivelsen. */
   sport: Set<string>;
   /** Rang: favoritternes plads, saa sportskanalerne (skjulte lande sidst); ukendte bagerst. */
@@ -118,6 +127,7 @@ export async function sportChannels(db: SqlDatabase): Promise<SportChannels> {
   };
   for (const favourite of favourites) add(favourite.id);
   for (const id of near) add(id);
+  const api = refresh.slice(0, SPORT_API_CAP);
   for (const id of far) add(id);
   for (const id of away) add(id);
 
@@ -129,7 +139,7 @@ export async function sportChannels(db: SqlDatabase): Promise<SportChannels> {
       if (country !== undefined && hiddenSet.has(country)) hidden.add(row.id);
     }
   }
-  return { refresh: refresh.slice(0, SPORT_CHANNEL_CAP), sport, rank, hidden };
+  return { refresh: refresh.slice(0, SPORT_CHANNEL_CAP), api, sport, rank, hidden };
 }
 
 // ---- Mine hold ----

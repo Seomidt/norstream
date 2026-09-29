@@ -108,7 +108,7 @@ async function refreshFavouritesEpg(session: AppSession, channels: readonly Stor
   if (channels.length === 0 || Date.now() - favouritesEpgAt < 20 * 60_000) return false;
   favouritesEpgAt = Date.now();
   try {
-    return (await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, channels)).fetched > 0;
+    return (await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, channels, new Date(), { background: true })).fetched > 0;
   } catch {
     return false;
   }

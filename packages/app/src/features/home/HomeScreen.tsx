@@ -44,6 +44,7 @@ import { forgetLogoMisses, resetLogo } from '../../ui/logoCache.js';
 import { VodScreen } from '../vod/VodScreen.js';
 import { SportScreen } from '../sport/SportScreen.js';
 import { refreshSportEpg } from '../sport/findMatches.js';
+import { logEvent } from '../../diagnostics/log.js';
 import type { VodLevel } from '../vod/VodScreen.js';
 import type { StoredVodItem } from '../../storage/vod.js';
 import type { TmdbTitle } from '../../sync/tmdbHome.js';
@@ -278,6 +279,7 @@ export function HomeScreen({
    */
   const cloudSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const runCloud = useCallback(async (): Promise<CloudSyncOutcome> => {
+    const startedAt = Date.now();
     const result = await runCloudSync(
       session.db,
       {
@@ -294,6 +296,9 @@ export function HomeScreen({
       Date.now(),
       (id) => loadSourceCredentials(id),
     );
+    if (result.outcome !== 'off' && result.outcome !== 'unchanged') {
+      logEvent('baggrund', `sky-synk: ${result.outcome}, ${Math.round((Date.now() - startedAt) / 1000)} s`);
+    }
     if (result.outcome === 'off') {
       // Ugentlig sikkerhedskopi til skyen, naar der er valgt et kodeord.
       void runWeeklyCloudBackup(session.db, (code, json) => saveToCloud(code, json), Date.now(), false, (id) => loadSourceCredentials(id));
@@ -347,8 +352,10 @@ export function HomeScreen({
   // Sportskanalernes programoversigt hentes i baggrunden lidt efter start
   // (v346), saa Sport staar klar med det samme i stedet for at hente naar
   // man aabner den. Hoejst hvert 20. minut, og friske kanaler springes over.
+  // v350: halvandet minut, ikke 30 s — forsiden, kanalhentningen og skyen
+  // skal vaere faerdige foerst, og kaldene gaar i koe bag alt synligt.
   useEffect(() => {
-    const timer = setTimeout(() => void refreshSportEpg(session).catch(() => 0), 30_000);
+    const timer = setTimeout(() => void refreshSportEpg(session).catch(() => 0), 90_000);
     return () => clearTimeout(timer);
   }, [session]);
 

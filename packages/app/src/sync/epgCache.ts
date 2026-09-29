@@ -12,6 +12,7 @@ import {
 } from '../storage/epgFetch.js';
 import { deleteProgrammesBefore, upsertProgrammes } from '../storage/programmes.js';
 import type { SqlDatabase } from '../storage/types.js';
+import { withPanel } from './panelGate.js';
 
 /**
  * Hvor mange programmer der hentes per kanal. Tolv daekker et halvt til et helt
@@ -28,7 +29,9 @@ const DEFAULT_LIMIT = 12;
  */
 // Ét ad gangen. Fire ad gangen fik brugerens panel til at blokere adressen
 // og svare 403 paa alt — ogsaa paa det naeste login. Panelet tillader én
-// stroem; det taeller tilsyneladende ogsaa API-kald.
+// stroem; det taeller tilsyneladende ogsaa API-kald. Og ét ad gangen paa
+// tvaers af alle kaldere (panelGate, v350): foer kunne Sport i baggrunden,
+// forsiden, guiden og kanallisten hver have sit i luften samtidig.
 const MAX_PARALLEL = 1;
 /** En kort pause mellem kaldene, saa en byge ikke ligner et angreb. */
 const PAUSE_MS = 150;
@@ -67,6 +70,14 @@ export interface EnsureEpgResult {
   fetched: number;
   /** Antal programmer skrevet til databasen. */
   programmes: number;
+}
+
+export interface EnsureEpgOptions {
+  /**
+   * Baggrundsarbejde (Sport, forhaandshentning af favoritter): viger for
+   * alt det man kan se paa skaermen, og tager koeen én kanal ad gangen.
+   */
+  background?: boolean;
 }
 
 /**
@@ -118,7 +129,9 @@ export async function ensureEpg(
   channelKeys: readonly string[],
   now: Date = new Date(),
   limit: number = DEFAULT_LIMIT,
+  options: EnsureEpgOptions = {},
 ): Promise<EnsureEpgResult> {
+  const background = options.background === true;
   const unique = [...new Set(channelKeys)].filter((id) => id.length > 0);
 
   // Friskheds-tjekket for alle kanaler paa én gang. Foer var det en seriel
@@ -155,7 +168,7 @@ export async function ensureEpg(
     const streamId = parseChannelKey(key)?.streamId ?? key;
     let batch;
     try {
-      batch = await client.getShortEpg(streamId, limit);
+      batch = await withPanel(background, () => client.getShortEpg(streamId, limit));
     } catch (cause) {
       if (cause instanceof XtreamAuthError) authFailure = cause;
       // Netvaerksfejl paa én kanal er ikke fatalt: de oevrige skal stadig
@@ -208,7 +221,9 @@ export async function ensureFullEpg(
   fetchImpl: FetchLike,
   channels: readonly { id: string }[],
   now: Date = new Date(),
+  options: EnsureEpgOptions = {},
 ): Promise<EnsureEpgResult> {
+  const background = options.background === true;
   // Samme som i ensureEpg: distinkte id'er, og friskheds-tjekket sideloebende
   // frem for ét ad gangen. Raekkefoelgen bevares (Set + Promise.all), saa
   // grupperingen per kilde er uaendret.
@@ -232,7 +247,7 @@ export async function ensureFullEpg(
       const streamId = parseChannelKey(key)?.streamId ?? key;
       let batch;
       try {
-        batch = await client.getFullEpg(streamId);
+        batch = await withPanel(background, () => client.getFullEpg(streamId));
       } catch (cause) {
         if (cause instanceof XtreamAuthError) authFailure = cause;
         return;

@@ -646,7 +646,7 @@ export const GuideScreen = memo(function GuideScreen({
     let cancelled = false;
     void (async () => {
       try {
-        await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, channels);
+        await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, channels, new Date(), { background: true });
       } catch {
         // Auth-/netfejl haandteres af de synlige hentninger.
       }

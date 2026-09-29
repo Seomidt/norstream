@@ -13,6 +13,7 @@ import {
 import type { SportChannels } from '../../storage/sport.js';
 import type { SqlDatabase } from '../../storage/types.js';
 import { ensureFullEpg } from '../../sync/epgCache.js';
+import { logEvent } from '../../diagnostics/log.js';
 import { groupHits, queryTerms, todayEnd } from './sportSearch.js';
 import type { SportHit } from './sportSearch.js';
 
@@ -129,6 +130,11 @@ let running: Promise<number> | null = null;
  * noget at soege i. `ensureFullEpg` springer selv friske kanaler over (seks
  * timer); her hoejst hvert tyvende minut, og aldrig to gange paa én gang.
  * Svarer med antal kanaler der blev hentet for.
+ *
+ * v350: kun `api`-listen (favoritter + sport fra favoritternes lande, hoejst
+ * 60), i baggrunden bag alt synligt. Foer var det 150 kanaler — alle
+ * sportskanaler i verden — og det gjorde hele appen langsom. Resten faar
+ * sin oversigt fra panelets EPG-fil (én hentning i doegnet).
  */
 export async function refreshSportEpg(
   session: Pick<AppSession, 'db' | 'credsBySource' | 'fetchImpl'>,
@@ -140,12 +146,18 @@ export async function refreshSportEpg(
   running = (async () => {
     try {
       const known = await knownSportChannels(session.db, true);
+      const startedAt = Date.now();
       const result = await ensureFullEpg(
         session.db,
         session.credsBySource,
         session.fetchImpl,
-        known.refresh.map((id) => ({ id })),
+        known.api.map((id) => ({ id })),
+        new Date(),
+        { background: true },
       );
+      if (result.fetched > 0) {
+        logEvent('baggrund', `sport-EPG: ${result.fetched} af ${known.api.length} kanaler hentet, ${result.programmes} programmer, ${Math.round((Date.now() - startedAt) / 1000)} s`);
+      }
       return result.fetched;
     } catch {
       return 0;

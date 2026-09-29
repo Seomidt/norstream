@@ -3,6 +3,7 @@ import { listChannels } from '../storage/channels.js';
 import { getSetting, setSetting } from '../storage/settings.js';
 import type { SqlDatabase } from '../storage/types.js';
 import { ensureFullEpg } from './epgCache.js';
+import { logEvent } from '../diagnostics/log.js';
 
 /** Én gang i doegnet. Programtabellen aendrer sig ikke oftere. */
 export const PREFETCH_INTERVAL_MS = 24 * 60 * 60_000;
@@ -38,8 +39,10 @@ export async function prefetchFavouritesEpg(
   const favourites = await listChannels(db, { favouritesOnly: true });
   let fetched = 0;
   if (favourites.length > 0) {
-    const result = await ensureFullEpg(db, credsBySource, fetchImpl, favourites, now);
+    const startedAt = Date.now();
+    const result = await ensureFullEpg(db, credsBySource, fetchImpl, favourites, now, { background: true });
     fetched = result.fetched;
+    if (fetched > 0) logEvent('baggrund', `favoritternes EPG: ${fetched} af ${favourites.length} kanaler, ${result.programmes} programmer, ${Math.round((Date.now() - startedAt) / 1000)} s`);
   }
   await setSetting(db, KEY, String(now.getTime()));
   return { fetched, skipped: false };
