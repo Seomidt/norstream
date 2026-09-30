@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**30. september 2026 (v353).** Brugerens to skærmbilleder af guiden viste fejlen: pil venstre fra Regionalprogram 19:30 (første celle) landede på 18 News 18:00 — forbi 19 News og Go' aften. v348 tog den *første* celle i rækken når udsendelsen var røget ud af det nye vindue; det skulle være den *sidste* før den. Nu findes naboen på **tid** (`neighbourIndex` i `guide/layout.ts`, testet): venstre = sidste udsendelse der begynder før den man stod på, højre = første efter; huller tæller. Den fokuserede celle tegnes i accentfarve på tv, så man kan se hvor man er. Og afspilleren får en **frost-vagt**: melder afspilleren 'spiller' men positionen står stille i 12 s, genforbindes der (som at gå ud i guiden og ind igen, hvilket brugeren gjorde manuelt). Loggen skriver `billedet staar stille …`. NorRadio-rettelsen (sortering) er også med i NorStreams radio-fane.
+
 **30. september 2026 (NorRadio: sortering).** "Hver gang jeg forsøger at trække en op, så smutter den ned igen." `RadioSortList` regnede fingerens plads ud fra listens position på skærmen målt med `measureInWindow` i `onLayout` — på Android giver det 0 (eller status-bjælkens højde ved siden af), så den beregnede plads lå rækker UNDER fingeren. Nu bruges `locationY` på træk-laget (der dækker præcis listen), så ingen måling behøves; `reorderRadioFavorites` skriver i én transaktion. Samme komponent bruges af NorStreams radio på telefonen.
 
 **29. september 2026 (v352).** Brugeren: "Ved ikke om det kun er 150 ud af de 22.000 kanaler der er." Rigtigt set: 150 er et loft, og en pakke på 22.000 kanaler har typisk et par tusind der ligner sport. Panelet spørges stadig kun for 150 (ét kald per kanal), men **panelets EPG-fil** dækker nu **alle** pakkens sportskanaler (`FILE_SPORT_CAP = 2500`, bedste først) i én hentning om dagen, læst ud i klumper af 300 feed-id'er (`PROGRAMME_CHUNK`), så native-svaret aldrig bliver stort.
@@ -71,6 +73,37 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 30. september 2026 — v353: guiden finder naboen på tid, markering, frost-vagt i afspilleren
+
+Brugeren sendte to billeder: før (fokus på Regionalprogram 19:30, første celle i
+TV 2-rækken) og efter ét tryk venstre (vindue 18:00–19:25, fokus på 18 News
+18:00). "Springer over 2 programmer." Årsag i `GuideRow`: v348's
+`found === -1 ? (side === 1 ? sidste : 0)` — ved pil venstre og en udsendelse
+der ikke længere er i vinduet, blev det den FØRSTE celle. Det er vendt om og
+gjort tidsbaseret: `neighbourIndex(cells, found, side, atMs)` i `layout.ts`,
+hvor `atMs` er starttiden på den udsendelse man stod på (`focusedCell.atMs`,
+sat i `onCellFocus`, sendt med i `focusTarget` og som prop `focusAtMs`).
+Venstre = sidste celle med start < atMs (huller, start = null, tæller også),
+højre = første med start > atMs. Test: `guide/neighbour.test.ts` med
+brugerens række.
+
+"Kan man lave en markering på hvilken udsendelse jeg er ved": på tv får den
+fokuserede celle accentfarve og hvid fed tekst (`markedIndex` i `GuideRow`,
+`cellFocused`/`cellTextFocused`) oven i TvPressables ring.
+
+"Billedet fryser jævnligt ved fuld skærm, så skal jeg gå tilbage til guiden
+og ind igen": afspilleren melder `readyToPlay` og `playing`, men tiden står
+stille — ingen `loading`, ingen `error`, så stall-uret (`STALL_TIMEOUT_MS`)
+kom aldrig i gang. Ny frost-vagt i samme effekt som stall-uret: hvert 3. s
+sammenlignes `positionRef` med sidst; er `player.playing && status ===
+'readyToPlay'` og positionen uændret i 12 s (`FROZEN_AFTER_MS`), kaldes
+`handleFailure()` — samme genforbindelse som ved stall (og for start-forfra
+fra det punkt man nåede). Pause og slut tæller ikke (playing er falsk).
+Loggen: `afspiller: billedet staar stille ved N s i 12 s: genforbinder`.
+Hvad der FÅR billedet til at fryse (panelets ene forbindelse? boksens
+dekoder?) vides stadig ikke; loggen viser om vagten slår til og om
+genforbindelsen lykkes.
 
 ### 30. september 2026 — NorRadio: træk-sorteringen landede rækker under fingeren
 

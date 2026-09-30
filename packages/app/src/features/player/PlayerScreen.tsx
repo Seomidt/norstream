@@ -77,6 +77,9 @@ const STALL_TIMEOUT_MS = 15_000;
  * efter faa sekunder.
  */
 const INITIAL_STALL_TIMEOUT_MS = 4000;
+/** Frosset billede: hvor tit positionen tjekkes, og hvor laenge den maa staa stille foer der genforbindes (v353). */
+const FROZEN_CHECK_MS = 3000;
+const FROZEN_AFTER_MS = 12_000;
 
 export function PlayerScreen({
   session,
@@ -657,9 +660,42 @@ export function PlayerScreen({
       },
     );
 
+    // Frosset billede (v353): afspilleren melder 'readyToPlay' og 'playing',
+    // men tiden staar stille. Det er det brugeren saa som "billedet fryser
+    // jaevnligt ved fuld skaerm; tilbage til guiden og ind igen, saa koerer
+    // det" — altsaa en ny forbindelse hjaelper. Staar positionen stille i
+    // FROZEN_AFTER_MS mens der skulle spilles, genforbindes der som ved et
+    // stall. Pause og en stream der er sluttet taeller ikke (playing er falsk).
+    let lastPosition = positionRef.current;
+    let stillSince: number | null = null;
+    const frozenTimer = setInterval(() => {
+      if (cancelled) return;
+      let shouldAdvance = false;
+      try {
+        shouldAdvance = player.playing && player.status === 'readyToPlay';
+      } catch {
+        return;
+      }
+      const position = positionRef.current;
+      if (!shouldAdvance || position !== lastPosition) {
+        lastPosition = position;
+        stillSince = null;
+        return;
+      }
+      if (stillSince === null) {
+        stillSince = Date.now();
+        return;
+      }
+      if (Date.now() - stillSince < FROZEN_AFTER_MS) return;
+      stillSince = null;
+      logEvent('afspiller', `billedet staar stille ved ${Math.round(position)} s i ${Math.round(FROZEN_AFTER_MS / 1000)} s: genforbinder`);
+      handleFailure();
+    }, FROZEN_CHECK_MS);
+
     return () => {
       cancelled = true;
       clearStallTimer();
+      clearInterval(frozenTimer);
       if (retryTimer !== null) clearTimeout(retryTimer);
       subscription.remove();
     };

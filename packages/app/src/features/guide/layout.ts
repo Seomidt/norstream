@@ -32,6 +32,45 @@ export interface GuideCell {
   clippedEnd: boolean;
 }
 
+/**
+ * Cellen der skal have fokus efter et vinduesskift paa tv (v353).
+ *
+ * `found` er pladsen for den udsendelse man stod paa, eller -1 naar den er
+ * roeget ud af det nye vindue. `side` er -1 (pil venstre: udsendelsen FOER),
+ * +1 (pil hoejre: den EFTER) eller 0 (samme). `atMs` er starttiden paa den
+ * udsendelse man stod paa. Er den vaek, findes naboen paa tid: den sidste
+ * udsendelse der begynder foer `atMs` (venstre) / den foerste der begynder
+ * efter (hoejre); huller taeller ogsaa, saa man ikke springer over dem.
+ * Kendes tiden ikke, tages sidste (venstre) / foerste (hoejre) celle.
+ */
+export function neighbourIndex(
+  cells: readonly GuideCell[],
+  found: number,
+  side: -1 | 0 | 1,
+  atMs: number | null,
+  cellStart: (cell: GuideCell) => number | null = (cell) => cell.programme?.start.getTime() ?? null,
+): number {
+  if (cells.length === 0) return -1;
+  const last = cells.length - 1;
+  if (found !== -1) return Math.min(Math.max(0, found + side), last);
+  if (side === 0) return 0;
+  if (atMs !== null) {
+    if (side === -1) {
+      for (let i = last; i >= 0; i -= 1) {
+        const start = cellStart(cells[i]!);
+        if (start === null || start < atMs) return i;
+      }
+      return 0;
+    }
+    for (let i = 0; i <= last; i += 1) {
+      const start = cellStart(cells[i]!);
+      if (start === null || start > atMs) return i;
+    }
+    return last;
+  }
+  return side === -1 ? last : 0;
+}
+
 /** Guidens vindue er to timer ad gangen. Mere end det er ulaeseligt paa en telefon. */
 export const WINDOW_MINUTES = 120;
 
