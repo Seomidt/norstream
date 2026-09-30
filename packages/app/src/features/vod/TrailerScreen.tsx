@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { File, Paths } from 'expo-file-system';
+import * as IntentLauncher from 'expo-intent-launcher';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { WebView as WebViewInstance, WebViewMessageEvent } from 'react-native-webview';
+import type { WebViewMessageEvent } from 'react-native-webview';
 import type { AppSession } from '../../session.js';
 import { getTmdbApiKey, getYoutubeApiKey } from '../../storage/settings.js';
 import { findTitleInfo, findTmdbTrailers, tmdbFetch } from '../../sync/tmdb.js';
@@ -14,11 +15,12 @@ import { isTV } from '../../ui/tv.js';
 import { MIN_TRAILER_SECONDS, findLongerTrailer, searchYoutubeTrailers, youtubeSearchUrl } from './trailerSearch.js';
 import type { FetchText } from './trailerSearch.js';
 import { webView } from './webview.js';
-import { buildHlsMaster, resolveYoutubeStream } from './youtubeStream.js';
+import { buildHlsMaster } from './youtubeStream.js';
 import { findAppleTrailers } from './appleTrailer.js';
 import type { GetJson } from './appleTrailer.js';
 import { findImdbTrailers } from './imdbTrailer.js';
-import type { GetText, PostJson, YoutubeStream } from './youtubeStream.js';
+import type { GetText, PostJson } from './youtubeStream.js';
+import { logEvent } from '../../diagnostics/log.js';
 import { surfaceTypeForPlatform } from '../player/format.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
@@ -49,7 +51,7 @@ interface Props {
  * - `looking`: soegningen gennem Data API'et er i gang.
  */
 type Source =
-  /** Videofilen i appens egen afspiller, som Googles butik (se youtubeStream.ts). */
+  /** Videofilen i appens egen afspiller: Apple TV (HLS) eller IMDb (MP4). */
   | {
       kind: 'native';
       id: string;
@@ -60,19 +62,19 @@ type Source =
       attempt: number;
       /** Genopretninger i traek uden at komme videre. */
       failures: number;
-      /** Videoens laengde ifoelge YouTube; bruges hvis afspilleren ikke kender den. */
+      /** Videoens laengde ifoelge kilden; bruges hvis afspilleren ikke kender den. */
       seconds: number | null;
       contentType: 'dash' | 'hls' | 'progressive';
-      /** Filer YouTube afviser efter ca. et minut: ingen genforsoeg, straks webvisningen. */
-      limited: boolean;
       /** Fra IMDb (v335): en almindelig MP4, ingen graense. `id` er da IMDbs video-id. */
       imdb?: { titleId: string };
       /** Fra Apple TV (v336): HLS i fuld HD, ingen graense. `id` er da Apples trailer-id. */
       apple?: boolean;
     }
-  /** `startAt`: sekunder inde, naar den overtager fra den native afspiller. */
+  /** YouTubes egen afspiller (telefon), med maaling af laengden. */
   | { kind: 'measured'; id: string; checkLength: boolean; startAt?: number }
   | { kind: 'plain'; id: string }
+  /** Tv (v354): traileren spiller i YouTube-appen; skaermen lukker naar man kommer tilbage. */
+  | { kind: 'external'; id: string }
   | { kind: 'search'; url: string }
   | { kind: 'looking' }
   /** Tv: intet fundet, og ingen soegeside at vise. */
@@ -81,11 +83,22 @@ type Source =
 /**
  * Traileren, inde i appen.
  *
- * Paa Android foerst som rigtig video i appens egen afspiller (som Googles
- * tv-butik): videofilen hentes fra YouTube, se youtubeStream.ts. Det er
- * uofficielt og kan holde op med at virke naar YouTube aendrer noget; saa
- * spilles traileren i YouTubes egen indlejrede afspiller i en webvisning,
- * som beskrevet her.
+ * Kilderne i raekkefoelge (v336): Apple TV (HLS i fuld HD) og IMDb (MP4 i
+ * 1080p) i appens egen afspiller — de virker hele vejen. Findes titlen ikke
+ * dér, er YouTube tilbage, og dér gaelder (v354):
+ *
+ * - **Tv: YouTube-appen.** Google TV har den, og den spiller i fuld kvalitet
+ *   med fjernbetjeningen. Appen aabnes med video-id'et; naar man kommer
+ *   tilbage, lukker trailerskaermen. Kan appen ikke aabnes, bruges YouTubes
+ *   indlejrede afspiller i en webvisning som paa telefonen.
+ * - **Telefon: YouTubes indlejrede afspiller** fra start, som beskrevet
+ *   nedenfor.
+ *
+ * Den native YouTube-vej (v329–v334: YouTubes filer i appens afspiller, og
+ * "blandingen" med et skift til YouTubes afspiller efter et minut) er fjernet:
+ * YouTube stopper filerne efter ~1 minut uden deres robot-bevis, og skiftet
+ * endte i daarlig kvalitet ("fungerer ikke"). Robot-beviset bygges ALDRIG
+ * (se OVERDRAGELSE v333). `youtubeStream.ts` er kun HLS-hjaelperen til Apple.
  *
  * **Afspilleren ligger i en lille side med en neutral base-adresse.** Det er
  * maalt, ikke gaettet — i en rigtig browser paa GitHubs maskine, efter to
@@ -207,19 +220,40 @@ function writeManifest(videoId: string, attempt: number, text: string, extension
   }
 }
 
-/** Et fundet stroem som fil til afspilleren, eller null. */
-function prepareStream(
-  stream: YoutubeStream,
-  videoId: string,
-  attempt: number,
-): { uri: string; contentType: 'dash' | 'hls'; limited: boolean; seconds: number | null } | null {
-  if (stream.kind !== 'dash' && stream.kind !== 'hls') return null;
-  const uri =
-    stream.kind === 'dash'
-      ? writeManifest(videoId, attempt, stream.mpd, 'mpd')
-      : writeManifest(videoId, attempt, stream.playlist, 'm3u8');
-  if (uri === null) return null;
-  return { uri, contentType: stream.kind, limited: stream.kind === 'dash' && stream.limited, seconds: stream.seconds };
+/** YouTube-appens pakkenavne: tv-udgaven foerst paa tv, saa telefonens. */
+const YOUTUBE_PACKAGES = isTV ? ['com.google.android.youtube.tv', 'com.google.android.youtube'] : ['com.google.android.youtube'];
+/** Er appen ikke afvist inden da, regnes den for aabnet. */
+const LAUNCH_SETTLE_MS = 1500;
+
+/**
+ * Aabner traileren i YouTube-appen (v354). Svarer med om appen kom op;
+ * `onReturned` kaldes naar man er tilbage fra den (startActivityAsync venter
+ * paa at aktiviteten lukker). Foerst de kendte pakker, saa `vnd.youtube:`
+ * som enhver YouTube-app tager. Ingen app → falsk, og den indlejrede
+ * afspiller tager over.
+ */
+async function openInYoutubeApp(videoId: string, onReturned: () => void): Promise<boolean> {
+  const id = safeId(videoId);
+  const url = `https://www.youtube.com/watch?v=${id}`;
+  const attempt = (params: IntentLauncher.IntentLauncherParams, data: string): Promise<boolean> =>
+    new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(true), LAUNCH_SETTLE_MS);
+      IntentLauncher.startActivityAsync('android.intent.action.VIEW', { ...params, data })
+        .then(() => {
+          clearTimeout(timer);
+          resolve(true);
+          onReturned();
+        })
+        .catch(() => {
+          clearTimeout(timer);
+          resolve(false);
+        });
+    });
+  if (Platform.OS !== 'android') return false;
+  for (const packageName of YOUTUBE_PACKAGES) {
+    if (await attempt({ packageName }, url)) return true;
+  }
+  return attempt({}, `vnd.youtube:${id}`);
 }
 
 /**
@@ -261,35 +295,10 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   const tried = useRef(new Set<string>());
   /** Hvor langt ned i kilderne vi er naaet (se refill). */
   const stage = useRef(0);
-  /**
-   * Overgangen (v333). iPhone-klientens filer afvises af YouTube efter ca. et
-   * minut (maalt paa brugerens boks: 0:45–0:55). Naar afspillerens buffer
-   * holder op med at vokse mens afspilningen gaar videre, er graensen fundet:
-   * YouTubes egen afspiller goeres klar usynligt, spolet til lige foer
-   * graensen, og overtager naar traileren naar dertil — i stedet for at
-   * stoppe og starte en ny afspiller.
-   */
-  const [standby, setStandby] = useState<{ id: string; startAt: number } | null>(null);
-  const [handedOver, setHandedOver] = useState(false);
-  const standbyWeb = useRef<WebViewInstance>(null);
-  const standbyReady = useRef(false);
-  const pendingHandover = useRef(false);
-  const handedOverRef = useRef(false);
-  /**
-   * En kort linje i 15 s naar den native del slutter foer tid (v334): hvor,
-   * og om YouTubes afspiller var klar. Saa kan brugeren se om 720p rykkede
-   * graensen. Kun tider og ja/nej.
-   */
-  const [switchNote, setSwitchNote] = useState<string | null>(null);
-  useEffect(() => {
-    if (switchNote === null) return undefined;
-    const timer = setTimeout(() => setSwitchNote(null), 15000);
-    return () => clearTimeout(timer);
-  }, [switchNote]);
-  /** Hvornaar bufferen sidst voksede, og hvor afspilningen var dengang. */
-  const bufferWatch = useRef<{ buffered: number; since: number; position: number } | null>(null);
   /** Skaermen er stadig aaben; en soegning der svarer sent maa ikke roere en lukket skaerm. */
   const alive = useRef(true);
+  const onBackRef = useRef(onBack);
+  onBackRef.current = onBack;
 
   /**
    * Fylder koeen fra naeste kilde, i den raekkefoelge de er bedst:
@@ -341,7 +350,6 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
    */
   async function playNext(): Promise<void> {
     if (!alive.current) return;
-    resetHandover();
     setSource({ kind: 'looking' });
     for (;;) {
       const next = queue.current.shift();
@@ -350,31 +358,20 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         tried.current.add(next.id);
         if (!alive.current) return;
         setNote(next.note);
-        if (NATIVE_TRAILERS) {
-          const stream = await resolveYoutubeStream(postJson, next.id, getText);
+        if (isTV) {
+          // Tv (v354): YouTube-appen spiller den i fuld kvalitet. Laengden
+          // kan ikke maales dér; TMDB's bud (foerst i koeen) er rigtige trailere.
+          setLoading(true);
+          const opened = await openInYoutubeApp(next.id, () => {
+            if (alive.current) onBackRef.current();
+          });
           if (!alive.current) return;
-          // Spaerret i Danmark, fjernet: webvisningen ville fejle ligesaa.
-          if (stream.kind === 'unavailable') continue;
-          if (stream.kind !== 'fallback') {
-            if (next.checkLength && stream.seconds !== null && stream.seconds < MIN_TRAILER_SECONDS) continue;
-            const ready = prepareStream(stream, next.id, 0);
-            if (ready !== null) {
-              setLoading(true);
-              setSource({
-                kind: 'native',
-                id: next.id,
-                uri: ready.uri,
-                resumeAt: 0,
-                attempt: 0,
-                failures: 0,
-                seconds: ready.seconds,
-                contentType: ready.contentType,
-                limited: ready.limited,
-              });
-              return;
-            }
+          logEvent('trailer', opened ? 'aabnet i YouTube-appen' : 'YouTube-appen kunne ikke aabnes: indlejret afspiller');
+          if (opened) {
+            setLoading(false);
+            setSource({ kind: 'external', id: next.id });
+            return;
           }
-          // fallback: bot-tjek, netfejl, intet brugbart format — webvisningen.
         }
         setLoading(true);
         setSource({ kind: 'measured', id: next.id, checkLength: next.checkLength });
@@ -399,129 +396,6 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     }
     setLoading(true);
     setSource({ kind: 'search', url: youtubeSearchUrl(title, year) });
-  }
-
-  /**
-   * Den native afspilning stoppede foer traileren var slut (fejl, gik i
-   * staa, eller sluttede for tidligt). Brugeren: "det stopper inden
-   * traileren er faerdig hver gang". Hent friske adresser hos YouTube og
-   * fortsaet fra samme sted; efter nogle forsoeg tager webvisningen over.
-   */
-  async function recoverNative(
-    from: Extract<Source, { kind: 'native' }>,
-    position: number,
-    reason: string,
-  ): Promise<void> {
-    if (!alive.current) return;
-    setLoading(true);
-    const progressed = position >= from.resumeAt + NATIVE_PROGRESS_S;
-    const failures = progressed ? 0 : from.failures + 1;
-    if (from.limited && reason.includes('403')) {
-      // Kendt: de filer afvises efter et minut; nye adresser hjaelper ikke.
-      // Er YouTubes afspiller allerede gjort klar, tager den over dér.
-      if (standby !== null && standby.id === from.id) {
-        handOver(position);
-        return;
-      }
-      setSwitchNote(`Stop ved ${clock(position)} · grænsen blev ikke fundet i tide`);
-    } else if (failures < NATIVE_MAX_RECOVERIES) {
-      const stream = await resolveYoutubeStream(postJson, from.id, getText);
-      if (!alive.current) return;
-      const ready = prepareStream(stream, from.id, from.attempt + 1);
-      if (ready !== null) {
-        setSource({
-          ...from,
-          uri: ready.uri,
-          resumeAt: position,
-          attempt: from.attempt + 1,
-          failures,
-          seconds: ready.seconds ?? from.seconds,
-          contentType: ready.contentType,
-          limited: ready.limited,
-        });
-        return;
-      }
-    }
-    resetHandover();
-    setSource({ kind: 'measured', id: from.id, checkLength: false, startAt: position });
-  }
-
-  function resetHandover(): void {
-    setStandby(null);
-    setHandedOver(false);
-    standbyReady.current = false;
-    pendingHandover.current = false;
-    handedOverRef.current = false;
-    bufferWatch.current = null;
-  }
-
-  /**
-   * Fra den native afspiller hvert halve sekund. Kun for de begraensede
-   * filer: find graensen, goer YouTubes afspiller klar, og skift ved den.
-   */
-  function onNativeProgress(position: number, buffered: number): void {
-    if (source.kind !== 'native' || !source.limited || handedOverRef.current) return;
-    if (standby !== null) {
-      if (position >= standby.startAt) handOver(position);
-      return;
-    }
-    const now = Date.now();
-    const watch = bufferWatch.current;
-    if (watch === null || buffered > watch.buffered + 0.5) {
-      bufferWatch.current = { buffered, since: now, position };
-      return;
-    }
-    // Bufferen staar stille i 4 s mens der er spillet mindst 3 s videre, og
-    // den er ikke ved slutningen: YouTube vil ikke levere mere.
-    const nearEnd = source.seconds !== null && buffered >= source.seconds - 2;
-    if (!nearEnd && now - watch.since >= 4000 && position - watch.position >= 3) {
-      setStandby({ id: source.id, startAt: Math.max(0, Math.floor(buffered - 1.5)) });
-    }
-  }
-
-  /** YouTubes afspiller overtager. Er den ikke klar endnu, vises hjulet til den er. */
-  function handOver(position?: number): void {
-    if (handedOverRef.current) return;
-    if (position !== undefined) {
-      setSwitchNote(`Skift ved ${clock(position)} · YouTubes afspiller ${standbyReady.current ? 'var klar' : 'var IKKE klar'}`);
-    }
-    if (!standbyReady.current) {
-      pendingHandover.current = true;
-      setLoading(true);
-      return;
-    }
-    handedOverRef.current = true;
-    pendingHandover.current = false;
-    standbyWeb.current?.injectJavaScript('window.__go&&window.__go();true;');
-    setHandedOver(true);
-    setLoading(false);
-  }
-
-  function onStandbyMessage(event: WebViewMessageEvent): void {
-    let message: { type?: string };
-    try {
-      message = JSON.parse(event.nativeEvent.data) as typeof message;
-    } catch {
-      return;
-    }
-    if (message.type === 'standby-ready') {
-      standbyReady.current = true;
-      if (pendingHandover.current) handOver();
-    } else if (message.type === 'playing') {
-      setLoading(false);
-    } else if (message.type === 'error' || message.type === 'noapi') {
-      // YouTubes afspiller kan ikke; er skiftet sket (eller ventet paa), faar
-      // den almindelige webvisning en chance fra samme sted.
-      const startAt = standby?.startAt ?? 0;
-      const id = standby?.id;
-      if ((handedOverRef.current || pendingHandover.current) && id !== undefined) {
-        resetHandover();
-        setLoading(true);
-        setSource({ kind: 'measured', id, checkLength: false, startAt });
-      } else {
-        standbyReady.current = false;
-      }
-    }
   }
 
   /**
@@ -557,7 +431,6 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
               failures: 0,
               seconds: apple.seconds,
               contentType: 'hls',
-              limited: false,
               apple: true,
             });
             return;
@@ -579,7 +452,6 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             failures: 0,
             seconds: best.seconds,
             contentType: 'progressive',
-            limited: false,
             imdb: { titleId },
           });
           return;
@@ -656,7 +528,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
       ? `https://tv.apple.com/search?term=${encodeURIComponent(title)}`
       : source.kind === 'native' && source.imdb !== undefined
       ? `https://www.imdb.com/video/${source.id}/`
-      : source.kind === 'measured' || source.kind === 'plain' || source.kind === 'native'
+      : source.kind === 'measured' || source.kind === 'plain' || source.kind === 'native' || source.kind === 'external'
         ? `https://www.youtube.com/watch?v=${source.id}`
         : youtubeSearchUrl(title, year);
 
@@ -707,7 +579,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             }}
           />
         )}
-        {source.kind === 'native' && !handedOver && (
+        {source.kind === 'native' && (
           <NativeTrailer
             key={`${source.id}:${source.attempt}`}
             uri={source.uri}
@@ -715,42 +587,19 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             expectedSeconds={source.seconds}
             contentType={source.contentType}
             onReady={() => setLoading(false)}
-            onProgress={onNativeProgress}
-            onBroken={(position, reason) => {
+            onBroken={(position) => {
               if (source.apple === true) void start(new Set(['apple']));
               else if (source.imdb !== undefined) void recoverImdb(source, position);
-              else void recoverNative(source, position, reason);
+              else void playNext();
             }}
             // Paa tv lukker traileren naar den er slut, som i Googles butik.
             onEnd={isTV ? onBack : undefined}
           />
         )}
-        {WebView !== null && source.kind === 'native' && standby !== null && standby.id === source.id && (
-          // YouTubes afspiller, gjort klar usynligt; bliver synlig ved skiftet.
-          <View style={[StyleSheet.absoluteFill, !handedOver && styles.hidden]} pointerEvents={handedOver ? 'auto' : 'none'}>
-            <WebView
-              ref={standbyWeb}
-              key={`standby:${standby.id}`}
-              source={{ html: measuredEmbedPage(standby.id, isTV, standby.startAt, true), baseUrl: EMBED_ORIGIN }}
-              originWhitelist={['*']}
-              style={styles.web}
-              androidLayerType="hardware"
-              userAgent={isTV ? DESKTOP_USER_AGENT : BROWSER_USER_AGENT}
-              scalesPageToFit
-              thirdPartyCookiesEnabled
-              sharedCookiesEnabled
-              allowsFullscreenVideo
-              allowsInlineMediaPlayback
-              mediaPlaybackRequiresUserAction={false}
-              javaScriptEnabled
-              domStorageEnabled
-              onMessage={onStandbyMessage}
-            />
-          </View>
-        )}
-        {switchNote !== null && (
-          <View style={styles.note} pointerEvents="none">
-            <Text style={styles.noteText}>{switchNote}</Text>
+        {source.kind === 'external' && (
+          <View style={styles.overlay}>
+            <Text style={styles.errorText}>Traileren spiller i YouTube-appen.</Text>
+            <Text style={styles.overlayText}>Tryk Tilbage dér, når du har set den.</Text>
           </View>
         )}
         {source.kind === 'none' && (
@@ -821,19 +670,16 @@ function NativeTrailer({
   expectedSeconds,
   contentType,
   onReady,
-  onProgress,
   onBroken,
   onEnd,
 }: {
   uri: string;
   /** Sekunder inde, hvor der fortsaettes efter en genopretning. */
   resumeAt: number;
-  /** YouTubes laengde, hvis afspilleren ikke selv kender den. */
+  /** Kildens laengde, hvis afspilleren ikke selv kender den. */
   expectedSeconds: number | null;
   contentType: 'dash' | 'hls' | 'progressive';
   onReady: () => void;
-  /** Position og hvor langt der er hentet, hvert halve sekund. */
-  onProgress: (position: number, buffered: number) => void;
   /** `reason`: kort kategori (fx "fejl 403", "stod stille"). */
   onBroken: (position: number, reason: string) => void;
   onEnd?: () => void;
@@ -849,8 +695,8 @@ function NativeTrailer({
     };
     p.play();
   });
-  const handlers = useRef({ onReady, onProgress, onBroken, onEnd });
-  handlers.current = { onReady, onProgress, onBroken, onEnd };
+  const handlers = useRef({ onReady, onBroken, onEnd });
+  handlers.current = { onReady, onBroken, onEnd };
 
   useEffect(() => {
     let ready = false;
@@ -896,9 +742,8 @@ function NativeTrailer({
         broken(code === undefined ? 'fejl' : `fejl ${code}`);
       }
     });
-    const time = player.addListener('timeUpdate', ({ currentTime, bufferedPosition }) => {
+    const time = player.addListener('timeUpdate', ({ currentTime }) => {
       if (Number.isFinite(currentTime) && currentTime > 0) position = currentTime;
-      if (!done && ready && Number.isFinite(bufferedPosition)) handlers.current.onProgress(position, bufferedPosition);
     });
     const end = player.addListener('playToEnd', () => {
       if (done) return;

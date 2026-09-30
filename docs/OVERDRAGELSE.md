@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**30. september 2026 (v354).** Brugeren: "Det der med skift i trailer til lavere kvalitet med YouTube fungerer ikke, så vi skal have lavet en ordentlig løsning." Den native YouTube-vej og blandingen (v329–v334) er **fjernet**. Apple TV og IMDb er stadig først. Når kun YouTube er tilbage: **på tv åbnes YouTube-appen** med traileren (fuld kvalitet, fjernbetjeningen virker; skærmen lukker når man kommer tilbage), ellers YouTubes indlejrede afspiller; **på telefonen** YouTubes egen afspiller fra start. Robot-beviset (PO-token) bygges stadig ALDRIG.
+
 **30. september 2026 (v353).** Brugerens to skærmbilleder af guiden viste fejlen: pil venstre fra Regionalprogram 19:30 (første celle) landede på 18 News 18:00 — forbi 19 News og Go' aften. v348 tog den *første* celle i rækken når udsendelsen var røget ud af det nye vindue; det skulle være den *sidste* før den. Nu findes naboen på **tid** (`neighbourIndex` i `guide/layout.ts`, testet): venstre = sidste udsendelse der begynder før den man stod på, højre = første efter; huller tæller. Den fokuserede celle tegnes i accentfarve på tv, så man kan se hvor man er. Og afspilleren får en **frost-vagt**: melder afspilleren 'spiller' men positionen står stille i 12 s, genforbindes der (som at gå ud i guiden og ind igen, hvilket brugeren gjorde manuelt). Loggen skriver `billedet staar stille …`. NorRadio-rettelsen (sortering) er også med i NorStreams radio-fane.
 
 **30. september 2026 (NorRadio: sortering).** "Hver gang jeg forsøger at trække en op, så smutter den ned igen." `RadioSortList` regnede fingerens plads ud fra listens position på skærmen målt med `measureInWindow` i `onLayout` — på Android giver det 0 (eller status-bjælkens højde ved siden af), så den beregnede plads lå rækker UNDER fingeren. Nu bruges `locationY` på træk-laget (der dækker præcis listen), så ingen måling behøves; `reorderRadioFavorites` skriver i én transaktion. Samme komponent bruges af NorStreams radio på telefonen.
@@ -73,6 +75,42 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 30. september 2026 — v354: YouTube-trailere — appen på tv, YouTubes afspiller på telefon
+
+Brugeren: "Det der med skift i trailer til lavere kvalitet med YouTube fungerer
+ikke, så vi skal have lavet en ordentlig løsning."
+
+Hvad der IKKE kan lade sig gøre, og hvorfor: YouTubes filer i appens egen
+afspiller stopper efter ~1 minut uden YouTubes robot-bevis (PO-token). At lave
+beviset selv er at omgå deres beskyttelse — det bygges ALDRIG (v333). Alt
+oven på den grænse (v330–v334: genopretning, HLS, 720p, blandingen med skift
+til YouTubes afspiller) var lappeløsninger, og skiftet endte i dårlig kvalitet.
+
+Den ordentlige løsning er at bruge det, der VIRKER i fuld kvalitet:
+
+- **Apple TV og IMDb først** (uændret, v335/v336): rigtige filer, ingen grænse.
+- **Tv: YouTube-appen.** Google TV har YouTube-appen; den spiller i fuld
+  kvalitet med fjernbetjeningen. `openInYoutubeApp(id, onReturned)` i
+  `TrailerScreen`: `IntentLauncher.startActivityAsync('android.intent.action.VIEW',
+  { data: youtube.com/watch?v=id, packageName })` med `com.google.android.youtube.tv`,
+  så `com.google.android.youtube`, så `vnd.youtube:<id>` uden pakke. Afvises
+  intentet med det samme (ingen app) → falsk → YouTubes indlejrede afspiller i
+  webvisningen som før. Ellers regnes appen for åbnet efter 1,5 s
+  (`LAUNCH_SETTLE_MS`); `startActivityAsync` venter på at aktiviteten lukker,
+  og så kaldes `onBack()` — man lander på filmsiden. Kilde `external` viser
+  "Traileren spiller i YouTube-appen" imens. Loggen: `trailer: aabnet i
+  YouTube-appen` / `kunne ikke aabnes`.
+- **Telefon: YouTubes egen afspiller** (`measured`) fra start, som før blandingen.
+- **Fjernet:** `resolveYoutubeStream`-kaldene, `prepareStream`, `recoverNative`,
+  standby/`handOver`/`onStandbyMessage`, `switchNote`, `bufferWatch`,
+  `NativeTrailer.onProgress`, feltet `limited`. `youtubeStream.ts` bruges nu kun
+  for `buildHlsMaster` (Apple); resten af filen er død kode og kan slettes,
+  hvis ingen skal fejlsøge YouTube igen.
+
+Ikke testet på boksen endnu: at Google TV's YouTube-app tager intentet med
+`packageName` (ellers `vnd.youtube:`), og at `startActivityAsync` først svarer
+når man er tilbage. Loggen viser hvilken vej der blev taget.
 
 ### 30. september 2026 — v353: guiden finder naboen på tid, markering, frost-vagt i afspilleren
 
