@@ -53,9 +53,10 @@ export function RadioSortList({
 
   const scrollRef = useRef<ScrollView>(null);
   const scrollY = useRef(0);
-  const frame = useRef({ top: 0, height: 0 });
-  const listRef = useRef<View>(null);
+  /** Listens hoejde paa skaermen (fra onLayout; til rul-ved-kanten). */
+  const height = useRef(0);
   const edgeTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Fingerens seneste y, maalt fra listens overkant. */
   const lastFingerY = useRef(0);
 
   const stopEdge = (): void => {
@@ -101,9 +102,15 @@ export function RadioSortList({
     pickedIndexRef.current = -1;
   };
 
-  const updateHover = (fingerPageY: number): void => {
-    lastFingerY.current = fingerPageY;
-    const listY = fingerPageY - frame.current.top + scrollY.current;
+  // Fingerens y maales fra listens egen overkant (`locationY` paa laget, der
+  // daekker praecis listen) — ikke fra skaermens top. Foer blev listens
+  // plads paa skaermen maalt med measureInWindow i onLayout, og paa Android
+  // gav det 0 (eller status-bjaelkens hoejde ved siden af): saa laa den
+  // beregnede plads to-tre raekker UNDER fingeren, og en station man trak
+  // op, landede laengere nede igen ("smutter ned igen", v353).
+  const updateHover = (fingerY: number): void => {
+    lastFingerY.current = fingerY;
+    const listY = fingerY + scrollY.current;
     const next = Math.max(0, Math.min(order.length - 1, Math.floor(listY / ROW_HEIGHT)));
     if (next !== hoverRef.current) {
       hoverRef.current = next;
@@ -111,16 +118,16 @@ export function RadioSortList({
     }
   };
 
-  const edgeScroll = (fingerPageY: number): void => {
-    const { top, height } = frame.current;
-    const direction = fingerPageY < top + EDGE ? -1 : fingerPageY > top + height - EDGE ? 1 : 0;
+  const edgeScroll = (fingerY: number): void => {
+    const shown = height.current;
+    const direction = fingerY < EDGE ? -1 : shown > 0 && fingerY > shown - EDGE ? 1 : 0;
     if (direction === 0) {
       stopEdge();
       return;
     }
     if (edgeTimer.current !== null) return;
     edgeTimer.current = setInterval(() => {
-      const max = Math.max(0, order.length * ROW_HEIGHT - height);
+      const max = Math.max(0, order.length * ROW_HEIGHT - height.current);
       const next = Math.max(0, Math.min(max, scrollY.current + direction * EDGE_STEP));
       if (next === scrollY.current) {
         return;
@@ -135,9 +142,12 @@ export function RadioSortList({
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (event) => {
+        updateHover(event.nativeEvent.locationY);
+      },
       onPanResponderMove: (event) => {
-        updateHover(event.nativeEvent.pageY);
-        edgeScroll(event.nativeEvent.pageY);
+        updateHover(event.nativeEvent.locationY);
+        edgeScroll(event.nativeEvent.locationY);
       },
       onPanResponderRelease: () => drop(),
       onPanResponderTerminate: () => drop(),
@@ -146,12 +156,9 @@ export function RadioSortList({
 
   return (
     <View
-      ref={listRef}
       style={styles.container}
-      onLayout={() => {
-        listRef.current?.measureInWindow((_x, y, _w, h) => {
-          frame.current = { top: y, height: h };
-        });
+      onLayout={(event) => {
+        height.current = event.nativeEvent.layout.height;
       }}
     >
       <ScrollView

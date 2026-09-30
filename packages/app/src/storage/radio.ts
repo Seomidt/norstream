@@ -166,12 +166,16 @@ export async function moveRadioFavorite(db: SqlDatabase, stationId: string, dire
 /** Skriver hele favoritraekkefoelgen om paa én gang; ukendte id'er springes over. */
 export async function reorderRadioFavorites(db: SqlDatabase, orderedIds: readonly string[]): Promise<void> {
   const known = new Set((await db.getAllAsync<{ station_id: string }>('SELECT station_id FROM radio_favorites')).map((row) => row.station_id));
-  let position = 0;
-  for (const id of orderedIds) {
-    if (!known.has(id)) continue;
-    await db.runAsync('UPDATE radio_favorites SET position = ? WHERE station_id = ?', [position, id]);
-    position += 1;
-  }
+  // I én transaktion: en genindlaesning midt i skrivningen maa ikke se en
+  // halvt omskrevet raekkefoelge (v353).
+  await withTransaction(db, async () => {
+    let position = 0;
+    for (const id of orderedIds) {
+      if (!known.has(id)) continue;
+      await db.runAsync('UPDATE radio_favorites SET position = ? WHERE station_id = ?', [position, id]);
+      position += 1;
+    }
+  });
 }
 
 export async function listRadioFavoriteIds(db: SqlDatabase): Promise<Set<string>> {

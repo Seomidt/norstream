@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**30. september 2026 (NorRadio: sortering).** "Hver gang jeg forsøger at trække en op, så smutter den ned igen." `RadioSortList` regnede fingerens plads ud fra listens position på skærmen målt med `measureInWindow` i `onLayout` — på Android giver det 0 (eller status-bjælkens højde ved siden af), så den beregnede plads lå rækker UNDER fingeren. Nu bruges `locationY` på træk-laget (der dækker præcis listen), så ingen måling behøves; `reorderRadioFavorites` skriver i én transaktion. Samme komponent bruges af NorStreams radio på telefonen.
+
 **29. september 2026 (v352).** Brugeren: "Ved ikke om det kun er 150 ud af de 22.000 kanaler der er." Rigtigt set: 150 er et loft, og en pakke på 22.000 kanaler har typisk et par tusind der ligner sport. Panelet spørges stadig kun for 150 (ét kald per kanal), men **panelets EPG-fil** dækker nu **alle** pakkens sportskanaler (`FILE_SPORT_CAP = 2500`, bedste først) i én hentning om dagen, læst ud i klumper af 300 feed-id'er (`PROGRAMME_CHUNK`), så native-svaret aldrig bliver stort.
 
 **29. september 2026 (v351).** Brugeren: "Jeg vil faktisk godt have sport stadig tager alt med, men den skal bare gøre det stille i baggrunden." Så alle 150 sportskanaler hentes igen (`SportChannels.api` er væk, kun `refresh`), men i køen bag alt synligt og med 1 s pause mellem kaldene (`BACKGROUND_PAUSE_MS` i `epgCache.ts`); hele runden tager nogle minutter, og det er meningen.
@@ -69,6 +71,29 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 30. september 2026 — NorRadio: træk-sorteringen landede rækker under fingeren
+
+Brugeren: "Nordre Radio, der kan jeg ikke få lov at sortere. Hver gang jeg
+forsøger at trække en op, så smutter den ned igen."
+
+`RadioSortList` (v: markér-og-træk) regnede pladsen ud som
+`pageY − listens top + scrollY`, hvor listens top kom fra `measureInWindow`
+kaldt inde i `onLayout`. På Android er viewet tit ikke lagt på plads i vinduet
+endnu i det øjeblik, så målingen gav 0 — og selv når den virker, kan pageY og
+measureInWindow være forskudt med status-bjælken. Med top = 0 og en liste der
+begynder ~200 px nede (header, faner, søgefelt, sortér-linje) lå den beregnede
+plads 3 rækker under fingeren: stationen fulgte ikke fingeren, og et slip lagde
+den længere nede. Præcis "trækker op, flytter ned igen".
+
+Nu: træk-laget (`absoluteFill` over listen) er selv responder, og
+`event.nativeEvent.locationY` er fingerens y **fra lagets egen overkant** =
+listens overkant. Ingen måling, ingen status-bjælke. `onPanResponderGrant`
+sætter pladsen med det samme; rul-ved-kanten bruger lagets højde fra
+`onLayout`. `reorderRadioFavorites` skriver positionerne i én transaktion, så
+en genindlæsning ikke kan se en halvt omskrevet orden. Bygges som NorRadio
+(`app: radio`) og udgives på `latest-norradio`; NorStreams egen radio-fane på
+telefonen får det med i næste NorStream-udgave.
 
 ### 29. september 2026 — v352: EPG-filen dækker alle sportskanaler
 
