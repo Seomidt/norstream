@@ -1,4 +1,5 @@
 import { originOf } from '@norstream/core';
+import { logEvent } from '../diagnostics/log.js';
 import type { HeaderFetch } from './doh.js';
 
 /**
@@ -24,6 +25,10 @@ export function cooldownUntil(origin: string, now: number = Date.now()): number 
 }
 
 export function noteRejected(origin: string, now: number = Date.now()): void {
+  if (!until.has(origin) || (until.get(origin) ?? 0) <= now) {
+    // Kun ved starten af en nedkoeling, ikke ved hvert afvist kald (v357).
+    logEvent('panel', `panelet afviste (401/403): appen venter ${Math.round(COOLDOWN_MS / 60_000)} min foer den spoerger igen`);
+  }
   until.set(origin, now + COOLDOWN_MS);
 }
 

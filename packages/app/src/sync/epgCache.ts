@@ -13,6 +13,7 @@ import {
 import { deleteProgrammesBefore, upsertProgrammes } from '../storage/programmes.js';
 import type { SqlDatabase } from '../storage/types.js';
 import { withPanel } from './panelGate.js';
+import { logEvent, safe } from '../diagnostics/log.js';
 
 /**
  * Hvor mange programmer der hentes per kanal. Tolv daekker et halvt til et helt
@@ -76,6 +77,15 @@ export interface EnsureEpgResult {
   fetched: number;
   /** Antal programmer skrevet til databasen. */
   programmes: number;
+  /** Kanaler hvor panelet ikke svarede (netfejl, afvist, nedkoeling) — foer blev de slugt stille (v357). */
+  failed: number;
+  /** Den foerste fejl, uden adresser; null naar intet fejlede. */
+  reason: string | null;
+}
+
+/** Fejlteksten uden adresser (de har panelets kodeord). */
+function reasonOf(cause: unknown): string {
+  return safe(cause instanceof Error ? cause.message : String(cause));
 }
 
 export interface EnsureEpgOptions {
@@ -155,11 +165,13 @@ export async function ensureEpg(
     }),
   );
   const stale = flags.filter((key): key is string => key !== null);
-  if (stale.length === 0) return { fetched: 0, programmes: 0 };
+  if (stale.length === 0) return { fetched: 0, programmes: 0, failed: 0, reason: null };
 
   let authFailure: XtreamAuthError | null = null;
   let fetched = 0;
   let programmes = 0;
+  let failed = 0;
+  let reason: string | null = null;
 
   // Noeglerne kan komme fra flere paneler ad gangen — guiden viser favoritter,
   // og de ligger ikke noedvendigvis samme sted. Spurgte vi det ene panel om
@@ -180,6 +192,10 @@ export async function ensureEpg(
       if (cause instanceof XtreamAuthError) authFailure = cause;
       // Netvaerksfejl paa én kanal er ikke fatalt: de oevrige skal stadig
       // have deres programdata. Kanalen mangler blot indtil naeste forsoeg.
+      // Men det taelles og siges (v357): en ny boks stod uden EPG i 20 min
+      // uden ét ord om hvorfor.
+      failed += 1;
+      if (reason === null) reason = reasonOf(cause);
       return;
     }
 
@@ -195,6 +211,7 @@ export async function ensureEpg(
   }
 
   if (authFailure !== null) throw authFailure;
+  if (failed > 0) logEvent('epg', `nu/naeste: ${fetched} af ${stale.length} kanaler hentet, ${failed} fejlede: ${reason ?? '?'}`);
 
   // Ryd kun naar vi faktisk fik noget. Ellers ville en tur hvor panelet var
   // nede slette den EPG appen allerede havde, uden noget at saette i stedet.
@@ -202,7 +219,7 @@ export async function ensureEpg(
     await deleteProgrammesBefore(db, retentionCutoff(now, await maxArchiveDays(db)));
   }
 
-  return { fetched, programmes };
+  return { fetched, programmes, failed, reason };
 }
 
 /**
@@ -239,11 +256,13 @@ export async function ensureFullEpg(
     distinct.map(async (id) => (needsArchiveFetch(await getArchiveFetchedAt(db, id), now) ? id : null)),
   );
   const candidates = flags.filter((id): id is string => id !== null);
-  if (candidates.length === 0) return { fetched: 0, programmes: 0 };
+  if (candidates.length === 0) return { fetched: 0, programmes: 0, failed: 0, reason: null };
 
   let authFailure: XtreamAuthError | null = null;
   let fetched = 0;
   let programmes = 0;
+  let failed = 0;
+  let reason: string | null = null;
 
   for (const [sourceId, keys] of groupBySource(candidates)) {
     const creds = credsBySource.get(sourceId);
@@ -257,6 +276,8 @@ export async function ensureFullEpg(
         batch = await withPanel(background, () => client.getFullEpg(streamId));
       } catch (cause) {
         if (cause instanceof XtreamAuthError) authFailure = cause;
+        failed += 1;
+        if (reason === null) reason = reasonOf(cause);
         return;
       }
 
@@ -268,5 +289,6 @@ export async function ensureFullEpg(
   }
 
   if (authFailure !== null) throw authFailure;
-  return { fetched, programmes };
+  if (failed > 0) logEvent('epg', `hele tabellen${background ? ' (baggrund)' : ''}: ${fetched} af ${candidates.length} kanaler hentet, ${failed} fejlede: ${reason ?? '?'}`);
+  return { fetched, programmes, failed, reason };
 }

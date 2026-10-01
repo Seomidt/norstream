@@ -514,7 +514,12 @@ export const GuideScreen = memo(function GuideScreen({
       if (!(await drawFromCache(visible, from, to))) return;
 
       try {
-        await ensureEpg(session.db, session.credsBySource, session.fetchImpl, streamIds);
+        const result = await ensureEpg(session.db, session.credsBySource, session.fetchImpl, streamIds);
+        // v357: fejlede ALLE hentninger, siges det i stedet for en stille tom
+        // guide ("ny boks uden EPG i 20 min"). Fejlteksten er uden adresser.
+        if (result.failed > 0 && result.fetched === 0) {
+          setNotice({ text: `Programoversigten kunne ikke hentes fra panelet: ${result.reason ?? 'ukendt fejl'}` });
+        }
       } catch (cause) {
         if (cause instanceof XtreamAuthError) {
           onAuthError();

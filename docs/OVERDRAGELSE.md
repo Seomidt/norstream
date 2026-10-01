@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**1. oktober 2026 (v357).** Ny boks (sat op fra sky-kopi): "EPG kommer ikke på, selv om man har stået på favoritter i 20 minutter." Fundet i koden: `ensureEpg`/`ensureFullEpg` slugte alle fejl per kanal (netfejl, 403, panelets nedkøling bliver til `XtreamNetworkError` i klienten), så guiden stod stille tom. Nu tælles de (`failed`, `reason` i `EnsureEpgResult`), loggen får `epg:`-linjer, nedkølingen skriver `panel: panelet afviste …`, og guiden viser en bjælke "Programoversigten kunne ikke hentes fra panelet: …" når alle hentninger fejler. Årsagen på den nye boks kendes IKKE endnu — afvent bjælken/loggen eller Test programoversigten.
+
 **1. oktober 2026 (v356).** Tv, opsætningsskærmen: "Kan ikke komme ned i Dit kodeord når jeg skal på første gang." Pilene når ikke et tekstfelt fra fanerne, og knappen er slået fra indtil feltet er udfyldt. Nu får det første felt fokus selv (`.focus()` 250 ms efter åbning og ved fanevalg), og tastaturets "næste" flytter mellem felterne (adresse → brugernavn → adgangskode) på tv. Samme mønster som resten af appen (ANDROID-TV.md: pil ned mellem tekstfelter er upålidelig).
 
 **1. oktober 2026 (v355).** Brugeren: "Kan vi ikke gøre så den buffer løbende, det må da give et bedre flow." Appen kan ikke selv (panelet tillader én forbindelse: ikke både optage live og hente det der gik forud). En løbende buffer kan kun komme fra panelet, som hos TV 2 Play. Om panelet leverer arkivet som en HLS-spilleliste der **vokser**, afgøres nu af **Indstillinger → Test start forfra** (`features/player/timeshiftProbe.ts`, testet): A) HLS fra start til slut læst to gange med 30 s imellem (vokser?), B) HLS kun det der findes, C) .ts-hovederne (Content-Length = færdig fil). Konklusionen står nederst. Vokser den → næste skridt er at spille den som live med spoling (ét flow). Afvent skærmbillede.
@@ -79,6 +81,31 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 1. oktober 2026 — v357: EPG-fejl siges i stedet for at sluges
+
+Ny boks sat op fra sky-kopien, 356 på: ingen programoversigt efter 20 min på
+favoritterne, ingen besked. Hvad koden gjorde: `ensureEpg` fanger fejl per kanal
+og går videre ("én død kanal må ikke tage EPG fra resten") — rigtigt, men
+fejlede ALLE, sagde ingen det. Panelets nedkøling (`PanelCoolingDownError` fra
+`withPanelCooldown`) kastes i `fetchImpl`, og `XtreamClient.request` pakker den
+som `XtreamNetworkError("Kunne ikke nå panelet: …")` → slugt per kanal. Kun
+`XtreamAuthError` (et 403 der NÅR klienten) går videre til `onAuthError`.
+
+- `EnsureEpgResult` har nu `failed` og `reason` (første fejl, `safe`); begge
+  funktioner logger `epg: nu/naeste|hele tabellen: X af Y kanaler hentet, Z
+  fejlede: <grund>` når noget fejlede.
+- `cooldown.ts`: `noteRejected` logger `panel: panelet afviste (401/403): appen
+  venter 10 min …` ved starten af en nedkøling.
+- `GuideScreen.loadVisible`: fejlede alle (fetched 0, failed > 0) →
+  `Notice` "Programoversigten kunne ikke hentes fra panelet: <grund>".
+
+Mulige årsager på en ny boks, som bjælken/loggen nu skelner: (a) panelet
+blokerer adressen (ny boks spørger hårdt: kanaler, VOD, favorit-EPG, Sport,
+EPG-fil) → "Panelet afviser lige nu"; (b) DNS/netvej ("Kunne ikke nå
+panelet: …"); (c) panelet svarer, men tomt (ingen fejl, 0 programmer) →
+kanaler uden EPG-id på DEN kilde → Test programoversigten. Først når grunden
+kendes, bygges en rettelse (fx: ny boks henter mindre de første timer).
 
 ### 1. oktober 2026 — v356: opsætning på tv — kodeordsfeltet kunne ikke nås
 

@@ -78,7 +78,7 @@ describe('ensureEpg', () => {
 
     const result = await ensureEpg(db, sources, fetchImpl, [key('247634')], NOW);
 
-    expect(result).toEqual({ fetched: 1, programmes: 2 });
+    expect(result).toMatchObject({ fetched: 1, programmes: 2, failed: 0, reason: null });
     const stored = await listProgrammes(
       db,
       key('247634'),
@@ -235,7 +235,7 @@ describe('ensureEpg', () => {
 
     const result = await ensureEpg(db, sources, fetchImpl, [key('247634')], NOW);
 
-    expect(result).toEqual({ fetched: 0, programmes: 0 });
+    expect(result).toMatchObject({ fetched: 0, programmes: 0 });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
@@ -292,7 +292,7 @@ describe('ensureFullEpg', () => {
 
     const result = await ensureFullEpg(db, sources, fetchImpl, [WITH_ARCHIVE], NOW);
 
-    expect(result).toEqual({ fetched: 1, programmes: 2 });
+    expect(result).toMatchObject({ fetched: 1, programmes: 2, failed: 0, reason: null });
     expect(fetchImpl.actions).toEqual(['get_simple_data_table']);
 
     const stored = await listProgrammes(
@@ -309,7 +309,7 @@ describe('ensureFullEpg', () => {
     // kanal uden arkiv — som er de fleste. Guiden stod tom for dem.
     const fetchImpl = archivePanel({ '999': [listing(60)] });
     const result = await ensureFullEpg(db, sources, fetchImpl, [WITHOUT_ARCHIVE], NOW);
-    expect(result).toEqual({ fetched: 1, programmes: 1 });
+    expect(result).toMatchObject({ fetched: 1, programmes: 1 });
     expect(fetchImpl.actions).toEqual(['get_simple_data_table']);
   });
 
