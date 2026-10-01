@@ -117,7 +117,7 @@ export async function syncXmltv(
 
   if (!anySucceeded && lastError !== null) throw lastError;
 
-  await upsertProgrammes(db, programmes);
+  await upsertProgrammes(db, programmes, { replaceWindow: true });
   await replaceXmltvLogos(db, source.id, logos);
   return { programmes: programmes.length, matched: matched.size, logos: logos.size };
 }

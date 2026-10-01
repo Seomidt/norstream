@@ -35,9 +35,23 @@ const UPSERT_CHUNK = 180;
  */
 const TX_ROWS = 1800;
 
+export interface UpsertOptions {
+  /**
+   * Erstat det tidsrum batchen daekker per kanal (v360): foer batchen skrives,
+   * slettes kanalens programmer der overlapper fra batchens foerste start til
+   * dens sidste slut. Uden det blev et program der FLYTTEDE sig (ny starttid)
+   * liggende ved siden af det nye, for noeglen er (kanal, starttid) — og saa
+   * fandt Sport "haandbold 20:00" fra gaarsdagens oversigt, mens kanalen i
+   * virkeligheden sendte basketball 19:30. Alt uden for batchens tidsrum roeres
+   * ikke, saa fortiden (arkivet) bliver staaende.
+   */
+  replaceWindow?: boolean;
+}
+
 export async function upsertProgrammes(
   db: SqlDatabase,
   programmes: Programme[],
+  options: UpsertOptions = {},
 ): Promise<void> {
   if (programmes.length === 0) return;
 
@@ -48,6 +62,25 @@ export async function upsertProgrammes(
   const byKey = new Map<string, Programme>();
   for (const p of programmes) byKey.set(`${p.channelId}\u0000${p.start.getTime()}`, p);
   const rows = [...byKey.values()];
+
+  if (options.replaceWindow === true) {
+    const windows = new Map<string, { from: number; to: number }>();
+    for (const p of rows) {
+      const window = windows.get(p.channelId);
+      const start = p.start.getTime();
+      const stop = p.stop.getTime();
+      if (window === undefined) windows.set(p.channelId, { from: start, to: stop });
+      else {
+        window.from = Math.min(window.from, start);
+        window.to = Math.max(window.to, stop);
+      }
+    }
+    await withTransaction(db, async () => {
+      for (const [channelId, window] of windows) {
+        await db.runAsync('DELETE FROM programmes WHERE channel_id = ? AND stop_ms > ? AND start_ms < ?', [channelId, window.from, window.to]);
+      }
+    });
+  }
 
   // Flere smaa transaktioner frem for én stor (se TX_ROWS). Inden i hver:
   // faa fler-raekkers INSERTs frem for én runAsync per program. En lille

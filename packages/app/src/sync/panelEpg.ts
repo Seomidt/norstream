@@ -227,7 +227,9 @@ export async function syncPanelEpg(
           });
         }
       }
-      await upsertProgrammes(db, programmes);
+      // replaceWindow (v360): dagens fil erstatter gaarsdagens i det tidsrum den
+      // daekker — et flyttet program maa ikke blive liggende ved siden af.
+      await upsertProgrammes(db, programmes, { replaceWindow: true });
       written += programmes.length;
     }
     let matched = 0;
@@ -386,7 +388,7 @@ export async function diagnosePanelEpg(
         programmes.push({ channelId: key, start: new Date(entry.s), stop: new Date(entry.e), title: entry.t, description: entry.d ?? null });
       }
     }
-    await upsertProgrammes(db, programmes);
+    await upsertProgrammes(db, programmes, { replaceWindow: true });
     lines.push(`Programmer fra filen for de parrede: ${programmes.length} (skrevet ind).`);
     if (programmes.length === 0) lines.push('Filen har kanalerne, men ingen programmer for dem i vinduet (i går–om to dage).');
   } catch (cause) {

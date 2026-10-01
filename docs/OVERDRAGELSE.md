@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**1. oktober 2026 (v360).** Sport: "vælger håndbold, men kanalen sender basketball — tager den sidste uges oversigt?" Ja, i praksis: programmer gemmes med nøglen (kanal, starttid), så et program der FLYTTEDE sig i panelets næste oversigt blev liggende ved siden af det nye (spøgelser), og Sport fandt spøgelset som "LIVE NU". Nu erstatter hver hentning (nu/næste, hele tabellen, panelets fil, egen XMLTV) kanalens programmer i det tidsrum batchen dækker (`upsertProgrammes(…, { replaceWindow: true })`, testet). Fortiden uden for tidsrummet røres ikke.
+
 **1. oktober 2026 (v359).** Ny boks: "Stadig 404" efter 358, så den huskede adresse var ikke hele forklaringen (eller slet ikke). Test programoversigten viser nu også: panelets adresse (skema, navn, port, evt. sti — uden login), om login på player_api.php lykkes, og om kanalkategorier kan hentes, lige før EPG-kaldet. Så kan to bokse sammenlignes linje for linje. Mistanker der er åbne: en sti i den gemte adresse, flere adresser bag panelets navn (load-balancer uden EPG på nogle), eller et panel der svarer 404 på EPG for netop den linje. Afvent billedet.
 
 **1. oktober 2026 (v358).** Ny boks: Test programoversigten viste samme danske panel som det gamle tv (DR1 med EPG-id), kanallisten hentet, men **HTTP 404** på både EPG-kaldet og EPG-filen; det gamle tv virker. Fundet: DNS-nødudgangen (`withDnsFallback`) huskede en adresse i en time, så snart den svarede med *noget*, også 404 — og en pinnet adresse blev kun glemt ved netfejl, aldrig ved 404. Når navnet ikke når frem som Host-hoved, svarer serverens standardside 404 på alt. Nu: 404 fra adressen = "ikke panelet": huskes ikke, og en husket adresse der svarer 404 glemmes, så navnet prøves igen. Loggen får `net:`-linjer, og Test programoversigten viser "Vejen til panelet: på navnet / via en husket adresse". Om det er HELE forklaringen på den nye boks, bekræftes af rapporten efter 358.
@@ -85,6 +87,30 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 1. oktober 2026 — v360: flyttede programmer efterlod spøgelser i oversigten
+
+Brugeren: "Går jeg under Sport og vælger håndbold … så viser den basketball,
+en helt anden udsendelse. Det er ligesom den tager programoversigten fra
+torsdag i sidste uge." Mekanismen: `programmes` har nøglen (channel_id,
+start_ms). En upsert overskriver kun et program med SAMME starttid. Sportskanalers
+oversigter ændres hele tiden (kampe flyttes, forlænges, byttes): i går sagde
+panelet "Håndbold 20:00–22:00", i dag "Basketball 19:30–21:30" — begge rækker
+bliver liggende, og `searchProgrammes` finder håndbolden med LIVE NU (20–22
+rummer nu), mens kanalen sender basketball. `getNowNext` tager den senest
+begyndte, så guiden viste det rigtige — derfor så det ud som Sport var gal.
+Oprydningen (`deleteProgrammesBefore`) sletter kun det der sluttede for over 7
+dage siden, så spøgelser levede en uge.
+
+Rettelsen: `upsertProgrammes(db, rows, { replaceWindow: true })` sletter per
+kanal alt der overlapper [batchens første start, batchens sidste slut) før
+skrivningen (én transaktion). Slået til i `ensureEpg` (nu/næste), `ensureFullEpg`
+(hele tabellen), `syncPanelEpg` (panelets fil, per klump) og `syncXmltv`. Uden
+option: som før (test bevarer det). Tests: `programmes.test.ts` (spøgelse væk,
+anden kanal urørt, fortiden før vinduet bliver).
+
+Bemærk: det gamle ligger stadig i databasen på boksene indtil næste hentning
+per kanal (6 t for hele tabellen, ét døgn for filen); derefter er det rent.
 
 ### 1. oktober 2026 — v359: Test programoversigten viser adresse, login og kategorier
 

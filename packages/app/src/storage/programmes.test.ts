@@ -44,6 +44,34 @@ describe('upsertProgrammes', () => {
     expect(list[0]?.title).toBe('Ny titel');
   });
 
+  it('replaceWindow: et program der flyttede sig efterlader ikke et spoegelse (v360)', async () => {
+    // Gaarsdagens oversigt: nyheder 18–19, haandbold 20–22, golf 22–23. Dagens:
+    // basketball 19:30–21:30, film 21:30–23. Alt der overlapper det nye tidsrum
+    // er modsagt af det nye (to programmer sender ikke samtidig) og ryger.
+    await upsertProgrammes(db, [prog('sport1', 18, 19, 'Nyheder'), prog('sport1', 20, 22, 'Håndbold'), prog('sport1', 22, 23, 'Golf')]);
+    const half = (h: number, m: number): Date => new Date(Date.UTC(2026, 8, 4, h, m, 0));
+    await upsertProgrammes(
+      db,
+      [
+        { channelId: 'sport1', title: 'Basketball', description: null, start: half(19, 30), stop: half(21, 30) },
+        { channelId: 'sport1', title: 'Film', description: null, start: half(21, 30), stop: half(23, 0) },
+        // En anden kanal roeres ikke af sport1's vindue.
+        prog('dr1', 20, 21, 'TV Avisen'),
+      ],
+      { replaceWindow: true },
+    );
+    const list = await listProgrammes(db, 'sport1', T(17), T(24));
+    // Nyheder (18–19) ligger foer vinduet og bliver; Haandbold og Golf i vinduet er vaek.
+    expect(list.map((p) => p.title)).toEqual(['Nyheder', 'Basketball', 'Film']);
+    expect((await listProgrammes(db, 'dr1', T(19), T(22))).map((p) => p.title)).toEqual(['TV Avisen']);
+  });
+
+  it('uden replaceWindow bliver det gamle liggende (som foer)', async () => {
+    await upsertProgrammes(db, [prog('sport1', 20, 22, 'Håndbold')]);
+    await upsertProgrammes(db, [prog('sport1', 21, 23, 'Basketball')]);
+    expect((await listProgrammes(db, 'sport1', T(19), T(24))).map((p) => p.title)).toEqual(['Håndbold', 'Basketball']);
+  });
+
   it('afdupliker samme (kanal, starttid) i ét kald — den sidste vinder', async () => {
     // En batch-INSERT med to ens noegler ville ellers faa SQLite til at kaste.
     await upsertProgrammes(db, [

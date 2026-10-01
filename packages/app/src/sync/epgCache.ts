@@ -201,7 +201,9 @@ export async function ensureEpg(
 
     // Programmerne gemmes under den sammensatte noegle, ikke under panelets
     // eget id: to paneler har begge en kanal 1.
-    await upsertProgrammes(db, batch.map((p) => ({ ...p, channelId: key })));
+    // replaceWindow (v360): det panelet siger NU om de naeste timer erstatter
+    // det der laa — et flyttet program maa ikke blive liggende ved siden af.
+    await upsertProgrammes(db, batch.map((p) => ({ ...p, channelId: key })), { replaceWindow: true });
     // Ogsaa naar batch er tom: se needsEpgFetch's regel 1. Uden dette ville
     // en kanal uden programdata blive hentet igen ved hver rendering.
     await markEpgFetched(db, key, now);
@@ -281,7 +283,7 @@ export async function ensureFullEpg(
         return;
       }
 
-      await upsertProgrammes(db, batch.map((p) => ({ ...p, channelId: key })));
+      await upsertProgrammes(db, batch.map((p) => ({ ...p, channelId: key })), { replaceWindow: true });
       await markArchiveFetched(db, key, now);
       fetched += 1;
       programmes += batch.length;
