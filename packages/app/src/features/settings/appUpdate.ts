@@ -9,6 +9,7 @@ import {
   readDirectoryAsync,
 } from 'expo-file-system/legacy';
 import { isTV } from '../../ui/tv.js';
+import { logEvent } from '../../diagnostics/log.js';
 import { installOutcome, parseRelease, releaseTag } from './appUpdateParse.js';
 import type { InstallOutcome } from './appUpdateParse.js';
 
@@ -90,6 +91,17 @@ function notify(progress: DownloadProgress | null): void {
 
 let inFlight: { versionCode: number; promise: Promise<string> } | null = null;
 
+/** Saa laenge en hentning maa staa uden nye bytes, foer den regnes for gaaet i staa. */
+const DOWNLOAD_STALL_MS = 45_000;
+
+function stallError(written: number, size: number | null): Error {
+  const percent = size === null || size <= 0 ? null : Math.floor((100 * written) / size);
+  logEvent('opdatering', `hentningen gik i staa ved ${percent === null ? `${Math.round(written / 1048576)} MB` : `${percent} %`}`);
+  return new Error(
+    `Hentningen gik i stå${percent === null ? '' : ` ved ${percent} %`} — der kom ingenting i ${Math.round(DOWNLOAD_STALL_MS / 1000)} s. Tjek nettet på boksen, og tryk Opdater igen.`,
+  );
+}
+
 function apkPath(versionCode: number): string {
   return `${cacheDirectory ?? ''}norstream-${versionCode}.apk`;
 }
@@ -133,24 +145,49 @@ export function downloadApk(info: { versionCode: number; url: string; size: numb
     const target = apkPath(info.versionCode);
     await deleteAsync(target, { idempotent: true }).catch(() => undefined);
     notify({ versionCode: info.versionCode, written: 0, total: info.size });
+    logEvent('opdatering', `henter udgave ${info.versionCode}${info.size === null ? '' : ` (${Math.round(info.size / 1048576)} MB)`}`);
+    // Vagt mod en hentning der staar stille (v361): paa tv stod bjaelken paa
+    // "Henter 0 %" uden at komme videre og uden at give op — hentningen har
+    // ingen tidsgraense, og saa kunne man heller ikke proeve igen (den
+    // igangvaerende blev genbrugt). Kommer der ingen bytes i STALL_MS,
+    // afbrydes den og siger det; naeste tryk henter forfra.
+    let lastWritten = 0;
+    let lastChange = Date.now();
+    let stalled = false;
     const task = createDownloadResumable(info.url, target, {}, ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
+      if (totalBytesWritten !== lastWritten) {
+        lastWritten = totalBytesWritten;
+        lastChange = Date.now();
+      }
       notify({
         versionCode: info.versionCode,
         written: totalBytesWritten,
         total: info.size ?? (totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : null),
       });
     });
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastChange < DOWNLOAD_STALL_MS) return;
+      stalled = true;
+      clearInterval(watchdog);
+      void task.cancelAsync().catch(() => undefined);
+    }, 5_000);
     let result: Awaited<ReturnType<typeof task.downloadAsync>>;
     try {
       result = await task.downloadAsync();
-    } catch {
+    } catch (cause) {
       await deleteAsync(target, { idempotent: true }).catch(() => undefined);
+      if (stalled) throw stallError(lastWritten, info.size);
+      logEvent('opdatering', `hentningen fejlede: ${cause instanceof Error ? cause.message.replace(/https?:\/\/\S+/g, '[adresse]') : 'ukendt fejl'}`);
       throw new Error('APK’en kunne ikke hentes. Er der forbindelse? Prøv igen.');
+    } finally {
+      clearInterval(watchdog);
     }
     if (result === undefined) {
       await deleteAsync(target, { idempotent: true }).catch(() => undefined);
+      if (stalled) throw stallError(lastWritten, info.size);
       throw new Error('Hentningen blev afbrudt. Prøv igen.');
     }
+    logEvent('opdatering', `hentet: ${Math.round(lastWritten / 1048576)} MB, svar ${result.status}`);
     if (result.status !== 200) {
       await deleteAsync(target, { idempotent: true }).catch(() => undefined);
       throw new Error(`Opdateringsserveren svarede HTTP ${result.status}.`);

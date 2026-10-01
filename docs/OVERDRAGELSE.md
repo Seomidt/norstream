@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**1. oktober 2026 (v361).** Tv: "opdateringen bliver bare ved med at stå på 0 % og kommer ikke videre." Hentningen (`createDownloadResumable`) havde ingen tidsgrænse, og den igangværende blev genbrugt ved næste tryk, så man kunne hverken komme videre eller prøve igen. Nu en vagt: ingen nye bytes i 45 s → afbrydes, bjælken siger "Hentningen gik i stå ved N %…", og næste tryk på Opdater henter forfra. Loggen får `opdatering:`-linjer. v360 (spøgelser i oversigten) er med; 360 blev ikke udgivet for sig.
+
 **1. oktober 2026 (v360).** Sport: "vælger håndbold, men kanalen sender basketball — tager den sidste uges oversigt?" Ja, i praksis: programmer gemmes med nøglen (kanal, starttid), så et program der FLYTTEDE sig i panelets næste oversigt blev liggende ved siden af det nye (spøgelser), og Sport fandt spøgelset som "LIVE NU". Nu erstatter hver hentning (nu/næste, hele tabellen, panelets fil, egen XMLTV) kanalens programmer i det tidsrum batchen dækker (`upsertProgrammes(…, { replaceWindow: true })`, testet). Fortiden uden for tidsrummet røres ikke.
 
 **1. oktober 2026 (v359).** Ny boks: "Stadig 404" efter 358, så den huskede adresse var ikke hele forklaringen (eller slet ikke). Test programoversigten viser nu også: panelets adresse (skema, navn, port, evt. sti — uden login), om login på player_api.php lykkes, og om kanalkategorier kan hentes, lige før EPG-kaldet. Så kan to bokse sammenlignes linje for linje. Mistanker der er åbne: en sti i den gemte adresse, flere adresser bag panelets navn (load-balancer uden EPG på nogle), eller et panel der svarer 404 på EPG for netop den linje. Afvent billedet.
@@ -87,6 +89,22 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 1. oktober 2026 — v361: hentningen af en opdatering kunne stå på 0 % for evigt
+
+`downloadApk` ventede på `task.downloadAsync()` uden tidsgrænse. Kommer der
+intet (netvej til objects.githubusercontent.com lukket, DNS der ikke svarer på
+boksens net, et panel-tungt net), stod bjælken på "Henter 0 %" — og fordi
+`inFlight` genbruges per udgave, gav et nyt tryk den samme hængende hentning.
+Nu: `DOWNLOAD_STALL_MS = 45 s` uden nye bytes → `task.cancelAsync()` →
+`stallError` ("Hentningen gik i stå ved N % — der kom ingenting i 45 s. Tjek
+nettet på boksen, og tryk Opdater igen."), filen slettes, `inFlight` ryddes i
+`finally`, og bjælken går til idle med beskeden; næste tryk henter forfra. Loggen:
+`opdatering: henter udgave N (MB)` / `gik i staa ved …` / `hentet: … MB`.
+
+Står den stadig på 0 % med 361: så er det boksens net der ikke kan nå GitHubs
+filserver (en anden vært end api.github.com). Sideload fra udgivelsessiden er
+vejen, og "Tjek forbindelsen" siger intet om den vært — overvej en linje for den.
 
 ### 1. oktober 2026 — v360: flyttede programmer efterlod spøgelser i oversigten
 
