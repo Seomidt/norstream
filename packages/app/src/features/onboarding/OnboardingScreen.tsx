@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { RefObject } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -8,6 +9,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import type { TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createFetchImpl } from '../../net/fetchImpl.js';
 import { openDatabase } from '../../storage/db.js';
@@ -175,6 +177,33 @@ export function OnboardingScreen({ onDone, notice }: Props) {
   };
   const inputStyle = [styles.input, isTV && styles.inputTv];
 
+  /**
+   * Tv (v356): pilene kan ikke naa et tekstfelt fra fanerne — pil ned fra
+   * "Sky-kopi" landede ingen steder, og "Hent fra skyen" er slaaet fra
+   * indtil kodeordet er skrevet, saa den kan heller ikke have fokus
+   * ("kan ikke komme ned i Dit kodeord"). Derfor faar det foerste felt fokus
+   * selv, naar skaermen aabner og naar man vaelger en fane (tastaturet kommer
+   * frem; Tilbage lukker det, og pil op gaar til fanerne). Mellem felterne
+   * flytter tastaturets "naeste" fokus med .focus(), som i resten af appen.
+   */
+  const firstRef = useRef<TextInput>(null);
+  const userRef = useRef<TextInput>(null);
+  const passRef = useRef<TextInput>(null);
+  const xmltvRef = useRef<TextInput>(null);
+  useEffect(() => {
+    if (!isTV) return undefined;
+    const timer = setTimeout(() => firstRef.current?.focus(), 250);
+    return () => clearTimeout(timer);
+  }, [kind]);
+  /** Tastaturets "naeste": til det naeste felt der mangler, ellers forbind. */
+  const nextOrSubmit = (next: RefObject<TextInput | null> | null): void => {
+    if (isTV && next !== null && next.current !== null) {
+      next.current.focus();
+      return;
+    }
+    submitFromField();
+  };
+
   return (
     <View style={styles.container}>
       <Aurora height="52%" />
@@ -230,6 +259,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
             {isSky ? (
               <>
                 <TvTextInput
+                  ref={firstRef}
                   style={inputStyle}
                   onSubmitEditing={submitFromField}
                   returnKeyType="go"
@@ -251,9 +281,10 @@ export function OnboardingScreen({ onDone, notice }: Props) {
             ) : (
               <>
                 <TvTextInput
+                  ref={firstRef}
                   style={inputStyle}
-                  onSubmitEditing={submitFromField}
-                  returnKeyType="go"
+                  onSubmitEditing={() => nextOrSubmit(isPanel ? userRef : xmltvRef)}
+                  returnKeyType={isTV ? 'next' : 'go'}
                   blurOnSubmit={false}
                   placeholder={isPanel ? 'http://panel.example:8080' : 'http://.../liste.m3u'}
                   placeholderTextColor={colors.textMuted}
@@ -267,9 +298,10 @@ export function OnboardingScreen({ onDone, notice }: Props) {
                 {isPanel && (
                   <>
                     <TvTextInput
+                      ref={userRef}
                       style={inputStyle}
-                      onSubmitEditing={submitFromField}
-                      returnKeyType="go"
+                      onSubmitEditing={() => nextOrSubmit(passRef)}
+                      returnKeyType={isTV ? 'next' : 'go'}
                       blurOnSubmit={false}
                       placeholder="Brugernavn"
                       placeholderTextColor={colors.textMuted}
@@ -279,6 +311,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
                       onChangeText={setUsername}
                     />
                     <TvTextInput
+                      ref={passRef}
                       style={inputStyle}
                       onSubmitEditing={submitFromField}
                       returnKeyType="go"
@@ -295,6 +328,7 @@ export function OnboardingScreen({ onDone, notice }: Props) {
                 )}
 
                 <TvTextInput
+                  ref={xmltvRef}
                   style={inputStyle}
                   onSubmitEditing={submitFromField}
                   returnKeyType="go"

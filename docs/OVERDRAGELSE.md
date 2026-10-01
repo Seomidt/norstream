@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**1. oktober 2026 (v356).** Tv, opsætningsskærmen: "Kan ikke komme ned i Dit kodeord når jeg skal på første gang." Pilene når ikke et tekstfelt fra fanerne, og knappen er slået fra indtil feltet er udfyldt. Nu får det første felt fokus selv (`.focus()` 250 ms efter åbning og ved fanevalg), og tastaturets "næste" flytter mellem felterne (adresse → brugernavn → adgangskode) på tv. Samme mønster som resten af appen (ANDROID-TV.md: pil ned mellem tekstfelter er upålidelig).
+
 **1. oktober 2026 (v355).** Brugeren: "Kan vi ikke gøre så den buffer løbende, det må da give et bedre flow." Appen kan ikke selv (panelet tillader én forbindelse: ikke både optage live og hente det der gik forud). En løbende buffer kan kun komme fra panelet, som hos TV 2 Play. Om panelet leverer arkivet som en HLS-spilleliste der **vokser**, afgøres nu af **Indstillinger → Test start forfra** (`features/player/timeshiftProbe.ts`, testet): A) HLS fra start til slut læst to gange med 30 s imellem (vokser?), B) HLS kun det der findes, C) .ts-hovederne (Content-Length = færdig fil). Konklusionen står nederst. Vokser den → næste skridt er at spille den som live med spoling (ét flow). Afvent skærmbillede.
 
 **30. september 2026 (v354).** Brugeren: "Det der med skift i trailer til lavere kvalitet med YouTube fungerer ikke, så vi skal have lavet en ordentlig løsning." Den native YouTube-vej og blandingen (v329–v334) er **fjernet**. Apple TV og IMDb er stadig først. Når kun YouTube er tilbage: **på tv åbnes YouTube-appen** med traileren (fuld kvalitet, fjernbetjeningen virker; skærmen lukker når man kommer tilbage), ellers YouTubes indlejrede afspiller; **på telefonen** YouTubes egen afspiller fra start. Robot-beviset (PO-token) bygges stadig ALDRIG.
@@ -77,6 +79,21 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 1. oktober 2026 — v356: opsætning på tv — kodeordsfeltet kunne ikke nås
+
+Billede fra brugeren: fanen Sky-kopi valgt, feltet "Dit kodeord" tomt, knappen
+"Hent fra skyen" nedenunder. Pil ned fra fanen lander ikke i tekstfeltet (kendt:
+D-pad og RN's TextInput, se ANDROID-TV.md "Alle tekstfelter er TvTextInput"),
+og knappen er `disabled` indtil kodeordet er skrevet — en slået-fra knap kan
+ikke have fokus. Så var der ingen vej ind.
+
+`OnboardingScreen`: `firstRef`/`userRef`/`passRef`/`xmltvRef`; på tv kaldes
+`firstRef.current?.focus()` 250 ms efter at skærmen åbner og hver gang `kind`
+skifter (fanen). Tastaturet kommer frem; Tilbage lukker det og fokus bliver i
+feltet; pil op går til fanerne. `nextOrSubmit(ref)`: på tv flytter tastaturets
+"næste" (`returnKeyType: 'next'`) fokus til næste felt, adresse → brugernavn →
+adgangskode (→ forbind); M3U: adresse → XMLTV. Telefonen uændret ("go").
 
 ### 1. oktober 2026 — v355: Test start forfra — kan panelet give en løbende buffer?
 
