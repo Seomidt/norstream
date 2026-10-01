@@ -251,6 +251,14 @@ export async function syncPanelEpg(
 }
 
 /** Adresser (med panelets kodeord i stien) maa aldrig naa skaermen. */
+/** Basen uden brugernavn/kodeord (de staar aldrig i den): skema, navn, port og evt. sti. */
+function describeBase(baseUrl: string): string {
+  const match = /^(https?):\/\/([^/?#]+)([^?#]*)/i.exec(baseUrl.trim());
+  if (match === null) return 'kunne ikke læses (ikke http/https)';
+  const path = (match[3] ?? '').replace(/\/+$/, '');
+  return `${match[1]}://${match[2]}${path.length > 0 ? `${path}  ← bemærk stien` : ''}`;
+}
+
 function safeText(cause: unknown): string {
   const text = cause instanceof Error ? cause.message : String(cause);
   return text.replace(/https?:\/\/\S+/g, '[adresse]').slice(0, 200);
@@ -296,6 +304,23 @@ export async function diagnosePanelEpg(
   const parts = eligibleParts(creds.baseUrl);
   const pinned = parts === null ? null : pinnedIp(parts.host);
   lines.push(pinned === null ? 'Vejen til panelet: på navnet.' : 'Vejen til panelet: via en husket adresse (DNS-nødudgangen), navnet kunne ikke slås op.');
+  // v359: samme adresse og samme login som kanallisten — svarer panelet
+  // forskelligt paa de forskellige kald? Adressen vises uden brugernavn og
+  // kodeord (de er aldrig en del af basen), saa to bokse kan sammenlignes.
+  lines.push(`Adresse: ${describeBase(creds.baseUrl)}`);
+  const client = new XtreamClient(creds, fetchImpl);
+  try {
+    await client.authenticate();
+    lines.push('Login (player_api.php): OK.');
+  } catch (cause) {
+    lines.push(`Login (player_api.php): ${safeText(cause)}`);
+  }
+  try {
+    const categories = await client.getLiveCategories();
+    lines.push(`Kanalkategorier fra panelet: ${categories.length}.`);
+  } catch (cause) {
+    lines.push(`Kanalkategorier fra panelet: ${safeText(cause)}`);
+  }
   const first = wanted[0];
   if (first !== undefined) {
     lines.push(`Første: "${first.name}" → navn ${normaliseChannelName(first.name) || '(tomt)'}, land ${first.country || '(ukendt)'}, EPG-id ${first.epgId ?? '(intet)'}.`);

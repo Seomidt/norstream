@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**1. oktober 2026 (v359).** Ny boks: "Stadig 404" efter 358, så den huskede adresse var ikke hele forklaringen (eller slet ikke). Test programoversigten viser nu også: panelets adresse (skema, navn, port, evt. sti — uden login), om login på player_api.php lykkes, og om kanalkategorier kan hentes, lige før EPG-kaldet. Så kan to bokse sammenlignes linje for linje. Mistanker der er åbne: en sti i den gemte adresse, flere adresser bag panelets navn (load-balancer uden EPG på nogle), eller et panel der svarer 404 på EPG for netop den linje. Afvent billedet.
+
 **1. oktober 2026 (v358).** Ny boks: Test programoversigten viste samme danske panel som det gamle tv (DR1 med EPG-id), kanallisten hentet, men **HTTP 404** på både EPG-kaldet og EPG-filen; det gamle tv virker. Fundet: DNS-nødudgangen (`withDnsFallback`) huskede en adresse i en time, så snart den svarede med *noget*, også 404 — og en pinnet adresse blev kun glemt ved netfejl, aldrig ved 404. Når navnet ikke når frem som Host-hoved, svarer serverens standardside 404 på alt. Nu: 404 fra adressen = "ikke panelet": huskes ikke, og en husket adresse der svarer 404 glemmes, så navnet prøves igen. Loggen får `net:`-linjer, og Test programoversigten viser "Vejen til panelet: på navnet / via en husket adresse". Om det er HELE forklaringen på den nye boks, bekræftes af rapporten efter 358.
 
 **1. oktober 2026 (v357).** Ny boks (sat op fra sky-kopi): "EPG kommer ikke på, selv om man har stået på favoritter i 20 minutter." Fundet i koden: `ensureEpg`/`ensureFullEpg` slugte alle fejl per kanal (netfejl, 403, panelets nedkøling bliver til `XtreamNetworkError` i klienten), så guiden stod stille tom. Nu tælles de (`failed`, `reason` i `EnsureEpgResult`), loggen får `epg:`-linjer, nedkølingen skriver `panel: panelet afviste …`, og guiden viser en bjælke "Programoversigten kunne ikke hentes fra panelet: …" når alle hentninger fejler. Årsagen på den nye boks kendes IKKE endnu — afvent bjælken/loggen eller Test programoversigten.
@@ -83,6 +85,18 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 1. oktober 2026 — v359: Test programoversigten viser adresse, login og kategorier
+
+358 ændrede intet på den nye boks ("Stadig 404"). Faktum: på samme boks lykkes
+login og kanallisten (connectXtream under opsætningen kører `authenticate` +
+`syncChannels` med samme `creds.baseUrl`), mens `get_short_epg` og `xmltv.php`
+svarer 404. `diagnosePanelEpg` printer nu `describeBase(creds.baseUrl)` (skema,
+navn, port, sti — aldrig login), `authenticate()`-resultat og antal
+kanalkategorier, umiddelbart før EPG-kaldet. Hvis login/kategorier er OK og EPG
+stadig 404 på samme adresse, er det panelet selv der svarer forskelligt for den
+boks/linje (eller én af flere servere bag navnet). Hvis adressen viser en sti
+("← bemærk stien"), er det kopien der bar en forkert adresse med.
 
 ### 1. oktober 2026 — v358: DNS-nødudgangen huskede en adresse der svarede 404
 
