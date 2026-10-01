@@ -1,4 +1,5 @@
 import type { FetchLike, FetchLikeResponse } from '@norstream/core';
+import { logEvent } from '../diagnostics/log.js';
 
 /**
  * DNS over HTTPS som noedudgang.
@@ -121,6 +122,18 @@ export function createResolver(fetchImpl: HeaderFetch): Resolver {
  * problemet. Er navnet allerede pinnet, gaar kaldet direkte til adressen;
  * svigter den, glemmes den og navnet proeves igen.
  */
+/**
+ * Et svar fra adressen der IKKE er panelet (v358): naar navnet ikke naar frem
+ * som Host-hoved, svarer serverens standardside 404 paa alt — ogsaa paa
+ * player_api.php og xmltv.php, som panelet ellers svarer paa. Foer blev
+ * saadan et svar husket som "adressen virker" i en time, og saa stod en ny
+ * boks med "HTTP 404" paa al EPG, mens kanallisten (hentet paa navnet, foer
+ * omvejen) saa fin ud.
+ */
+function notThePanel(response: FetchLikeResponse): boolean {
+  return response.status === 404;
+}
+
 export function withDnsFallback(fetchImpl: HeaderFetch, resolve: Resolver = createResolver(fetchImpl)): HeaderFetch {
   return async (url, headers) => {
     const parts = eligibleParts(url);
@@ -131,7 +144,10 @@ export function withDnsFallback(fetchImpl: HeaderFetch, resolve: Resolver = crea
       const direct = viaIp(parts, pinned);
       try {
         // Kalderens hoveder foerst, saa Host-hovedet fra viaIp altid vinder.
-        return await fetchImpl(direct.url, { ...headers, ...direct.headers });
+        const response = await fetchImpl(direct.url, { ...headers, ...direct.headers });
+        if (!notThePanel(response)) return response;
+        unpinHost(parts.host);
+        logEvent('net', 'den huskede adresse svarede 404 (ikke panelet): glemmer den og proever navnet igen');
       } catch {
         unpinHost(parts.host);
       }
@@ -145,7 +161,12 @@ export function withDnsFallback(fetchImpl: HeaderFetch, resolve: Resolver = crea
         const direct = viaIp(parts, ip);
         try {
           const response = await fetchImpl(direct.url, { ...headers, ...direct.headers });
+          if (notThePanel(response)) {
+            logEvent('net', 'navnet kunne ikke slaas op; adressen fra krypteret DNS svarede 404 (navnet naaede ikke frem): ikke husket');
+            continue;
+          }
           pinHost(parts.host, ip);
+          logEvent('net', 'navnet kunne ikke slaas op paa nettet: gaar via adresse fra krypteret DNS (husket 1 time)');
           return response;
         } catch {
           // Naeste adresse, eller den oprindelige fejl.

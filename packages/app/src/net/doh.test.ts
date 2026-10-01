@@ -72,6 +72,36 @@ describe('DNS over HTTPS som noedudgang', () => {
     expect(pinnedIp('panel.example')).toBeNull();
   });
 
+  it('husker ikke en adresse der svarer 404: det er serverens standardside, ikke panelet (v358)', async () => {
+    const calls: string[] = [];
+    const fetchImpl = vi.fn(async (url: string) => {
+      calls.push(url);
+      if (url.startsWith('http://panel.example')) throw new TypeError('Network request failed');
+      return { ...ok(''), ok: false, status: 404 };
+    });
+    const wrapped = withDnsFallback(fetchImpl, async () => ['203.0.113.7', '203.0.113.8']);
+    await expect(wrapped('http://panel.example:8080/player_api.php')).rejects.toThrow('Network request failed');
+    expect(calls).toEqual([
+      'http://panel.example:8080/player_api.php',
+      'http://203.0.113.7:8080/player_api.php',
+      'http://203.0.113.8:8080/player_api.php',
+    ]);
+    expect(pinnedIp('panel.example')).toBeNull();
+  });
+
+  it('glemmer en pinnet adresse der svarer 404, og gaar tilbage til navnet (v358)', async () => {
+    pinHost('panel.example', '203.0.113.9');
+    const calls: string[] = [];
+    const wrapped = withDnsFallback(async (url) => {
+      calls.push(url);
+      if (url.startsWith('http://203.0.113.9')) return { ...ok(''), ok: false, status: 404 };
+      return ok('');
+    });
+    expect((await wrapped('http://panel.example/x')).status).toBe(200);
+    expect(calls).toEqual(['http://203.0.113.9/x', 'http://panel.example/x']);
+    expect(pinnedIp('panel.example')).toBeNull();
+  });
+
   it('spoerger Google foerst og Cloudflare naar Google ikke svarer', async () => {
     const asked: string[] = [];
     const resolve = createResolver(async (url) => {

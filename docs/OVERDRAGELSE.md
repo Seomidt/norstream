@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**1. oktober 2026 (v358).** Ny boks: Test programoversigten viste samme danske panel som det gamle tv (DR1 med EPG-id), kanallisten hentet, men **HTTP 404** på både EPG-kaldet og EPG-filen; det gamle tv virker. Fundet: DNS-nødudgangen (`withDnsFallback`) huskede en adresse i en time, så snart den svarede med *noget*, også 404 — og en pinnet adresse blev kun glemt ved netfejl, aldrig ved 404. Når navnet ikke når frem som Host-hoved, svarer serverens standardside 404 på alt. Nu: 404 fra adressen = "ikke panelet": huskes ikke, og en husket adresse der svarer 404 glemmes, så navnet prøves igen. Loggen får `net:`-linjer, og Test programoversigten viser "Vejen til panelet: på navnet / via en husket adresse". Om det er HELE forklaringen på den nye boks, bekræftes af rapporten efter 358.
+
 **1. oktober 2026 (v357).** Ny boks (sat op fra sky-kopi): "EPG kommer ikke på, selv om man har stået på favoritter i 20 minutter." Fundet i koden: `ensureEpg`/`ensureFullEpg` slugte alle fejl per kanal (netfejl, 403, panelets nedkøling bliver til `XtreamNetworkError` i klienten), så guiden stod stille tom. Nu tælles de (`failed`, `reason` i `EnsureEpgResult`), loggen får `epg:`-linjer, nedkølingen skriver `panel: panelet afviste …`, og guiden viser en bjælke "Programoversigten kunne ikke hentes fra panelet: …" når alle hentninger fejler. Årsagen på den nye boks kendes IKKE endnu — afvent bjælken/loggen eller Test programoversigten.
 
 **1. oktober 2026 (v356).** Tv, opsætningsskærmen: "Kan ikke komme ned i Dit kodeord når jeg skal på første gang." Pilene når ikke et tekstfelt fra fanerne, og knappen er slået fra indtil feltet er udfyldt. Nu får det første felt fokus selv (`.focus()` 250 ms efter åbning og ved fanevalg), og tastaturets "næste" flytter mellem felterne (adresse → brugernavn → adgangskode) på tv. Samme mønster som resten af appen (ANDROID-TV.md: pil ned mellem tekstfelter er upålidelig).
@@ -81,6 +83,33 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 1. oktober 2026 — v358: DNS-nødudgangen huskede en adresse der svarede 404
+
+Billedet fra den nye boks (v357, Test programoversigten): "Favoritter fra kilden:
+89, uden programmer forude: 89. Første: DNK| DR1 HD → navn DR1, land DK, EPG-id
+dr1.dk. Panelet per kanal svarede ikke: Panelet svarede med HTTP 404. Filen kunne
+ikke hentes/læses: Panelet svarede HTTP 404." Det gamle tv virker på samme panel.
+
+To forskellige EPG-adresser med 404, mens kanallisten findes: det gør et panel
+ikke selv. Men serverens *standardside* gør, når kaldet kommer på adressen uden
+panelets navn i Host-hovedet. `withDnsFallback` (v: DoH-nødudgangen): fejler
+navnet én gang (en flig af DNS-udfald på en ny boks), slås det op via DoH, og
+svaret fra adressen blev **pinnet en time uanset status** — også 404. Og den
+pinnede vej blev kun forladt når kaldet *kastede*; et 404-svar holdt pinnen i
+live. Kanallisten var hentet på navnet før omvejen, derfor så den fin ud.
+
+- `doh.ts`: `notThePanel(response)` = status 404. Via DoH: et 404 pinnes ikke,
+  næste adresse prøves, ellers den oprindelige fejl. Pinnet vej: 404 → `unpinHost`
+  og navnet igen. Log: `net: …` i begge tilfælde og når omvejen tages.
+- `panelEpg.diagnosePanelEpg`: linjen "Vejen til panelet: på navnet / via en
+  husket adresse". Tests i `doh.test.ts` (to nye).
+
+Åbent: om RN's fetch (OkHttp) overhovedet sender et `Host`-hoved sat fra JS. Gør
+den ikke, virker DoH-vejen aldrig for API-kald (kun for streams, hvor ExoPlayer
+sender hovedet), og så er rettelsen her det, der sikrer at appen i det mindste
+falder tilbage på navnet og siger den rigtige fejl. "Tjek forbindelsen til
+panelet" (ConnectionCheckScreen) måler netop "direkte på adressen med Host".
 
 ### 1. oktober 2026 — v357: EPG-fejl siges i stedet for at sluges
 

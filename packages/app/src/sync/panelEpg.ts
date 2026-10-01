@@ -1,6 +1,6 @@
 import { XtreamClient, buildXmltvUrl, normaliseChannelName } from '@norstream/core';
 import type { FetchLike, Programme, XtreamCredentials } from '@norstream/core';
-import { streamSource } from '../net/doh.js';
+import { eligibleParts, pinnedIp, streamSource } from '../net/doh.js';
 import { upsertProgrammes } from '../storage/programmes.js';
 import { getPanelEpgEnabled, getSetting, setSetting } from '../storage/settings.js';
 import { sportChannels } from '../storage/sport.js';
@@ -292,6 +292,10 @@ export async function diagnosePanelEpg(
     [sourceId],
   );
   lines.push(`Favoritter fra kilden: ${total?.n ?? 0}, uden programmer forude: ${wanted.length}.`);
+  // v358: gaar kaldene paa panelets navn, eller via en husket adresse (DNS-noedudgangen)?
+  const parts = eligibleParts(creds.baseUrl);
+  const pinned = parts === null ? null : pinnedIp(parts.host);
+  lines.push(pinned === null ? 'Vejen til panelet: på navnet.' : 'Vejen til panelet: via en husket adresse (DNS-nødudgangen), navnet kunne ikke slås op.');
   const first = wanted[0];
   if (first !== undefined) {
     lines.push(`Første: "${first.name}" → navn ${normaliseChannelName(first.name) || '(tomt)'}, land ${first.country || '(ukendt)'}, EPG-id ${first.epgId ?? '(intet)'}.`);
