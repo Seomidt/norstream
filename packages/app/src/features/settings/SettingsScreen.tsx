@@ -3,7 +3,10 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from
 import { deriveCountry } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { vodCounts } from '../../storage/vod.js';
-import { countRadioChannels } from '../../storage/channels.js';
+import { countRadioChannels, getChannel } from '../../storage/channels.js';
+import { getNowNext } from '../../storage/programmes.js';
+import { probeTimeshift } from '../player/timeshiftProbe.js';
+import { probeFetch } from '../player/timeshiftProbeFetch.js';
 import { parseBackup, restoreBackup } from '../../storage/backup.js';
 import { forgetLogoMisses, resetLogo } from '../../ui/logoCache.js';
 import { setPosterApiKey } from '../../ui/posterFill.js';
@@ -41,6 +44,9 @@ import {
   getThemePlace,
   setThemeMode,
   setThemePlace,
+  getLastChannelId,
+  getTimeshiftDialect,
+  getPanelOffsetMinutes,
 } from '../../storage/settings.js';
 import type { GuideInfoMode, HomeProvider, StreamFormatSetting, SubtitlePreference, VideoSurface } from '../../storage/settings.js';
 import { tmdbFetch } from '../../sync/tmdb.js';
@@ -201,6 +207,8 @@ export function SettingsScreen({
   const [panelEpg, setPanelEpg] = useState(true);
   /** "Test programoversigten": rapporten trin for trin (v345). */
   const [epgReport, setEpgReport] = useState<string | null>(null);
+  /** "Test start forfra" (v355): kan panelet levere et arkiv der vokser? */
+  const [restartReport, setRestartReport] = useState<string | null>(null);
   /** Fejlfindings-loggen (v349): de sidste linjer fra afspiller og guide. */
   const [logLines, setLogLines] = useState<string[] | null>(null);
   const [videoSurface, setVideoSurfaceState] = useState<VideoSurface>('surface');
@@ -734,6 +742,54 @@ export function SettingsScreen({
           <Text style={styles.rowTitle}>Test programoversigten</Text>
           <Text style={styles.rowHint} selectable>
             {epgReport ?? 'Henter filen nu og viser trin for trin, hvorfor favoritter står uden programmer.'}
+          </Text>
+        </View>
+        <Text style={styles.actionText}>Test</Text>
+      </TvPressable>
+      <TvPressable
+        style={styles.row}
+        onPress={() => {
+          if (restartReport !== null && restartReport.startsWith('Tester')) return;
+          setRestartReport('Tester … (tager op mod et minut)');
+          void (async () => {
+            try {
+              const lastId = await getLastChannelId(session.db);
+              const channel = lastId === null ? null : await getChannel(session.db, lastId);
+              if (channel === null) {
+                setRestartReport('Se en kanal først: testen bruger den kanal, du så sidst.');
+                return;
+              }
+              const access = session.access(channel.sourceId);
+              if (access?.creds == null) {
+                setRestartReport(`${channel.name}: kanalens kilde er ikke et panel (kun M3U-liste), så der er intet arkiv at måle.`);
+                return;
+              }
+              const dialect = await getTimeshiftDialect(session.db, channel.sourceId);
+              if (dialect === null) {
+                setRestartReport(`${channel.name}: panelet har ingen kendt start-forfra-adresse endnu. Åbn kanalen og tryk start forfra én gang, så findes den.`);
+                return;
+              }
+              const offset = await getPanelOffsetMinutes(session.db, channel.sourceId);
+              const programme = (await getNowNext(session.db, channel.id, new Date())).now;
+              if (programme === null) {
+                setRestartReport(`${channel.name}: ingen programdata for kanalen lige nu, så testen ved ikke hvornår udsendelsen begyndte.`);
+                return;
+              }
+              const report = await probeTimeshift(probeFetch, access.creds, channel.streamId, programme, dialect, offset, {
+                onProgress: (text) => setRestartReport(`Tester ${channel.name} · ${programme.title}\n${text}`),
+              });
+              setRestartReport(`${channel.name} · ${programme.title}\n${report}`);
+            } catch (cause) {
+              setRestartReport(`Testen fejlede: ${cause instanceof Error ? cause.message.replace(/https?:\/\/\S+/g, '[adresse]') : 'ukendt fejl'}`);
+            }
+          })();
+        }}
+      >
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle}>Test start forfra</Text>
+          <Text style={styles.rowHint} selectable>
+            {restartReport ??
+              'Måler om panelet kan levere arkivet som en strøm, der vokser, mens udsendelsen sendes (løbende buffer). Bruger den kanal, du så sidst; afspilleren skal være lukket.'}
           </Text>
         </View>
         <Text style={styles.actionText}>Test</Text>

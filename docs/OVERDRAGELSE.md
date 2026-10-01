@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**1. oktober 2026 (v355).** Brugeren: "Kan vi ikke gøre så den buffer løbende, det må da give et bedre flow." Appen kan ikke selv (panelet tillader én forbindelse: ikke både optage live og hente det der gik forud). En løbende buffer kan kun komme fra panelet, som hos TV 2 Play. Om panelet leverer arkivet som en HLS-spilleliste der **vokser**, afgøres nu af **Indstillinger → Test start forfra** (`features/player/timeshiftProbe.ts`, testet): A) HLS fra start til slut læst to gange med 30 s imellem (vokser?), B) HLS kun det der findes, C) .ts-hovederne (Content-Length = færdig fil). Konklusionen står nederst. Vokser den → næste skridt er at spille den som live med spoling (ét flow). Afvent skærmbillede.
+
 **30. september 2026 (v354).** Brugeren: "Det der med skift i trailer til lavere kvalitet med YouTube fungerer ikke, så vi skal have lavet en ordentlig løsning." Den native YouTube-vej og blandingen (v329–v334) er **fjernet**. Apple TV og IMDb er stadig først. Når kun YouTube er tilbage: **på tv åbnes YouTube-appen** med traileren (fuld kvalitet, fjernbetjeningen virker; skærmen lukker når man kommer tilbage), ellers YouTubes indlejrede afspiller; **på telefonen** YouTubes egen afspiller fra start. Robot-beviset (PO-token) bygges stadig ALDRIG.
 
 **30. september 2026 (v353).** Brugerens to skærmbilleder af guiden viste fejlen: pil venstre fra Regionalprogram 19:30 (første celle) landede på 18 News 18:00 — forbi 19 News og Go' aften. v348 tog den *første* celle i rækken når udsendelsen var røget ud af det nye vindue; det skulle være den *sidste* før den. Nu findes naboen på **tid** (`neighbourIndex` i `guide/layout.ts`, testet): venstre = sidste udsendelse der begynder før den man stod på, højre = første efter; huller tæller. Den fokuserede celle tegnes i accentfarve på tv, så man kan se hvor man er. Og afspilleren får en **frost-vagt**: melder afspilleren 'spiller' men positionen står stille i 12 s, genforbindes der (som at gå ud i guiden og ind igen, hvilket brugeren gjorde manuelt). Loggen skriver `billedet staar stille …`. NorRadio-rettelsen (sortering) er også med i NorStreams radio-fane.
@@ -75,6 +77,41 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 1. oktober 2026 — v355: Test start forfra — kan panelet give en løbende buffer?
+
+Brugeren spurgte hvordan TV 2 Play gør (svar: "Start forfra" virker midt i en
+live-udsendelse, kun på Samsung/LG/Apple TV, afhængigt af rettigheder; kilde:
+play.kundeservice.tv2.dk) og dernæst: "Kan vi ikke gøre så den buffer løbende?"
+
+Hvorfor appen ikke kan selv: panelets ene forbindelse. En lokal DVR skulle
+optage live løbende OG hente arkivet for tiden før man tændte — to
+forbindelser. Så bufferen kan kun komme fra panelets side: leverer det
+arkivet som en HLS-spilleliste uden ENDLIST, der får flere stykker mens
+udsendelsen optages, kan ExoPlayer følge den som en live/event-strøm med
+spoling bagud — ét flow, ingen genhentninger, og live-kanten nås af sig selv.
+Det er det, der skal måles, ikke gættes (v347 bad om "til slut" som .ts og frøs).
+
+- **`features/player/timeshiftProbe.ts`:** `probeTimeshift(fetchProbe, creds,
+  streamId, programme, dialect, offset, {now, waitMs, sleep, onProgress})` →
+  rapport uden adresser. A: `buildTimeshiftUrl(..., 'm3u8')` fra start til slut,
+  `readPlaylist` (stykker, sekunder, ENDLIST, PLAYLIST-TYPE, master-varianter
+  følges), 30 s pause, læst igen → "vokser: JA (+N s)"/"nej". B: samme kun til
+  nu − 90 s. C: `.ts` til slut, kun hoveder (HEAD, ellers GET med Range; løber
+  tiden ud, er det en strøm uden ende). Tests: `timeshiftProbe.test.ts`.
+- **`timeshiftProbeFetch.ts`:** rigtig `fetch` + `streamSource` (DNS-pin), fordi
+  appens API-indpakning ikke giver hoveder. RN's fetch svarer først når hele
+  kroppen er hentet — derfor HEAD/Range til .ts.
+- **Indstillinger → Test start forfra** (ved siden af Test programoversigten):
+  bruger den kanal man så sidst og dens igangværende udsendelse; kræver
+  dialekt (ellers: åbn kanalen og tryk start forfra én gang) og programdata.
+  Afspilleren skal være lukket (forbindelsen).
+
+Næste skridt afhænger af rapporten: vokser den → ny afspilningsvej for
+igangværende udsendelser: HLS-arkivet "til slut" som live-strøm (ExoPlayer
+håndterer voksende spillelister selv), spol til 0, og lad `archiveContinuation`
+være for færdige udsendelser. Vokser den ikke → stykkevis som nu, og så er
+det hakket ved skiftet der kan gøres mindre (kortere stykker, hurtigere start).
 
 ### 30. september 2026 — v354: YouTube-trailere — appen på tv, YouTubes afspiller på telefon
 
