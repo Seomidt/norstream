@@ -43,6 +43,14 @@ export async function prefetchFavouritesEpg(
     const result = await ensureFullEpg(db, credsBySource, fetchImpl, favourites, now, { background: true });
     fetched = result.fetched;
     if (fetched > 0) logEvent('baggrund', `favoritternes EPG: ${fetched} af ${favourites.length} kanaler, ${result.programmes} programmer, ${Math.round((Date.now() - startedAt) / 1000)} s`);
+    // Fik vi intet og noget fejlede (v364): regn ikke doegnet for brugt. En ny
+    // boks sat op mens panelets EPG-vej svarede 404 stod ellers uden
+    // forhaandshentning i et doegn efter at panelet var tilbage — den
+    // daglige koersel havde "vaeret der".
+    if (fetched === 0 && result.failed > 0) {
+      logEvent('baggrund', `favoritternes EPG: intet hentet, ${result.failed} fejlede (${result.reason ?? '?'}): proever igen ved naeste start`);
+      return { fetched, skipped: false };
+    }
   }
   await setSetting(db, KEY, String(now.getTime()));
   return { fetched, skipped: false };

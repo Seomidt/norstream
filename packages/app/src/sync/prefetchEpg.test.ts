@@ -62,6 +62,17 @@ describe('prefetchFavouritesEpg', () => {
     expect(again.skipped).toBe(true);
   });
 
+  it('regner ikke doegnet for brugt naar alt fejlede (v364: ny boks under 404)', async () => {
+    const broken = vi.fn(async () => ({ ok: false, status: 404, json: async () => ({}), text: async () => '' })) as unknown as FetchLike;
+    const now = new Date('2026-09-07T10:00:00Z');
+    const first = await prefetchFavouritesEpg(db, credsBySource(), broken, now);
+    expect(first.fetched).toBe(0);
+    // Panelet er tilbage en time senere: der hentes med det samme, ikke i morgen.
+    const again = await prefetchFavouritesEpg(db, credsBySource(), panel(), new Date(now.getTime() + 3600_000));
+    expect(again.skipped).toBe(false);
+    expect(again.fetched).toBe(2);
+  });
+
   it('koerer igen naeste doegn', async () => {
     const fetchImpl = panel();
     const now = new Date('2026-09-07T10:00:00Z');
