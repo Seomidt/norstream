@@ -214,6 +214,7 @@ export function PlayerScreen({
       setRestarted(false);
       archiveRef.current = null;
       setFellBackToLive(false);
+      setCaughtUpToLive(false);
       setTriedFallback(false);
       setStreamError(null);
       setRestartBlock(undefined);
@@ -409,18 +410,23 @@ export function PlayerScreen({
     const subscription = player.addListener('playToEnd', () => {
       if (isRadio || !restarted || caughtUpHandled.current) return;
       const segment = archiveRef.current;
-      const airing = segment?.programme ?? startFrom ?? now;
-      if (airing === null || airing === undefined) return;
+      // Intet arkiv-stykke endnu (v362): fra guiden skabes afspilleren uden
+      // kilde, og play() paa en tom afspiller melder straks "spillet til
+      // ende". Det blev taget for "indhentet live" — appen bad om
+      // live-stroemmen og et sekund senere om arkivet, to forbindelser i
+      // traek til et panel der tillader én, og skiltet "Du er naaet til
+      // direkte" stod paa. Loggen fra tv'et viste det: "stroemmen sluttede
+      // ved 0 s (stykke fra ?) → live" i samme sekund som "beder om arkiv".
+      if (segment === null) {
+        logEvent('arkiv', 'spillet til ende uden arkiv-stykke (tom afspiller): ignoreres');
+        return;
+      }
+      const airing = segment.programme;
       const nowMs = Date.now();
-      let next =
-        segment === null
-          ? airing.stop.getTime() > nowMs
-            ? ({ kind: 'live' } as const)
-            : ({ kind: 'done' } as const)
-          : archiveContinuation(airing, segment.segmentStart, positionRef.current, nowMs);
+      let next = archiveContinuation(airing, segment.segmentStart, positionRef.current, nowMs);
       logEvent(
         'arkiv',
-        `stroemmen sluttede ved ${Math.round(positionRef.current)} s (stykke fra ${segment === null ? '?' : clockOf(segment.segmentStart)}) → ${next.kind}${next.kind === 'continue' ? ` fra ${clockOf(next.from.getTime())} +${Math.round(next.seekSeconds)} s` : ''}`,
+        `stroemmen sluttede ved ${Math.round(positionRef.current)} s (stykke fra ${clockOf(segment.segmentStart)}) → ${next.kind}${next.kind === 'continue' ? ` fra ${clockOf(next.from.getTime())} +${Math.round(next.seekSeconds)} s` : ''}`,
       );
       if (next.kind === 'continue') {
         // Arkivet sluttede midt i udsendelsen: hent det igen fra det punkt man
@@ -441,7 +447,7 @@ export function PlayerScreen({
       setSource(liveUrlFor(access, channel, formatForPlatform()));
     });
     return () => subscription.remove();
-  }, [player, isRadio, restarted, startFrom, now, access, channel]);
+  }, [player, isRadio, restarted, access, channel]);
 
   /**
    * Videosporet, til én linje i bjaelken paa tv: format, stoerrelse og om
@@ -715,6 +721,7 @@ export function PlayerScreen({
         return;
       }
       setFellBackToLive(false);
+      setCaughtUpToLive(false);
       const offset = await getPanelOffsetMinutes(session.db, channel.sourceId);
 
       // Fra `from` til udsendelsens slutning — men aldrig ud i fremtiden

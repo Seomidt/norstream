@@ -18,6 +18,8 @@ En IPTV-app med Norlys Play-agtig brugsoplevelse, der henter indhold fra brugere
 
 ## Status
 
+**2. oktober 2026 (v362).** Log fra tv'et efter en "tosset" start forfra (Go' morgen-udsendelse 06:30–12:00, trykket 08:57): det er **frost-vagten (v353)** der slår til, ikke buffering — "billedet står stille ved 78 s i 12 s: genforbinder" og igen ved 142 s, begge ca. 1½ minut efter start af stykket; tredje stykke kørte stabilt i 4+ min. Hver genforbindelse beder om arkivet fra det hele minut + spol, og dét er hoppene i lyden. Fundet og rettet: fra guiden skabes afspilleren uden kilde, og `play()` på en tom afspiller melder "spillet til ende" → appen tog det for "indhentet live" og bad om **live-strømmen et sekund før arkivet** (to forbindelser i træk; skiltet "Du er nået til direkte" blev stående). Nu ignoreres det (`arkiv: spillet til ende uden arkiv-stykke`), og skiltet nulstilles ved nyt start forfra og zap. Hvorfor billedet fryser med status "spiller" er ikke set endnu: næste skridt er Streamformat = HLS (kan spoles i, EXT-X-DISCONTINUITY) og Test start forfra. Også GitHub-måling `scripts/maal/panelveje.mjs`: panelets EPG-veje (get_short_epg, xmltv.php) svarer **404 fra nginx for alle** (login svarer 403), så den nye boks' manglende EPG er panelets, ikke appens; den gamle boks kører på gemt EPG.
+
 **1. oktober 2026 (v361).** Tv: "opdateringen bliver bare ved med at stå på 0 % og kommer ikke videre." Hentningen (`createDownloadResumable`) havde ingen tidsgrænse, og den igangværende blev genbrugt ved næste tryk, så man kunne hverken komme videre eller prøve igen. Nu en vagt: ingen nye bytes i 45 s → afbrydes, bjælken siger "Hentningen gik i stå ved N %…", og næste tryk på Opdater henter forfra. Loggen får `opdatering:`-linjer. v360 (spøgelser i oversigten) er med; 360 blev ikke udgivet for sig.
 
 **1. oktober 2026 (v360).** Sport: "vælger håndbold, men kanalen sender basketball — tager den sidste uges oversigt?" Ja, i praksis: programmer gemmes med nøglen (kanal, starttid), så et program der FLYTTEDE sig i panelets næste oversigt blev liggende ved siden af det nye (spøgelser), og Sport fandt spøgelset som "LIVE NU". Nu erstatter hver hentning (nu/næste, hele tabellen, panelets fil, egen XMLTV) kanalens programmer i det tidsrum batchen dækker (`upsertProgrammes(…, { replaceWindow: true })`, testet). Fortiden uden for tidsrummet røres ikke.
@@ -89,6 +91,62 @@ Panelets egen EPG per kanal (`get_short_epg`) + panelets egen `xmltv.php` læst
 **native i baggrunden, kun for favoritter uden EPG-id** (v320) er vejen. Og favoritter/grupper er
 brugerens data: al gen-hægtning og gendan-matchning skal respektere **landet**,
 ellers byttes danske kanaler til svenske (v319).
+
+### 2. oktober 2026 — v362: start forfra bad om live-strømmen før arkivet; log-analyse af hoppene
+
+Brugeren: "Start forfra på igangværende udsendelse virker, men de første par
+minutter springer den frem og tilbage, går tilbage i lyden, fryser lidt i
+billedet … efter 3 minutter stabiliserer det sig." Og: "Skulle den ikke køre
+HLS i stedet for TS?" (Nej: v355 var kun målingen; afspilningen bruger .ts
+som live, fordi HLS-arkiv gav grøn skærm på DR på tv. Streamformat i
+Indstillinger gælder også start forfra, så HLS kan prøves uden ny udgave.)
+
+**Loggen (Vis loggen, tv):**
+
+```
+08:56:59 arkiv: stroemmen sluttede ved 0 s (stykke fra ?) → live
+08:56:59 arkiv: beder om php-arkiv fra 06:30:00, 146 min (… offset 120 min, spol 0 s)
+08:57:01 afspiller: klar (arkiv)
+08:58:36 afspiller: billedet staar stille ved 78 s i 12 s: genforbinder
+08:58:38 arkiv: beder om php-arkiv fra 06:31:00, 147 min (… spol 19 s)
+08:58:39 afspiller: klar (arkiv) · buffrer ved 0 s
+09:00:17 afspiller: billedet staar stille ved 142 s i 12 s: genforbinder
+09:00:19 arkiv: beder om php-arkiv fra 06:33:00, 146 min (… spol 22 s)
+09:00:20 afspiller: klar (arkiv) · buffrer ved 0 s
+09:04:42 afspiller: klar (live)   ← brugeren gik til live
+```
+
+Hvad den siger: ingen "buffrer"-linjer midt i afspilningen, så det er ikke
+tomt buffer. Afspilleren melder "spiller", men tiden står stille — frost-vagten
+(v353) genforbinder efter 12 s, fra det hele minut + spol frem. Det er
+hoppene. To gange ca. 85 s efter stykkets start (vægur, ikke indhold:
+06:31:18 og 06:33:22), tredje stykke uden frost i 4+ min. Årsagen til at
+dekoderen stopper med data i bufferen ses ikke herfra (PTS-spring i panelets
+sammenklippede arkiv? boksens hardware-dekoder? — det samme sås på live i
+v353).
+
+**Rettet (sikkert fra loggen):** den første linje. Fra guiden skabes
+afspilleren med kilde `null` og `play()`; ExoPlayer melder straks STATE_ENDED
+på en tom afspiller → `playToEnd` → handleren (restarted sand, intet stykke)
+tog det for "indhentet live": `setSource(live)`, `setCaughtUpToLive(true)`,
+og ét sekund senere satte `playFromStart` arkivet. Altså live-forbindelse +
+arkiv-forbindelse i træk mod et panel med én forbindelse, hver gang fra
+guiden. Nu: intet stykke → `arkiv: spillet til ende uden arkiv-stykke (tom
+afspiller): ignoreres`. `caughtUpToLive` nulstilles i `playFromStart` og ved
+zap (skiltet blev ellers stående).
+
+**Næste skridt, i rækkefølge:** 1) brugeren prøver Streamformat = HLS på samme
+udsendelse (HLS kan spoles i, så "spol 19 s" rammer; og
+EXT-X-DISCONTINUITY håndterer spring). 2) Test start forfra-rapporten
+(Content-Length på .ts = spolbar?). 3) Vokser HLS-arkivet → ét flow (v355-planen).
+
+**Måling, panelets EPG-veje (`scripts/maal/panelveje.mjs`, motor `maal`,
+testlegitimation):** `line.trx-hub.xyz` (én A-post, nginx): login,
+kategorier, get.php, live .ts → HTTP 403 (nginx-side); `get_short_epg` → **404**;
+`xmltv.php` med/uden login → **404**; IP direkte med/uden Host → 403. Begge
+fejlsider er nginx' egne, så EPG-vejene er lukket på panelets webserver for
+alle. Den nye boks' 404 er panelets; den gamle kører på gemt EPG. Vej frem:
+sælgeren, eller en XMLTV-adresse på kilden (findes allerede under Kilder).
 
 ### 1. oktober 2026 — v361: hentningen af en opdatering kunne stå på 0 % for evigt
 
