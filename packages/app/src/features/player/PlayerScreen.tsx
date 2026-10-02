@@ -603,7 +603,7 @@ export function PlayerScreen({
         if (cancelled) return;
 
         if (status === 'readyToPlay') {
-          if (!everReady.current) logEvent('afspiller', `klar${restarted ? ' (arkiv)' : ' (live)'}`);
+          if (!everReady.current) logEvent('afspiller', `klar (${restarted ? 'arkiv' : 'live'}, ${/\.m3u8(\?|$)/.test(source) ? 'hls' : 'ts'})`);
           attempt = 0;
           everReady.current = true;
           clearStallTimer();
@@ -694,7 +694,18 @@ export function PlayerScreen({
       }
       if (Date.now() - stillSince < FROZEN_AFTER_MS) return;
       stillSince = null;
-      logEvent('afspiller', `billedet staar stille ved ${Math.round(position)} s i ${Math.round(FROZEN_AFTER_MS / 1000)} s: genforbinder`);
+      // v363: hvor langt bufferen naaede, saa loggen skelner "data i bufferen,
+      // dekoderen staar" (buffer langt foran) fra "sultet, men status spiller".
+      let buffered = -1;
+      try {
+        buffered = player.bufferedPosition;
+      } catch {
+        // Afspilleren er vaek.
+      }
+      logEvent(
+        'afspiller',
+        `billedet staar stille ved ${Math.round(position)} s i ${Math.round(FROZEN_AFTER_MS / 1000)} s (buffer til ${buffered < 0 ? '?' : Math.round(buffered)} s): genforbinder`,
+      );
       handleFailure();
     }, FROZEN_CHECK_MS);
 
