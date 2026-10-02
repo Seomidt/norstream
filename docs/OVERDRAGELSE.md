@@ -2415,28 +2415,39 @@ eller i bilen** før de næste builds. Regn med småting.
   måden står i `docs/BYG-FRA-CHAT.md` afsnit 9. Byg-opskriften er med vilje
   ikke rørt: en ændret byg-fil bliver sat i "afventer godkendelse".
 
-### Åbne punkter
+### Åbne punkter (pr. 2. oktober 2026, v364 udgivet på begge mærkater)
 
-- **DR-kanaler er grønne ved start forfra på tv'et** (lyd, ingen billede),
-  mens TV 2 virker og samme udsendelse virker på telefonen. Diagnoselinjen
-  siger `avc 1280×720 · understøttet`. Det virkede samme morgen. Hverken
-  format (`.ts`/HLS), TextureView, genstart eller VPN-skift har ændret det.
-  Det der er tilbage at prøve: samme udsendelse på telefonen gennem NordVPN
-  New York (server for amerikanske adresser?), og et Android-log fra
-  Streameren (`adb logcat` med ExoPlayer-linjer) hvis det kan skaffes.
-- **Brugeren kører NorStream gennem NordVPN (split tunneling, kun
-  NorStream, New York).** Panelet svarer ikke fra dansk Wi-Fi og ikke fra
-  Boston. Forbindelsestjekket under Indstillinger → Kilder siger om det er
-  DNS eller adresse; ikke kørt endnu.
+- **Start forfra hakker de første minutter på tv'et** (lyd går tilbage,
+  billede fryser, stabilt efter ~3 min). Loggen (v362-afsnittet) viser at det
+  er frost-vagten (v353) der genforbinder: afspilleren melder "spiller", men
+  tiden står stille, to gange ca. 85 s efter stykkets start. Ikke buffering.
+  **HLS fejlede også** (brugeren prøvede Streamformat = HLS), så beholderen
+  er ikke årsagen. v363 logger `(buffer til N s)` ved frost: buffer langt
+  foran = boksens dekoder/lyd-ur (ret: blidt skub i stedet for ny
+  forbindelse fra det hele minut); buffer ≈ position = panelet leverer for
+  langsomt (ret: større startbuffer på arkiv). **Afventer Vis loggen** fra
+  en start forfra med Streamformat = Auto, plus **Test start forfra**.
+- **Ny boks uden EPG** (sat op 1. oktober under panelets 404-udfald).
+  Panelets EPG-veje svarede 404 fra nginx for alle (målt fra GitHub,
+  `scripts/maal/panelveje.mjs`); 2. oktober er 404 væk, men boksen hentede
+  stadig ikke. Fundet: den daglige forhåndshentning satte sit døgn-mærke
+  selv når alt fejlede (rettet i v364). **Afventer** Vis loggen efter
+  opdatering + genstart, og Test programoversigten hvis EPG stadig mangler.
+- **Telefonens GOLD-panel har ingen EPG** (v345): Test programoversigten
+  fra telefonen er aldrig sendt.
+- **DR grøn skærm ved start forfra som HLS** på tv (ældre; derfor .ts).
 - Android Auto: rul-til-top i NorRadio (ældre punkt). Apple TV og Google
   Play: se `docs/ANDROID-TV.md` afsnit 7.
 
 ### Hvordan det er verificeret
 
-- 524 tests og typecheck grønne i app-pakken, 4 tests og typecheck i
-  radio-pakken.
+- 743 tests i 79 filer og typecheck grønne i app-pakken; typecheck i
+  core og radio. Kør: `cd packages/app && ../../node_modules/.bin/vitest run`
+  og `npm run typecheck --workspaces`.
 - Alt tv-arbejde er verificeret af brugeren på fjernsynet med fotos; der
   er ingen emulator i kæden. Skærmkomponenterne har ingen enhedstests.
+- Udgivelser verificeres på GitHub: udgivelsesnavnet under
+  `latest-norstream-tv`/`latest-norstream` skal ende på `(vN)`.
 
 ## Panelets faktiske karakteristika
 
@@ -2458,14 +2469,12 @@ Målt, ikke gættet. Disse tal er grunden til at det oprindelige design ikke hol
 
 ## Næste skridt
 
-1. **DR grøn skærm** (se åbne punkter). Første prøve er telefonen gennem
-   NordVPN New York på samme udsendelse.
-2. **Kør forbindelsestjekket** på dansk Wi-Fi uden VPN. Er dommen
-   DNS-blokering, burde nødudgangen i `net/doh.ts` nu klare det uden VPN;
-   prøv en kanal uden VPN bagefter.
-3. **Prøv det nye** (afsnittet ovenfor) på tv, telefon og i bilen, og ret
-   det der driller. Vækkeuret og bogmærket i bilen er de to ting med mest
-   Android-maskineri i.
+1. **Start forfra-frosten:** når loggen med `(buffer til N s)` kommer, vælg
+   vejen (se åbne punkter) og byg den. Vokser HLS-arkivet ifølge Test start
+   forfra, er v355-planen (ét flow) stadig den rigtige langsigtede vej.
+2. **Ny boks:** bekræft at v364 + genstart gav EPG; ellers Test
+   programoversigten (v359-linjerne siger adresse/login/kategorier/veje).
+3. **Telefonens GOLD-EPG** (v345): få rapporten.
 4. Idéer der er drøftet men ikke bygget: se "Parkerede punkter".
 
 ### Hvis noget ikke virker
