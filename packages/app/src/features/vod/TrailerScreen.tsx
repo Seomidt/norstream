@@ -277,6 +277,18 @@ async function openInYoutubeApp(videoId: string, onReturned: () => void): Promis
 const DESKTOP_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
+/** YouTubes IFrame-fejlkoder, i ord til loggen. */
+function embedErrorText(code: unknown): string {
+  switch (Number(code)) {
+    case 2: return 'ugyldigt video-id';
+    case 5: return 'HTML5-afspilleren fejlede';
+    case 100: return 'videoen findes ikke (fjernet eller privat)';
+    case 101:
+    case 150: return 'ejeren tillader ikke indlejring';
+    default: return 'ukendt';
+  }
+}
+
 const BROWSER_USER_AGENT =
   'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36';
 
@@ -315,29 +327,41 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     stage.current += 1;
     const name = year === null ? title : `${title} (${year})`;
     switch (step) {
+      // Loggen (v365) siger per kilde hvad den gav, saa "mange trailere koerer
+      // ikke" kan laeses: hvilken kilde der svigtede, ikke bare at den gjorde.
       case 0: {
         const tmdbKey = await getTmdbApiKey(session.db);
-        if (tmdbKey === null) return true;
-        for (const found of await findTmdbTrailers(tmdbFetch, tmdbKey, kind, name)) {
-          queue.current.push({ id: found.youtubeId, note: `Trailer fra TMDB: ${found.name}.`, checkLength: false });
+        if (tmdbKey === null) {
+          logEvent('trailer', 'TMDB: ingen noegle');
+          return true;
         }
+        const found = await findTmdbTrailers(tmdbFetch, tmdbKey, kind, name);
+        for (const video of found) {
+          queue.current.push({ id: video.youtubeId, note: `Trailer fra TMDB: ${video.name}.`, checkLength: false });
+        }
+        logEvent('trailer', `TMDB: ${found.length} bud`);
         return true;
       }
       case 1:
         if (trailerId !== null) queue.current.push({ id: trailerId, note: 'Udbyderens trailer.', checkLength: true });
+        logEvent('trailer', `udbyderens trailer: ${trailerId === null ? 'ingen' : 'ja'}`);
         return true;
       case 2: {
         const apiKey = await getYoutubeApiKey(session.db);
         if (apiKey === null) return true;
         const found = await findLongerTrailer(session.fetchImpl, apiKey, title, year, null);
         if (found !== null) queue.current.push({ id: found.id, note: `Fundet på YouTube: ${found.title}.`, checkLength: false });
+        logEvent('trailer', `YouTube Data API: ${found === null ? 'intet' : '1 bud'}`);
         return true;
       }
-      case 3:
-        for (const found of await searchYoutubeTrailers(fetchText, title, year)) {
-          queue.current.push({ id: found.id, note: `Fundet på YouTube: ${found.title}.`, checkLength: false });
+      case 3: {
+        const found = await searchYoutubeTrailers(fetchText, title, year);
+        for (const video of found) {
+          queue.current.push({ id: video.id, note: `Fundet på YouTube: ${video.title}.`, checkLength: false });
         }
+        logEvent('trailer', `YouTube-soegning: ${found.length} fundet`);
         return true;
+      }
       default:
         return false;
     }
@@ -358,21 +382,11 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         tried.current.add(next.id);
         if (!alive.current) return;
         setNote(next.note);
-        if (isTV) {
-          // Tv (v354): YouTube-appen spiller den i fuld kvalitet. Laengden
-          // kan ikke maales dér; TMDB's bud (foerst i koeen) er rigtige trailere.
-          setLoading(true);
-          const opened = await openInYoutubeApp(next.id, () => {
-            if (alive.current) onBackRef.current();
-          });
-          if (!alive.current) return;
-          logEvent('trailer', opened ? 'aabnet i YouTube-appen' : 'YouTube-appen kunne ikke aabnes: indlejret afspiller');
-          if (opened) {
-            setLoading(false);
-            setSource({ kind: 'external', id: next.id });
-            return;
-          }
-        }
+        // Ogsaa paa tv (v365): inde i appen med YouTubes egen indlejrede
+        // afspiller, som paa telefonen. v354 sendte tv'et til YouTube-appen
+        // foerst; brugeren vil have traileren i appen. Appen er nu sidste
+        // udvej, naar ingen kandidat kunne vises her.
+        logEvent('trailer', `spiller indlejret: ${next.note}`);
         setLoading(true);
         setSource({ kind: 'measured', id: next.id, checkLength: next.checkLength });
         return;
@@ -380,20 +394,40 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
       let more: boolean;
       try {
         more = await refill();
-      } catch {
+      } catch (cause) {
+        logEvent('trailer', `kilde ${stage.current - 1} fejlede: ${cause instanceof Error ? cause.message.replace(/https?:\/\/\S+/g, '[adresse]').slice(0, 80) : 'ukendt'}`);
         more = true;
       }
       if (!more) break;
     }
     if (!alive.current) return;
-    setNote('Ingen trailer til titlen kan vises her.');
     // Paa tv er YouTubes soegeside inde i appen ikke til at bruge med en
-    // fjernbetjening; der siges i stedet at intet kunne vises.
+    // fjernbetjening. Sidste udvej (v365): YouTube-appen med den bedste
+    // kandidat, hvis der var en; ellers siges det at intet kunne vises.
     if (isTV) {
+      const best = tried.current.values().next().value;
+      if (best !== undefined) {
+        setLoading(true);
+        const opened = await openInYoutubeApp(best, () => {
+          if (alive.current) onBackRef.current();
+        });
+        if (!alive.current) return;
+        logEvent('trailer', opened ? 'ingen kunne vises her: aabnet i YouTube-appen' : 'ingen kunne vises her, og YouTube-appen kunne ikke aabnes');
+        if (opened) {
+          setNote('Traileren kunne ikke vises i appen; den spiller i YouTube-appen.');
+          setLoading(false);
+          setSource({ kind: 'external', id: best });
+          return;
+        }
+      } else {
+        logEvent('trailer', 'ingen kandidater fra nogen kilde');
+      }
+      setNote('Ingen trailer til titlen kan vises her.');
       setLoading(false);
       setSource({ kind: 'none' });
       return;
     }
+    setNote('Ingen trailer til titlen kan vises her.');
     setLoading(true);
     setSource({ kind: 'search', url: youtubeSearchUrl(title, year) });
   }
@@ -419,6 +453,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
           const built = master === null || apple === undefined ? null : buildHlsMaster(master, apple.url);
           const uri = built === null || apple === undefined ? null : writeManifest(`apple-${apple.id.replace(/[^A-Za-z0-9]/g, '')}`, 0, built.playlist, 'm3u8');
           if (!alive.current) return;
+          logEvent('trailer', apple === undefined ? 'Apple TV: intet' : uri === null ? 'Apple TV: fundet, men manifestet kunne ikke laeses' : `Apple TV: ${apple.name} (${apple.seconds} s)`);
           if (apple !== undefined && uri !== null) {
             setNote(`Trailer fra Apple TV: ${apple.name}.`);
             setLoading(true);
@@ -440,6 +475,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         const titleId = skip.has('imdb') ? null : info?.imdbId ?? null;
         const found = titleId === null ? [] : await findImdbTrailers(postJson, titleId);
         const best = found[0];
+        logEvent('trailer', titleId === null ? `IMDb: ${skip.has('imdb') ? 'sprunget over' : 'intet IMDb-id fra TMDB'}` : `IMDb: ${found.length} trailere`);
         if (best !== undefined && titleId !== null && alive.current) {
           setNote(`Trailer fra IMDb: ${best.name}.`);
           setLoading(true);
@@ -456,8 +492,9 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
           });
           return;
         }
-      } catch {
+      } catch (cause) {
         // Apple og IMDb er tilvalg; YouTube-vejen tager over.
+        logEvent('trailer', `Apple/IMDb fejlede: ${cause instanceof Error ? cause.message.replace(/https?:\/\/\S+/g, '[adresse]').slice(0, 80) : 'ukendt'}`);
       }
     }
     await playNext();
@@ -499,7 +536,13 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     }
     if (source.kind !== 'measured') return;
     if (message.type === 'playing') {
+      logEvent('trailer', 'indlejret afspiller spiller');
       setLoading(false);
+      return;
+    }
+    if (message.type === 'ended') {
+      // Paa tv lukker traileren naar den er slut, som i Googles butik.
+      if (isTV) onBackRef.current();
       return;
     }
     if (message.type === 'duration' && typeof message.seconds === 'number' && message.seconds > 0) {
@@ -507,10 +550,12 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     } else if (message.type === 'noapi') {
       // Afspiller-API'et kom ikke op. Den rene indlejring virker uden det
       // (men kan saa ikke melde fejl).
+      logEvent('trailer', 'YouTubes afspiller-API kom ikke op: ren indlejring');
       setLoading(true);
       setSource({ kind: 'plain', id: source.id });
     } else if (message.type === 'error') {
       // Spaerret i Danmark, maa ikke indlejres, fjernet: proev den naeste.
+      logEvent('trailer', `indlejret afspiller meldte fejl ${String(message.code)}: ${embedErrorText(message.code)}`);
       void playNext();
     }
   }
@@ -587,7 +632,8 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
             expectedSeconds={source.seconds}
             contentType={source.contentType}
             onReady={() => setLoading(false)}
-            onBroken={(position) => {
+            onBroken={(position, reason) => {
+              logEvent('trailer', `${source.apple === true ? 'Apple TV' : source.imdb !== undefined ? 'IMDb' : 'native'}-trailer stoppede ved ${Math.round(position)} s: ${reason}`);
               if (source.apple === true) void start(new Set(['apple']));
               else if (source.imdb !== undefined) void recoverImdb(source, position);
               else void playNext();
@@ -830,7 +876,7 @@ function onYouTubeIframeAPIReady(){
           var enough=d>0&&d*f>=Math.min(BUFFER_S,d*0.9);
           if((primed&&enough)||Date.now()-t0>MAX_WAIT){clearInterval(iv);begin(p);}
         },250);},
-      onStateChange:function(e){report(e.target);if(!primed&&e.data===1){primed=true;primedAt=Date.now();if(!started){e.target.pauseVideo();}}},
+      onStateChange:function(e){report(e.target);if(e.data===0&&started){post({type:'ended'});}if(!primed&&e.data===1){primed=true;primedAt=Date.now();if(!started){e.target.pauseVideo();}}},
       onError:function(e){post({type:'error',code:e.data});}
     }});
 }
