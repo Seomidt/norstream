@@ -3,7 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 const root = resolve('');
 const lab = await mkdtemp(join(tmpdir(), 'norstream-po-'));
@@ -16,7 +16,7 @@ try {
   const require = createRequire(join(lab, 'package.json'));
   const { chromium } = require('playwright');
   phase = 'chromium-install';
-  execFileSync(process.execPath, [require.resolve('playwright/cli'), 'install', 'chromium'], { stdio: 'ignore' });
+  execFileSync(process.execPath, [join(dirname(require.resolve('playwright/package.json')), 'cli.js'), 'install', 'chromium'], { stdio: 'ignore' });
   const generated = await readFile(join(root, 'packages/app/src/features/vod/generated/youtubeProofBundle.ts'), 'utf8');
   const bundle = JSON.parse(generated.match(/export const youtubeProofBundle = (.*);\n/)[1]);
   phase = 'chromium-launch';
