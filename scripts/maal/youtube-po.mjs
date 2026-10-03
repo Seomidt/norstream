@@ -8,16 +8,21 @@ import { createRequire } from 'node:module';
 const root = resolve('');
 const lab = await mkdtemp(join(tmpdir(), 'norstream-po-'));
 let browser;
+let phase = 'npm-ci';
 try {
   execFileSync('npm', ['ci'], { cwd: root, stdio: 'ignore' });
+  phase = 'playwright-install';
   execFileSync('npm', ['install', '--prefix', lab, '--no-audit', '--no-fund', 'playwright@1.58.2'], { stdio: 'ignore' });
   const require = createRequire(join(lab, 'package.json'));
   const { chromium } = require('playwright');
+  phase = 'chromium-install';
   execFileSync(process.execPath, [require.resolve('playwright/cli'), 'install', 'chromium'], { stdio: 'ignore' });
   const generated = await readFile(join(root, 'packages/app/src/features/vod/generated/youtubeProofBundle.ts'), 'utf8');
   const bundle = JSON.parse(generated.match(/export const youtubeProofBundle = (.*);\n/)[1]);
+  phase = 'chromium-launch';
   browser = await chromium.launch({ headless: true });
-  for (const id of ['uYPbbksJxIg', 'Way9Dexny3w']) {
+  for (const id of ['-711Ef0I7Jc', 'uYPbbksJxIg']) {
+    phase = 'proof';
     const page = await browser.newPage();
     let complete;
     let fail;
@@ -37,6 +42,7 @@ try {
         await page.evaluate((reply) => window.NorStreamProofReply(reply), reply).catch(() => {});
       }
       if (message.type === 'resolved') complete(message);
+      if (message.type === 'failed') { phase = `proof-${String(message.phase).replace(/[^a-z-]/g, '')}`; }
       if (message.type === 'failed') fail(new Error(`PO phase: ${message.phase}`));
     });
     await page.evaluate(() => { window.ReactNativeWebView = { postMessage: window.nativeProofMessage }; });
@@ -44,6 +50,7 @@ try {
     let timer;
     const payload = await Promise.race([result, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('PO deadline')), 90000); })]).finally(() => clearTimeout(timer));
     console.log(`${id}: aegte PO + ${payload.video.height}p, ${payload.seconds}s`);
+    phase = 'whole-files';
     for (const [kind, media] of [['video', payload.video], ['audio', payload.audio]]) {
       const response = await fetch(media.url, { headers: { 'User-Agent': payload.userAgent }, signal: AbortSignal.timeout(90000) });
       let bytes = 0;
@@ -57,7 +64,7 @@ try {
   console.log('PASS: begge trailere hentet helt, inklusiv lyd. Hardware-afspilning skal stadig testes.');
 } catch (error) {
   // Fejlbeskeder fra hente-/byggelaget kan indeholde signed URLs; vis kun klasse.
-  console.log('FAIL: bevis eller hel fil kunne ikke verificeres', error.name);
+  console.log('FAIL: bevis eller hel fil kunne ikke verificeres', { phase, kind: error.name, exit: Number.isInteger(error.status) ? error.status : null });
   process.exitCode = 1;
 } finally {
   await browser?.close();

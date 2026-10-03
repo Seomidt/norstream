@@ -35,6 +35,11 @@ export function YoutubeTrailer({ id, checkLength, resumeAt = 0, onUnavailable, o
   const [playing, setPlaying] = useState(false);
   const [notice, setNotice] = useState('Starter trailer …');
   const [initialFocus, setInitialFocus] = useState(isTV);
+  const [controlsShown, setControlsShown] = useState(true);
+  const [activity, setActivity] = useState(0);
+  const [quality, setQuality] = useState('');
+  const controlsShownRef = useRef(controlsShown);
+  controlsShownRef.current = controlsShown;
   const web = useRef<WebView>(null);
   const handlers = useRef({ onUnavailable, onEnd });
   handlers.current = { onUnavailable, onEnd };
@@ -54,6 +59,8 @@ export function YoutubeTrailer({ id, checkLength, resumeAt = 0, onUnavailable, o
     if (handled.current) return;
     handled.current = true;
     setPlaying(false);
+    setQuality('');
+    setControlsShown(true);
     const position = watch.current.position;
     logEvent('trailer', `YouTube ${reason} ved ${Math.round(position)} s, forsoeg ${attempt.number + 1}`);
     if (attempt.number < YOUTUBE_MAX_RELOADS) {
@@ -90,13 +97,25 @@ export function YoutubeTrailer({ id, checkLength, resumeAt = 0, onUnavailable, o
     setInitialFocus(true);
     const frame = requestAnimationFrame(() => setInitialFocus(false));
     return () => cancelAnimationFrame(frame);
-  }, [attempt]);
+  }, [attempt, controlsShown]);
+
+  useEffect(() => {
+    if (!isTV || !playing || !controlsShown) return;
+    const timer = setTimeout(() => setControlsShown(false), 5000);
+    return () => clearTimeout(timer);
+  }, [playing, controlsShown, activity]);
 
   useTVEventHandler((event) => {
     if (!isTV || event.eventKeyAction === 0) return;
-    if (event.eventType === 'playPause') command('toggle');
-    if (event.eventType === 'rewind') command('backward');
-    if (event.eventType === 'fastForward') command('forward');
+    const type = event.eventType;
+    if (!['select', 'up', 'down', 'left', 'right', 'playPause', 'rewind', 'fastForward'].includes(type)) return;
+    const hidden = !controlsShownRef.current;
+    if (type === 'playPause' || (hidden && type === 'select')) command('toggle');
+    if (type === 'rewind' || (hidden && type === 'left')) command('backward');
+    if (type === 'fastForward' || (hidden && type === 'right')) command('forward');
+    if (hidden && (type === 'left' || type === 'right')) return;
+    setControlsShown(true);
+    setActivity((value) => value + 1);
   });
 
   function onMessage(event: WebViewMessageEvent): void {
@@ -135,9 +154,12 @@ export function YoutubeTrailer({ id, checkLength, resumeAt = 0, onUnavailable, o
     else if (message.type === 'autoplay-blocked') {
       // Brugerens afspil-tryk er noedvendigt; en vagt maa ikke springe videre imens.
       watch.current.update({ state: 2, position: watch.current.position, seconds: watch.current.seconds }, Date.now());
+      setControlsShown(true);
       setNotice('Tryk Afspil for at starte');
     } else if (message.type === 'quality' && typeof message.quality === 'string' && message.quality !== lastQuality.current) {
       lastQuality.current = message.quality;
+      const labels: Record<string, string> = { hd2160: '2160p', hd1440: '1440p', hd1080: '1080p', hd720: '720p', large: '480p', medium: '360p', small: '240p', tiny: '144p' };
+      setQuality(labels[message.quality] ?? 'Automatisk kvalitet');
       logEvent('trailer', `YouTube kvalitet: ${message.quality.replace(/[^a-zA-Z0-9]/g, '').slice(0, 20)}`);
     }
   }
@@ -169,16 +191,18 @@ export function YoutubeTrailer({ id, checkLength, resumeAt = 0, onUnavailable, o
         // Ingen intents, top-navigation eller nye vinduer ud af appen.
         onShouldStartLoadWithRequest={(request) => youtubeEmbedNavigationAllowed(request.url)}
       />}
-      {/* Status/knapper uden for videoen: ingen overlay over YouTubes afspiller. */}
-      <View style={styles.controls}>
-        <TvPressable hasTVPreferredFocus={initialFocus} style={styles.button} onPress={() => command('toggle')}>
+      {isTV && !controlsShown && <View style={styles.focusKeeper} focusable hasTVPreferredFocus />}
+      {/* Bjaelken ligger uden for YouTube og klapper sammen under afspilning.
+          WebView forbliver monteret; en aendret hoejde maa ikke genstarte filmen. */}
+      <View style={[styles.controls, isTV && !controlsShown && styles.controlsHidden]} pointerEvents={isTV && !controlsShown ? "none" : "auto"}>
+        <TvPressable hasTVPreferredFocus={initialFocus && controlsShown} focusable={!isTV || controlsShown} style={styles.button} onPress={() => command('toggle')}>
           <Text style={styles.text}>{playing ? 'Pause' : 'Afspil'}</Text>
         </TvPressable>
         {isTV && <>
-          <TvPressable style={styles.button} onPress={() => command('backward')}><Text style={styles.text}>−10 s</Text></TvPressable>
-          <TvPressable style={styles.button} onPress={() => command('forward')}><Text style={styles.text}>+10 s</Text></TvPressable>
+          <TvPressable focusable={controlsShown} style={styles.button} onPress={() => command('backward')}><Text style={styles.text}>−10 s</Text></TvPressable>
+          <TvPressable focusable={controlsShown} style={styles.button} onPress={() => command('forward')}><Text style={styles.text}>+10 s</Text></TvPressable>
         </>}
-        <Text style={styles.status} numberOfLines={1}>{notice}</Text>
+        <Text style={styles.status} numberOfLines={1}>{notice || (quality ? `YouTube • ${quality}` : 'YouTube • Automatisk kvalitet')}</Text>
       </View>
     </View>
   );
@@ -188,6 +212,8 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000000' },
   video: { flex: 1, backgroundColor: '#000000' },
   controls: { height: 48, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, backgroundColor: '#000000' },
+  controlsHidden: { height: 0, opacity: 0, overflow: 'hidden' },
+  focusKeeper: { position: 'absolute', width: 1, height: 1, bottom: 0, left: 0 },
   button: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 4, backgroundColor: colors.surfaceRaised },
   text: { color: colors.text, fontSize: 14, fontWeight: '600' },
   status: { flex: 1, color: colors.textMuted, fontSize: 13 },

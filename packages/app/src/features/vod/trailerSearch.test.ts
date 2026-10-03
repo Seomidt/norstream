@@ -83,8 +83,8 @@ describe('findLongerTrailer', () => {
     const fetchImpl = fakeFetch({
       'https://www.googleapis.com/youtube/v3/search': {
         items: [
-          { id: { videoId: 'aaa' }, snippet: { title: 'Official Teaser' } },
-          { id: { videoId: 'bbb' }, snippet: { title: 'Official Trailer' } },
+          { id: { videoId: 'aaa' }, snippet: { title: 'Spider-Man Official Teaser' } },
+          { id: { videoId: 'bbb' }, snippet: { title: 'Spider-Man Official Trailer' } },
         ],
       },
       'https://www.googleapis.com/youtube/v3/videos': {
@@ -97,7 +97,7 @@ describe('findLongerTrailer', () => {
 
     const found = await findLongerTrailer(fetchImpl, 'KEY', 'Spider-Man', 2021, 'aaa');
 
-    expect(found).toEqual({ id: 'bbb', title: 'Official Trailer', seconds: 151 });
+    expect(found).toEqual({ id: 'bbb', title: 'Spider-Man Official Trailer', seconds: 151 });
     expect(fetchImpl.calls[0]).toContain('q=Spider-Man%202021%20trailer');
     expect(fetchImpl.calls[0]).toContain('videoEmbeddable=true');
     expect(fetchImpl.calls[0]).toContain('key=KEY');

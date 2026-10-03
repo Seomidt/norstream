@@ -3,6 +3,7 @@ import { BotGuardClient } from 'bgutils-js/botguard';
 import { WebPoMinter } from 'bgutils-js/webpo';
 import { buildURL, getHeaders, parseLooseJSON } from 'bgutils-js/utils';
 import { Innertube, Platform, ClientType } from 'youtubei.js/web';
+import { youtubeProofConfig } from '../packages/app/src/features/vod/youtubeProofConfig.js';
 import { pickFormats } from '../packages/app/src/features/vod/youtubeStream.js';
 
 const pending = new Map<number, { resolve: (r: Response) => void; reject: (e: Error) => void }>();
@@ -47,7 +48,7 @@ async function resolve(id: string) {
     if (!home.ok) throw new Error('Homepage');
     const html = await home.text();
     phase = 'challenge';
-    const config = JSON.parse(html.match(/ytcfg\.set\(({.+?})\);/s)?.[1] ?? '{}');
+    const config = youtubeProofConfig(html);
     const initial = parseLooseJSON(html.match(/window\.ytAtN\(\s*({[\s\S]*?})\s*\)/)?.[1] ?? '{}') as { R?: { bgChallenge?: { interpreterUrl: { privateDoNotAccessOrElseTrustedResourceUrlWrappedValue: string }; program: string; globalName: string } } };
     const challenge = initial.R?.bgChallenge;
     if (!challenge || typeof config.VISITOR_DATA !== 'string') throw new Error('Challenge');

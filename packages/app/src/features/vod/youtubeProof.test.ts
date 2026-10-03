@@ -5,7 +5,7 @@ const audio = { ...video, contentLength: 2000000, mimeType: 'audio/mp4; codecs="
 const result = { video, audio, seconds: 150.02, userAgent: 'Actual Android WebView UA' };
 describe('proof network boundary', () => {
   it('allows current attestation, player and interpreter endpoints', () => {
-    for (const url of ['https://www.youtube.com/', 'https://www.youtube.com/iframe_api', 'https://www.youtube.com/s/player/current/base.js', 'https://www.google.com/js/th/current.js']) expect(proofRequestAllowed(url, 'GET')).toBe(true);
+    for (const url of ['https://www.youtube.com/', 'https://www.youtube.com/iframe_api', 'https://www.youtube.com/s/player/current/base.js', 'https://www.google.com/js/th/current.js', 'https://www.youtube.com/js/th/current.js']) expect(proofRequestAllowed(url, 'GET')).toBe(true);
     for (const url of ['https://www.youtube.com/api/jnn/v1/GenerateIT', 'https://www.youtube.com/youtubei/v1/player']) expect(proofRequestAllowed(url, 'POST')).toBe(true);
   });
   it('blocks other hosts, deceptive prefixes and schemes, credentials and unneeded methods', () => {

@@ -17,7 +17,7 @@ const DEADLINE_MS = 90_000;
 /** Beviset og adresserne oprettes paa samme boks/session, aldrig paa serveren. */
 export function YoutubeProof({ id, onResolved, onFallback }: {
   id: string;
-  onResolved: (result: { uri: string; seconds: number; files: File[] }) => void;
+  onResolved: (result: { uri: string; seconds: number; height: number; files: File[] }) => void;
   onFallback: () => void;
 }) {
   const { colors } = useTheme();
@@ -101,7 +101,7 @@ export function YoutubeProof({ id, onResolved, onFallback }: {
       finished.current = true;
       transferred.current = true;
       logEvent('trailer', `YouTube PO: hele video+lyd hentet, ${message.video.height}p, ${Math.round(message.seconds)} s`);
-      handlers.current.onResolved({ uri: mpd.uri, seconds: message.seconds, files: files.current });
+      handlers.current.onResolved({ uri: mpd.uri, seconds: message.seconds, height: message.video.height!, files: files.current });
     } catch { fallback('filen kunne ikke hentes helt'); }
   }
   function onMessage(event: WebViewMessageEvent) {

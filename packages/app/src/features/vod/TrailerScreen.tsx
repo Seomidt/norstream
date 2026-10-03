@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, View, useTVEventHandler } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { useKeepAwake } from 'expo-keep-awake';
 import { File, Paths } from 'expo-file-system';
@@ -17,6 +17,7 @@ import { buildHlsMaster } from './youtubeStream.js';
 import { findAppleTrailers } from './appleTrailer.js';
 import { findImdbTrailers } from './imdbTrailer.js';
 import { logEvent } from '../../diagnostics/log.js';
+import { LandscapePlayer } from '../player/Landscape.js';
 import { surfaceTypeForPlatform } from '../player/format.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
@@ -39,6 +40,7 @@ interface NativeSource {
   contentType: 'hls' | 'progressive' | 'dash';
   provider: 'Apple TV' | 'IMDb' | 'YouTube PO';
   imdbTitleId?: string;
+  height?: number;
 }
 interface Candidate { id: string; checkLength: boolean }
 type Source = NativeSource | ({ kind: 'youtube' | 'proof'; resumeAt?: number } & Candidate) | { kind: 'looking' } | { kind: 'none' };
@@ -145,7 +147,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         for (const alias of aliases.current) {
           if (!alive.current) return false;
           const found = await searchYoutubeTrailers(getText, alias, resolvedYear.current);
-          for (const video of found) queue.current.push({ id: video.id, checkLength: false });
+          for (const video of found) queue.current.push({ id: video.id, checkLength: video.seconds === 0 });
         }
         logEvent('trailer', `YouTube-soegning: ${queue.current.length} bud`);
         return true;
@@ -191,7 +193,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     const name = year === null ? title : `${title} (${year})`;
     const info = tmdbKey.current === null ? null : await findTitleInfo(metadataFetch, tmdbKey.current, kind, name);
     if (!alive.current) return;
-    aliases.current = [...new Set([info?.englishTitle, info?.originalTitle, clean.title].filter((t): t is string => typeof t === 'string' && t.length > 0))].slice(0, 3);
+    aliases.current = [...new Set([clean.title, info?.originalTitle, info?.englishTitle].filter((t): t is string => typeof t === 'string' && t.length > 0))].slice(0, 3);
     resolvedYear.current = info?.year ?? year ?? clean.year;
     if (Platform.OS === 'android') {
       // Uafhaengige kilder spoerges samtidig; Apple er stadig foerstevalg.
@@ -258,7 +260,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
           onResolved={(result) => {
             manifests.current.push(...result.files);
             setLoading(true);
-            setSource({ kind: 'native', id: source.id, uri: result.uri, seconds: result.seconds, contentType: 'dash', provider: 'YouTube PO', resumeAt: 0, attempt: 0 });
+            setSource({ kind: 'native', id: source.id, uri: result.uri, seconds: result.seconds, contentType: 'dash', provider: 'YouTube PO', height: result.height, resumeAt: 0, attempt: 0 });
           }}
         />}
         {source.kind === 'youtube' && <YoutubeTrailer
@@ -272,6 +274,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         {source.kind === 'native' && <NativeTrailer
           key={`${source.id}:${source.attempt}`}
           uri={source.uri}
+          label={source.provider === 'YouTube PO' ? `YouTube • ${source.height ?? '?'}p` : source.provider}
           resumeAt={source.resumeAt}
           expectedSeconds={source.seconds}
           contentType={source.contentType}
@@ -305,6 +308,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
 function KeepAwake() { useKeepAwake('norstream-native-trailer'); return null; }
 function NativeTrailer({
   uri,
+  label,
   resumeAt,
   expectedSeconds,
   contentType,
@@ -313,6 +317,7 @@ function NativeTrailer({
   onEnd,
 }: {
   uri: string;
+  label: string;
   /** Sekunder inde, hvor der fortsaettes efter en genopretning. */
   resumeAt: number;
   /** Kildens laengde, hvis afspilleren ikke selv kender den. */
@@ -325,11 +330,6 @@ function NativeTrailer({
 }) {
   const styles = useStyles(makeStyles);
   const [playing, setPlaying] = useState(true);
-  const [initialFocus, setInitialFocus] = useState(isTV);
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => setInitialFocus(false));
-    return () => cancelAnimationFrame(frame);
-  }, []);
   const source = useMemo(() => ({ uri, contentType, useCaching: contentType === 'progressive' }), [uri, contentType]);
   const player = useVideoPlayer(source, (p) => {
     p.loop = false;
@@ -348,12 +348,6 @@ function NativeTrailer({
   function seek(by: number): void {
     player.currentTime = Math.max(0, Math.min(player.currentTime + by, Math.max(0, player.duration - 1)));
   }
-  useTVEventHandler((event) => {
-    if (!isTV || event.eventKeyAction === 0) return;
-    if (event.eventType === 'playPause') toggle();
-    if (event.eventType === 'rewind') seek(-10);
-    if (event.eventType === 'fastForward') seek(10);
-  });
 
   useEffect(() => {
     let ready = false;
@@ -447,23 +441,31 @@ function NativeTrailer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [player]);
 
-  return (
-    <View style={styles.nativeFrame}>
-    {playing && <KeepAwake />}
-    <VideoView
-      style={styles.nativeVideo}
-      player={player}
-      nativeControls={!isTV}
-      contentFit="contain"
-      surfaceType={surfaceTypeForPlatform()}
-    />
-    {isTV && <View style={styles.nativeControls}>
-      <TvPressable style={styles.controlButton} hasTVPreferredFocus={initialFocus} onPress={toggle}><Text style={styles.buttonText}>{playing ? 'Pause' : 'Afspil'}</Text></TvPressable>
+  const video = <VideoView
+    style={styles.nativeVideo}
+    player={player}
+    nativeControls={!isTV}
+    contentFit="contain"
+    surfaceType={surfaceTypeForPlatform()}
+  />;
+  if (!isTV) return <View style={styles.nativeFrame}>{playing && <KeepAwake />}{video}</View>;
+  return <LandscapePlayer
+    playing={playing}
+    initialBarShown={false}
+    video={video}
+    onPlayerKey={(key) => {
+      if (key === 'select' || key === 'playPause') { toggle(); return true; }
+      if (key === 'left' || key === 'rewind') { seek(-10); return true; }
+      if (key === 'right' || key === 'fastForward') { seek(10); return true; }
+      return false;
+    }}
+    bar={<>
+      <TvPressable style={styles.controlButton} hasTVPreferredFocus onPress={toggle}><Text style={styles.buttonText}>{playing ? 'Pause' : 'Afspil'}</Text></TvPressable>
       <TvPressable style={styles.controlButton} onPress={() => seek(-10)}><Text style={styles.buttonText}>−10 s</Text></TvPressable>
       <TvPressable style={styles.controlButton} onPress={() => seek(10)}><Text style={styles.buttonText}>+10 s</Text></TvPressable>
-    </View>}
-    </View>
-  );
+      <Text style={styles.buttonText}>{label}</Text>
+    </>}
+  />;
 }
 
 
@@ -479,6 +481,5 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   buttonText: { color: colors.text, fontSize: 14, fontWeight: '600' },
   nativeFrame: { flex: 1 },
   nativeVideo: { flex: 1 },
-  nativeControls: { height: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, gap: 12 },
   controlButton: { backgroundColor: colors.surfaceRaised, borderRadius: 4, paddingHorizontal: 14, paddingVertical: 6 },
 });

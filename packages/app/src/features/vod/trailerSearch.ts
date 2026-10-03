@@ -11,6 +11,7 @@ export interface TrailerCandidate {
   id: string;
   title: string;
   seconds: number;
+  channel?: string;
 }
 
 /** ISO 8601-varighed som YouTube skriver den: PT1M30S, PT2H, PT45S. Ugyldig giver 0. */
@@ -65,7 +66,7 @@ export function pickTrailer(
 }
 
 interface SearchResponse {
-  items?: Array<{ id?: { videoId?: string }; snippet?: { title?: string } }>;
+  items?: Array<{ id?: { videoId?: string }; snippet?: { title?: string; channelTitle?: string } }>;
 }
 
 interface VideosResponse {
@@ -96,10 +97,10 @@ export async function findLongerTrailer(
     );
     if (!search.ok) return null;
     const found = (await search.json()) as SearchResponse;
-    const titles = new Map<string, string>();
+    const titles = new Map<string, { title: string; channel?: string }>();
     for (const item of found.items ?? []) {
       const id = item.id?.videoId;
-      if (id !== undefined && id.length > 0) titles.set(id, item.snippet?.title ?? '');
+      if (id !== undefined && id.length > 0) titles.set(id, { title: item.snippet?.title ?? '', ...(item.snippet?.channelTitle ? { channel: item.snippet.channelTitle } : {}) });
     }
     if (titles.size === 0) return null;
 
@@ -116,9 +117,9 @@ export async function findLongerTrailer(
       if (item.id !== undefined) seconds.set(item.id, parseIsoDuration(item.contentDetails?.duration ?? ''));
     }
     for (const [id, name] of titles) {
-      candidates.push({ id, title: name, seconds: seconds.get(id) ?? 0 });
+      candidates.push({ id, ...name, seconds: seconds.get(id) ?? 0 });
     }
-    return pickTrailer(candidates, minSeconds, excludeId);
+    return pickTrailer(rankYoutubeTrailers(candidates, title, 8, year), minSeconds, excludeId);
   } catch {
     return null;
   }
@@ -137,10 +138,20 @@ export function parseClock(text: string): number {
   return parts.reduce((total, part) => total * 60 + Number(part), 0);
 }
 
+interface YoutubeText { simpleText?: unknown; content?: unknown; runs?: Array<{ text?: unknown }> }
+function youtubeText(value?: YoutubeText): string {
+  if (typeof value?.simpleText === 'string') return value.simpleText;
+  if (typeof value?.content === 'string') return value.content;
+  return value?.runs?.map((run) => typeof run.text === 'string' ? run.text : '').join('') ?? '';
+}
 interface Renderer {
   videoId?: unknown;
   title?: { runs?: Array<{ text?: unknown }>; simpleText?: unknown };
-  lengthText?: { simpleText?: unknown };
+  lengthText?: YoutubeText;
+  headline?: YoutubeText;
+  shortBylineText?: YoutubeText;
+  ownerText?: YoutubeText;
+  thumbnailOverlays?: Array<{ thumbnailOverlayTimeStatusRenderer?: { text?: YoutubeText } }>;
 }
 
 /**
@@ -176,7 +187,7 @@ export function parseYoutubeSearch(html: string): TrailerCandidate[] {
     return [];
   }
   const out: TrailerCandidate[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, TrailerCandidate>();
   const walk = (node: unknown, depth: number): void => {
     if (depth > 40 || node === null || typeof node !== 'object') return;
     if (Array.isArray(node)) {
@@ -184,17 +195,22 @@ export function parseYoutubeSearch(html: string): TrailerCandidate[] {
       return;
     }
     const record = node as Record<string, unknown>;
-    const renderer = record.videoRenderer as Renderer | undefined;
+    const renderer = (record.videoRenderer ?? record.videoWithContextRenderer) as Renderer | undefined;
     if (renderer !== undefined && typeof renderer === 'object') {
       const id = typeof renderer.videoId === 'string' ? renderer.videoId : '';
-      if (/^[A-Za-z0-9_-]{11}$/.test(id) && !seen.has(id)) {
-        seen.add(id);
-        const runs = renderer.title?.runs ?? [];
-        const title =
-          runs.map((run) => (typeof run.text === 'string' ? run.text : '')).join('') ||
-          (typeof renderer.title?.simpleText === 'string' ? renderer.title.simpleText : '');
-        const length = typeof renderer.lengthText?.simpleText === 'string' ? renderer.lengthText.simpleText : '';
-        out.push({ id, title, seconds: parseClock(length) });
+      if (/^[A-Za-z0-9_-]{11}$/.test(id)) {
+        const title = youtubeText(renderer.title ?? renderer.headline);
+        const length = youtubeText(renderer.lengthText) || renderer.thumbnailOverlays?.map((o) => youtubeText(o.thumbnailOverlayTimeStatusRenderer?.text)).find((t) => parseClock(t) > 0) || '';
+        const channel = youtubeText(renderer.shortBylineText ?? renderer.ownerText);
+        const prior = seen.get(id);
+        if (prior === undefined) {
+          const candidate = { id, title, seconds: parseClock(length), ...(channel ? { channel } : {}) };
+          seen.set(id, candidate); out.push(candidate);
+        } else {
+          if (!prior.title) prior.title = title;
+          if (!prior.seconds) prior.seconds = parseClock(length);
+          if (!prior.channel && channel) prior.channel = channel;
+        }
       }
     }
     for (const value of Object.values(record)) walk(value, depth + 1);
@@ -204,7 +220,7 @@ export function parseYoutubeSearch(html: string): TrailerCandidate[] {
 }
 
 /** Ord der betyder at videoen handler OM filmen, ikke er dens trailer. */
-const NOT_A_TRAILER = /reaction|review|anmeldelse|explained|breakdown|fan ?made|parody|parodi|recap|ending|behind the scenes|full movie|hele filmen/i;
+const NOT_A_TRAILER = /reaction|review|anmeldelse|explained|breakdown|fan ?made|parody|parodi|recap|ending|behind the scenes|full movie|hele filmen|\b(?:interview|scene|scenes|filmklip)\b/i;
 
 /**
  * De rigtige trailere blandt soegeresultaterne, bedste foerst: den rette
@@ -212,28 +228,61 @@ const NOT_A_TRAILER = /reaction|review|anmeldelse|explained|breakdown|fan ?made|
  * reaktion, helst "trailer" i titlen og helst filmens eget navn i den.
  * YouTubes relevans-raekkefoelge bevares inden for hver gruppe.
  */
-export function rankYoutubeTrailers(candidates: readonly TrailerCandidate[], title: string, limit = 5): TrailerCandidate[] {
-  const normalize = (text: string): string => text.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9æøå]+/g, ' ').trim();
-  const name = normalize(title);
-  const words = name.split(' ').filter((word) => word.length > 0 && word !== 'the');
-  const score = (candidate: TrailerCandidate): number => {
-    const lower = candidate.title.toLowerCase();
-    let value = lower.includes('trailer') ? 0 : lower.includes('teaser') ? 2 : 1;
-    if (name.length > 0 && !lower.includes(name)) value += 3;
-    return value;
-  };
-  return candidates
-    .filter(
-      (candidate) =>
-        candidate.seconds >= MIN_TRAILER_SECONDS &&
-        candidate.seconds <= MAX_TRAILER_SECONDS &&
-        !NOT_A_TRAILER.test(candidate.title) &&
-        words.length > 0 && words.every((word) => normalize(candidate.title).split(' ').includes(word)),
-    )
-    .map((candidate, index) => ({ candidate, index, score: score(candidate) }))
-    .sort((a, b) => a.score - b.score || a.index - b.index)
-    .slice(0, limit)
-    .map((entry) => entry.candidate);
+/** Danske bogstaver og ASCII-titler skal kunne sammenlignes. */
+function normalizeTitle(text: string): string {
+  return text.toLowerCase().replace(/æ/g, 'ae').replace(/ø/g, 'oe').replace(/å/g, 'aa')
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/** Et forsigtigt boejningsmatch: mindst to ord, kun eet afviger med slut-r/s. */
+function titleMatch(name: string, candidate: string): 'exact' | 'ending' | null {
+  const words = name.split(' ').filter((word) => word && word !== 'the');
+  const found = candidate.split(' ');
+  if (!words.length) return null;
+  const missing = words.filter((word) => !found.includes(word));
+  if (!missing.length) return 'exact';
+  if (words.length < 2 || missing.length !== 1) return null;
+  const word = missing[0]!;
+  return word.length >= 5 && found.some((other) => other.length >= 4 &&
+    (word === other + 'r' || other === word + 'r' || word === other + 's' || other === word + 's')) ? 'ending' : null;
+}
+
+/** Officielle distributoerer prioriteres; resten kan stadig have traileren. */
+const DISTRIBUTOR = /^(?:nordisk film(?: distribution)?|sf studios|scanbox(?: entertainment)?|angel films|universal pictures|warner bros(?: pictures)?|sony pictures(?: entertainment)?|paramount pictures|walt disney studios|20th century studios|a24|lionsgate)$/;
+
+export function rankYoutubeTrailers(candidates: readonly TrailerCandidate[], title: string, limit = 5, year: number | null = null): TrailerCandidate[] {
+  const name = normalizeTitle(title);
+  return candidates.flatMap((candidate, index) => {
+    const normalized = normalizeTitle(candidate.title);
+    const match = titleMatch(name, normalized);
+    const trailer = /\btrailer\b/.test(normalized);
+    // Ukendt laengde afgoeres af afspilleren. Titlen skal da sige trailer.
+    if (match === null || (match === 'ending' && !trailer) || NOT_A_TRAILER.test(normalized.replace(name, '')) ||
+      candidate.seconds < 0 || (candidate.seconds > 0 && candidate.seconds < MIN_TRAILER_SECONDS) ||
+      candidate.seconds > MAX_TRAILER_SECONDS || (candidate.seconds === 0 && !trailer)) return [];
+    // Undgaa efterfoelgere og en anden nyindspilning. "Trailer 2" er tilladt.
+    const installment = /\b(?:part|chapter|del|episode) (?:one|two|three|four|five|six|seven|eight|nine|ten|i|ii|iii|iv|v|vi|vii|viii|ix|x|\d+)\b/.exec(normalized)?.[0];
+    if (installment && !name.includes(installment)) return [];
+    const identity = normalized.replace(/\b(?:teaser )?trailer(?: #?\d+)?\b/g, '');
+    const numbers = identity.match(/\b\d+\b/g) ?? [];
+    const nameNumbers: readonly string[] = name.match(/\b\d+\b/g) ?? [];
+    if (numbers.some((n) => n.length === 4 ? year !== null && Number(n) !== year : !nameNumbers.includes(n))) return [];
+    const official = DISTRIBUTOR.test(normalizeTitle(candidate.channel ?? ''));
+    const score = (trailer ? 0 : 4) + (normalized.includes('teaser') ? 2 : 0) +
+      (match === 'ending' ? 2 : 0) + (official ? -2 : 0) + (candidate.seconds === 0 ? 2 : 0);
+    return [{ candidate, index, score }];
+  }).sort((a, b) => a.score - b.score || a.index - b.index).slice(0, limit).map((entry) => entry.candidate);
+}
+
+/** Aarstal kan skjule lokale trailere; boejningen fra panelet kan vaere forkert. */
+export function trailerQueries(title: string, year: number | null): string[] {
+  const cleaned = title.replace(/\s+/g, ' ').trim();
+  const words = cleaned.split(' ');
+  const last = words[words.length - 1] ?? '';
+  const singular = words.length >= 2 && last.length >= 5 && /r$/i.test(last)
+    ? [...words.slice(0, -1), last.slice(0, -1)].join(' ') : null;
+  return [...new Set([trailerQuery(cleaned, year), trailerQuery(cleaned, null),
+    ...(singular ? [trailerQuery(singular, null)] : [])])];
 }
 
 /**
@@ -248,18 +297,17 @@ export async function searchYoutubeTrailers(
   title: string,
   year: number | null,
 ): Promise<TrailerCandidate[]> {
-  const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(trailerQuery(title, year))}&hl=en&gl=DK`;
-  let html: string | null;
-  try {
-    html = await fetchText(url, {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      'Accept-Language': 'da,en;q=0.8',
-      Cookie: 'SOCS=CAI; CONSENT=YES+1',
-    });
-  } catch {
-    return [];
+  for (const query of trailerQueries(title, year)) {
+    try {
+      const html = await fetchText(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&hl=en&gl=DK`, {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept-Language': 'da,en;q=0.8',
+        Cookie: 'SOCS=CAI; CONSENT=YES+1',
+      });
+      if (html === null) continue;
+      const ranked = rankYoutubeTrailers(parseYoutubeSearch(html), title, 5, year);
+      if (ranked.length > 0) return ranked;
+    } catch { /* Naeste titelvariant kan stadig virke. */ }
   }
-  if (html === null) return [];
-  return rankYoutubeTrailers(parseYoutubeSearch(html), title);
+  return [];
 }

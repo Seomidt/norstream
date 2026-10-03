@@ -12,7 +12,7 @@ export function proofRequestAllowed(url: string, method: string): boolean {
     if (u.hostname === 'www.google.com') return method === 'GET' && u.pathname.startsWith('/js/');
     if (u.hostname !== 'www.youtube.com') return false;
     if (method === 'POST') return u.pathname.startsWith('/youtubei/v1/') || u.pathname === '/api/jnn/v1/GenerateIT';
-    return u.pathname === '/' || u.pathname === '/iframe_api' || u.pathname.startsWith('/s/player/');
+    return u.pathname === '/' || u.pathname === '/iframe_api' || u.pathname.startsWith('/s/player/') || u.pathname.startsWith('/js/');
   } catch { return false; }
 }
 function media(value: unknown, kind: 'video' | 'audio'): value is ProofMedia {

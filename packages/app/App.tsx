@@ -218,7 +218,7 @@ function AppInner() {
   // Afspilleren fylder hele fladen, uden fri kant: fjernsynet beskaerer
   // alligevel video i kanten, og en stribe af appens baggrund rundt om
   // billedet saa ud som om appen ikke fyldte skaermen.
-  const fullscreen = route.name === 'player' || route.name === 'vodPlayer';
+  const fullscreen = route.name === 'player' || route.name === 'vodPlayer' || (isTV && route.name === 'trailer');
   const visible = fullscreen ? 1 : 1 - 2 * TV_SAFE_MARGIN;
   const canvasWidth = (frame.width * visible) / TV_SCALE;
   const canvasHeight = (frame.height * visible) / TV_SCALE;
@@ -263,7 +263,7 @@ function AppInner() {
           billedet helt ud til kanten, i portraet laegger de selv toppen til. */}
       <SafeAreaView
         style={styles.root}
-        edges={route.name === 'player' || route.name === 'vodPlayer' ? [] : ['top', 'left', 'right']}
+        edges={fullscreen ? [] : ['top', 'left', 'right']}
       >
         <StatusBar style={scheme === 'light' ? 'dark' : 'light'} />
       {route.name === 'loading' && (
