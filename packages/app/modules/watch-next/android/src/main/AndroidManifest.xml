@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- Til at laegge egne titler i Google TV's "Fortsaet med at se" (Watch Next). -->
+  <uses-permission android:name="com.android.providers.tv.permission.READ_EPG_DATA" />
+  <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />
+</manifest>

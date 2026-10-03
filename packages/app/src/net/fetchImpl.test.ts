@@ -2,6 +2,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { createFetchImpl } from './fetchImpl.js';
 
 describe('createFetchImpl', () => {
+  // Den her manglede, og prisen var hoej: indpakningen gav ikke `text` videre,
+  // saa alt der laeser en krop som tekst — M3U-lister, XMLTV-oversigter og det
+  // aabne logo-register — fejlede paa telefonen. Og de fejlede *stille*: paa
+  // skaermen stod der bare at filen ikke var hentet.
+  it('giver kroppen videre som tekst', async () => {
+    const underlying = vi.fn(async () => new Response('#EXTM3U\n', { status: 200 }));
+    const fetchImpl = createFetchImpl(1000, underlying as unknown as typeof fetch);
+    const res = await fetchImpl('http://liste.example/liste.m3u');
+    await expect(res.text()).resolves.toBe('#EXTM3U\n');
+  });
+
   it('videregiver svaret fra det underliggende fetch', async () => {
     const underlying = vi.fn(async () => new Response('[]', { status: 200 }));
     const fetchImpl = createFetchImpl(1000, underlying as unknown as typeof fetch);

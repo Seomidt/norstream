@@ -1,47 +1,255 @@
 name: Byg Android-APK
 
-# Kun manuelt. Et EAS-build koster byggetid, saa det maa ikke fyre af ved
-# hvert push — det skal vaere en beslutning, ikke en bivirkning.
+# Kun manuelt. Et build koster byggetid, saa det maa ikke fyre af ved hvert
+# push — det skal vaere en beslutning, ikke en bivirkning.
 on:
   workflow_dispatch:
     inputs:
+      motor:
+        description: 'Hvor APK-en bygges'
+        required: true
+        default: runner
+        type: choice
+        # `runner` bygger med Gradle her paa maskinen og laegger APK-en som en
+        # artefakt paa koerslen. Den findes fordi EAS' gratis-plan har et loft
+        # per maaned, og da det blev naaet, kunne der ikke bygges en eneste
+        # APK — hverken til en rettelse eller til at proeve noget af. Et
+        # projekt maa ikke kunne staa stille paa den maade.
+        #
+        # APK-en signeres med Androids almindelige debug-noegle, som er den
+        # samme paa alle maskiner (SHA1 5E:8F:16:06:...). Derfor kan builds
+        # herfra opgraderes oven i hinanden. **Den foerste** kan ikke laegges
+        # oven i en APK fra EAS: den er signeret med en anden noegle, og
+        # Android naegter at opgradere paa tvaers af signaturer.
+        # `probe` bygger ingenting: den maaler den adresse der staar i `url`
+        # og skriver hvad den svarede. Udviklingsmiljoeet bag appen sidder
+        # bag en proxy med en kort liste af tilladte vaerter og kan ikke selv
+        # afgoere om brugerens logo-vaert svarer fra internettet — og det
+        # spoergsmaal afgoer om 22.071 logoer kan reddes paa én gang.
+        # `youtube` maaler hvilken indramning YouTubes indlejrede afspiller
+        # accepterer fra en webvisning. To builds er gaaet paa gaet (fejl 153,
+        # saa fejl 152); det her koerer en rigtig browser paa en rigtig side
+        # med hver af de mulige base-adresser og siger hvilke der spiller.
+        # `maal` koerer et maaleskript fra scripts/maal/<navn>.mjs (navnet
+        # staar i `url`) paa en maskine med frit internet, og skriver hvad
+        # det fandt. Til de spoergsmaal én adresse ikke kan svare paa.
+        options: [runner, eas, probe, youtube, maal]
+      app:
+        description: 'Hvilken app der bygges: NorStream (app) eller NorRadio (radio)'
+        required: false
+        default: app
+        type: choice
+        options: [app, radio]
+      tv:
+        description: 'Byg til Android TV / Google TV (leanback-launcher, banner, ingen krav om beroeringsskaerm). Kun motor runner.'
+        required: false
+        default: false
+        type: boolean
+      url:
+        description: 'Adresse at maale (motor probe) eller navn paa maaleskript (motor maal)'
+        required: false
+        type: string
       profile:
-        description: 'EAS-byggeprofil'
+        description: 'EAS-byggeprofil (kun naar motor er eas). *_tv bygger til Apple TV / Android TV.'
         required: true
         default: preview
         type: choice
-        options: [preview, development, production]
+        options: [preview, development, production, preview_tv, development_tv]
+      platform:
+        description: 'Platform paa EAS (kun naar motor er eas)'
+        required: false
+        default: android
+        type: choice
+        options: [android, ios]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Tokenet laeses paa jobniveau, saa alle trin ser det samme.
+    #
+    # Faldback-kaeden findes fordi et forkert secret-navn ellers giver praecis
+    # den samme tomme vaerdi som et manglende: workflows kan ikke opremse
+    # secrets i en betingelse, saa hvert navn skal staa eksplicit.
+    #
+    # `EXPO` staar med fordi det er det navn hemmeligheden faktisk har i dette
+    # repo. Fire koersler meldte alle tre foerste navne tomme; det var foerst
+    # en opremsning af secrets-konteksten der viste hvorfor.
+    env:
+      EXPO_TOKEN: >-
+        ${{ secrets.EXPO_TOKEN || secrets.EXPO_ACCESS_TOKEN || secrets.EAS_TOKEN
+        || secrets.EXPO }}
+      # Tv-pluginet laeser EXPO_TV under prebuild: leanback-launcher, banner,
+      # beroeringsskaerm ikke paakraevet. 0 betyder telefon: pluginet laeser
+      # variablen som boolsk og afviser en tom streng.
+      EXPO_TV: ${{ inputs.tv && '1' || '0' }}
     steps:
+      - name: Maal en adresse
+        if: inputs.motor == 'probe'
+        run: |
+          url='${{ inputs.url }}'
+          echo "### Maaling af $url" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          # Hoveder alene foerst; fejler det, en rigtig GET — nogle vaerter
+          # afviser HEAD. Ingen af delene henter filen.
+          {
+            curl -sS -o /dev/null -m 20 -I \
+              -w 'HEAD status=%{http_code} type=%{content_type} ip=%{remote_ip} tid=%{time_total}s\n' "$url" \
+            || curl -sS -o /dev/null -m 20 \
+              -w 'GET  status=%{http_code} type=%{content_type} bytes=%{size_download} ip=%{remote_ip} tid=%{time_total}s\n' "$url"
+            # De foerste tegn af svaret, saa et API-svars form kan ses uden at hente alt.
+            echo "--- krop (600 tegn) ---"
+            curl -sS -m 20 -L "$url" | head -c 600; echo
+          } 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Maal YouTube-indramning
+        if: inputs.motor == 'youtube'
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install --no-audit --no-fund playwright@1 >/dev/null 2>&1
+          npx playwright install --with-deps chromium >/dev/null 2>&1
+          cat > probe.mjs <<'JS'
+          import { chromium } from 'playwright';
+          const ID = 'dQw4w9WgXcQ';
+          const page = (host) => `<!doctype html><html><body style="margin:0;background:#000">
+          <iframe src="https://${host}/embed/${ID}?autoplay=1&playsinline=1" width="640" height="360" frameborder="0"
+          allow="autoplay; encrypted-media" referrerpolicy="strict-origin-when-cross-origin"></iframe></body></html>`;
+          const variants = [
+            { name: 'base youtube.com,     embed youtube.com',          origin: 'https://www.youtube.com',        host: 'www.youtube.com' },
+            { name: 'base norstream.app,   embed youtube.com',          origin: 'https://norstream.app',          host: 'www.youtube.com' },
+            { name: 'base norstream.app,   embed youtube-nocookie.com', origin: 'https://norstream.app',          host: 'www.youtube-nocookie.com' },
+            { name: 'base localhost,       embed youtube.com',          origin: 'https://localhost',              host: 'www.youtube.com' },
+          ];
+          const browser = await chromium.launch();
+          for (const v of variants) {
+            const ctx = await browser.newContext({ userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Mobile Safari/537.36' });
+            const p = await ctx.newPage();
+            await p.route(`${v.origin}/trailer`, (r) => r.fulfill({ contentType: 'text/html', body: page(v.host) }));
+            await p.goto(`${v.origin}/trailer`);
+            await p.waitForTimeout(9000);
+            const frame = p.frames().find((f) => f.url().includes('/embed/'));
+            let verdict = 'ingen ramme';
+            if (frame) {
+              const errors = await frame.locator('.ytp-error, .ytp-error-content').count();
+              const text = (await frame.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 160);
+              const playing = await frame.evaluate(() => { const vid = document.querySelector('video'); return vid ? { t: vid.currentTime, paused: vid.paused } : null; }).catch(() => null);
+              verdict = errors > 0 ? `FEJL  ${text}` : playing && playing.t > 0 ? `SPILLER (t=${playing.t.toFixed(1)}s)` : `INGEN FEJL, men ingen afspilning endnu (${JSON.stringify(playing)})`;
+            }
+            console.log(`${v.name.padEnd(56)} -> ${verdict}`);
+            await ctx.close();
+          }
+          // Den maalte side: samme afspiller styret gennem YouTubes IFrame-API,
+          // som appen bruger til at opdage en teaser paa otte sekunder. Kopien
+          // her skal svare til measuredEmbedPage i TrailerScreen.tsx. Appens
+          // postMessage-bro erstattes af en liste, og listen er dommen.
+          const measured = (id) => `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>html,body{margin:0;background:#000;height:100%;overflow:hidden}#p{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
+          </head><body><div id="p"></div>
+          <script>
+          var sent=false;
+          function post(m){if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify(m));}}
+          function report(player){if(sent)return;var d=player.getDuration();if(d>0){sent=true;post({type:'duration',seconds:d});}}
+          function onYouTubeIframeAPIReady(){
+            new YT.Player('p',{videoId:'${id}',playerVars:{autoplay:1,playsinline:1,rel:0,modestbranding:1},
+              events:{
+                onReady:function(e){e.target.playVideo();report(e.target);},
+                onStateChange:function(e){report(e.target);},
+                onError:function(e){post({type:'error',code:e.data});}
+              }});
+          }
+          setTimeout(function(){if(!window.YT||!window.YT.Player){post({type:'noapi'});}},12000);
+          </script>
+          <script src="https://www.youtube.com/iframe_api"></script>
+          </body></html>`;
+          for (const [label, id] of [['maalt, lang video (Rick Astley, 3:33)', ID], ['maalt, ugyldigt id', 'xxxxxxxxxxx']]) {
+            const ctx = await browser.newContext({ userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Mobile Safari/537.36' });
+            const p = await ctx.newPage();
+            await p.addInitScript(() => { window.__messages = []; window.ReactNativeWebView = { postMessage: (m) => window.__messages.push(m) }; });
+            await p.route('https://norstream.app/trailer', (r) => r.fulfill({ contentType: 'text/html', body: measured(id) }));
+            await p.goto('https://norstream.app/trailer');
+            await p.waitForTimeout(14000);
+            const messages = await p.evaluate(() => window.__messages);
+            console.log(`${label.padEnd(56)} -> ${messages.length === 0 ? 'INGEN BESKED' : messages.join(' | ')}`);
+            await ctx.close();
+          }
+          await browser.close();
+          JS
+          echo "### YouTube-indramning" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          node probe.mjs 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/checkout@v5
+        if: inputs.motor != 'probe' && inputs.motor != 'youtube'
+
+      - name: Koer et maaleskript
+        if: inputs.motor == 'maal'
+        run: |
+          name='${{ inputs.url }}'
+          echo "### Maaling: $name" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          node "scripts/maal/$name.mjs" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/setup-node@v5
+        if: inputs.motor != 'probe' && inputs.motor != 'youtube' && inputs.motor != 'maal'
         with:
           node-version: 24
           cache: npm
 
-      # Uden tokenet fejler eas-cli med en uigennemskuelig GraphQL-fejl.
-      # Bedre at sige praecis hvad der mangler, og hvor det saettes.
+      # Uden tokenet fejler eas-cli med en uigennemskuelig GraphQL-fejl et par
+      # minutter senere. Bedre at stoppe her og sige hvad der skal tjekkes.
       - name: Tjek at EXPO_TOKEN findes
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        if: inputs.motor == 'eas'
         run: |
-          if [ -z "$EXPO_TOKEN" ]; then
-            echo "::error::EXPO_TOKEN mangler. Opret et token paa" \
-                 "https://expo.dev/settings/access-tokens og laeg det ind under" \
-                 "Settings -> Secrets and variables -> Actions -> New repository secret."
-            exit 1
+          # Siger hvilke navne der er sat, uden at afsloere nogen vaerdi.
+          # Uden det kan "tom" lige saa godt vaere en fejl i udtrykket ovenfor
+          # som en manglende hemmelighed, og de to kraever hver sin rettelse.
+          echo "secret EXPO_TOKEN:        ${{ secrets.EXPO_TOKEN != '' }}"
+          echo "secret EXPO_ACCESS_TOKEN: ${{ secrets.EXPO_ACCESS_TOKEN != '' }}"
+          echo "secret EAS_TOKEN:         ${{ secrets.EAS_TOKEN != '' }}"
+          echo "secret EXPO:              ${{ secrets.EXPO != '' }}"
+          # "Repository variables" ligger paa den samme side som secrets, lige
+          # under dem, og en vaerdi lagt der ser fuldstaendig rigtig ud paa
+          # siden. Er den her true og secret'en false, er det hele forklaringen.
+          echo "variable EXPO_TOKEN:      ${{ vars.EXPO_TOKEN != '' }}"
+
+          if [ -n "$EXPO_TOKEN" ]; then
+            echo "EXPO_TOKEN er sat (${#EXPO_TOKEN} tegn)"
+            exit 0
           fi
-          echo "EXPO_TOKEN er sat"
+          cat <<'HJAELP'
+          EXPO_TOKEN er tom. Den skal ligge som *repository secret* under
+          Actions. Tjek i denne raekkefoelge — de tre foerste er de hyppigste:
+
+          1. Settings -> Secrets and variables -> Actions.
+             Siden har tre faneblade: Actions, Codespaces, Dependabot.
+             Kun **Actions** er synlig for workflows. En hemmelighed lagt
+             under Codespaces eller Dependabot ser rigtig ud og virker ikke.
+
+          2. "Repository secrets", ikke "Repository variables". De ligger paa
+             samme side under hinanden. Linjen "variable EXPO_TOKEN" ovenfor
+             siger det: er den true, ligger vaerdien som en variabel.
+
+          3. Navnet. Workflowen accepterer EXPO_TOKEN, EXPO_ACCESS_TOKEN,
+             EAS_TOKEN eller EXPO. Hedder hemmeligheden noget femte, kan
+             navnene opremses med et trin der skriver noeglerne fra
+             toJSON(secrets) — kun noegler, aldrig vaerdier.
+
+          4. Er den lagt paa et *environment* frem for paa repoet, skal jobbet
+             erklaere det environment for at kunne se den.
+
+          Token oprettes paa https://expo.dev/settings/access-tokens
+          HJAELP
+          exit 1
 
       - run: npm ci
+        if: inputs.motor != 'probe' && inputs.motor != 'youtube' && inputs.motor != 'maal'
 
       # Samme porte som CI. Et build af kode der ikke kan bestaa sine egne
       # tests er spildt byggetid.
       - name: Typecheck og tests
+        if: inputs.motor != 'probe' && inputs.motor != 'youtube' && inputs.motor != 'maal'
         run: |
           npm run typecheck --workspaces
           npm test --workspaces
@@ -54,7 +262,8 @@ jobs:
       # kun sporede filer — mappen naar derfor aldrig builden, uanset at den
       # ligger her paa runneren.
       - name: Verificér AndroidManifest
-        working-directory: packages/app
+        if: inputs.motor != 'probe' && inputs.motor != 'youtube' && inputs.motor != 'maal'
+        working-directory: packages/${{ inputs.app || 'app' }}
         run: |
           npx expo prebuild --platform android --no-install
           manifest=android/app/src/main/AndroidManifest.xml
@@ -71,30 +280,95 @@ jobs:
             echo "::error::INTERNET-rettigheden mangler i manifestet."
             fail=1
           }
-          grep -q "applicationId 'dk.seomidt.norstream'" android/app/build.gradle || {
-            echo "::error::applicationId er ikke dk.seomidt.norstream."
+          expected='${{ inputs.app == 'radio' && 'dk.seomidt.norradio' || 'dk.seomidt.norstream' }}'
+          grep -q "applicationId '$expected'" android/app/build.gradle || {
+            echo "::error::applicationId er ikke $expected."
             fail=1
           }
+          if [ "${EXPO_TV}" = "1" ]; then
+            grep -q 'android.intent.category.LEANBACK_LAUNCHER' "$manifest" || {
+              echo "::error::LEANBACK_LAUNCHER mangler: tv-pluginet har ikke koert." \
+                   "Uden den viser Google TV ikke appen i sin launcher."
+              fail=1
+            }
+            test -f android/app/src/main/res/drawable/tv_banner.png || {
+              echo "::error::tv_banner.png mangler i res/drawable."
+              fail=1
+            }
+          fi
           exit $fail
 
+      # --- Vej 1: byg her paa maskinen ---
+
+      - name: Java til Gradle
+        if: inputs.motor == 'runner'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle-cache
+        if: inputs.motor == 'runner'
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('packages/*/package.json') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Byg APK med Gradle
+        if: inputs.motor == 'runner'
+        working-directory: packages/${{ inputs.app || 'app' }}/android
+        run: |
+          chmod +x gradlew
+          # `release` frem for `debug`: en debug-APK forventer en Metro-server
+          # i den anden ende og viser en roed skaerm uden. Release-varianten
+          # har JavaScript-bundtet med i filen.
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Læg APK'en op
+        if: inputs.motor == 'runner'
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ inputs.app == 'radio' && 'norradio' || 'norstream' }}${{ inputs.tv && '-tv' || '' }}-apk
+          path: packages/${{ inputs.app || 'app' }}/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      - name: Hvor ligger APK'en (runner)
+        if: inputs.motor == 'runner'
+        run: |
+          {
+            echo "### APK'en er bygget her"
+            echo ""
+            echo "Hent den under **Artifacts** nederst paa denne side:"
+            echo "\`${{ inputs.app == 'radio' && 'norradio' || 'norstream' }}${{ inputs.tv && '-tv' || '' }}-apk\` — pak zip-filen ud, og aabn APK'en paa telefonen."
+            echo ""
+            echo "**Afinstallér den nuvaerende app foerst.** Den her er signeret med"
+            echo "Androids almindelige debug-noegle og ikke med EAS-noeglen, og Android"
+            echo "naegter at opgradere paa tvaers af signaturer. Kun den ene gang:"
+            echo "senere builds herfra kan laegges oven i hinanden."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # --- Vej 2: byg paa EAS ---
+
       - name: Byg APK paa EAS
-        working-directory: packages/app
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        if: inputs.motor == 'eas'
+        working-directory: packages/${{ inputs.app || 'app' }}
         run: |
           npx eas-cli@latest build \
-            --platform android \
+            --platform "${{ inputs.platform || 'android' }}" \
             --profile "${{ inputs.profile }}" \
             --non-interactive \
             --no-wait
 
-      - name: Hvor ligger APK'en
+      - name: Hvor ligger APK'en (EAS)
+        if: inputs.motor == 'eas'
         run: |
-          echo "### Build sendt til EAS" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Foelg det her, og hent APK'en naar den er faerdig:" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "https://expo.dev/accounts/seomidts-team/projects/iptv-norlys/builds" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Afinstallér den gamle app foerst** — pakkenavnet skiftede ved omdoebningen," >> "$GITHUB_STEP_SUMMARY"
-          echo "saa Android ser den nye som en anden app og kan ikke opgradere oven i." >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Build sendt til EAS"
+            echo ""
+            echo "Foelg det her, og hent APK'en naar den er faerdig:"
+            echo ""
+            echo "https://expo.dev/accounts/seomidts-team/projects/iptv-norlys/builds"
+          } >> "$GITHUB_STEP_SUMMARY"
