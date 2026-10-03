@@ -50,6 +50,13 @@ describe('pickImdbTrailers', () => {
   it('afviser underlige id’er', () => {
     expect(pickImdbTrailers([node('"><x', 'Official Trailer', 120)])).toEqual([]);
   });
+
+  it('bruger HLS naar titlen ikke har MP4 og proever ikke samme video to gange', () => {
+    const hlsOnly = { ...node('vi12345678', 'Official Trailer', 120), playbackURLs: [urls('x')[1]!] };
+    const found = pickImdbTrailers([hlsOnly, hlsOnly]);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ contentType: 'hls', url: 'https://imdb-video.media-imdb.com/x-master.m3u8' });
+  });
 });
 
 describe('findImdbTrailers', () => {
@@ -61,6 +68,7 @@ describe('findImdbTrailers', () => {
     };
     const found = await findImdbTrailers(post, 'tt15239678');
     expect(JSON.parse(body).variables).toEqual({ id: 'tt15239678' });
+    expect(JSON.parse(body).query).toContain('primaryVideos(first: 50)');
     expect(found[0]?.videoId).toBe('vi3137783577');
   });
 

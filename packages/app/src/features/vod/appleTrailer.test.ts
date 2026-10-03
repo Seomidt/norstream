@@ -83,6 +83,19 @@ describe('pickAppleTrailers', () => {
     expect(pickAppleTrailers(null)).toEqual([]);
     expect(pickAppleTrailers({ data: {} })).toEqual([]);
   });
+
+  it('finder movieClips uden Trailer-hylde og bruger varigheden i millisekunder', () => {
+    expect(pickAppleTrailers({ data: { playables: { film: { itunesMediaApiData: { movieClips: [
+      { title: 'Official Trailer', durationInMilliseconds: 150000, hlsUrl: 'https://apple.example/trailer.m3u8' },
+      { title: 'Behind the scenes', durationInMilliseconds: 120000, hlsUrl: 'https://apple.example/clip.m3u8' },
+    ] } } } } })).toEqual([{ id: 'clip-0', name: 'Official Trailer', seconds: 150, url: 'https://apple.example/trailer.m3u8' }]);
+  });
+
+  it('vaelger et spilbart asset selv naar det foerste mangler HLS', () => {
+    const item = trailer('umc.cmc.t', 'Trailer', 150);
+    item.playables.unshift({ duration: 150, assets: { hlsUrl: '' } });
+    expect(pickAppleTrailers({ data: { canvas: { shelves: [{ items: [item] }] } } })).toHaveLength(1);
+  });
 });
 
 describe('findAppleTrailers', () => {

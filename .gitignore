@@ -5,3 +5,6 @@ build/
 dist/
 .env
 .env.*
+
+# Browser-kode genereres ved npm ci/install.
+packages/app/src/features/vod/generated/

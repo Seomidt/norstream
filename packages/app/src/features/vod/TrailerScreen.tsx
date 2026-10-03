@@ -1,715 +1,308 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, Text, View, useTVEventHandler } from 'react-native';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import { useKeepAwake } from 'expo-keep-awake';
 import { File, Paths } from 'expo-file-system';
-import * as IntentLauncher from 'expo-intent-launcher';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { WebViewMessageEvent } from 'react-native-webview';
 import type { AppSession } from '../../session.js';
 import { getTmdbApiKey, getYoutubeApiKey } from '../../storage/settings.js';
-import { findTitleInfo, findTmdbTrailers, tmdbFetch } from '../../sync/tmdb.js';
+import { cleanVodTitle, findTitleInfo, findTmdbTrailers } from '../../sync/tmdb.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
-import { MIN_TRAILER_SECONDS, findLongerTrailer, searchYoutubeTrailers, youtubeSearchUrl } from './trailerSearch.js';
-import type { FetchText } from './trailerSearch.js';
-import { webView } from './webview.js';
+import { findLongerTrailer, searchYoutubeTrailers } from './trailerSearch.js';
+import { YoutubeProof } from './YoutubeProof.js';
+import { YoutubeTrailer } from './YoutubeTrailer.js';
 import { buildHlsMaster } from './youtubeStream.js';
 import { findAppleTrailers } from './appleTrailer.js';
-import type { GetJson } from './appleTrailer.js';
 import { findImdbTrailers } from './imdbTrailer.js';
-import type { GetText, PostJson } from './youtubeStream.js';
 import { logEvent } from '../../diagnostics/log.js';
 import { surfaceTypeForPlatform } from '../player/format.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
-/** Webvisningen, eller null paa tv, hvor den ikke findes. */
-const WebView = webView();
-
 interface Props {
   session: AppSession;
-  /** Panelets bud paa en trailer. Kan mangle. */
   trailerId: string | null;
   title: string;
   year: number | null;
-  /** Film eller serie; TMDB slaar dem op hver sit sted. */
   kind: 'movie' | 'series';
   onBack: () => void;
 }
 
-/**
- * Hvad der vises i rammen.
- *
- * - `measured`: YouTubes afspiller styret gennem deres IFrame-API, som
- *   fortaeller hvor lang videoen er. Det er saadan en teaser paa otte
- *   sekunder opdages.
- * - `plain`: den rene indlejring, uden maaling. Reserven hvis API'et ikke
- *   kommer op — en trailer der spiller er bedre end en der maales.
- * - `search`: YouTubes egen soegeside inde i appen, naar der ikke er nogen
- *   noegle at soege med, eller soegningen intet fandt.
- * - `looking`: soegningen gennem Data API'et er i gang.
- */
-type Source =
-  /** Videofilen i appens egen afspiller: Apple TV (HLS) eller IMDb (MP4). */
-  | {
-      kind: 'native';
-      id: string;
-      uri: string;
-      /** Sekunder inde hvor der fortsaettes (0 fra start). */
-      resumeAt: number;
-      /** Hvilken udgave af adresserne (noegle og filnavn). */
-      attempt: number;
-      /** Genopretninger i traek uden at komme videre. */
-      failures: number;
-      /** Videoens laengde ifoelge kilden; bruges hvis afspilleren ikke kender den. */
-      seconds: number | null;
-      contentType: 'dash' | 'hls' | 'progressive';
-      /** Fra IMDb (v335): en almindelig MP4, ingen graense. `id` er da IMDbs video-id. */
-      imdb?: { titleId: string };
-      /** Fra Apple TV (v336): HLS i fuld HD, ingen graense. `id` er da Apples trailer-id. */
-      apple?: boolean;
-    }
-  /** YouTubes egen afspiller (telefon), med maaling af laengden. */
-  | { kind: 'measured'; id: string; checkLength: boolean; startAt?: number }
-  | { kind: 'plain'; id: string }
-  /** Tv (v354): traileren spiller i YouTube-appen; skaermen lukker naar man kommer tilbage. */
-  | { kind: 'external'; id: string }
-  | { kind: 'search'; url: string }
-  | { kind: 'looking' }
-  /** Tv: intet fundet, og ingen soegeside at vise. */
-  | { kind: 'none' };
-
-/**
- * Traileren, inde i appen.
- *
- * Kilderne i raekkefoelge (v336): Apple TV (HLS i fuld HD) og IMDb (MP4 i
- * 1080p) i appens egen afspiller — de virker hele vejen. Findes titlen ikke
- * dér, er YouTube tilbage, og dér gaelder (v354):
- *
- * - **Tv: YouTube-appen.** Google TV har den, og den spiller i fuld kvalitet
- *   med fjernbetjeningen. Appen aabnes med video-id'et; naar man kommer
- *   tilbage, lukker trailerskaermen. Kan appen ikke aabnes, bruges YouTubes
- *   indlejrede afspiller i en webvisning som paa telefonen.
- * - **Telefon: YouTubes indlejrede afspiller** fra start, som beskrevet
- *   nedenfor.
- *
- * Den native YouTube-vej (v329–v334: YouTubes filer i appens afspiller, og
- * "blandingen" med et skift til YouTubes afspiller efter et minut) er fjernet:
- * YouTube stopper filerne efter ~1 minut uden deres robot-bevis, og skiftet
- * endte i daarlig kvalitet ("fungerer ikke"). Robot-beviset bygges ALDRIG
- * (se OVERDRAGELSE v333). `youtubeStream.ts` er kun HLS-hjaelperen til Apple.
- *
- * **Afspilleren ligger i en lille side med en neutral base-adresse.** Det er
- * maalt, ikke gaettet — i en rigtig browser paa GitHubs maskine, efter to
- * builds paa gaet:
- *
- * - `youtube.com/embed/<id>` aabnet direkte: fejl 153. Der fulgte ingen
- *   `Referer` med, og en indlejret afspiller vil vide hvilken side den sidder
- *   paa.
- * - En side med base-adressen `https://www.youtube.com`: fejl 152-4, "denne
- *   video er ikke tilgaengelig". YouTube afviser en indlejring der paastaar
- *   at sidde paa youtube.com selv.
- * - En side med en anden https-adresse som base: ingen fejl. Afspilleren
- *   staar klar.
- *
- * Adressen skal bare vaere en https-oprindelse der ikke er YouTubes egen.
- * Der hentes intet fra den; den er kun det navn webvisningen sender med.
- *
- * **Panelets id er et bud, ikke et svar.** Det kan vaere en teaser paa otte
- * sekunder, en video der ikke maa indlejres, eller mangle helt. Afspilleren
- * maaler varigheden, og er den under et minut — eller gaar det galt — soeges
- * der videre: med en API-noegle vaelger appen selv en lang nok, uden den
- * aabnes YouTubes soegeside herinde, saa man vaelger selv.
- */
-/** En trailer at proeve: YouTube-id, hvor den kom fra, og om laengden skal maales. */
-interface Candidate {
+interface NativeSource {
+  kind: 'native';
   id: string;
-  note: string;
-  checkLength: boolean;
+  uri: string;
+  resumeAt: number;
+  attempt: number;
+  seconds: number | null;
+  contentType: 'hls' | 'progressive' | 'dash';
+  provider: 'Apple TV' | 'IMDb' | 'YouTube PO';
+  imdbTitleId?: string;
 }
+interface Candidate { id: string; checkLength: boolean }
+type Source = NativeSource | ({ kind: 'youtube' | 'proof'; resumeAt?: number } & Candidate) | { kind: 'looking' } | { kind: 'none' };
+const NATIVE_READY_TIMEOUT_MS = 20_000;
+const NATIVE_STALL_MS = 15_000;
+const LOOKUP_TIMEOUT_MS = 8_000;
 
-/** YouTubes soegeside som tekst (til soegning uden API-noegle). */
-const fetchText: FetchText = async (url, headers) => {
-  const response = await fetch(url, { headers });
-  return response.ok ? await response.text() : null;
-};
-
-const EMBED_ORIGIN = 'https://norstream.app';
-
-/** Den native vej findes kun paa Android (DASH i ExoPlayer). */
-const NATIVE_TRAILERS = Platform.OS === 'android';
-/** YouTube svarer paa ~0,1 s; et hængende svar maa ikke holde traileren tilbage. */
-const NATIVE_LOOKUP_TIMEOUT_MS = 6000;
-/** Er afspilleren ikke klar efter saa lang tid, regnes den for gaaet i staa. */
-const NATIVE_READY_TIMEOUT_MS = 15000;
-/** Staar den og henter saa laenge midt i traileren, regnes den for gaaet i staa. */
-const NATIVE_STALL_MS = 10000;
-/**
- * Saa mange genopretninger i traek UDEN at komme videre, foer webvisningen
- * tager over. En genopretning der kom mindst NATIVE_PROGRESS_S videre
- * nulstiller tallet: stopper YouTube hvert minut, bliver det korte pauser.
- */
-const NATIVE_MAX_RECOVERIES = 3;
-const NATIVE_PROGRESS_S = 10;
-
-/** m:ss til diagnoselinjen. */
 function clock(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-/** POST til YouTubes afspiller-API; null ved alt der ikke er et JSON-svar. */
-const postJson: PostJson = async (url, headers, body) => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), NATIVE_LOOKUP_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, { method: 'POST', headers, body, signal: controller.signal });
-    return response.ok ? ((await response.json()) as unknown) : null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-};
-
-/** GET af JSON (Apple TV's soegning og filmsider); null ved alt andet end et svar. */
-const getJson: GetJson = async (url) => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), NATIVE_LOOKUP_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      headers: { Accept: 'application/json', Origin: 'https://tv.apple.com' },
-      signal: controller.signal,
-    });
-    return response.ok ? ((await response.json()) as unknown) : null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-};
-
-/** GET af HLS-manifestet; null ved alt andet end et svar. */
-const getText: GetText = async (url) => {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), NATIVE_LOOKUP_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    return response.ok ? await response.text() : null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-};
-
 /**
- * Manifestet skal ligge i en fil: afspilleren tager en adresse. Én fil per
- * video og forsoeg, skrevet forfra (YouTubes adresser udloeber efter timer).
+ * Apple/IMDb som native video, paa Google TV derefter YouTube med bevis
+ * og hele lokale filer. Officiel indlejring er reserven.
+ * Alle kandidater proeves herinde. Ingen automatisk ekstern app, heller
+ * ikke naar en video er fjernet eller ikke maa indlejres.
  */
-function writeManifest(videoId: string, attempt: number, text: string, extension: 'mpd' | 'm3u8'): string | null {
-  try {
-    const file = new File(Paths.cache, `trailer-${videoId}-${attempt}.${extension}`);
-    if (file.exists) file.delete();
-    file.create();
-    file.write(text);
-    return file.uri;
-  } catch {
-    return null;
-  }
-}
-
-/** YouTube-appens pakkenavne: tv-udgaven foerst paa tv, saa telefonens. */
-const YOUTUBE_PACKAGES = isTV ? ['com.google.android.youtube.tv', 'com.google.android.youtube'] : ['com.google.android.youtube'];
-/** Er appen ikke afvist inden da, regnes den for aabnet. */
-const LAUNCH_SETTLE_MS = 1500;
-
-/**
- * Aabner traileren i YouTube-appen (v354). Svarer med om appen kom op;
- * `onReturned` kaldes naar man er tilbage fra den (startActivityAsync venter
- * paa at aktiviteten lukker). Foerst de kendte pakker, saa `vnd.youtube:`
- * som enhver YouTube-app tager. Ingen app → falsk, og den indlejrede
- * afspiller tager over.
- */
-async function openInYoutubeApp(videoId: string, onReturned: () => void): Promise<boolean> {
-  const id = safeId(videoId);
-  const url = `https://www.youtube.com/watch?v=${id}`;
-  const attempt = (params: IntentLauncher.IntentLauncherParams, data: string): Promise<boolean> =>
-    new Promise((resolve) => {
-      const timer = setTimeout(() => resolve(true), LAUNCH_SETTLE_MS);
-      IntentLauncher.startActivityAsync('android.intent.action.VIEW', { ...params, data })
-        .then(() => {
-          clearTimeout(timer);
-          resolve(true);
-          onReturned();
-        })
-        .catch(() => {
-          clearTimeout(timer);
-          resolve(false);
-        });
-    });
-  if (Platform.OS !== 'android') return false;
-  for (const packageName of YOUTUBE_PACKAGES) {
-    if (await attempt({ packageName }, url)) return true;
-  }
-  return attempt({}, `vnd.youtube:${id}`);
-}
-
-/**
- * En rigtig Chrome-browser-streng, ikke webvisningens egen.
- *
- * YouTube er begyndt at spaerre den indlejrede afspiller i webvisninger med
- * "Log ind for at bekraefte, at du ikke er en bot". En webvisnings egen
- * User-Agent (";wv") er noget af det de kigger efter. Med en almindelig
- * Chrome-streng behandles indlejringen som en browser, og sammen med
- * tredjeparts-cookies (saa YouTube maa saette sine egne) rammer bot-tjekket
- * sjaeldnere. Det er ikke en garanti — tjekket sidder ogsaa paa YouTubes side
- * — men "Aabn i YouTube" er der stadig som sikker vej.
- */
-/**
- * Paa tv: en desktop-Chrome-streng. Med mobilstrengen faar man YouTubes
- * mobilafspiller, som paa en stor skaerm vaelger lav kvalitet og spiller
- * daarligere; desktop-afspilleren vaelger kvalitet efter rammens stoerrelse
- * (fuld skaerm paa tv'et = HD). Samme bot-hensyn som mobilstrengen: en
- * rigtig browser, ikke webvisningens egen.
- */
-const DESKTOP_USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
-
-/** YouTubes IFrame-fejlkoder, i ord til loggen. */
-function embedErrorText(code: unknown): string {
-  switch (Number(code)) {
-    case 2: return 'ugyldigt video-id';
-    case 5: return 'HTML5-afspilleren fejlede';
-    case 100: return 'videoen findes ikke (fjernet eller privat)';
-    case 101:
-    case 150: return 'ejeren tillader ikke indlejring';
-    default: return 'ukendt';
-  }
-}
-
-const BROWSER_USER_AGENT =
-  'Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36';
-
 export function TrailerScreen({ session, trailerId, title, year, kind, onBack }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
-  const insets = useSafeAreaInsets();
-  // Der begyndes altid med at lede: TMDB er foerste valg naar noeglen er der.
   const [source, setSource] = useState<Source>({ kind: 'looking' });
   const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
-  /** Kandidater der venter, bedste foerst. */
+  const nativeQueue = useRef<NativeSource[]>([]);
   const queue = useRef<Candidate[]>([]);
-  /** Videoer der allerede er proevet, saa den samme ikke proeves igen. */
   const tried = useRef(new Set<string>());
-  /** Hvor langt ned i kilderne vi er naaet (se refill). */
   const stage = useRef(0);
-  /** Skaermen er stadig aaben; en soegning der svarer sent maa ikke roere en lukket skaerm. */
-  const alive = useRef(true);
-  const onBackRef = useRef(onBack);
-  onBackRef.current = onBack;
+  const aliases = useRef<string[]>([cleanVodTitle(title).title]);
+  const resolvedYear = useRef(year ?? cleanVodTitle(title).year);
+  const alive = useRef(false);
+  const busy = useRef(false);
+  const requests = useRef(new Set<AbortController>());
+  const manifests = useRef<File[]>([]);
+  const tmdbKey = useRef<string | null>(null);
 
-  /**
-   * Fylder koeen fra naeste kilde, i den raekkefoelge de er bedst:
-   *
-   *  0. TMDB — ved hvad der er en trailer; alle dens bud, bedste foerst.
-   *  1. Udbyderens eget bud — maales, for det kan vaere et klip paa sekunder.
-   *  2. YouTubes Data API, hvis der er en noegle.
-   *  3. YouTubes egen soegning, uden noegle.
-   *
-   * Svarer falsk naar der ikke er flere kilder.
-   */
+  /** Tidsbegraens alle opslag og afbryd dem naar trailerskaermen lukkes. */
+  async function request(url: string, init?: RequestInit): Promise<Response> {
+    if (!alive.current) throw new Error('Traileren er lukket');
+    const controller = new AbortController();
+    requests.current.add(controller);
+    const timer = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      // Kroppen laeses inden tidsuret ryddes. Response.text/json efter
+      // fetch alene ville lade et svar med haengende krop blokere koeen.
+      const body = await response.text();
+      return new Response(body, { status: response.status, headers: response.headers });
+    } finally {
+      clearTimeout(timer);
+      requests.current.delete(controller);
+    }
+  }
+  async function getText(url: string, headers?: Record<string, string>): Promise<string | null> {
+    try { const r = await request(url, { headers }); return r.ok ? await r.text() : null; }
+    catch { return null; }
+  }
+  async function getJson(url: string): Promise<unknown> {
+    try {
+      const r = await request(url, { headers: { Accept: 'application/json', Origin: 'https://tv.apple.com' } });
+      return r.ok ? await r.json() : null;
+    } catch { return null; }
+  }
+  async function postJson(url: string, headers: Record<string, string>, body: string): Promise<unknown> {
+    try { const r = await request(url, { method: 'POST', headers, body }); return r.ok ? await r.json() : null; }
+    catch { return null; }
+  }
+  const metadataFetch = (url: string, headers?: Record<string, string>): Promise<Response> => request(url, { headers });
+  function manifest(id: string, text: string): string | null {
+    try {
+      const file = new File(Paths.cache, `trailer-${id.replace(/[^A-Za-z0-9]/g, '')}-${Date.now()}.m3u8`);
+      manifests.current.push(file);
+      file.create();
+      file.write(text);
+      return file.uri;
+    } catch { return null; }
+  }
+
   async function refill(): Promise<boolean> {
-    const step = stage.current;
-    stage.current += 1;
-    const name = year === null ? title : `${title} (${year})`;
+    const step = stage.current++;
     switch (step) {
-      // Loggen (v365) siger per kilde hvad den gav, saa "mange trailere koerer
-      // ikke" kan laeses: hvilken kilde der svigtede, ikke bare at den gjorde.
       case 0: {
-        const tmdbKey = await getTmdbApiKey(session.db);
-        if (tmdbKey === null) {
-          logEvent('trailer', 'TMDB: ingen noegle');
-          return true;
-        }
-        const found = await findTmdbTrailers(tmdbFetch, tmdbKey, kind, name);
-        for (const video of found) {
-          queue.current.push({ id: video.youtubeId, note: `Trailer fra TMDB: ${video.name}.`, checkLength: false });
-        }
+        if (tmdbKey.current === null) return true;
+        const name = resolvedYear.current === null ? aliases.current[0] ?? title : `${aliases.current[0] ?? title} (${resolvedYear.current})`;
+        const found = await findTmdbTrailers(metadataFetch, tmdbKey.current, kind, name);
+        for (const video of found) queue.current.push({ id: video.youtubeId, checkLength: true });
         logEvent('trailer', `TMDB: ${found.length} bud`);
         return true;
       }
       case 1:
-        if (trailerId !== null) queue.current.push({ id: trailerId, note: 'Udbyderens trailer.', checkLength: true });
-        logEvent('trailer', `udbyderens trailer: ${trailerId === null ? 'ingen' : 'ja'}`);
+        if (trailerId !== null && /^[A-Za-z0-9_-]{11}$/.test(trailerId)) queue.current.push({ id: trailerId, checkLength: true });
         return true;
       case 2: {
         const apiKey = await getYoutubeApiKey(session.db);
         if (apiKey === null) return true;
-        const found = await findLongerTrailer(session.fetchImpl, apiKey, title, year, null);
-        if (found !== null) queue.current.push({ id: found.id, note: `Fundet på YouTube: ${found.title}.`, checkLength: false });
-        logEvent('trailer', `YouTube Data API: ${found === null ? 'intet' : '1 bud'}`);
+        for (const alias of aliases.current) {
+          if (!alive.current) return false;
+          const found = await findLongerTrailer(request, apiKey, alias, resolvedYear.current, null);
+          if (found !== null) queue.current.push({ id: found.id, checkLength: false });
+        }
+        logEvent('trailer', `YouTube Data API: ${queue.current.length} bud`);
         return true;
       }
       case 3: {
-        const found = await searchYoutubeTrailers(fetchText, title, year);
-        for (const video of found) {
-          queue.current.push({ id: video.id, note: `Fundet på YouTube: ${video.title}.`, checkLength: false });
+        for (const alias of aliases.current) {
+          if (!alive.current) return false;
+          const found = await searchYoutubeTrailers(getText, alias, resolvedYear.current);
+          for (const video of found) queue.current.push({ id: video.id, checkLength: false });
         }
-        logEvent('trailer', `YouTube-soegning: ${found.length} fundet`);
+        logEvent('trailer', `YouTube-soegning: ${queue.current.length} bud`);
         return true;
       }
-      default:
-        return false;
+      default: return false;
     }
   }
 
-  /**
-   * Spiller den naeste kandidat. Kaldes ved start, og igen naar en video ikke
-   * kan vises her — spaerret i Danmark ("ikke tilgaengelig i dit land"),
-   * ikke maa indlejres, fjernet — eller er for kort til at vaere en trailer.
-   */
+  /** En enkelt koe ejer kilde-skiftet; dublerede fejl kan ikke springe et bud over. */
   async function playNext(): Promise<void> {
-    if (!alive.current) return;
+    if (!alive.current || busy.current) return;
+    busy.current = true;
     setSource({ kind: 'looking' });
-    for (;;) {
-      const next = queue.current.shift();
-      if (next !== undefined) {
-        if (tried.current.has(next.id)) continue;
-        tried.current.add(next.id);
-        if (!alive.current) return;
-        setNote(next.note);
-        // Ogsaa paa tv (v365): inde i appen med YouTubes egen indlejrede
-        // afspiller, som paa telefonen. v354 sendte tv'et til YouTube-appen
-        // foerst; brugeren vil have traileren i appen. Appen er nu sidste
-        // udvej, naar ingen kandidat kunne vises her.
-        logEvent('trailer', `spiller indlejret: ${next.note}`);
-        setLoading(true);
-        setSource({ kind: 'measured', id: next.id, checkLength: next.checkLength });
+    setLoading(true);
+    try {
+      const native = nativeQueue.current.shift();
+      if (native !== undefined) {
+        setSource(native);
         return;
       }
-      let more: boolean;
-      try {
-        more = await refill();
-      } catch (cause) {
-        logEvent('trailer', `kilde ${stage.current - 1} fejlede: ${cause instanceof Error ? cause.message.replace(/https?:\/\/\S+/g, '[adresse]').slice(0, 80) : 'ukendt'}`);
-        more = true;
-      }
-      if (!more) break;
-    }
-    if (!alive.current) return;
-    // Paa tv er YouTubes soegeside inde i appen ikke til at bruge med en
-    // fjernbetjening. Sidste udvej (v365): YouTube-appen med den bedste
-    // kandidat, hvis der var en; ellers siges det at intet kunne vises.
-    if (isTV) {
-      const best = tried.current.values().next().value;
-      if (best !== undefined) {
-        setLoading(true);
-        const opened = await openInYoutubeApp(best, () => {
-          if (alive.current) onBackRef.current();
-        });
+      for (;;) {
         if (!alive.current) return;
-        logEvent('trailer', opened ? 'ingen kunne vises her: aabnet i YouTube-appen' : 'ingen kunne vises her, og YouTube-appen kunne ikke aabnes');
-        if (opened) {
-          setNote('Traileren kunne ikke vises i appen; den spiller i YouTube-appen.');
+        const next = queue.current.shift();
+        if (next !== undefined) {
+          if (tried.current.has(next.id) || !/^[A-Za-z0-9_-]{11}$/.test(next.id)) continue;
+          tried.current.add(next.id);
+          logEvent('trailer', isTV && Platform.OS === 'android' ? 'YouTube: proever bevis paa boksen' : 'YouTube: officiel indlejring i appen');
           setLoading(false);
-          setSource({ kind: 'external', id: best });
+          setSource({ kind: isTV && Platform.OS === 'android' ? 'proof' : 'youtube', ...next });
           return;
         }
-      } else {
-        logEvent('trailer', 'ingen kandidater fra nogen kilde');
+        if (!await refill()) break;
       }
-      setNote('Ingen trailer til titlen kan vises her.');
-      setLoading(false);
-      setSource({ kind: 'none' });
-      return;
-    }
-    setNote('Ingen trailer til titlen kan vises her.');
-    setLoading(true);
-    setSource({ kind: 'search', url: youtubeSearchUrl(title, year) });
+      if (alive.current) { setLoading(false); setSource({ kind: 'none' }); }
+    } catch {
+      if (alive.current) { setLoading(false); setSource({ kind: 'none' }); }
+    } finally { busy.current = false; }
   }
 
-  /**
-   * Trailerkilderne i brugerens raekkefoelge (v336): Apple TV (HLS i fuld HD),
-   * saa IMDb (MP4 i 1080p), saa YouTube-vejen (`playNext`). Apple og IMDb
-   * spilles i appens egen afspiller hele vejen. `skip`: kilder der allerede
-   * er proevet (en der fejlede under afspilning springes over naeste gang).
-   */
-  async function start(skip: ReadonlySet<'apple' | 'imdb'> = new Set()): Promise<void> {
-    if (NATIVE_TRAILERS) {
-      try {
-        const tmdbKey = await getTmdbApiKey(session.db);
-        const name = year === null ? title : `${title} (${year})`;
-        const info = tmdbKey === null ? null : await findTitleInfo(tmdbFetch, tmdbKey, kind, name);
+  async function start(): Promise<void> {
+    tmdbKey.current = await getTmdbApiKey(session.db);
+    const clean = cleanVodTitle(title);
+    const name = year === null ? title : `${title} (${year})`;
+    const info = tmdbKey.current === null ? null : await findTitleInfo(metadataFetch, tmdbKey.current, kind, name);
+    if (!alive.current) return;
+    aliases.current = [...new Set([info?.englishTitle, info?.originalTitle, clean.title].filter((t): t is string => typeof t === 'string' && t.length > 0))].slice(0, 3);
+    resolvedYear.current = info?.year ?? year ?? clean.year;
+    if (Platform.OS === 'android') {
+      // Uafhaengige kilder spoerges samtidig; Apple er stadig foerstevalg.
+      const [apple, imdb] = await Promise.all([
+        findAppleTrailers(getJson, kind, aliases.current, resolvedYear.current),
+        info?.imdbId ? findImdbTrailers(postJson, info.imdbId) : Promise.resolve([]),
+      ]);
+      if (!alive.current) return;
+      logEvent('trailer', `Apple TV: ${apple.length} bud, IMDb: ${imdb.length} bud`);
+      for (const video of apple.slice(0, 3)) {
+        const master = await getText(video.url);
         if (!alive.current) return;
-
-        if (!skip.has('apple')) {
-          const titles = [info?.englishTitle, info?.originalTitle, title].filter((t): t is string => typeof t === 'string');
-          const apple = (await findAppleTrailers(getJson, kind, titles, info?.year ?? year))[0];
-          const master = apple === undefined ? null : await getText(apple.url);
-          const built = master === null || apple === undefined ? null : buildHlsMaster(master, apple.url);
-          const uri = built === null || apple === undefined ? null : writeManifest(`apple-${apple.id.replace(/[^A-Za-z0-9]/g, '')}`, 0, built.playlist, 'm3u8');
-          if (!alive.current) return;
-          logEvent('trailer', apple === undefined ? 'Apple TV: intet' : uri === null ? 'Apple TV: fundet, men manifestet kunne ikke laeses' : `Apple TV: ${apple.name} (${apple.seconds} s)`);
-          if (apple !== undefined && uri !== null) {
-            setNote(`Trailer fra Apple TV: ${apple.name}.`);
-            setLoading(true);
-            setSource({
-              kind: 'native',
-              id: apple.id,
-              uri,
-              resumeAt: 0,
-              attempt: 0,
-              failures: 0,
-              seconds: apple.seconds,
-              contentType: 'hls',
-              apple: true,
-            });
-            return;
-          }
-        }
-
-        const titleId = skip.has('imdb') ? null : info?.imdbId ?? null;
-        const found = titleId === null ? [] : await findImdbTrailers(postJson, titleId);
-        const best = found[0];
-        logEvent('trailer', titleId === null ? `IMDb: ${skip.has('imdb') ? 'sprunget over' : 'intet IMDb-id fra TMDB'}` : `IMDb: ${found.length} trailere`);
-        if (best !== undefined && titleId !== null && alive.current) {
-          setNote(`Trailer fra IMDb: ${best.name}.`);
-          setLoading(true);
-          setSource({
-            kind: 'native',
-            id: best.videoId,
-            uri: best.url,
-            resumeAt: 0,
-            attempt: 0,
-            failures: 0,
-            seconds: best.seconds,
-            contentType: 'progressive',
-            imdb: { titleId },
-          });
-          return;
-        }
-      } catch (cause) {
-        // Apple og IMDb er tilvalg; YouTube-vejen tager over.
-        logEvent('trailer', `Apple/IMDb fejlede: ${cause instanceof Error ? cause.message.replace(/https?:\/\/\S+/g, '[adresse]').slice(0, 80) : 'ukendt'}`);
+        const built = master === null ? null : buildHlsMaster(master, video.url);
+        const uri = built === null ? null : manifest(video.id, built.playlist);
+        if (uri !== null) nativeQueue.current.push({ kind: 'native', id: video.id, uri, seconds: video.seconds, provider: 'Apple TV', contentType: 'hls', resumeAt: 0, attempt: 0 });
       }
+      for (const video of imdb) nativeQueue.current.push({ kind: 'native', id: video.videoId, uri: video.url, seconds: video.seconds, provider: 'IMDb', contentType: video.contentType, imdbTitleId: info?.imdbId ?? undefined, resumeAt: 0, attempt: 0 });
     }
     await playNext();
   }
 
-  /** IMDb-traileren stoppede: frisk adresse (de er tidsbegraensede) og fortsaet; ellers YouTube. */
-  async function recoverImdb(from: Extract<Source, { kind: 'native' }>, position: number): Promise<void> {
-    if (!alive.current || from.imdb === undefined) return;
-    setLoading(true);
-    const progressed = position >= from.resumeAt + NATIVE_PROGRESS_S;
-    const failures = progressed ? 0 : from.failures + 1;
-    if (failures < NATIVE_MAX_RECOVERIES) {
-      const again = (await findImdbTrailers(postJson, from.imdb.titleId)).find((t) => t.videoId === from.id);
-      if (!alive.current) return;
-      if (again !== undefined) {
-        setSource({ ...from, uri: again.url, resumeAt: position, attempt: from.attempt + 1, failures });
-        return;
-      }
+  async function recoverNative(from: NativeSource, position: number, reason: string): Promise<void> {
+    if (!alive.current || busy.current) return;
+    logEvent('trailer', `${from.provider}: ${reason} ved ${Math.round(position)} s`);
+    if (from.provider === 'YouTube PO') {
+      setLoading(false);
+      setSource({ kind: 'youtube', id: from.id, checkLength: false, resumeAt: position });
+      return;
+    }
+    // Frisk IMDb-adresse, samme video og position, hoejst to gange i alt.
+    if (from.imdbTitleId !== undefined && from.attempt < 2) {
+      busy.current = true;
+      setSource({ kind: 'looking' });
+      setLoading(true);
+      try {
+        const refreshed = (await findImdbTrailers(postJson, from.imdbTitleId)).find((t) => t.videoId === from.id);
+        if (!alive.current) return;
+        if (refreshed !== undefined) {
+          setSource({ ...from, uri: refreshed.url, contentType: refreshed.contentType, resumeAt: position, attempt: from.attempt + 1 });
+          return;
+        }
+      } finally { busy.current = false; }
     }
     await playNext();
   }
 
   useEffect(() => {
     alive.current = true;
-    void start();
+    void start().catch(() => { if (alive.current) void playNext(); });
     return () => {
       alive.current = false;
+      for (const controller of requests.current) controller.abort();
+      for (const file of manifests.current) { try { if (file.exists) file.delete(); } catch { /* Cache ryddes ogsaa af OS. */ } }
     };
-    // Kun ved foerste visning; titlen aendrer sig ikke mens skaermen er aaben.
+    // En trailerskaerm tilhoerer én titel og afmonteres naar den lukkes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function onMessage(event: WebViewMessageEvent): void {
-    let message: { type?: string; seconds?: number; code?: unknown };
-    try {
-      message = JSON.parse(event.nativeEvent.data) as typeof message;
-    } catch {
-      return;
-    }
-    if (source.kind !== 'measured') return;
-    if (message.type === 'playing') {
-      logEvent('trailer', 'indlejret afspiller spiller');
-      setLoading(false);
-      return;
-    }
-    if (message.type === 'ended') {
-      // Paa tv lukker traileren naar den er slut, som i Googles butik.
-      if (isTV) onBackRef.current();
-      return;
-    }
-    if (message.type === 'duration' && typeof message.seconds === 'number' && message.seconds > 0) {
-      if (source.checkLength && message.seconds < MIN_TRAILER_SECONDS) void playNext();
-    } else if (message.type === 'noapi') {
-      // Afspiller-API'et kom ikke op. Den rene indlejring virker uden det
-      // (men kan saa ikke melde fejl).
-      logEvent('trailer', 'YouTubes afspiller-API kom ikke op: ren indlejring');
-      setLoading(true);
-      setSource({ kind: 'plain', id: source.id });
-    } else if (message.type === 'error') {
-      // Spaerret i Danmark, maa ikke indlejres, fjernet: proev den naeste.
-      logEvent('trailer', `indlejret afspiller meldte fejl ${String(message.code)}: ${embedErrorText(message.code)}`);
-      void playNext();
-    }
-  }
-
-  const webSource =
-    source.kind === 'measured'
-      ? { html: measuredEmbedPage(source.id, isTV, source.startAt ?? 0), baseUrl: EMBED_ORIGIN }
-      : source.kind === 'plain'
-        ? { html: embedPage(source.id, isTV), baseUrl: EMBED_ORIGIN }
-        : source.kind === 'search'
-          ? { uri: source.url }
-          : null;
-  const openUrl =
-    source.kind === 'native' && source.apple === true
-      ? `https://tv.apple.com/search?term=${encodeURIComponent(title)}`
-      : source.kind === 'native' && source.imdb !== undefined
-      ? `https://www.imdb.com/video/${source.id}/`
-      : source.kind === 'measured' || source.kind === 'plain' || source.kind === 'native' || source.kind === 'external'
-        ? `https://www.youtube.com/watch?v=${source.id}`
-        : youtubeSearchUrl(title, year);
-
   return (
     <View style={styles.container}>
-      <View style={[styles.frame, source.kind === 'search' && styles.frameTall, isTV && styles.frameFull]}>
-        {WebView === null && (
-          <View style={styles.overlay}>
-            <Text style={styles.errorText}>Trailere fra YouTube kan ikke vises på Apple TV. Se den på telefonen.</Text>
-          </View>
-        )}
-        {WebView !== null && !failed && webSource !== null && (
-          <WebView
-            key={
-              source.kind === 'search'
-                ? source.url
-                : source.kind === 'looking' || source.kind === 'none'
-                  ? source.kind
-                  : `${source.kind}:${source.id}`
-            }
-            source={webSource}
-            originWhitelist={['*']}
-            style={styles.web}
-            // Tving webvisningen op i et hardware-lag (GPU). Uden det
-            // software-tegner nogle Android TV-bokse den store videoflade, og
-            // saa hakker traileren ("slowmotion"), mens den native filmafspiller
-            // koerer glat. Kun Android; ignoreres andre steder.
-            androidLayerType="hardware"
-            userAgent={isTV ? DESKTOP_USER_AGENT : BROWSER_USER_AGENT}
-            // Sidens 1920 punkter (se viewport) skaleres ned til skaermen.
-            scalesPageToFit
-            thirdPartyCookiesEnabled
-            sharedCookiesEnabled
-            allowsFullscreenVideo
-            allowsInlineMediaPlayback
-            mediaPlaybackRequiresUserAction={false}
-            javaScriptEnabled
-            domStorageEnabled
-            onMessage={onMessage}
-            // Den maalte afspiller skjuler selv hjulet, naar forspringet er hentet
-            // (beskeden `playing`); de andre naar siden er indlaest.
-            onLoadEnd={() => {
-              if (source.kind !== 'measured') setLoading(false);
-            }}
-            onError={() => {
-              setFailed(true);
-              setLoading(false);
-            }}
-          />
-        )}
-        {source.kind === 'native' && (
-          <NativeTrailer
-            key={`${source.id}:${source.attempt}`}
-            uri={source.uri}
-            resumeAt={source.resumeAt}
-            expectedSeconds={source.seconds}
-            contentType={source.contentType}
-            onReady={() => setLoading(false)}
-            onBroken={(position, reason) => {
-              logEvent('trailer', `${source.apple === true ? 'Apple TV' : source.imdb !== undefined ? 'IMDb' : 'native'}-trailer stoppede ved ${Math.round(position)} s: ${reason}`);
-              if (source.apple === true) void start(new Set(['apple']));
-              else if (source.imdb !== undefined) void recoverImdb(source, position);
-              else void playNext();
-            }}
-            // Paa tv lukker traileren naar den er slut, som i Googles butik.
-            onEnd={isTV ? onBack : undefined}
-          />
-        )}
-        {source.kind === 'external' && (
-          <View style={styles.overlay}>
-            <Text style={styles.errorText}>Traileren spiller i YouTube-appen.</Text>
-            <Text style={styles.overlayText}>Tryk Tilbage dér, når du har set den.</Text>
-          </View>
-        )}
-        {source.kind === 'none' && (
-          <View style={styles.overlay}>
-            <Text style={styles.errorText}>Ingen trailer fundet til «{title}». Prøv "Åbn i YouTube" nedenfor.</Text>
-          </View>
-        )}
-        {(loading || source.kind === 'looking') && !failed && (
-          <View style={styles.overlay}>
-            <ActivityIndicator color={colors.accent} />
-            {source.kind === 'looking' && <Text style={styles.overlayText}>Leder efter en trailer …</Text>}
-          </View>
-        )}
-        {failed && (
-          <View style={styles.overlay}>
-            <Text style={styles.errorText}>Traileren kunne ikke hentes fra YouTube.</Text>
-          </View>
-        )}
-      </View>
-      {/* Paa tv fylder traileren hele skaermen; titel og knap vises kun hvis
-          den ikke kan spilles her. Tilbage paa fjernbetjeningen lukker den. */}
-      {(!isTV || failed || source.kind === 'none') && (
-      <>
-      <View style={styles.info}>
-        <Text style={styles.title} numberOfLines={2}>
-          {title}
-        </Text>
-        <Text style={styles.hint}>{note ?? 'Trailer fra YouTube'}</Text>
-      </View>
-      <View style={[styles.actions, { paddingBottom: theme.spacing.md + insets.bottom }]}>
-        {!isTV && (
-          <TvPressable style={styles.button} onPress={onBack}>
-            <Text style={styles.buttonText}>Tilbage</Text>
-          </TvPressable>
-        )}
-        {/* Altid, ikke kun ved fejl: nogle trailere maa ifoelge deres ejer
-            ikke vises uden for YouTube, og saa er det her den eneste vej. */}
-        <TvPressable
-          style={styles.button}
-          onPress={() => {
-            void Linking.openURL(openUrl).catch(() => undefined);
+      <View style={[styles.frame, isTV && styles.frameFull]}>
+        {source.kind === 'proof' && <YoutubeProof key={source.id} id={source.id}
+          onFallback={() => setSource({ kind: 'youtube', id: source.id, checkLength: source.checkLength })}
+          onResolved={(result) => {
+            manifests.current.push(...result.files);
+            setLoading(true);
+            setSource({ kind: 'native', id: source.id, uri: result.uri, seconds: result.seconds, contentType: 'dash', provider: 'YouTube PO', resumeAt: 0, attempt: 0 });
           }}
-        >
-          <Text style={styles.buttonText}>Åbn i YouTube</Text>
-        </TvPressable>
+        />}
+        {source.kind === 'youtube' && <YoutubeTrailer
+          key={source.id}
+          id={source.id}
+          checkLength={source.checkLength}
+          resumeAt={source.resumeAt}
+          onUnavailable={() => { void playNext(); }}
+          onEnd={() => { if (isTV) onBack(); }}
+        />}
+        {source.kind === 'native' && <NativeTrailer
+          key={`${source.id}:${source.attempt}`}
+          uri={source.uri}
+          resumeAt={source.resumeAt}
+          expectedSeconds={source.seconds}
+          contentType={source.contentType}
+          onReady={() => setLoading(false)}
+          onBroken={(position, reason) => { void recoverNative(source, position, reason); }}
+          onEnd={isTV ? onBack : undefined}
+        />}
+        {(source.kind === 'looking' || (source.kind === 'native' && loading)) && <View style={styles.overlay}>
+          <ActivityIndicator color={colors.accent} />
+          <Text style={styles.hint}>Leder efter en trailer …</Text>
+        </View>}
+        {source.kind === 'none' && <View style={styles.overlay}>
+          <Text style={styles.title}>Ingen trailer kunne afspilles til «{title}».</Text>
+          <Text style={styles.hint}>Prøv en anden titel, eller gå tilbage og prøv igen.</Text>
+          <TvPressable style={styles.button} hasTVPreferredFocus={isTV} onPress={() => {
+            nativeQueue.current = []; queue.current = []; tried.current.clear(); stage.current = 0;
+            setLoading(true); setSource({ kind: 'looking' });
+            void start().catch(() => { if (alive.current) void playNext(); });
+          }}><Text style={styles.buttonText}>Prøv igen</Text></TvPressable>
+        </View>}
       </View>
-      </>
-      )}
+      {!isTV && <View style={styles.info}>
+        <Text style={styles.title} numberOfLines={2}>{title}</Text>
+        <Text style={styles.hint}>{source.kind === 'native' ? `Trailer fra ${source.provider}` : 'Trailer i appen'}</Text>
+        <TvPressable style={styles.button} onPress={onBack}><Text style={styles.buttonText}>Tilbage</Text></TvPressable>
+      </View>}
     </View>
   );
 }
 
-/**
- * Traileren i appens egen afspiller (ExoPlayer), fra DASH- eller HLS-manifestet.
- *
- * Buffer: den starter foerst naar fire sekunder er hentet (brugeren: "buffer
- * lidt foerst, saa det ikke hakker"), og holder et halvt minut klar foran.
- * Hjulet vises indtil afspilleren melder klar.
- *
- * Holder vagt, fordi traileren stoppede foer tid (v329): en fejl, en
- * afspilning der staar og henter i NATIVE_STALL_MS, eller en slutning mere
- * end et par sekunder foer videoens laengde meldes som `onBroken` med
- * positionen, og skaermen fortsaetter derfra med friske adresser.
- */
+function KeepAwake() { useKeepAwake('norstream-native-trailer'); return null; }
 function NativeTrailer({
   uri,
   resumeAt,
@@ -730,19 +323,37 @@ function NativeTrailer({
   onBroken: (position: number, reason: string) => void;
   onEnd?: () => void;
 }) {
-  const source = useMemo(() => ({ uri, contentType }), [uri, contentType]);
+  const styles = useStyles(makeStyles);
+  const [playing, setPlaying] = useState(true);
+  const [initialFocus, setInitialFocus] = useState(isTV);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setInitialFocus(false));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  const source = useMemo(() => ({ uri, contentType, useCaching: contentType === 'progressive' }), [uri, contentType]);
   const player = useVideoPlayer(source, (p) => {
     p.loop = false;
     p.timeUpdateEventInterval = 0.5;
     p.bufferOptions = {
-      preferredForwardBufferDuration: 30,
+      preferredForwardBufferDuration: 120,
       minBufferForPlayback: 4,
-      prioritizeTimeOverSizeThreshold: true,
+      maxBufferBytes: 64 * 1024 * 1024,
+      prioritizeTimeOverSizeThreshold: false,
     };
     p.play();
   });
   const handlers = useRef({ onReady, onBroken, onEnd });
   handlers.current = { onReady, onBroken, onEnd };
+  function toggle(): void { if (player.playing) player.pause(); else player.play(); }
+  function seek(by: number): void {
+    player.currentTime = Math.max(0, Math.min(player.currentTime + by, Math.max(0, player.duration - 1)));
+  }
+  useTVEventHandler((event) => {
+    if (!isTV || event.eventKeyAction === 0) return;
+    if (event.eventType === 'playPause') toggle();
+    if (event.eventType === 'rewind') seek(-10);
+    if (event.eventType === 'fastForward') seek(10);
+  });
 
   useEffect(() => {
     let ready = false;
@@ -750,6 +361,7 @@ function NativeTrailer({
     /** Holdt her og ikke laest af afspilleren: den kan vaere frigivet naar vi skal bruge tallet. */
     let position = resumeAt;
     let duration = expectedSeconds ?? 0;
+    let lastProgress = Date.now();
     let stall: ReturnType<typeof setTimeout> | null = null;
     const clearStall = (): void => {
       if (stall !== null) clearTimeout(stall);
@@ -765,11 +377,12 @@ function NativeTrailer({
     const timer = setTimeout(() => {
       if (!ready) broken('ikke klar');
     }, NATIVE_READY_TIMEOUT_MS);
-    const status = player.addListener('statusChange', ({ status: next, error }) => {
+    const updateStatus = (next: string, error?: { message?: string } | null): void => {
       if (next === 'readyToPlay') {
         clearStall();
         if (!ready) {
           ready = true;
+          lastProgress = Date.now();
           clearTimeout(timer);
           try {
             if (player.duration > 0) duration = player.duration;
@@ -780,31 +393,52 @@ function NativeTrailer({
           handlers.current.onReady();
         }
       } else if (next === 'loading' && ready) {
-        clearStall();
-        stall = setTimeout(() => broken('stod stille'), NATIVE_STALL_MS);
+        if (stall === null) stall = setTimeout(() => broken('stod stille'), NATIVE_STALL_MS);
       } else if (next === 'error') {
         // Kun HTTP-koden; fejlteksten kan rumme adressen.
         const code = /\b([45]\d\d)\b/.exec(error?.message ?? '')?.[1];
         broken(code === undefined ? 'fejl' : `fejl ${code}`);
       }
-    });
+    };
+    const status = player.addListener('statusChange', ({ status: next, error }) => updateStatus(next, error));
+    // ready kan allerede vaere sket inden listeneren blev registreret.
+    updateStatus(player.status);
     const time = player.addListener('timeUpdate', ({ currentTime }) => {
-      if (Number.isFinite(currentTime) && currentTime > 0) position = currentTime;
+      if (Number.isFinite(currentTime) && currentTime >= 0) {
+        if (Math.abs(currentTime - position) >= 0.25) lastProgress = Date.now();
+        position = currentTime;
+      }
     });
+    const changes = player.addListener('playingChange', ({ isPlaying }) => {
+      setPlaying(isPlaying);
+      lastProgress = Date.now();
+      if (!isPlaying) clearStall();
+    });
+    const progress = setInterval(() => {
+      if (done || !ready) return;
+      if (!player.playing) { lastProgress = Date.now(); return; }
+      if (Date.now() - lastProgress >= NATIVE_STALL_MS) broken('position stod stille');
+    }, 1000);
     const end = player.addListener('playToEnd', () => {
       if (done) return;
       // Sluttede den mere end et par sekunder foer tid, er det ikke slutningen.
+      if (!ready) return;
       if (duration > 0 && position < duration - 3) {
         broken(`sluttede ved ${clock(position)} af ${clock(duration)}`);
         return;
       }
       done = true;
+      setPlaying(false);
+      clearTimeout(timer);
+      clearStall();
       handlers.current.onEnd?.();
     });
     return () => {
       done = true;
       clearTimeout(timer);
       clearStall();
+      clearInterval(progress);
+      changes.remove();
       status.remove();
       time.remove();
       end.remove();
@@ -814,151 +448,37 @@ function NativeTrailer({
   }, [player]);
 
   return (
+    <View style={styles.nativeFrame}>
+    {playing && <KeepAwake />}
     <VideoView
-      style={StyleSheet.absoluteFill}
+      style={styles.nativeVideo}
       player={player}
       nativeControls={!isTV}
       contentFit="contain"
       surfaceType={surfaceTypeForPlatform()}
     />
+    {isTV && <View style={styles.nativeControls}>
+      <TvPressable style={styles.controlButton} hasTVPreferredFocus={initialFocus} onPress={toggle}><Text style={styles.buttonText}>{playing ? 'Pause' : 'Afspil'}</Text></TvPressable>
+      <TvPressable style={styles.controlButton} onPress={() => seek(-10)}><Text style={styles.buttonText}>−10 s</Text></TvPressable>
+      <TvPressable style={styles.controlButton} onPress={() => seek(10)}><Text style={styles.buttonText}>+10 s</Text></TvPressable>
+    </View>}
+    </View>
   );
 }
 
-/**
- * Siden afspilleren sidder paa. Kun id'et bygges ind, og det er et
- * YouTube-id paa elleve tegn — aldrig fri tekst — saa der kan ikke lukkes
- * noget ind i siden gennem det.
- */
-export function embedPage(trailerId: string, wide = false): string {
-  const id = safeId(trailerId);
-  return `<!doctype html><html><head><meta name="viewport" content="${viewport(wide)}">
-<style>html,body{margin:0;background:#000;height:100%;overflow:hidden}iframe{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
-</head><body><iframe src="https://www.youtube.com/embed/${id}?autoplay=1&playsinline=1&rel=0&modestbranding=1&vq=hd1080"
-allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></body></html>`;
-}
-
-/**
- * Samme afspiller, men styret gennem YouTubes IFrame-API, som kan oplyse
- * varigheden og fortaelle naar en video ikke kan spilles. Siden sender tre
- * slags beskeder til appen: `duration` naar den kendes, `error` med YouTubes
- * egen kode, og `noapi` hvis API'et ikke er kommet op efter tolv sekunder —
- * saa appen kan falde tilbage paa den rene indlejring.
- *
- * `standby` (v333): siden goeres klar usynligt mens den native afspiller
- * spiller — starter lydloest ved `startAt`, pauser, henter et forspring og
- * melder `standby-ready`. Appen kalder saa `window.__go()`, naar den native
- * afspiller naar dertil: spol til `startAt`, lyd paa, spil.
- *
- * Varigheden er nul indtil videoen har hentet sine metadata; derfor
- * spoerges der baade naar afspilleren er klar og igen naar den begynder at
- * spille, og kun et tal over nul sendes.
- */
-export function measuredEmbedPage(trailerId: string, wide = false, startAt = 0, standby = false): string {
-  const id = safeId(trailerId);
-  const start = Number.isFinite(startAt) && startAt > 0 ? Math.floor(startAt) : 0;
-  return `<!doctype html><html><head><meta name="viewport" content="${viewport(wide)}">
-<style>html,body{margin:0;background:#000;height:100%;overflow:hidden}#p{position:absolute;inset:0;width:100%;height:100%;border:0}</style>
-</head><body><div id="p"></div>
-<script>
-var sent=false,primed=false,started=false,t0=0,P=null,primedAt=0,readySent=false,STANDBY=${standby ? 'true' : 'false'},START=${start},BUFFER_S=${BUFFER_SECONDS},MAX_WAIT=${MAX_BUFFER_WAIT_MS};
-window.__go=function(){if(P){begin(P);}};
-function post(m){if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify(m));}}
-function report(player){if(sent)return;var d=player.getDuration();if(d>0){sent=true;post({type:'duration',seconds:d});}}
-function begin(p){if(started)return;started=true;try{p.seekTo(START,true);}catch(x){}try{p.unMute();}catch(x){}p.playVideo();post({type:'playing'});}
-function onYouTubeIframeAPIReady(){
-  new YT.Player('p',{videoId:'${id}',playerVars:{autoplay:1,mute:1,playsinline:1,rel:0,modestbranding:1,vq:'hd1080',start:START},
-    events:{
-      onReady:function(e){var p=e.target;P=p;try{p.setPlaybackQuality('hd1080');}catch(x){}try{p.mute();}catch(x){}t0=Date.now();p.playVideo();report(p);
-        var iv=setInterval(function(){
-          if(started){clearInterval(iv);return;}
-          if(STANDBY){if(primed&&!readySent&&Date.now()-primedAt>=3000){readySent=true;clearInterval(iv);post({type:'standby-ready'});}return;}
-          var d=0,f=0;try{d=p.getDuration()||0;f=p.getVideoLoadedFraction()||0;}catch(x){}
-          var enough=d>0&&d*f>=Math.min(BUFFER_S,d*0.9);
-          if((primed&&enough)||Date.now()-t0>MAX_WAIT){clearInterval(iv);begin(p);}
-        },250);},
-      onStateChange:function(e){report(e.target);if(e.data===0&&started){post({type:'ended'});}if(!primed&&e.data===1){primed=true;primedAt=Date.now();if(!started){e.target.pauseVideo();}}},
-      onError:function(e){post({type:'error',code:e.data});}
-    }});
-}
-setTimeout(function(){if(!window.YT||!window.YT.Player){post({type:'noapi'});}},12000);
-</script>
-<script src="https://www.youtube.com/iframe_api"></script>
-</body></html>`;
-}
-
-/**
- * Forspring foer traileren starter, saa den ikke hakker: den startes lydloest,
- * pauses saa snart den spiller, og YouTube henter videre imens. Naar der er
- * BUFFER_SECONDS hentet (eller efter MAX_BUFFER_WAIT_MS, saa den aldrig
- * haenger), spoles til start og spilles med lyd. Appen viser hjulet imens
- * (beskeden `playing` skjuler det).
- */
-const BUFFER_SECONDS = 15;
-const MAX_BUFFER_WAIT_MS = 6000;
-
-/**
- * Sidens bredde. Paa tv (`wide`) lader siden som om den er 1920 punkter bred
- * (fuld HD), og webvisningen skalerer den ned til skaermen. YouTubes afspiller
- * vaelger kvalitet efter afspillerens stoerrelse i web-punkter: med tv'ets egne
- * ~930 punkter valgte den 480p, selv i fuld skaerm ("ikke HD, meget mindre end
- * normalt"). Med 1920 er afspilleren 1920 x 1080, og saa vaelges 1080p.
- */
-function viewport(wide: boolean): string {
-  return wide ? 'width=1920' : 'width=device-width, initial-scale=1';
-}
-
-function safeId(trailerId: string): string {
-  return trailerId.replace(/[^A-Za-z0-9_-]/g, '');
-}
 
 const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   frame: { width: '100%', aspectRatio: 16 / 9, backgroundColor: '#000000' },
-  /** Soegesiden er en hel side, ikke en video; den faar det meste af skaermen. */
-  frameTall: { aspectRatio: undefined, flex: 3 },
-  /** Tv: traileren fylder hele skaermen, som i Googles butik. Tilbage lukker den. */
   frameFull: { aspectRatio: undefined, flex: 1 },
-  web: { flex: 1, backgroundColor: '#000000' },
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: theme.spacing.md,
-  },
-  overlayText: { color: colors.textMuted, marginTop: theme.spacing.sm },
-  /** YouTubes afspiller mens den goeres klar: usynlig, over den native video. */
-  hidden: { opacity: 0 },
-  /** Linjen ved et skift: lille, nederst til venstre. */
-  note: {
-    position: 'absolute',
-    left: theme.spacing.sm,
-    bottom: theme.spacing.sm,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 4,
-  },
-  noteText: { color: '#FFFFFF', fontSize: 12 },
-  errorText: { color: colors.text, textAlign: 'center' },
+  overlay: { position: 'absolute', inset: 0, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.md },
   info: { flex: 1, padding: theme.spacing.md, backgroundColor: colors.background },
-  title: { color: colors.text, fontSize: 18, fontWeight: '700' },
-  hint: { color: colors.textMuted, fontSize: 13, marginTop: 4, lineHeight: 18 },
-  actions: {
-    flexDirection: 'row',
-    gap: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.md,
-    paddingTop: theme.spacing.sm,
-    backgroundColor: colors.background,
-  },
-  button: {
-    backgroundColor: colors.surfaceRaised,
-    borderRadius: theme.radius,
-    paddingVertical: theme.spacing.sm + 2,
-    paddingHorizontal: theme.spacing.md,
-  },
+  title: { color: colors.text, fontSize: 18, fontWeight: '700', textAlign: 'center' },
+  hint: { color: colors.textMuted, fontSize: 13, marginTop: 8, textAlign: 'center' },
+  button: { backgroundColor: colors.surfaceRaised, borderRadius: theme.radius, paddingVertical: 10, paddingHorizontal: 16, marginTop: 16 },
   buttonText: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  nativeFrame: { flex: 1 },
+  nativeVideo: { flex: 1 },
+  nativeControls: { height: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, gap: 12 },
+  controlButton: { backgroundColor: colors.surfaceRaised, borderRadius: 4, paddingHorizontal: 14, paddingVertical: 6 },
 });

@@ -151,11 +151,27 @@ interface Renderer {
  * soegningen er en reserve, og den maa aldrig blive til en fejl paa skaermen.
  */
 export function parseYoutubeSearch(html: string): TrailerCandidate[] {
-  const match = /ytInitialData\s*=\s*(\{[\s\S]*?\});\s*<\/script>/.exec(html);
+  const match = /(?:\bytInitialData|window\[['"]ytInitialData['"]\])\s*=\s*(\{)/.exec(html);
   if (match === null) return [];
+  const start = match.index + match[0].length - 1;
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  let end = -1;
+  for (let i = start; i < html.length; i++) {
+    const char = html[i];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === '{') depth++;
+    else if (char === '}' && --depth === 0) { end = i + 1; break; }
+  }
+  if (end < 0) return [];
   let data: unknown;
   try {
-    data = JSON.parse(match[1] ?? '');
+    data = JSON.parse(html.slice(start, end));
   } catch {
     return [];
   }
@@ -197,7 +213,9 @@ const NOT_A_TRAILER = /reaction|review|anmeldelse|explained|breakdown|fan ?made|
  * YouTubes relevans-raekkefoelge bevares inden for hver gruppe.
  */
 export function rankYoutubeTrailers(candidates: readonly TrailerCandidate[], title: string, limit = 5): TrailerCandidate[] {
-  const name = title.toLowerCase().replace(/\s+/g, ' ').trim();
+  const normalize = (text: string): string => text.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9æøå]+/g, ' ').trim();
+  const name = normalize(title);
+  const words = name.split(' ').filter((word) => word.length > 0 && word !== 'the');
   const score = (candidate: TrailerCandidate): number => {
     const lower = candidate.title.toLowerCase();
     let value = lower.includes('trailer') ? 0 : lower.includes('teaser') ? 2 : 1;
@@ -209,7 +227,8 @@ export function rankYoutubeTrailers(candidates: readonly TrailerCandidate[], tit
       (candidate) =>
         candidate.seconds >= MIN_TRAILER_SECONDS &&
         candidate.seconds <= MAX_TRAILER_SECONDS &&
-        !NOT_A_TRAILER.test(candidate.title),
+        !NOT_A_TRAILER.test(candidate.title) &&
+        words.length > 0 && words.every((word) => normalize(candidate.title).split(' ').includes(word)),
     )
     .map((candidate, index) => ({ candidate, index, score: score(candidate) }))
     .sort((a, b) => a.score - b.score || a.index - b.index)
@@ -229,7 +248,7 @@ export async function searchYoutubeTrailers(
   title: string,
   year: number | null,
 ): Promise<TrailerCandidate[]> {
-  const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(trailerQuery(title, year))}&hl=da&gl=DK`;
+  const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(trailerQuery(title, year))}&hl=en&gl=DK`;
   let html: string | null;
   try {
     html = await fetchText(url, {

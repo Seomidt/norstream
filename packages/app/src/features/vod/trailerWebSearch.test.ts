@@ -39,6 +39,12 @@ describe('parseYoutubeSearch', () => {
   it('giver tomt ved en side uden data', () => {
     expect(parseYoutubeSearch('<html>samtykke</html>')).toEqual([]);
   });
+
+  it('laeser window-varianten og flere scriptsaetninger uden at stoppe ved klammer i titlen', () => {
+    const html = page([{ id: 'aaaaaaaaaaa', title: 'Tuner {Official} Trailer', length: '2:00' }])
+      .replace('var ytInitialData', 'window["ytInitialData"]').replace(';</script>', '; window.next = {};</script>');
+    expect(parseYoutubeSearch(html)[0]?.title).toBe('Tuner {Official} Trailer');
+  });
 });
 
 describe('rankYoutubeTrailers', () => {
@@ -54,7 +60,7 @@ describe('rankYoutubeTrailers', () => {
       ],
       'Tuner',
     );
-    expect(ranked.map((candidate) => candidate.id)).toEqual(['good', 'clip', 'other']);
+    expect(ranked.map((candidate) => candidate.id)).toEqual(['good', 'clip']);
   });
 });
 

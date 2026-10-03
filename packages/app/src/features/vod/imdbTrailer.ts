@@ -25,7 +25,7 @@ const HEADERS: Record<string, string> = {
   'Accept-Language': 'en-US',
 };
 const QUERY =
-  'query T($id: ID!) { title(id: $id) { primaryVideos(first: 10) { edges { node { id name { value } runtime { value } ' +
+  'query T($id: ID!) { title(id: $id) { primaryVideos(first: 50) { edges { node { id name { value } runtime { value } ' +
   'contentType { displayName { value } } playbackURLs { displayName { value } videoMimeType url } } } } } }';
 
 /** Kortere end det er en teaser; laengere er ikke en trailer. */
@@ -42,6 +42,8 @@ export interface ImdbTrailer {
   /** MP4-filen, bedste op til 1080p. */
   url: string;
   height: number;
+  /** HLS er reserve naar IMDb kun udleverer et manifest. */
+  contentType: 'progressive' | 'hls';
 }
 
 interface PlaybackUrl {
@@ -87,12 +89,19 @@ export function pickImdbTrailers(nodes: readonly VideoNode[]): ImdbTrailer[] {
     const seconds = typeof node.runtime?.value === 'number' ? node.runtime.value : null;
     if (seconds !== null && (seconds < MIN_SECONDS || seconds > MAX_SECONDS)) return;
     const file = pickImdbFile(node.playbackURLs ?? []);
-    if (file === null || typeof node.id !== 'string' || !/^vi\d+$/.test(node.id)) return;
+    const hls = (node.playbackURLs ?? []).find((u) => u.videoMimeType === 'M3U8' && u.url?.startsWith('https://'));
+    const url = file?.url ?? hls?.url;
+    if ((url === undefined) || typeof node.id !== 'string' || !/^vi\d+$/.test(node.id)) return;
     const name = node.name?.value ?? 'Trailer';
-    out.push({ videoId: node.id, name, seconds, url: file.url, height: file.height, official: /official/i.test(name), order });
+    out.push({ videoId: node.id, name, seconds, url, height: file?.height ?? 0, contentType: file === null ? 'hls' : 'progressive', official: /official/i.test(name), order });
   });
   out.sort((a, b) => Number(b.official) - Number(a.official) || a.order - b.order);
-  return out.map(({ official: _official, order: _order, ...trailer }) => trailer);
+  const seen = new Set<string>();
+  return out.filter((trailer) => {
+    if (seen.has(trailer.videoId)) return false;
+    seen.add(trailer.videoId);
+    return true;
+  }).map(({ official: _official, order: _order, ...trailer }) => trailer);
 }
 
 /** Alle brugbare trailere for et IMDb-nummer (tt…). */

@@ -106,19 +106,31 @@ export function matchSearch(
 export function pickAppleTrailers(data: unknown): AppleTrailer[] {
   const shelves = (data as { data?: { canvas?: { shelves?: Array<{ items?: CanvasItem[] }> } } } | null)?.data?.canvas
     ?.shelves;
-  if (!Array.isArray(shelves)) return [];
   const out: AppleTrailer[] = [];
   const seen = new Set<string>();
-  for (const shelf of shelves) {
+  for (const shelf of Array.isArray(shelves) ? shelves : []) {
     for (const item of shelf.items ?? []) {
       if (item.localizedType !== 'Trailer' || typeof item.id !== 'string') continue;
-      const playable = item.playables?.[0];
+      const playable = item.playables?.find((p) => p.assets?.hlsUrl?.startsWith('https://'));
       const url = playable?.assets?.hlsUrl;
       if (typeof url !== 'string' || !url.startsWith('https://') || seen.has(url)) continue;
       const seconds = typeof playable?.duration === 'number' && playable.duration > 0 ? playable.duration : null;
       if (seconds !== null && (seconds < MIN_SECONDS || seconds > MAX_SECONDS)) continue;
       seen.add(url);
       out.push({ id: item.id, name: item.title ?? 'Trailer', seconds, url });
+    }
+  }
+  // Nogle filmsider har kun movieClips i playables, ingen Trailer-hylde.
+  // Kun den allerede titel/aar-matchede side laeses; ikke relaterede film.
+  const playables = (data as { data?: { playables?: Record<string, { itunesMediaApiData?: { movieClips?: Array<{ title?: string; hlsUrl?: string; durationInMilliseconds?: number }> } }> } } | null)?.data?.playables;
+  for (const playable of Object.values(playables ?? {})) {
+    for (const clip of playable.itunesMediaApiData?.movieClips ?? []) {
+      const url = clip.hlsUrl;
+      const seconds = typeof clip.durationInMilliseconds === 'number' ? clip.durationInMilliseconds / 1000 : null;
+      if (typeof url !== 'string' || !url.startsWith('https://') || seen.has(url)) continue;
+      if (!/trailer/i.test(clip.title ?? '') || (seconds !== null && (seconds < MIN_SECONDS || seconds > MAX_SECONDS))) continue;
+      seen.add(url);
+      out.push({ id: `clip-${out.length}`, name: clip.title ?? 'Trailer', seconds, url });
     }
   }
   return out;
@@ -146,9 +158,10 @@ export async function findAppleTrailers(
     if (hit === null || hit.id === undefined) continue;
     try {
       const page = await getJson(`${BASE}/${kind === 'series' ? 'shows' : 'movies'}/${encodeURIComponent(hit.id)}?${query()}`);
-      return pickAppleTrailers(page);
+      const trailers = pickAppleTrailers(page);
+      if (trailers.length > 0) return trailers;
     } catch {
-      return [];
+      continue;
     }
   }
   return [];
