@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import type React from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -27,6 +28,7 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
 import { CinemaScreen } from './CinemaScreen.js';
+import { VodFilterScreen } from './VodFilterScreen.js';
 import type { TmdbTitle } from '../../sync/tmdbHome.js';
 import { cameBySelect } from '../../ui/tvKeys.js';
 import { ensurePoster, foundPoster, subscribePoster } from '../../ui/posterFill.js';
@@ -41,6 +43,8 @@ export type VodLevel =
   | { name: 'home' }
   | { name: 'cinema' }
   | { name: 'countries'; kind: VodKind }
+  /** Udvalg paa tvaers af lande: genre, aar, land(e), sortering (v367). */
+  | { name: 'filter'; kind: VodKind }
   | { name: 'categories'; kind: VodKind; country: CountryGroup }
   | { name: 'items'; kind: VodKind; country: CountryGroup; category: VodCategorySummary };
 
@@ -165,7 +169,18 @@ export function VodScreen({ session, level, onLevelChange, onOpen, onTrailer, on
           session={session}
           kind={level.kind}
           onPick={(country) => onLevelChange({ name: 'categories', kind: level.kind, country })}
+          onFilter={() => onLevelChange({ name: 'filter', kind: level.kind })}
         />
+      </View>
+    );
+  }
+
+  if (level.name === 'filter') {
+    return (
+      <View style={styles.container}>
+        {!isTV && searchField}
+        <Crumb label={`${kindLabel(level.kind)} · udvalg`} onBack={() => onLevelChange({ name: 'countries', kind: level.kind })} />
+        <VodFilterScreen session={session} kind={level.kind} onOpen={onOpen} />
       </View>
     );
   }
@@ -313,10 +328,12 @@ function Countries({
   session,
   kind,
   onPick,
+  onFilter,
 }: {
   session: AppSession;
   kind: VodKind;
   onPick: (country: CountryGroup) => void;
+  onFilter: () => void;
 }) {
   // Én gang naar listen kommer frem, ikke ved hver tegning: ellers sprang fokus til toppen efter ethvert OK-tryk.
   const focusFirstAtMount = useRef(isTV && cameBySelect()).current;
@@ -339,8 +356,20 @@ function Countries({
       data={groups}
       keyExtractor={(item) => item.key}
       ListEmptyComponent={<Text style={styles.empty}>Ingen {kindLabel(kind).toLowerCase()} fundet.</Text>}
-      renderItem={({ item, index }) => (
-        <TvPressable style={styles.row} hasTVPreferredFocus={index === 0 && focusFirstAtMount} onPress={() => onPick(item)}>
+      ListHeaderComponent={
+        groups.length > 0 ? (
+          <TvPressable style={[styles.row, styles.filterRow]} hasTVPreferredFocus={focusFirstAtMount} onPress={onFilter}>
+            <Text style={styles.flag}>⚲</Text>
+            <View style={styles.rowMain}>
+              <Text style={styles.rowTitle}>Udvalg: genre, år og land</Text>
+              <Text style={styles.rowCount}>fx thriller · 2026 · DK + UK + US</Text>
+            </View>
+            <Text style={styles.chevron}>›</Text>
+          </TvPressable>
+        ) : null
+      }
+      renderItem={({ item }) => (
+        <TvPressable style={styles.row} onPress={() => onPick(item)}>
           <Text style={styles.flag}>{item.flag}</Text>
           <View style={styles.rowMain}>
             <Text style={styles.rowTitle}>{item.name}</Text>
@@ -430,14 +459,19 @@ function Items({
   return <PosterGrid items={items} onOpen={onOpen} emptyText="Ingen titler i denne kategori." />;
 }
 
-function PosterGrid({
+export function PosterGrid({
   items,
   onOpen,
   emptyText,
+  header,
+  footer,
 }: {
   items: StoredVodItem[];
   onOpen: (item: StoredVodItem) => void;
   emptyText: string;
+  /** Over gitteret, ruller med (udvalgets knapper, v367). */
+  header?: React.ReactElement | null;
+  footer?: React.ReactElement | null;
 }) {
   // Én gang naar listen kommer frem, ikke ved hver tegning: ellers sprang fokus til toppen efter ethvert OK-tryk.
   const focusFirstAtMount = useRef(isTV && cameBySelect()).current;
@@ -453,8 +487,10 @@ function PosterGrid({
       removeClippedSubviews={!isTV}
       contentContainerStyle={styles.grid}
       columnWrapperStyle={styles.gridRow}
+      ListHeaderComponent={header ?? null}
+      ListFooterComponent={footer ?? null}
       ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
-      renderItem={({ item, index }) => <Poster item={item} onOpen={onOpen} preferFocus={index === 0 && focusFirstAtMount} />}
+      renderItem={({ item, index }) => <Poster item={item} onOpen={onOpen} preferFocus={index === 0 && focusFirstAtMount && header === undefined} />}
     />
   );
 }
@@ -647,6 +683,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   flag: { fontSize: 22, marginRight: theme.spacing.md },
+  filterRow: { backgroundColor: colors.surface },
   rowMain: { flex: 1 },
   rowTitle: { color: colors.text, fontSize: 16 },
   rowCount: { color: colors.textMuted, fontSize: 12, marginTop: 2 },

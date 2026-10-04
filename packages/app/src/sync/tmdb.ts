@@ -119,6 +119,9 @@ interface SearchHit {
   poster_path?: string | null;
   vote_average?: number;
   vote_count?: number;
+  genre_ids?: number[];
+  release_date?: string;
+  first_air_date?: string;
 }
 
 interface SearchResult {
@@ -136,7 +139,7 @@ export async function searchTmdb(
   apiKey: string,
   kind: 'movie' | 'series',
   name: string,
-): Promise<{ id: number; posterUrl: string | null; rating: number | null } | null> {
+): Promise<{ id: number; posterUrl: string | null; rating: number | null; genreIds: number[]; year: number | null } | null> {
   const { title, year } = cleanVodTitle(name);
   if (title.length === 0) return null;
   const endpoint = kind === 'series' ? 'tv' : 'movie';
@@ -154,10 +157,14 @@ export async function searchTmdb(
       typeof hit.vote_average === 'number' && hit.vote_average > 0 && (hit.vote_count ?? 1) > 0
         ? Math.round(hit.vote_average * 10) / 10
         : null;
+    const date = typeof hit.release_date === 'string' ? hit.release_date : typeof hit.first_air_date === 'string' ? hit.first_air_date : '';
+    const released = /^(\d{4})/.exec(date);
     return {
       id: hit.id,
       posterUrl: typeof hit.poster_path === 'string' ? `${IMAGE_BASE}${hit.poster_path}` : null,
       rating,
+      genreIds: Array.isArray(hit.genre_ids) ? hit.genre_ids.filter((g): g is number => typeof g === 'number') : [],
+      year: released === null ? null : Number(released[1]),
     };
   } catch (error) {
     // Et svar uden titler er null; et manglende svar er en fejl videre op.

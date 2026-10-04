@@ -1,0 +1,84 @@
+import { genresFromTmdbIds, packGenres } from '../storage/genres.js';
+import type { SqlDatabase } from '../storage/types.js';
+import { TmdbRequestError, searchTmdb } from './tmdb.js';
+import type { TmdbFetch } from './tmdb.js';
+import { MISS_TTL_MS } from '../ui/posterFill.js';
+import { logEvent } from '../diagnostics/log.js';
+
+/**
+ * Genre og aar fra TMDB til film og serier i baggrunden (v367).
+ *
+ * Plakatopslaget (`ui/posterFill.ts`) spoerger kun for titler der vises uden
+ * plakat eller karakter. Filteret under Film vil ogsaa vide genren paa dem
+ * der har begge dele fra panelet, saa her gaas listen igennem bagfra, nyeste
+ * foerst, nogle hundrede ad gangen. Svaret gemmes i den samme tabel som
+ * plakaterne, saa ét opslag per titel giver alt. TMDB er ikke panelet og
+ * konkurrerer ikke om dets ene forbindelse; der holdes bare en lille pause
+ * mellem kaldene.
+ */
+export const META_BATCH = 300;
+const PAUSE_MS = 120;
+
+let running: Promise<{ looked: number; found: number }> | null = null;
+
+export function enrichVodMeta(
+  db: SqlDatabase,
+  fetchImpl: TmdbFetch,
+  apiKey: string,
+  options: { limit?: number; kind?: 'movie' | 'series'; pauseMs?: number; now?: () => number } = {},
+): Promise<{ looked: number; found: number }> {
+  if (running !== null) return running;
+  running = run(db, fetchImpl, apiKey, options).finally(() => {
+    running = null;
+  });
+  return running;
+}
+
+async function run(
+  db: SqlDatabase,
+  fetchImpl: TmdbFetch,
+  apiKey: string,
+  options: { limit?: number; kind?: 'movie' | 'series'; pauseMs?: number; now?: () => number },
+): Promise<{ looked: number; found: number }> {
+  const now = options.now ?? Date.now;
+  const limit = options.limit ?? META_BATCH;
+  const pauseMs = options.pauseMs ?? PAUSE_MS;
+  // Ingen raekke endnu; eller en raekke fra foer v25 (fundet, men uden
+  // genre); eller et nej der er gammelt nok til at proeve igen.
+  const rows = await db.getAllAsync<{ key: string; kind: string; name: string }>(
+    `SELECT i.key, i.kind, i.name FROM vod_items i
+     LEFT JOIN vod_posters fp ON fp.item_key = i.key
+     WHERE (fp.item_key IS NULL
+            OR (fp.genres IS NULL AND (fp.url IS NOT NULL OR fp.rating IS NOT NULL OR fp.tried_ms < ?)))
+       ${options.kind === undefined ? '' : 'AND i.kind = ?'}
+     ORDER BY i.added_ms DESC, i.sort_order LIMIT ?`,
+    options.kind === undefined ? [now() - MISS_TTL_MS, limit] : [now() - MISS_TTL_MS, options.kind, limit],
+  );
+  if (rows.length === 0) return { looked: 0, found: 0 };
+  const startedAt = now();
+  let looked = 0;
+  let found = 0;
+  for (const row of rows) {
+    let hit: Awaited<ReturnType<typeof searchTmdb>>;
+    try {
+      hit = await searchTmdb(fetchImpl, apiKey, row.kind === 'series' ? 'series' : 'movie', row.name);
+    } catch (cause) {
+      // Noeglen afvist eller TMDB nede: resten venter til naeste gang.
+      logEvent('baggrund', `film-info: stoppede efter ${looked} opslag (${cause instanceof TmdbRequestError && cause.status !== null ? `HTTP ${cause.status}` : 'intet svar'})`);
+      break;
+    }
+    looked += 1;
+    if (hit !== null) found += 1;
+    // En fundet titel uden genre faar '' og ikke NULL, saa den ikke slaas op igen.
+    const genres = hit === null ? null : packGenres(genresFromTmdbIds(hit.genreIds)) ?? '';
+    await db
+      .runAsync(
+        'INSERT OR REPLACE INTO vod_posters (item_key, url, rating, tried_ms, genres, year) VALUES (?, ?, ?, ?, ?, ?)',
+        [row.key, hit?.posterUrl ?? null, hit?.rating ?? null, now(), genres, hit?.year ?? null],
+      )
+      .catch(() => undefined);
+    if (pauseMs > 0) await new Promise((resolve) => setTimeout(resolve, pauseMs));
+  }
+  logEvent('baggrund', `film-info: ${looked} opslag hos TMDB, ${found} fundet, ${Math.round((now() - startedAt) / 1000)} s`);
+  return { looked, found };
+}

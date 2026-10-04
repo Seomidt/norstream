@@ -8,6 +8,7 @@ import {
   clearLastSyncMs,
   getMiniPreviewEnabled,
   getStreamFormatSetting,
+  getTmdbApiKey,
   getVideoSurface,
 } from '../../storage/settings.js';
 import { syncAllSources } from '../../sync/syncAll.js';
@@ -44,6 +45,8 @@ import { forgetLogoMisses, resetLogo } from '../../ui/logoCache.js';
 import { VodScreen } from '../vod/VodScreen.js';
 import { SportScreen } from '../sport/SportScreen.js';
 import { refreshSportEpg } from '../sport/findMatches.js';
+import { enrichVodMeta } from '../../sync/vodMeta.js';
+import { tmdbFetch } from '../../sync/tmdb.js';
 import { logEvent } from '../../diagnostics/log.js';
 import type { VodLevel } from '../vod/VodScreen.js';
 import type { StoredVodItem } from '../../storage/vod.js';
@@ -356,6 +359,19 @@ export function HomeScreen({
   // skal vaere faerdige foerst, og kaldene gaar i koe bag alt synligt.
   useEffect(() => {
     const timer = setTimeout(() => void refreshSportEpg(session).catch(() => 0), 90_000);
+    return () => clearTimeout(timer);
+  }, [session]);
+
+  // Genre og aar fra TMDB til de nyeste film og serier (v367), til udvalget
+  // under Film. To minutter efter start, nogle hundrede ad gangen; TMDB er
+  // ikke panelet og tager ikke dets forbindelse.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void (async () => {
+        const apiKey = await getTmdbApiKey(session.db);
+        if (apiKey !== null) await enrichVodMeta(session.db, tmdbFetch, apiKey);
+      })().catch(() => undefined);
+    }, 120_000);
     return () => clearTimeout(timer);
   }, [session]);
 

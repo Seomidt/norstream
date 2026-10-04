@@ -120,11 +120,14 @@ describe('findTmdbTrailer', () => {
 
 describe('searchTmdb', () => {
   it('tager karakteren med, afrundet, og kun naar nogen har stemt', async () => {
-    const fetchImpl = fakeFetch([[/search\/movie/, { results: [{ id: 9, poster_path: '/d.jpg', vote_average: 7.86, vote_count: 120 }] }]]);
+    const fetchImpl = fakeFetch([[/search\/movie/, { results: [{ id: 9, poster_path: '/d.jpg', vote_average: 7.86, vote_count: 120, genre_ids: [878, 12], release_date: '2024-02-28' }] }]]);
     expect(await searchTmdb(fetchImpl, 'KEY', 'movie', 'Dune')).toEqual({
       id: 9,
       posterUrl: 'https://image.tmdb.org/t/p/w342/d.jpg',
       rating: 7.9,
+      // Genre-id'er og aar foelger med (v367), til filteret under Film.
+      genreIds: [878, 12],
+      year: 2024,
     });
     const unrated = fakeFetch([[/search\/movie/, { results: [{ id: 9, poster_path: '/d.jpg', vote_average: 0, vote_count: 0 }] }]]);
     expect((await searchTmdb(unrated, 'KEY', 'movie', 'Dune'))?.rating).toBeNull();

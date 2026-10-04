@@ -381,7 +381,9 @@ CREATE TABLE IF NOT EXISTS vod_posters (
   item_key TEXT PRIMARY KEY,
   url      TEXT,
   rating   REAL,
-  tried_ms INTEGER NOT NULL
+  tried_ms INTEGER NOT NULL,
+  genres   TEXT,
+  year     INTEGER
 );
 
 -- Set faerdig: automatisk naar afspilningen naar slutningen, eller med et
@@ -449,7 +451,9 @@ const TABLES = [
 // v22: saved_songs. v23: favorites.match_key (gen-haegt favoritter ved id-skift).
 // v24: favorites.country (gen-haegt kun inden for samme land, saa en dansk
 // favorit ikke kan ende paa en svensk kanal med samme navn).
-const SCHEMA_VERSION = 24;
+// v25: vod_posters.genres og .year — TMDB-opslaget gemmer ogsaa genre og aar,
+// til filteret under Film (v367).
+const SCHEMA_VERSION = 25;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -677,6 +681,16 @@ async function addV24Columns(db: SqlDatabase): Promise<void> {
 }
 
 /** v15: karakteren fra TMDB ved siden af plakaten. */
+async function addV25Columns(db: SqlDatabase): Promise<void> {
+  for (const column of ['genres TEXT', 'year INTEGER']) {
+    try {
+      await db.execAsync(`ALTER TABLE vod_posters ADD COLUMN ${column}`);
+    } catch {
+      // Kolonnen fandtes allerede.
+    }
+  }
+}
+
 async function addV15Columns(db: SqlDatabase): Promise<void> {
   try {
     await db.execAsync('ALTER TABLE vod_posters ADD COLUMN rating REAL');
@@ -751,6 +765,7 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     if (version === 14) await addV15Columns(db);
     if (version > 0 && version < 23) await addV23Columns(db);
     if (version > 0 && version < 24) await addV24Columns(db);
+    if (version > 0 && version < 25) await addV25Columns(db);
     // v17 -> v18: den foerste netsoegning noterede 2.000 kanaler som soegt
     // uden held, fordi alle opslag blev afvist lokalt af panel-pausen. De
     // noter er ikke sande og skal vaek, ellers springes kanalerne over i

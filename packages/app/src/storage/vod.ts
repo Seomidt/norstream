@@ -5,6 +5,8 @@ import { originOf } from '@norstream/core';
 import { OTHER_COUNTRY_FLAG, OTHER_COUNTRY_KEY } from './countries.js';
 import { deadLogoOrigins } from './logoHosts.js';
 import type { CountryGroup } from './countries.js';
+import { GENRES, genreByKey, genresInText } from './genres.js';
+import type { GenreKey } from './genres.js';
 import { cachedQuery, invalidateQueryCache } from './queryCache.js';
 import { withTransaction } from './transaction.js';
 import type { SqlDatabase, SqlValue } from './types.js';
@@ -302,6 +304,121 @@ export async function listVodItems(
   const rows = await db.getAllAsync<ItemRow>(`${SELECT_ITEM} ${clause} ${order} ${limit}`, params);
   const dead = await deadLogoOrigins(db);
   return rows.map((row) => withoutDeadPoster(toStored(row), dead));
+}
+
+/** Hvordan et udvalg sorteres. */
+export type VodSort = 'newest' | 'rating' | 'year' | 'title';
+
+/**
+ * Et udvalg under Film/Serier (v367): lande, genrer, aar og sortering paa
+ * én gang. Tomme lister = ingen begraensning.
+ */
+export interface VodFilter {
+  kind: VodKind;
+  /** Landenoegler som `listVodCountryGroups` giver dem. */
+  countries: string[];
+  genres: GenreKey[];
+  yearFrom: number | null;
+  yearTo: number | null;
+  sort: VodSort;
+}
+
+/**
+ * Udvalget som SQL. Landet og (ofte) genren sidder paa kategorien, saa de
+ * oversaettes til kategori-id'er foerst; genren kan ogsaa komme fra TMDB
+ * (`vod_posters.genres`, pakket ",a,b,") eller panelets eget genrefelt
+ * (`vod_details.genre`, kun for titler der har vaeret aabnet). Id-listerne
+ * sendes som JSON og laeses med json_each, saa der aldrig er flere
+ * SQL-variabler end SQLite tillader.
+ */
+async function filterClause(db: SqlDatabase, filter: VodFilter): Promise<{ where: string; params: SqlValue[] }> {
+  const where: string[] = ['i.kind = ?'];
+  const params: SqlValue[] = [filter.kind];
+  const summaries = await listVodCategorySummaries(db, filter.kind);
+  if (filter.countries.length > 0) {
+    const wanted = new Set(filter.countries);
+    const ids = summaries.filter((c) => wanted.has(c.countryKey)).map((c) => c.id);
+    where.push('i.category_id IN (SELECT value FROM json_each(?))');
+    params.push(JSON.stringify(ids));
+  }
+  if (filter.genres.length > 0) {
+    const wanted = new Set(filter.genres);
+    const ids = summaries.filter((c) => genresInText(c.name).some((g) => wanted.has(g))).map((c) => c.id);
+    const parts: string[] = ['i.category_id IN (SELECT value FROM json_each(?))'];
+    params.push(JSON.stringify(ids));
+    for (const key of filter.genres) {
+      parts.push('fp.genres LIKE ?');
+      params.push(`%,${key},%`);
+      const genre = genreByKey(key);
+      for (const pattern of genre?.patterns ?? []) {
+        if (pattern.length >= 5) {
+          parts.push("lower(d.genre) LIKE ? ESCAPE '\\'");
+          params.push(`%${pattern.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+        } else {
+          parts.push("(',' || replace(replace(lower(d.genre), ' ', ''), '/', ',') || ',') LIKE ?");
+          params.push(`%,${pattern},%`);
+        }
+      }
+    }
+    where.push(`(${parts.join(' OR ')})`);
+  }
+  if (filter.yearFrom !== null) {
+    where.push('COALESCE(fp.year, i.year) >= ?');
+    params.push(filter.yearFrom);
+  }
+  if (filter.yearTo !== null) {
+    where.push('COALESCE(fp.year, i.year) <= ?');
+    params.push(filter.yearTo);
+  }
+  return { where: `WHERE ${where.join(' AND ')}`, params };
+}
+
+function sortClause(sort: VodSort): string {
+  switch (sort) {
+    case 'rating':
+      return 'ORDER BY CASE WHEN COALESCE(NULLIF(i.rating, 0), fp.rating) IS NULL THEN 1 ELSE 0 END, COALESCE(NULLIF(i.rating, 0), fp.rating) DESC, i.added_ms DESC';
+    case 'year':
+      return 'ORDER BY CASE WHEN COALESCE(fp.year, i.year) IS NULL THEN 1 ELSE 0 END, COALESCE(fp.year, i.year) DESC, i.added_ms DESC';
+    case 'title':
+      return 'ORDER BY i.name COLLATE NOCASE';
+    default:
+      return 'ORDER BY CASE WHEN i.added_ms IS NULL THEN 1 ELSE 0 END, i.added_ms DESC, i.sort_order';
+  }
+}
+
+const DETAILS_JOIN = 'LEFT JOIN vod_details d ON d.item_key = i.key';
+
+/** Titlerne i et udvalg, sidevis. */
+export async function listVodItemsFiltered(
+  db: SqlDatabase,
+  filter: VodFilter,
+  limit: number,
+  offset = 0,
+): Promise<StoredVodItem[]> {
+  const { where, params } = await filterClause(db, filter);
+  const rows = await db.getAllAsync<ItemRow>(
+    `${SELECT_ITEM} ${DETAILS_JOIN} ${where} ${sortClause(filter.sort)} LIMIT ? OFFSET ?`,
+    [...params, Math.max(1, Math.trunc(limit)), Math.max(0, Math.trunc(offset))],
+  );
+  const dead = await deadLogoOrigins(db);
+  return rows.map((row) => withoutDeadPoster(toStored(row), dead));
+}
+
+/** Hvor mange titler udvalget rummer i alt. */
+export async function countVodItemsFiltered(db: SqlDatabase, filter: VodFilter): Promise<number> {
+  const { where, params } = await filterClause(db, filter);
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM vod_items i
+     LEFT JOIN vod_posters fp ON fp.item_key = i.key
+     ${DETAILS_JOIN} ${where}`,
+    params,
+  );
+  return row?.n ?? 0;
+}
+
+/** Genrerne i den raekkefoelge filteret viser dem. */
+export function filterGenres(): readonly { key: GenreKey; name: string }[] {
+  return GENRES.map((genre) => ({ key: genre.key, name: genre.name }));
 }
 
 export async function getVodItem(db: SqlDatabase, key: string): Promise<StoredVodItem | null> {

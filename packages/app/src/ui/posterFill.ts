@@ -1,3 +1,4 @@
+import { genresFromTmdbIds, packGenres } from '../storage/genres.js';
 import { getTmdbApiKey } from '../storage/settings.js';
 import type { SqlDatabase } from '../storage/types.js';
 import { TmdbRequestError, searchTmdb, tmdbFetch } from '../sync/tmdb.js';
@@ -156,10 +157,11 @@ async function lookUp(job: { key: string; kind: 'movie' | 'series'; name: string
     return;
   }
   const url = hit?.posterUrl ?? null;
+  // Genre og aar foelger med i samme opslag (v367), til filteret under Film.
   await database
     .runAsync(
-      'INSERT OR REPLACE INTO vod_posters (item_key, url, rating, tried_ms) VALUES (?, ?, ?, ?)',
-      [job.key, url, hit?.rating ?? null, Date.now()],
+      'INSERT OR REPLACE INTO vod_posters (item_key, url, rating, tried_ms, genres, year) VALUES (?, ?, ?, ?, ?, ?)',
+      [job.key, url, hit?.rating ?? null, Date.now(), packGenres(genresFromTmdbIds(hit?.genreIds)), hit?.year ?? null],
     )
     .catch(() => undefined);
   if (url !== null) {
