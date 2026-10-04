@@ -186,6 +186,31 @@ async function firstHit(
   return results.find((result) => typeof result.poster_path === 'string') ?? results[0] ?? null;
 }
 
+/**
+ * Tjenesterne en titel ligger paa i et land, som TMDB's udbyder-id'er (v369).
+ * Kun abonnement (flatrate): leje og koeb er ikke "paa Netflix". Tom liste
+ * naar titlen ikke ligger nogen steder; kaster ved manglende svar.
+ */
+export async function watchProviders(
+  fetchImpl: TmdbFetch,
+  apiKey: string,
+  kind: 'movie' | 'series',
+  tmdbId: number,
+  region = 'DK',
+): Promise<number[]> {
+  const endpoint = kind === 'series' ? 'tv' : 'movie';
+  const auth = tmdbAuth(apiKey);
+  const response = await fetchImpl(`${API}/${endpoint}/${tmdbId}/watch/providers?${auth.query.replace(/^&/, '')}`, auth.headers);
+  if (!response.ok) throw new TmdbRequestError(response.status);
+  const parsed = (await response.json()) as { results?: Record<string, { flatrate?: Array<{ provider_id?: number }> }> };
+  const here = parsed.results?.[region];
+  const ids: number[] = [];
+  for (const entry of here?.flatrate ?? []) {
+    if (typeof entry.provider_id === 'number' && !ids.includes(entry.provider_id)) ids.push(entry.provider_id);
+  }
+  return ids;
+}
+
 /** Plakatens adresse, eller null. */
 export async function findTmdbPoster(
   fetchImpl: TmdbFetch,

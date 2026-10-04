@@ -32,6 +32,8 @@ import { VodFilterScreen } from './VodFilterScreen.js';
 import type { TmdbTitle } from '../../sync/tmdbHome.js';
 import { cameBySelect } from '../../ui/tvKeys.js';
 import { ensurePoster, foundPoster, subscribePoster } from '../../ui/posterFill.js';
+import { serviceBadgeFor, setKnownServices } from '../../ui/serviceBadges.js';
+import { getHomeProviders } from '../../storage/settings.js';
 
 /**
  * Hvor langt man er naaet: forsiden, land -> kategori -> titler.
@@ -241,6 +243,8 @@ function Home({
   const [newSeries, setNewSeries] = useState<StoredVodItem[]>([]);
 
   const load = useCallback(async (): Promise<void> => {
+    // Tjenesterne til plakatmaerkerne (v369), samme valg som forsiden.
+    void getHomeProviders(session.db).then(setKnownServices).catch(() => undefined);
     const [c, p, w, m, s] = await Promise.all([
       vodCounts(session.db),
       listVodItems(session.db, { inProgressOnly: true, limit: SHELF_LIMIT }),
@@ -525,6 +529,8 @@ export function Poster({
     return subscribePoster(item.key, redraw);
   }, [item, failed]);
   const posterUrl = item.posterUrl !== null && !failed ? item.posterUrl : foundPoster(item.key);
+  // "Netflix" i hjoernet naar TMDB siger titlen ligger dér (v369).
+  const serviceBadge = serviceBadgeFor(item.providers);
   const progress =
     item.positionSeconds !== null && item.durationSeconds !== null && item.durationSeconds > 0
       ? Math.min(1, item.positionSeconds / item.durationSeconds)
@@ -556,6 +562,11 @@ export function Poster({
         {item.kind === 'series' && (
           <View style={styles.kindBadge}>
             <Text style={styles.kindText}>Serie</Text>
+          </View>
+        )}
+        {serviceBadge !== null && (
+          <View style={styles.serviceBadge}>
+            <Text style={styles.serviceText}>{serviceBadge}</Text>
           </View>
         )}
         {progress !== null && (
@@ -654,6 +665,16 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     paddingVertical: 2,
   },
   kindText: { color: colors.text, fontSize: 10, fontWeight: '700' },
+  serviceBadge: {
+    position: 'absolute',
+    bottom: 8,
+    right: 6,
+    backgroundColor: 'rgba(0,0,0,0.78)',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  serviceText: { color: '#fff', fontSize: 10, fontWeight: '700' },
   progressTrack: {
     position: 'absolute',
     left: 0,

@@ -77,6 +77,15 @@ describe('listVodItemsFiltered (v367)', () => {
     expect(names(await listVodItemsFiltered(db, filter, 50))).toEqual(['Natten', 'Ukendt genre']);
   });
 
+  it('tjeneste fra titlens eget opslag (vod_posters.providers) taeller sammen med keys (v369)', async () => {
+    await db.runAsync("UPDATE vod_posters SET providers = ',8,119,' WHERE item_key = ?", [`${sourceId}:movie-e`]);
+    // Gammel ligger paa Netflix (8) ifoelge TMDB; Natten kom fra tjeneste-listen.
+    expect(names(await listVodItemsFiltered(db, { ...base, providers: [8], keys: [`${sourceId}:movie-a`] }, 50))).toEqual(['Natten', 'Gammel']);
+    expect(names(await listVodItemsFiltered(db, { ...base, providers: [8] }, 50))).toEqual(['Gammel']);
+    expect(names(await listVodItemsFiltered(db, { ...base, providers: [337] }, 50))).toEqual([]);
+    expect((await listVodItemsFiltered(db, { ...base, providers: [8] }, 50))[0]?.providers).toEqual([8, 119]);
+  });
+
   it('keys: kun de titler tjeneste-opslaget gav, med de andre valg oveni (v368)', async () => {
     const keys = [`${sourceId}:movie-a`, `${sourceId}:movie-b`, `${sourceId}:movie-d`];
     expect(names(await listVodItemsFiltered(db, { ...base, keys }, 50))).toEqual(['Natten', 'Grin', 'Eksplosion']);

@@ -6,6 +6,7 @@ import type { CountryGroup } from '../../storage/countries.js';
 import { getHomeProviders, getTmdbApiKey } from '../../storage/settings.js';
 import type { HomeProvider } from '../../storage/settings.js';
 import { titlesInPackage } from './serviceMatch.js';
+import { setKnownServices } from '../../ui/serviceBadges.js';
 import { countVodItemsFiltered, filterGenres, listVodCountryGroups, listVodItemsFiltered } from '../../storage/vod.js';
 import type { StoredVodItem, VodFilter, VodSort } from '../../storage/vod.js';
 import type { GenreKey } from '../../storage/genres.js';
@@ -68,6 +69,7 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
         setFilter(loaded);
         setCountries(groups);
         setServices(providers);
+        setKnownServices(providers);
         setHasTmdbKey(apiKey !== null);
       },
     );

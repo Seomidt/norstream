@@ -6,7 +6,7 @@ import { createTestDatabase } from '../storage/testDb.js';
 import type { SqlDatabase } from '../storage/types.js';
 import { replaceVodCategories, replaceVodItems } from '../storage/vod.js';
 import type { TmdbFetch } from './tmdb.js';
-import { enrichVodMeta } from './vodMeta.js';
+import { enrichVodMeta, fillProviders, packProviders, unpackProviders } from './vodMeta.js';
 
 let db: SqlDatabase;
 let sourceId: string;
@@ -59,6 +59,27 @@ describe('enrichVodMeta (v367)', () => {
     await enrichVodMeta(db, fetchImpl, 'key', { pauseMs: 0 });
     const row = await db.getFirstAsync<{ genres: string | null; year: number | null }>('SELECT genres, year FROM vod_posters WHERE item_key = ?', [`${sourceId}:movie-a`]);
     expect(row).toEqual({ genres: ',action,', year: 2020 });
+  });
+
+  it('anden runde: tjenester per titel i DK, ogsaa "ingen", kun for titler med tmdb_id (v369)', async () => {
+    await db.runAsync("INSERT INTO vod_posters (item_key, url, rating, tried_ms, genres, year, tmdb_id) VALUES (?, NULL, NULL, 1, '', 2024, 500)", [`${sourceId}:movie-a`]);
+    await db.runAsync("INSERT INTO vod_posters (item_key, url, rating, tried_ms, genres, year, tmdb_id) VALUES (?, NULL, NULL, 1, '', 2024, 600)", [`${sourceId}:movie-b`]);
+    await db.runAsync("INSERT INTO vod_posters (item_key, url, rating, tried_ms, genres, year, tmdb_id) VALUES (?, NULL, NULL, 1, NULL, NULL, NULL)", [`${sourceId}:movie-c`]);
+    const fetchImpl = vi.fn(async (url: string) => {
+      const dk = url.includes('/movie/500/') ? { flatrate: [{ provider_id: 8 }, { provider_id: 119 }], rent: [{ provider_id: 2 }] } : {};
+      return { ok: true, status: 200, json: async () => ({ results: { DK: dk, US: { flatrate: [{ provider_id: 9 }] } } }), text: async () => '' };
+    }) as unknown as TmdbFetch;
+    expect(await fillProviders(db, fetchImpl, 'key', { pauseMs: 0 })).toBe(2);
+    const rows = await db.getAllAsync<{ item_key: string; providers: string | null }>('SELECT item_key, providers FROM vod_posters ORDER BY item_key');
+    expect(rows).toEqual([
+      { item_key: `${sourceId}:movie-a`, providers: ',8,119,' },
+      { item_key: `${sourceId}:movie-b`, providers: '' },
+      { item_key: `${sourceId}:movie-c`, providers: null },
+    ]);
+    // Intet at goere anden gang.
+    expect(await fillProviders(db, fetchImpl, 'key', { pauseMs: 0 })).toBe(0);
+    expect(unpackProviders(packProviders([8, 119]))).toEqual([8, 119]);
+    expect(unpackProviders('')).toEqual([]);
   });
 
   it('stopper naar TMDB afviser noeglen, og gemmer intet for resten', async () => {

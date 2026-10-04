@@ -34,6 +34,8 @@ export interface StoredVodItem extends VodItem {
   foundPosterUrl: string | null;
   /** Set faerdig, af sig selv eller med et tryk. */
   watched: boolean;
+  /** Tjenester titlen ligger paa i Danmark (TMDB's udbyder-id'er), naar det er slaaet op (v369). */
+  providers: number[];
 }
 
 export interface VodCategorySummary {
@@ -68,6 +70,8 @@ interface ItemRow {
   found_poster_url: string | null;
   /** Karakter fra TMDB, til naar panelet ingen gav. */
   found_rating: number | null;
+  /** Tjenester i Danmark fra TMDB, pakket ",8,119," (v369). */
+  providers: string | null;
   watched: number | null;
 }
 
@@ -92,6 +96,7 @@ function toStored(row: ItemRow): StoredVodItem {
     durationSeconds: row.duration_s,
     foundPosterUrl: row.found_poster_url,
     watched: row.watched === 1,
+    providers: row.providers === null || row.providers.length === 0 ? [] : row.providers.split(',').filter((s) => s.length > 0).map(Number),
   };
 }
 
@@ -102,6 +107,7 @@ const SELECT_ITEM = `
          p.position_s, p.duration_s,
          fp.url AS found_poster_url,
          fp.rating AS found_rating,
+         fp.providers AS providers,
          CASE WHEN wt.item_key IS NOT NULL THEN 1 ELSE NULL END AS watched
   FROM vod_items i
   LEFT JOIN vod_categories c ON c.id = i.category_id
@@ -338,9 +344,20 @@ export interface VodFilter {
 async function filterClause(db: SqlDatabase, filter: VodFilter): Promise<{ where: string; params: SqlValue[] }> {
   const where: string[] = ['i.kind = ?'];
   const params: SqlValue[] = [filter.kind];
-  if (filter.keys !== undefined) {
-    where.push('i.key IN (SELECT value FROM json_each(?))');
-    params.push(JSON.stringify(filter.keys));
+  // Tjeneste (v368/v369): enten paa tjeneste-opslagets liste (`keys`), eller
+  // slaaet op per titel (`vod_posters.providers`). Begge veje taeller.
+  const providerIds = filter.providers ?? [];
+  if (filter.keys !== undefined || providerIds.length > 0) {
+    const parts: string[] = [];
+    if (filter.keys !== undefined) {
+      parts.push('i.key IN (SELECT value FROM json_each(?))');
+      params.push(JSON.stringify(filter.keys));
+    }
+    for (const id of providerIds) {
+      parts.push('fp.providers LIKE ?');
+      params.push(`%,${Math.trunc(id)},%`);
+    }
+    where.push(`(${parts.join(' OR ')})`);
   }
   const summaries = await listVodCategorySummaries(db, filter.kind);
   if (filter.countries.length > 0) {

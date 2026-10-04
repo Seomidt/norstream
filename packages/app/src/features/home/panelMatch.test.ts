@@ -18,6 +18,7 @@ function item(name: string): StoredVodItem {
     positionSeconds: null,
     durationSeconds: null,
     foundPosterUrl: null,
+    providers: [],
     watched: false,
   } as unknown as StoredVodItem;
 }
