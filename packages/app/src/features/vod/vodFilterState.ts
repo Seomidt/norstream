@@ -12,7 +12,7 @@ import type { VodFilter, VodSort } from '../../storage/vod.js';
 const KEY = (kind: VodKind): string => `vod_filter:${kind}`;
 
 export function defaultVodFilter(kind: VodKind): VodFilter {
-  return { kind, countries: [], genres: [], yearFrom: null, yearTo: null, sort: 'newest' };
+  return { kind, countries: [], genres: [], yearFrom: null, yearTo: null, sort: 'newest', providers: [] };
 }
 
 const SORTS: readonly VodSort[] = ['newest', 'rating', 'year', 'title'];
@@ -29,6 +29,7 @@ export async function loadVodFilter(db: SqlDatabase, kind: VodKind): Promise<Vod
       yearFrom: typeof parsed.yearFrom === 'number' ? parsed.yearFrom : null,
       yearTo: typeof parsed.yearTo === 'number' ? parsed.yearTo : null,
       sort: typeof parsed.sort === 'string' && SORTS.includes(parsed.sort) ? parsed.sort : 'newest',
+      providers: Array.isArray(parsed.providers) ? parsed.providers.filter((p): p is number => typeof p === 'number') : [],
     };
   } catch {
     return defaultVodFilter(kind);
@@ -36,7 +37,8 @@ export async function loadVodFilter(db: SqlDatabase, kind: VodKind): Promise<Vod
 }
 
 export async function saveVodFilter(db: SqlDatabase, filter: VodFilter): Promise<void> {
-  const { kind, ...rest } = filter;
+  // `keys` er tjeneste-opslagets svar og huskes ikke; det slaas op igen.
+  const { kind, keys: _keys, ...rest } = filter;
   await setSetting(db, KEY(kind), JSON.stringify(rest));
 }
 

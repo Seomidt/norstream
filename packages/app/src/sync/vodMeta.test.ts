@@ -41,11 +41,11 @@ describe('enrichVodMeta (v367)', () => {
     const fetchImpl = tmdb({ Natten: { genre_ids: [53, 18], release_date: '2026-03-01' }, Grin: { genre_ids: [], release_date: '2024-01-01' }, Ukendt: null });
     const result = await enrichVodMeta(db, fetchImpl, 'key', { pauseMs: 0, limit: 2 });
     expect(result).toEqual({ looked: 2, found: 2 });
-    const rows = await db.getAllAsync<{ item_key: string; genres: string | null; year: number | null }>('SELECT item_key, genres, year FROM vod_posters ORDER BY item_key');
+    const rows = await db.getAllAsync<{ item_key: string; genres: string | null; year: number | null; tmdb_id: number | null }>('SELECT item_key, genres, year, tmdb_id FROM vod_posters ORDER BY item_key');
     expect(rows).toEqual([
-      { item_key: `${sourceId}:movie-a`, genres: ',thriller,drama,', year: 2026 },
+      { item_key: `${sourceId}:movie-a`, genres: ',thriller,drama,', year: 2026, tmdb_id: 1 },
       // Fundet uden genre: tom streng, saa den ikke spoerges om igen.
-      { item_key: `${sourceId}:movie-b`, genres: '', year: 2024 },
+      { item_key: `${sourceId}:movie-b`, genres: '', year: 2024, tmdb_id: 1 },
     ]);
     // Naeste koersel tager kun den der mangler.
     const again = await enrichVodMeta(db, fetchImpl, 'key', { pauseMs: 0 });

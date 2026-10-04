@@ -3,7 +3,9 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import type { VodKind } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { CountryGroup } from '../../storage/countries.js';
-import { getTmdbApiKey } from '../../storage/settings.js';
+import { getHomeProviders, getTmdbApiKey } from '../../storage/settings.js';
+import type { HomeProvider } from '../../storage/settings.js';
+import { titlesInPackage } from './serviceMatch.js';
 import { countVodItemsFiltered, filterGenres, listVodCountryGroups, listVodItemsFiltered } from '../../storage/vod.js';
 import type { StoredVodItem, VodFilter, VodSort } from '../../storage/vod.js';
 import type { GenreKey } from '../../storage/genres.js';
@@ -31,7 +33,10 @@ const PAGE = 120;
 /** Hvor mange titler der slaas op hos TMDB naar skaermen aabnes, saa udvalget bliver bedre mens man ser paa det. */
 const ENRICH_ON_OPEN = 150;
 
-type Panel = 'countries' | 'genres' | 'years' | 'sort' | null;
+type Panel = 'services' | 'countries' | 'genres' | 'years' | 'sort' | null;
+
+/** Tjeneste-opslagets svar: ingen tjeneste valgt, undervejs, eller panelets noegler. */
+type ServiceKeys = null | 'loading' | { keys: string[]; listed: number };
 
 interface Props {
   session: AppSession;
@@ -45,6 +50,10 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
   const [filter, setFilter] = useState<VodFilter | null>(null);
   const [panel, setPanel] = useState<Panel>(null);
   const [countries, setCountries] = useState<CountryGroup[]>([]);
+  /** Tjenesterne valgt under Indstillinger (forsidens hylder). */
+  const [services, setServices] = useState<HomeProvider[]>([]);
+  const [hasTmdbKey, setHasTmdbKey] = useState(true);
+  const [serviceKeys, setServiceKeys] = useState<ServiceKeys>(null);
   const [items, setItems] = useState<StoredVodItem[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,11 +62,15 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([loadVodFilter(session.db, kind), listVodCountryGroups(session.db, kind)]).then(([loaded, groups]) => {
-      if (cancelled) return;
-      setFilter(loaded);
-      setCountries(groups);
-    });
+    void Promise.all([loadVodFilter(session.db, kind), listVodCountryGroups(session.db, kind), getHomeProviders(session.db), getTmdbApiKey(session.db)]).then(
+      ([loaded, groups, providers, apiKey]) => {
+        if (cancelled) return;
+        setFilter(loaded);
+        setCountries(groups);
+        setServices(providers);
+        setHasTmdbKey(apiKey !== null);
+      },
+    );
     return () => {
       cancelled = true;
     };
@@ -79,10 +92,38 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
     [session.db],
   );
 
+  // Tjenester (v368): TMDB's liste over det tjenesten har i Danmark, skaaret
+  // ned til pakken. Svaret bliver `keys` paa udvalget; resten af valgene
+  // laegges oveni i SQL. Brugeren: "vi skal kun se det vi har."
+  const chosen = filter === null ? [] : (filter.providers ?? []);
+  const chosenKey = chosen.join(',');
   useEffect(() => {
-    if (filter === null) return;
-    void reload(filter, 0);
-  }, [filter, reload]);
+    if (chosen.length === 0) {
+      setServiceKeys(null);
+      return;
+    }
+    let cancelled = false;
+    setServiceKeys('loading');
+    void (async () => {
+      const apiKey = await getTmdbApiKey(session.db);
+      const providers = (await getHomeProviders(session.db)).filter((p) => chosen.includes(p.id));
+      if (apiKey === null || providers.length === 0) {
+        if (!cancelled) setServiceKeys({ keys: [], listed: 0 });
+        return;
+      }
+      const result = await titlesInPackage(session.db, tmdbFetch, apiKey, providers, kind).catch(() => ({ keys: [], listed: 0 }));
+      if (!cancelled) setServiceKeys(result);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosenKey, kind, session.db]);
+
+  useEffect(() => {
+    if (filter === null || serviceKeys === 'loading') return;
+    void reload(serviceKeys === null ? { ...filter, keys: undefined } : { ...filter, keys: serviceKeys.keys }, 0);
+  }, [filter, serviceKeys, reload]);
 
   // Genre og aar fra TMDB for de nyeste titler af slagsen, saa udvalget
   // vokser mens skaermen er aaben; gitteret tegnes om naar opslagene er inde.
@@ -125,14 +166,38 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
         ? filter.genres.map((key) => genreNames.find((g) => g.key === key)?.name ?? key).join(', ')
         : `${filter.genres.length} genrer`;
 
+  const serviceLabel =
+    chosen.length === 0
+      ? 'Alle'
+      : chosen.length <= 2
+        ? chosen.map((id) => services.find((s) => s.id === id)?.name ?? String(id)).join(', ')
+        : `${chosen.length} tjenester`;
+  const effective = serviceKeys === null || serviceKeys === 'loading' ? filter : { ...filter, keys: serviceKeys.keys };
+
   const header = (
     <View>
       <View style={styles.bar}>
-        <Toggle label="Land" value={countryLabel} open={panel === 'countries'} onPress={() => setPanel(panel === 'countries' ? null : 'countries')} preferFocus />
+        <Toggle label="Tjeneste" value={serviceLabel} open={panel === 'services'} onPress={() => setPanel(panel === 'services' ? null : 'services')} preferFocus />
+        <Toggle label="Land" value={countryLabel} open={panel === 'countries'} onPress={() => setPanel(panel === 'countries' ? null : 'countries')} />
         <Toggle label="Genre" value={genreLabel} open={panel === 'genres'} onPress={() => setPanel(panel === 'genres' ? null : 'genres')} />
         <Toggle label="År" value={yearLabel(filter, years)} open={panel === 'years'} onPress={() => setPanel(panel === 'years' ? null : 'years')} />
         <Toggle label="Sortér" value={SORT_LABELS[filter.sort]} open={panel === 'sort'} onPress={() => setPanel(panel === 'sort' ? null : 'sort')} />
       </View>
+      {panel === 'services' && (
+        <View style={styles.chips}>
+          <Chip label="Alle" selected={chosen.length === 0} onPress={() => update({ ...filter, providers: [] })} />
+          {services.map((service) => (
+            <Chip
+              key={service.id}
+              label={service.name}
+              selected={chosen.includes(service.id)}
+              onPress={() => update({ ...filter, providers: toggle(chosen, service.id) })}
+            />
+          ))}
+          {services.length === 0 && <Text style={styles.hint}>Vælg tjenester under Indstillinger → Forsiden (Netflix, Prime Video …), så kan de vælges her.</Text>}
+          {services.length > 0 && !hasTmdbKey && <Text style={styles.hint}>Kræver en TMDB-nøgle under Indstillinger.</Text>}
+        </View>
+      )}
       {panel === 'countries' && (
         <View style={styles.chips}>
           <Chip label="Alle lande" selected={filter.countries.length === 0} onPress={() => update({ ...filter, countries: [] })} />
@@ -179,15 +244,21 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
         </View>
       )}
       <Text style={styles.count}>
-        {total === null ? ' ' : `${total} ${kind === 'movie' ? (total === 1 ? 'film' : 'film') : total === 1 ? 'serie' : 'serier'}`}
-        {filter.genres.length > 0 ? ' · genren kendes fra kategorien, TMDB og panelets detaljer; flere kommer til efterhånden' : ''}
+        {serviceKeys === 'loading'
+          ? 'Slår tjenesten op og tjekker mod din pakke …'
+          : total === null
+            ? ' '
+            : `${total} ${kind === 'movie' ? 'film' : total === 1 ? 'serie' : 'serier'}${
+                serviceKeys !== null ? ` i din pakke af ${serviceKeys.listed} på tjenestens liste` : ''
+              }`}
+        {filter.genres.length > 0 && serviceKeys !== 'loading' ? ' · genren kendes fra kategorien, TMDB og panelets detaljer; flere kommer til efterhånden' : ''}
       </Text>
     </View>
   );
 
   const footer =
     total !== null && items.length < total ? (
-      <TvPressable style={styles.more} onPress={() => void reload(filter, items.length)}>
+      <TvPressable style={styles.more} onPress={() => void reload(effective, items.length)}>
         <Text style={styles.moreText}>Vis flere ({total - items.length} til)</Text>
       </TvPressable>
     ) : null;
@@ -200,7 +271,13 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
           <ActivityIndicator color={colors.accent} style={styles.spinner} />
         </View>
       ) : (
-        <PosterGrid items={items} onOpen={onOpen} emptyText="Ingen titler matcher udvalget." header={header} footer={footer} />
+        <PosterGrid
+          items={items}
+          onOpen={onOpen}
+          emptyText={serviceKeys !== null && serviceKeys !== 'loading' && serviceKeys.keys.length === 0 ? 'Ingen af tjenestens titler er i din pakke endnu.' : 'Ingen titler matcher udvalget.'}
+          header={header}
+          footer={footer}
+        />
       )}
     </View>
   );
@@ -263,6 +340,7 @@ const makeStyles = (colors: ThemeColors) =>
     chipText: { color: colors.text, fontSize: 14 },
     chipTextSelected: { color: '#fff', fontWeight: '700' },
     count: { color: colors.textMuted, fontSize: 12, paddingHorizontal: theme.spacing.md, paddingBottom: theme.spacing.xs },
+    hint: { color: colors.textMuted, fontSize: 13, width: '100%', paddingVertical: theme.spacing.xs },
     more: {
       alignSelf: 'center',
       marginVertical: theme.spacing.lg,

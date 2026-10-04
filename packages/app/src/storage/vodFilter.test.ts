@@ -77,6 +77,13 @@ describe('listVodItemsFiltered (v367)', () => {
     expect(names(await listVodItemsFiltered(db, filter, 50))).toEqual(['Natten', 'Ukendt genre']);
   });
 
+  it('keys: kun de titler tjeneste-opslaget gav, med de andre valg oveni (v368)', async () => {
+    const keys = [`${sourceId}:movie-a`, `${sourceId}:movie-b`, `${sourceId}:movie-d`];
+    expect(names(await listVodItemsFiltered(db, { ...base, keys }, 50))).toEqual(['Natten', 'Grin', 'Eksplosion']);
+    expect(names(await listVodItemsFiltered(db, { ...base, keys, genres: ['action'] }, 50))).toEqual(['Eksplosion']);
+    expect(await countVodItemsFiltered(db, { ...base, keys: [] })).toBe(0);
+  });
+
   it('sortering: bedoemmelse (panelets foerst, TMDB\'s ellers, ukendte sidst), aar, titel, og sider', async () => {
     expect(names(await listVodItemsFiltered(db, { ...base, sort: 'rating' }, 50))).toEqual(['Eksplosion', 'Natten', 'Ukendt genre', 'Grin', 'Gammel']);
     expect(names(await listVodItemsFiltered(db, { ...base, sort: 'year' }, 50))).toEqual(['Natten', 'Ukendt genre', 'Grin', 'Eksplosion', 'Gammel']);

@@ -221,6 +221,7 @@ export async function discoverTitles(
   providerId: number,
   kind: 'movie' | 'series',
   region = HOME_REGION,
+  page = 1,
 ): Promise<TmdbTitle[]> {
   const endpoint = kind === 'series' ? 'tv' : 'movie';
   const body = await getJson(
@@ -228,7 +229,7 @@ export async function discoverTitles(
     apiKey,
     `/discover/${endpoint}`,
     `with_watch_providers=${providerId}&watch_region=${region}&watch_monetization_types=flatrate` +
-      '&sort_by=popularity.desc&include_adult=false',
+      `&sort_by=popularity.desc&include_adult=false&page=${Math.max(1, Math.trunc(page))}`,
   );
   return titlesOf(body, kind);
 }

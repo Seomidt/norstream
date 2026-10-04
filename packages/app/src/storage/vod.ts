@@ -321,6 +321,10 @@ export interface VodFilter {
   yearFrom: number | null;
   yearTo: number | null;
   sort: VodSort;
+  /** Tjenester (TMDB's udbyder-id'er) — "Netflix i din pakke" (v368). Huskes. */
+  providers?: number[];
+  /** Kun disse titler: noeglerne fra tjeneste-opslaget. Sat af skaermen, huskes ikke. */
+  keys?: string[];
 }
 
 /**
@@ -334,6 +338,10 @@ export interface VodFilter {
 async function filterClause(db: SqlDatabase, filter: VodFilter): Promise<{ where: string; params: SqlValue[] }> {
   const where: string[] = ['i.kind = ?'];
   const params: SqlValue[] = [filter.kind];
+  if (filter.keys !== undefined) {
+    where.push('i.key IN (SELECT value FROM json_each(?))');
+    params.push(JSON.stringify(filter.keys));
+  }
   const summaries = await listVodCategorySummaries(db, filter.kind);
   if (filter.countries.length > 0) {
     const wanted = new Set(filter.countries);
@@ -414,6 +422,23 @@ export async function countVodItemsFiltered(db: SqlDatabase, filter: VodFilter):
     params,
   );
   return row?.n ?? 0;
+}
+
+/**
+ * Panelets noegler for de titler TMDB kender under disse id'er (v368). Kun
+ * dem der er slaaet op (plakat eller baggrundsjobbet); resten findes paa navn.
+ */
+export async function itemKeysByTmdbIds(db: SqlDatabase, kind: VodKind, tmdbIds: readonly number[]): Promise<Map<number, string>> {
+  if (tmdbIds.length === 0) return new Map();
+  const rows = await db.getAllAsync<{ tmdb_id: number; key: string }>(
+    `SELECT fp.tmdb_id, i.key FROM vod_posters fp
+     JOIN vod_items i ON i.key = fp.item_key
+     WHERE i.kind = ? AND fp.tmdb_id IN (SELECT value FROM json_each(?))`,
+    [kind, JSON.stringify(tmdbIds)],
+  );
+  const out = new Map<number, string>();
+  for (const row of rows) if (!out.has(row.tmdb_id)) out.set(row.tmdb_id, row.key);
+  return out;
 }
 
 /** Genrerne i den raekkefoelge filteret viser dem. */

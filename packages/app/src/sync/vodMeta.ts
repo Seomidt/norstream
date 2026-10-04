@@ -73,8 +73,8 @@ async function run(
     const genres = hit === null ? null : packGenres(genresFromTmdbIds(hit.genreIds)) ?? '';
     await db
       .runAsync(
-        'INSERT OR REPLACE INTO vod_posters (item_key, url, rating, tried_ms, genres, year) VALUES (?, ?, ?, ?, ?, ?)',
-        [row.key, hit?.posterUrl ?? null, hit?.rating ?? null, now(), genres, hit?.year ?? null],
+        'INSERT OR REPLACE INTO vod_posters (item_key, url, rating, tried_ms, genres, year, tmdb_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [row.key, hit?.posterUrl ?? null, hit?.rating ?? null, now(), genres, hit?.year ?? null, hit?.id ?? null],
       )
       .catch(() => undefined);
     if (pauseMs > 0) await new Promise((resolve) => setTimeout(resolve, pauseMs));

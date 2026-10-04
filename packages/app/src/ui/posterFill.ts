@@ -160,8 +160,8 @@ async function lookUp(job: { key: string; kind: 'movie' | 'series'; name: string
   // Genre og aar foelger med i samme opslag (v367), til filteret under Film.
   await database
     .runAsync(
-      'INSERT OR REPLACE INTO vod_posters (item_key, url, rating, tried_ms, genres, year) VALUES (?, ?, ?, ?, ?, ?)',
-      [job.key, url, hit?.rating ?? null, Date.now(), packGenres(genresFromTmdbIds(hit?.genreIds)), hit?.year ?? null],
+      'INSERT OR REPLACE INTO vod_posters (item_key, url, rating, tried_ms, genres, year, tmdb_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [job.key, url, hit?.rating ?? null, Date.now(), hit === null ? null : packGenres(genresFromTmdbIds(hit.genreIds)) ?? '', hit?.year ?? null, hit?.id ?? null],
     )
     .catch(() => undefined);
   if (url !== null) {

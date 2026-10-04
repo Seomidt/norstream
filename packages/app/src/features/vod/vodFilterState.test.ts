@@ -12,8 +12,9 @@ beforeEach(async () => {
 
 describe('vodFilterState (v367)', () => {
   it('husker udvalget per slags og kasserer ukendte genrer', async () => {
-    await saveVodFilter(db, { kind: 'movie', countries: ['DK', 'GB'], genres: ['thriller'], yearFrom: 2026, yearTo: 2026, sort: 'rating' });
-    expect(await loadVodFilter(db, 'movie')).toEqual({ kind: 'movie', countries: ['DK', 'GB'], genres: ['thriller'], yearFrom: 2026, yearTo: 2026, sort: 'rating' });
+    await saveVodFilter(db, { kind: 'movie', countries: ['DK', 'GB'], genres: ['thriller'], yearFrom: 2026, yearTo: 2026, sort: 'rating', providers: [8], keys: ['x'] });
+    // `keys` (tjeneste-opslagets svar) huskes ikke; tjenesten (8 = Netflix) goer.
+    expect(await loadVodFilter(db, 'movie')).toEqual({ kind: 'movie', countries: ['DK', 'GB'], genres: ['thriller'], yearFrom: 2026, yearTo: 2026, sort: 'rating', providers: [8] });
     expect(await loadVodFilter(db, 'series')).toEqual(defaultVodFilter('series'));
     await db.runAsync("INSERT OR REPLACE INTO settings (key, value) VALUES ('vod_filter:series', ?)", ['{"genres":["thriller","vrøvl"],"sort":"nonsens"}']);
     const series = await loadVodFilter(db, 'series');

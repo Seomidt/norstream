@@ -383,8 +383,10 @@ CREATE TABLE IF NOT EXISTS vod_posters (
   rating   REAL,
   tried_ms INTEGER NOT NULL,
   genres   TEXT,
-  year     INTEGER
+  year     INTEGER,
+  tmdb_id  INTEGER
 );
+CREATE INDEX IF NOT EXISTS idx_vod_posters_tmdb ON vod_posters (tmdb_id);
 
 -- Set faerdig: automatisk naar afspilningen naar slutningen, eller med et
 -- tryk for det man har set andetsteds. Skilt fra fremdriften, som er "hvor
@@ -453,7 +455,8 @@ const TABLES = [
 // favorit ikke kan ende paa en svensk kanal med samme navn).
 // v25: vod_posters.genres og .year — TMDB-opslaget gemmer ogsaa genre og aar,
 // til filteret under Film (v367).
-const SCHEMA_VERSION = 25;
+// v26: vod_posters.tmdb_id — saa "Netflix i din pakke" kan matche paa id (v368).
+const SCHEMA_VERSION = 26;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -681,6 +684,14 @@ async function addV24Columns(db: SqlDatabase): Promise<void> {
 }
 
 /** v15: karakteren fra TMDB ved siden af plakaten. */
+async function addV26Columns(db: SqlDatabase): Promise<void> {
+  try {
+    await db.execAsync('ALTER TABLE vod_posters ADD COLUMN tmdb_id INTEGER');
+  } catch {
+    // Kolonnen fandtes allerede.
+  }
+}
+
 async function addV25Columns(db: SqlDatabase): Promise<void> {
   for (const column of ['genres TEXT', 'year INTEGER']) {
     try {
@@ -766,6 +777,7 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     if (version > 0 && version < 23) await addV23Columns(db);
     if (version > 0 && version < 24) await addV24Columns(db);
     if (version > 0 && version < 25) await addV25Columns(db);
+    if (version > 0 && version < 26) await addV26Columns(db);
     // v17 -> v18: den foerste netsoegning noterede 2.000 kanaler som soegt
     // uden held, fordi alle opslag blev afvist lokalt af panel-pausen. De
     // noter er ikke sande og skal vaek, ellers springes kanalerne over i
