@@ -402,3 +402,22 @@ Lys, og stedet solen regnes for.
 - **Google Play.** Kræver AAB, egen signeringsnøgle og tv-gennemgang hos
   Google (bl.a. banner, fokus på alt, ingen krav om berøring). Se
   `docs/BUILD.md`.
+
+## Trailerafspilning fra v370
+
+På Android TV bruges kun YouTube med PO-token og appens native afspiller.
+Apple og IMDb spørges ikke som trailerkilder på TV, og en fejl skifter
+ikke til YouTubes webafspiller. TMDB bruges stadig til filmtitler og
+YouTube-id'er; YouTube-søgningen og den valgfrie Data API-nøgle er bevaret.
+
+PO-sporet vælger 720p–1080p og foretrækker H.264/AAC. Begge filer skal
+hentes helt og passe i størrelse, før afspilningen starter. Findes der
+ikke et brugbart HD-spor, eller fejler bevis/hentning/afspilning, vises en
+fejl og en Prøv igen-knap. Det begrænser tilgængeligheden for SD-trailere.
+
+TV-traileren bruger SurfaceView uafhængigt af live-TV's overfladevalg og
+hastighed 1. Loggen viser valgt codec, opløsning, billedfrekvens, native
+understøttelse og første viste videobillede, uden adresser eller tokens.
+En fremadgående lydposition alene beviser ikke, at videoen tegnes korrekt.
+Kildevalget på telefonen er uændret. Slowmotion og fuld afspilning skal
+fortsat verificeres på den fysiske Google TV Streamer.

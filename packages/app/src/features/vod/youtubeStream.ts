@@ -399,9 +399,10 @@ function usable(format: YoutubeFormat): boolean {
 export function pickFormats(
   formats: YoutubeFormat[],
   maxHeight = MAX_TRAILER_HEIGHT,
+  minHeight = 0,
 ): { video: YoutubeFormat; audio: YoutubeFormat } | null {
   const ok = formats.filter(usable);
-  const videos = ok.filter((f) => (f.height ?? 0) > 0 && (f.height ?? 0) <= maxHeight && (f.mimeType ?? '').startsWith('video/'));
+  const videos = ok.filter((f) => (f.height ?? 0) > 0 && (f.height ?? 0) >= minHeight && (f.height ?? 0) <= maxHeight && (f.mimeType ?? '').startsWith('video/'));
   const byQuality = (a: YoutubeFormat, b: YoutubeFormat): number =>
     (b.height ?? 0) - (a.height ?? 0) || (b.fps ?? 0) - (a.fps ?? 0) || (b.bitrate ?? 0) - (a.bitrate ?? 0);
   const h264 = videos.filter((f) => containerOf(f.mimeType) === 'video/mp4' && codecsOf(f.mimeType).startsWith('avc1')).sort(byQuality);

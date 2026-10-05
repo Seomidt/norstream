@@ -74,6 +74,14 @@ describe('pickFormats', () => {
     expect(pickFormats([video(137, 1080), dubbed, original])?.audio.itag).toBe(141);
   });
 
+  it('HD-kravet vaelger HD frem for et lavere H.264-spor og afviser kun SD', () => {
+    const sd = video(135, 480);
+    const hd = video(248, 1080, 'video/webm; codecs="vp9"');
+    expect(pickFormats([sd, hd, audio(140)], 1080, 720)?.video.itag).toBe(248);
+    expect(pickFormats([sd, audio(140)], 1080, 720)).toBeNull();
+    expect(pickFormats([video(136, 720), hd, audio(140)], 1080, 720)?.video.itag).toBe(136);
+  });
+
   it('giver null uden lyd', () => {
     expect(pickFormats([video(137, 1080)])).toBeNull();
   });

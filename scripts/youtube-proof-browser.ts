@@ -80,7 +80,7 @@ async function resolve(id: string) {
     phase = 'formats';
     const originals = info.streaming_data?.adaptive_formats ?? [];
     const formats = originals.map((f) => ({ itag: f.itag, url: 'https://placeholder.invalid', mimeType: f.mime_type, bitrate: f.bitrate, width: f.width, height: f.height, fps: f.fps, initRange: f.init_range && { start: String(f.init_range.start), end: String(f.init_range.end) }, indexRange: f.index_range && { start: String(f.index_range.start), end: String(f.index_range.end) }, approxDurationMs: String(f.approx_duration_ms), audioSampleRate: String(f.audio_sample_rate), audioTrack: f.audio_track && { audioIsDefault: f.audio_track.audio_is_default } }));
-    const picked = pickFormats(formats);
+    const picked = pickFormats(formats, 1080, 720);
     if (!picked) throw new Error('Formats');
     phase = 'decipher';
     const media = await Promise.all([picked.video, picked.audio].map(async (format) => {

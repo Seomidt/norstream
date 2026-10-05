@@ -15,10 +15,10 @@ const ProofWebView = webView();
 const DEADLINE_MS = 90_000;
 
 /** Beviset og adresserne oprettes paa samme boks/session, aldrig paa serveren. */
-export function YoutubeProof({ id, onResolved, onFallback }: {
+export function YoutubeProof({ id, onResolved, onFailed }: {
   id: string;
   onResolved: (result: { uri: string; seconds: number; height: number; files: File[] }) => void;
-  onFallback: () => void;
+  onFailed: () => void;
 }) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
@@ -30,21 +30,21 @@ export function YoutubeProof({ id, onResolved, onFallback }: {
   const resolving = useRef(false);
   const files = useRef<File[]>([]);
   const controller = useRef(new AbortController());
-  const handlers = useRef({ onResolved, onFallback });
-  handlers.current = { onResolved, onFallback };
+  const handlers = useRef({ onResolved, onFailed });
+  handlers.current = { onResolved, onFailed };
   const source = useMemo(() => ({ baseUrl: PROOF_ORIGIN, html: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><script>${youtubeProofBundle}</script><!-- ${youtubeProofLicenses.replace(/--/g, '')} --></body></html>` }), []);
 
-  function fallback(reason: string) {
+  function fail(reason: string) {
     if (!alive.current || finished.current) return;
     finished.current = true;
     controller.current.abort();
-    logEvent('trailer', `YouTube PO: ${reason}, proever officiel afspiller`);
-    handlers.current.onFallback();
+    logEvent('trailer', `YouTube PO: ${reason}; stopper uden reserveafspiller`);
+    handlers.current.onFailed();
   }
   useEffect(() => {
     alive.current = true;
-    const timer = setTimeout(() => fallback('tidsfrist'), DEADLINE_MS);
-    if (!ProofWebView) fallback('ingen WebView');
+    const timer = setTimeout(() => fail('tidsfrist'), DEADLINE_MS);
+    if (!ProofWebView) fail('ingen WebView');
     return () => {
       alive.current = false;
       clearTimeout(timer);
@@ -59,7 +59,7 @@ export function YoutubeProof({ id, onResolved, onFallback }: {
     const serial = message.serial;
     const url = message.url;
     const method = message.method;
-    if (!Number.isSafeInteger(serial) || Number(serial) < 1 || Number(serial) > 100 || typeof url !== 'string' || typeof method !== 'string' || !proofRequestAllowed(url, method)) { fallback('afvist forespoergsel'); return; }
+    if (!Number.isSafeInteger(serial) || Number(serial) < 1 || Number(serial) > 100 || typeof url !== 'string' || typeof method !== 'string' || !proofRequestAllowed(url, method)) { fail('afvist forespoergsel'); return; }
     const local = new AbortController();
     const abort = () => local.abort();
     controller.current.signal.addEventListener('abort', abort, { once: true });
@@ -83,7 +83,8 @@ export function YoutubeProof({ id, onResolved, onFallback }: {
   async function resolved(message: Record<string, unknown>) {
     if (resolving.current) return;
     resolving.current = true;
-    if (!isProofResult(message)) { fallback('ugyldigt format'); return; }
+    if (!isProofResult(message)) { fail('ugyldigt format'); return; }
+    if (message.video.height! < 720) { fail('ingen HD-video'); return; }
     setNotice('Henter hele traileren …');
     try {
       const localMedia = await Promise.all([message.video, message.audio].map(async (media, index) => {
@@ -101,8 +102,10 @@ export function YoutubeProof({ id, onResolved, onFallback }: {
       finished.current = true;
       transferred.current = true;
       logEvent('trailer', `YouTube PO: hele video+lyd hentet, ${message.video.height}p, ${Math.round(message.seconds)} s`);
+      const codec = /codecs="([A-Za-z0-9., ]+)"/.exec(message.video.mimeType ?? '')?.[1] ?? '?';
+      logEvent('trailer', `YouTube PO: ${codec}, ${message.video.fps ?? '?'} fps, ${message.video.contentLength} videobytes`);
       handlers.current.onResolved({ uri: mpd.uri, seconds: message.seconds, height: message.video.height!, files: files.current });
-    } catch { fallback('filen kunne ikke hentes helt'); }
+    } catch { fail('filen kunne ikke hentes helt'); }
   }
   function onMessage(event: WebViewMessageEvent) {
     if (!alive.current || finished.current) return;
@@ -114,7 +117,7 @@ export function YoutubeProof({ id, onResolved, onFallback }: {
     else if (message.type === 'resolved') void resolved(message);
     else if (message.type === 'failed') {
       const phase = typeof message.phase === 'string' && /^(session|challenge|interpreter|snapshot|integrity|player|formats|decipher)$/.test(message.phase) ? message.phase : 'ukendt';
-      fallback(`afvist i ${phase}`);
+      fail(`afvist i ${phase}`);
     }
   }
   return <View style={styles.root}>
@@ -122,7 +125,7 @@ export function YoutubeProof({ id, onResolved, onFallback }: {
       ref={web} source={source} style={styles.root}
       javaScriptEnabled domStorageEnabled sharedCookiesEnabled
       originWhitelist={['https://*']} onMessage={onMessage}
-      onError={() => fallback('WebView-fejl')} onRenderProcessGone={() => fallback('WebView-lukket')}
+      onError={() => fail('WebView-fejl')} onRenderProcessGone={() => fail('WebView-lukket')}
       onShouldStartLoadWithRequest={(r) => r.url === 'about:blank' || r.url === PROOF_ORIGIN || r.url === `${PROOF_ORIGIN}/`}
     /></View>}
     <ActivityIndicator color={colors.accent} /><Text style={styles.notice}>{notice}</Text>

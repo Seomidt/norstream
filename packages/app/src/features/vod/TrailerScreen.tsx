@@ -43,10 +43,11 @@ interface NativeSource {
   height?: number;
 }
 interface Candidate { id: string; checkLength: boolean }
-type Source = NativeSource | ({ kind: 'youtube' | 'proof'; resumeAt?: number } & Candidate) | { kind: 'looking' } | { kind: 'none' };
+type Source = NativeSource | ({ kind: 'youtube' | 'proof'; resumeAt?: number } & Candidate) | { kind: 'looking' } | { kind: 'none' } | { kind: 'failed'; message: string };
 const NATIVE_READY_TIMEOUT_MS = 20_000;
 const NATIVE_STALL_MS = 15_000;
 const LOOKUP_TIMEOUT_MS = 8_000;
+const NATIVE_TV = isTV && Platform.OS === 'android';
 
 function clock(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
@@ -54,9 +55,9 @@ function clock(seconds: number): string {
 }
 
 /**
- * Apple/IMDb som native video, paa Google TV derefter YouTube med bevis
- * og hele lokale filer. Officiel indlejring er reserven.
- * Alle kandidater proeves herinde. Ingen automatisk ekstern app, heller
+ * Google TV bruger kun YouTube med bevis og hele lokale HD-filer.
+ * Telefonens kildevalg er uafhaengigt af TV-afspilleren.
+ * Soegningen finder YouTube-id'er; afspilningen forlader aldrig appen, heller
  * ikke naar en video er fjernet eller ikke maa indlejres.
  */
 export function TrailerScreen({ session, trailerId, title, year, kind, onBack }: Props) {
@@ -174,9 +175,9 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         if (next !== undefined) {
           if (tried.current.has(next.id) || !/^[A-Za-z0-9_-]{11}$/.test(next.id)) continue;
           tried.current.add(next.id);
-          logEvent('trailer', isTV && Platform.OS === 'android' ? 'YouTube: proever bevis paa boksen' : 'YouTube: officiel indlejring i appen');
+          logEvent('trailer', NATIVE_TV ? `YouTube PO: ${next.id}, kun native HD paa TV` : 'YouTube: officiel indlejring i appen');
           setLoading(false);
-          setSource({ kind: isTV && Platform.OS === 'android' ? 'proof' : 'youtube', ...next });
+          setSource({ kind: NATIVE_TV ? 'proof' : 'youtube', ...next });
           return;
         }
         if (!await refill()) break;
@@ -188,6 +189,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   }
 
   async function start(): Promise<void> {
+    if (NATIVE_TV) logEvent('trailer', `TV: ${cleanVodTitle(title).title.slice(0, 120)}, kun YouTube PO i HD`);
     tmdbKey.current = await getTmdbApiKey(session.db);
     const clean = cleanVodTitle(title);
     const name = year === null ? title : `${title} (${year})`;
@@ -195,7 +197,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     if (!alive.current) return;
     aliases.current = [...new Set([clean.title, info?.originalTitle, info?.englishTitle].filter((t): t is string => typeof t === 'string' && t.length > 0))].slice(0, 3);
     resolvedYear.current = info?.year ?? year ?? clean.year;
-    if (Platform.OS === 'android') {
+    if (!isTV && Platform.OS === 'android') {
       // Uafhaengige kilder spoerges samtidig; Apple er stadig foerstevalg.
       const [apple, imdb] = await Promise.all([
         findAppleTrailers(getJson, kind, aliases.current, resolvedYear.current),
@@ -218,9 +220,9 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   async function recoverNative(from: NativeSource, position: number, reason: string): Promise<void> {
     if (!alive.current || busy.current) return;
     logEvent('trailer', `${from.provider}: ${reason} ved ${Math.round(position)} s`);
-    if (from.provider === 'YouTube PO') {
+    if (isTV) {
       setLoading(false);
-      setSource({ kind: 'youtube', id: from.id, checkLength: false, resumeAt: position });
+      setSource({ kind: 'failed', message: 'YouTube-traileren kunne ikke afspilles. Prøv igen, eller se oplysningerne under Vis loggen.' });
       return;
     }
     // Frisk IMDb-adresse, samme video og position, hoejst to gange i alt.
@@ -256,14 +258,17 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     <View style={styles.container}>
       <View style={[styles.frame, isTV && styles.frameFull]}>
         {source.kind === 'proof' && <YoutubeProof key={source.id} id={source.id}
-          onFallback={() => setSource({ kind: 'youtube', id: source.id, checkLength: source.checkLength })}
+          onFailed={() => {
+            setLoading(false);
+            setSource({ kind: 'failed', message: 'YouTube-traileren kunne ikke hentes i HD. Prøv igen, eller se oplysningerne under Vis loggen.' });
+          }}
           onResolved={(result) => {
             manifests.current.push(...result.files);
             setLoading(true);
             setSource({ kind: 'native', id: source.id, uri: result.uri, seconds: result.seconds, contentType: 'dash', provider: 'YouTube PO', height: result.height, resumeAt: 0, attempt: 0 });
           }}
         />}
-        {source.kind === 'youtube' && <YoutubeTrailer
+        {!NATIVE_TV && source.kind === 'youtube' && <YoutubeTrailer
           key={source.id}
           id={source.id}
           checkLength={source.checkLength}
@@ -286,8 +291,8 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
           <ActivityIndicator color={colors.accent} />
           <Text style={styles.hint}>Leder efter en trailer …</Text>
         </View>}
-        {source.kind === 'none' && <View style={styles.overlay}>
-          <Text style={styles.title}>Ingen trailer kunne afspilles til «{title}».</Text>
+        {(source.kind === 'none' || source.kind === 'failed') && <View style={styles.overlay}>
+          <Text style={styles.title}>{source.kind === 'failed' ? source.message : `Ingen trailer kunne afspilles til «${title}».`}</Text>
           <Text style={styles.hint}>Prøv en anden titel, eller gå tilbage og prøv igen.</Text>
           <TvPressable style={styles.button} hasTVPreferredFocus={isTV} onPress={() => {
             nativeQueue.current = []; queue.current = []; tried.current.clear(); stage.current = 0;
@@ -333,8 +338,10 @@ function NativeTrailer({
   const source = useMemo(() => ({ uri, contentType, useCaching: contentType === 'progressive' }), [uri, contentType]);
   const player = useVideoPlayer(source, (p) => {
     p.loop = false;
+    p.playbackRate = 1;
     p.timeUpdateEventInterval = 0.5;
-    p.bufferOptions = {
+    // Lokale PO-filer er allerede hentet; streaming-bufferen er kun til telefonens kilder.
+    if (!isTV) p.bufferOptions = {
       preferredForwardBufferDuration: 120,
       minBufferForPlayback: 4,
       maxBufferBytes: 64 * 1024 * 1024,
@@ -342,6 +349,7 @@ function NativeTrailer({
     };
     p.play();
   });
+  const firstFrame = useRef(false);
   const handlers = useRef({ onReady, onBroken, onEnd });
   handlers.current = { onReady, onBroken, onEnd };
   function toggle(): void { if (player.playing) player.pause(); else player.play(); }
@@ -357,6 +365,7 @@ function NativeTrailer({
     let duration = expectedSeconds ?? 0;
     let lastProgress = Date.now();
     let stall: ReturnType<typeof setTimeout> | null = null;
+    let frameTimer: ReturnType<typeof setTimeout> | null = null;
     const clearStall = (): void => {
       if (stall !== null) clearTimeout(stall);
       stall = null;
@@ -365,6 +374,7 @@ function NativeTrailer({
       if (done) return;
       done = true;
       clearTimeout(timer);
+      if (frameTimer !== null) clearTimeout(frameTimer);
       clearStall();
       handlers.current.onBroken(position, reason);
     };
@@ -384,6 +394,10 @@ function NativeTrailer({
           } catch {
             // Frigivet i mellemtiden; vagten tager resten.
           }
+          logEvent('trailer', `${label}: native klar, hastighed ${player.playbackRate}`);
+          if (isTV) frameTimer = setTimeout(() => {
+            if (!firstFrame.current) broken('intet videobillede');
+          }, NATIVE_READY_TIMEOUT_MS);
           handlers.current.onReady();
         }
       } else if (next === 'loading' && ready) {
@@ -397,6 +411,14 @@ function NativeTrailer({
     const status = player.addListener('statusChange', ({ status: next, error }) => updateStatus(next, error));
     // ready kan allerede vaere sket inden listeneren blev registreret.
     updateStatus(player.status);
+    const track = player.addListener('videoTrackChange', ({ videoTrack }) => {
+      if (!videoTrack) return;
+      logEvent('trailer', `Native video: ${videoTrack.size.width}x${videoTrack.size.height}, ${videoTrack.frameRate ?? '?'} fps, understoettet ${videoTrack.isSupported}`);
+      if (isTV && !videoTrack.isSupported) broken('videoformat ikke understoettet');
+    });
+    const rate = player.addListener('playbackRateChange', ({ playbackRate }) => {
+      logEvent('trailer', `Native hastighed: ${playbackRate}`);
+    });
     const time = player.addListener('timeUpdate', ({ currentTime }) => {
       if (Number.isFinite(currentTime) && currentTime >= 0) {
         if (Math.abs(currentTime - position) >= 0.25) lastProgress = Date.now();
@@ -424,14 +446,18 @@ function NativeTrailer({
       done = true;
       setPlaying(false);
       clearTimeout(timer);
+      if (frameTimer !== null) clearTimeout(frameTimer);
       clearStall();
       handlers.current.onEnd?.();
     });
     return () => {
       done = true;
       clearTimeout(timer);
+      if (frameTimer !== null) clearTimeout(frameTimer);
       clearStall();
       clearInterval(progress);
+      track.remove();
+      rate.remove();
       changes.remove();
       status.remove();
       time.remove();
@@ -446,7 +472,12 @@ function NativeTrailer({
     player={player}
     nativeControls={!isTV}
     contentFit="contain"
-    surfaceType={surfaceTypeForPlatform()}
+    surfaceType={isTV ? 'surfaceView' : surfaceTypeForPlatform()}
+    onFirstFrameRender={() => {
+      if (firstFrame.current) return;
+      firstFrame.current = true;
+      logEvent('trailer', `${label}: foerste videobillede vist`);
+    }}
   />;
   if (!isTV) return <View style={styles.nativeFrame}>{playing && <KeepAwake />}{video}</View>;
   return <LandscapePlayer
