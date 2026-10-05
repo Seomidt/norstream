@@ -387,7 +387,6 @@ CREATE TABLE IF NOT EXISTS vod_posters (
   tmdb_id  INTEGER,
   providers TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_vod_posters_tmdb ON vod_posters (tmdb_id);
 
 -- Set faerdig: automatisk naar afspilningen naar slutningen, eller med et
 -- tryk for det man har set andetsteds. Skilt fra fremdriften, som er "hvor
@@ -798,6 +797,10 @@ export async function migrate(db: SqlDatabase): Promise<void> {
 
   }
 
+  // Foerst efter ALTER: eksisterende v24/v25-tabeller mangler tmdb_id.
+  // CREATE TABLE IF NOT EXISTS opdaterer ikke deres kolonner, og et indeks
+  // i SCHEMA ville stoppe opstarten foer opgraderingstrinnet kan koere.
+  await db.execAsync('CREATE INDEX IF NOT EXISTS idx_vod_posters_tmdb ON vod_posters (tmdb_id)');
   await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   await refreshChannelsWhenMatchRulesChanged(db);
 }

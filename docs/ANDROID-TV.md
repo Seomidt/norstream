@@ -421,3 +421,16 @@ understøttelse og første viste videobillede, uden adresser eller tokens.
 En fremadgående lydposition alene beviser ikke, at videoen tegnes korrekt.
 Kildevalget på telefonen er uændret. Slowmotion og fuld afspilning skal
 fortsat verificeres på den fysiske Google TV Streamer.
+
+Opstartsrettelsen i v370 flytter `idx_vod_posters_tmdb` efter tilføjelsen
+af `tmdb_id`. 368/369 oprettede indekset i CREATE-skemaet før ALTER, hvilket
+stoppede opgraderinger fra databaseskema v24/v25 (bl.a. v365-v367) med
+`no such column: tmdb_id`. De tre regressionstests bruger historiske
+plakatkolonner fra v24/v25/v26 og kontrollerer, at plakater, kilder,
+favoritter og indstillinger er bevaret efter to migreringer. De to ældre
+tilfælde fejlede før rettelsen og består efter den.
+
+Opdateringsbanneret kører også på opstartsfejlskærmen, uafhængigt af
+databasen. Ved en fastlåst v369 kan man lade fejlskærmen stå ca. et minut
+og installere den nye udgave fra banneret. Afinstallation eller rydning
+af data er ikke nødvendig for denne databasefejl.

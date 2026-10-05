@@ -463,3 +463,46 @@ describe('naar reglerne for match_key er de samme', () => {
     expect(keys).toContain('last_sync_ms:s1');
   });
 });
+
+// Historiske plakat-kolonner fra v365-v369, ikke det aktuelle CREATE-skema.
+// En frisk database finder ikke fejlen ved indeks foer ALTER under opgradering.
+describe('opgradering af en eksisterende plakatcache', () => {
+  it.each([24, 25, 26])('starter fra skema v%s og bevarer brugerens data', async (version) => {
+    const db = createTestDatabase();
+    await db.execAsync(`
+      CREATE TABLE vod_posters (
+        item_key TEXT PRIMARY KEY, url TEXT, rating REAL, tried_ms INTEGER NOT NULL
+        ${version >= 25 ? ', genres TEXT, year INTEGER' : ''}
+        ${version >= 26 ? ', tmdb_id INTEGER' : ''}
+      );
+      CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE favorites (
+        channel_id TEXT PRIMARY KEY, source_category_id TEXT, match_key TEXT,
+        country TEXT, position INTEGER
+      );
+      CREATE TABLE sources (
+        id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL,
+        url TEXT NOT NULL, username TEXT, xmltv_url TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1, sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO vod_posters VALUES ('film', 'https://example.test/poster', 8, 123
+        ${version >= 25 ? ", '18', 2026" : ''}
+        ${version >= 26 ? ', 42' : ''});
+      INSERT INTO settings VALUES ('theme_mode', 'dark');
+      INSERT INTO favorites VALUES ('s:1', NULL, 'dr1', 'DK', 0);
+      INSERT INTO sources VALUES ('s', 'm3u', 'Min kilde', 'https://example.test/list', NULL, NULL, 1, 0, 1);
+      PRAGMA user_version = ${version};
+    `);
+    await migrate(db);
+    await migrate(db);
+    expect(await userVersion(db)).toBe(27);
+    const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(vod_posters)');
+    expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining(['genres', 'year', 'tmdb_id', 'providers']));
+    expect(await db.getFirstAsync('SELECT item_key, url, rating, tried_ms FROM vod_posters')).toEqual({ item_key: 'film', url: 'https://example.test/poster', rating: 8, tried_ms: 123 });
+    expect(await db.getFirstAsync("SELECT value FROM settings WHERE key = 'theme_mode'")).toEqual({ value: 'dark' });
+    expect(await db.getFirstAsync('SELECT channel_id FROM favorites')).toEqual({ channel_id: 's:1' });
+    expect(await db.getFirstAsync('SELECT id, name FROM sources')).toEqual({ id: 's', name: 'Min kilde' });
+    expect(await db.getFirstAsync("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_vod_posters_tmdb'")).toEqual({ name: 'idx_vod_posters_tmdb' });
+  });
+});

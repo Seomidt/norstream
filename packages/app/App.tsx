@@ -67,7 +67,7 @@ type Route =
  * nyt forsoeg.
  */
 const BOOT_ERROR_TEXT =
-  'Appen kunne ikke starte. Prøv igen — hjælper det ikke, kan du geninstallere appen.';
+  'Appen kunne ikke starte. Prøv igen. Fortsætter fejlen, kan du installere den nyeste opdatering ovenpå appen.';
 
 export default function App() {
   const scheme = useResolvedScheme();
