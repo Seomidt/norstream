@@ -1,3 +1,4 @@
+import { logEvent } from '../../diagnostics/log.js';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -15,7 +16,7 @@ import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { getChannel, listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
-import { getNowNext, listProgrammesFor } from '../../storage/programmes.js';
+import { nowProgrammesFor, listProgrammesFor } from '../../storage/programmes.js';
 import { ensureEpg, ensureFullEpg } from '../../sync/epgCache.js';
 import { describeError } from '../../sync/syncVod.js';
 import { getHomeProviders, getLastChannelId, getSetting, getTmdbApiKey, setSetting } from '../../storage/settings.js';
@@ -229,26 +230,41 @@ export function FrontScreen({
   }, [sheet]);
 
   const loadLocal = useCallback(async (): Promise<void> => {
+    const startedAt = Date.now();
     const now = new Date();
-    const [lastId, favouriteChannels, progress, added, key, chosen] = await Promise.all([
+    const [lastId, favouriteChannels] = await Promise.all([
       getLastChannelId(session.db),
       listChannels(session.db, { favouritesOnly: true, limit: FAVOURITES_LIMIT }),
-      listVodItems(session.db, { inProgressOnly: true, limit: IN_PROGRESS_LIMIT }),
-      listVodItems(session.db, { newestFirst: true, limit: NEWEST_LIMIT }),
-      getTmdbApiKey(session.db),
-      getHomeProviders(session.db),
     ]);
     const last = lastId === null ? null : await getChannel(session.db, lastId);
     // Opslaget sker paa kanalens eget id, som i kanallisten og guiden: det
     // er det programtabellen er skrevet under. Foer blev der slaaet op paa
     // epg_channel_id, som 87 % af kanalerne ikke har, saa kortene stod tomme.
-    const nowFor = async (channel: StoredChannel): Promise<Programme | null> =>
-      (await getNowNext(session.db, channel.id, now).catch(() => ({ now: null }))).now;
-    const withNow = async (channels: StoredChannel[]) =>
-      Promise.all(channels.map(async (channel) => ({ channel, now: await nowFor(channel) })));
-    setLastChannel(last);
-    setLastNow(last === null ? null : await nowFor(last));
-    setFavourites(await withNow(favouriteChannels));
+    const withNow = async (channels: StoredChannel[]) => {
+      const programmes = await nowProgrammesFor(session.db, channels.map((channel) => channel.id), now).catch(() => new Map<string, Programme>());
+      return channels.map((channel) => ({ channel, now: programmes.get(channel.id) ?? null }));
+    };
+    const showPrimary = async (): Promise<void> => {
+      const programmes = await nowProgrammesFor(session.db, (last === null ? [] : [last]).concat(favouriteChannels).map((channel) => channel.id), now).catch(() => new Map<string, Programme>());
+      setLastChannel(last);
+      setLastNow(last === null ? null : programmes.get(last.id) ?? null);
+      setFavourites(favouriteChannels.map((channel) => ({ channel, now: programmes.get(channel.id) ?? null })));
+    };
+    await showPrimary();
+    logEvent('opstart', `forsidens lokale hovedraekker klar: ${Date.now() - startedAt} ms`);
+    // Foerst efter hovedraekken: paa én SQLite-forbindelse kan selv async
+    // VOD-opslag staa foran kanalerne i koeen. Resten udfyldes uafhaengigt.
+    void Promise.all([
+      listVodItems(session.db, { inProgressOnly: true, limit: IN_PROGRESS_LIMIT }),
+      listVodItems(session.db, { newestFirst: true, limit: NEWEST_LIMIT }),
+      getTmdbApiKey(session.db),
+      getHomeProviders(session.db),
+    ]).then(([progress, added, key, chosen]) => {
+      setInProgress(progress);
+      setNewest(added);
+      setTmdbKey(key);
+      setProviders(chosen);
+    }).catch(() => logEvent('opstart', 'filmhylder kunne ikke laeses'));
     // De nye raekker. Hver for sig og fejltolerant: en tom raekke er bare vaek.
     const [recentChannels, started, groups, series] = await Promise.all([
       listRecentChannels(session.db, RECENT_LIMIT).catch(() => []),
@@ -278,8 +294,7 @@ export function FrontScreen({
       } catch {
         return;
       }
-      setFavourites(await withNow(favouriteChannels));
-      if (last !== null) setLastNow(await nowFor(last));
+      await showPrimary();
     })();
     // Dine hold i dag: foerst det der er i programoversigten, saa (hoejst
     // hvert tyvende minut) sportskanalernes oversigt hentet og en ny runde.
@@ -335,11 +350,7 @@ export function FrontScreen({
       const favs = await loadTonight();
       if (await refreshFavouritesEpg(session, favs)) await loadTonight();
     })();
-    setInProgress(progress);
-    setNewest(added);
-    setTmdbKey(key);
-    setProviders(chosen);
-  }, [session.db]);
+  }, [session]);
 
   useEffect(() => {
     void loadLocal();

@@ -249,6 +249,32 @@ export async function listProgrammesFor(
   return out.sort((a, b) => a.start.getTime() - b.start.getTime());
 }
 
+/** Hele det aktuelle program til forsidens kort, uden opslag paa "naeste". */
+export async function nowProgrammesFor(
+  db: SqlDatabase,
+  channelIds: readonly string[],
+  now: Date,
+): Promise<Map<string, Programme>> {
+  const result = new Map<string, Programme>();
+  const ids = [...new Set(channelIds)];
+  const ms = now.getTime();
+  for (let i = 0; i < ids.length; i += 400) {
+    const chunk = ids.slice(i, i + 400);
+    const rows = await db.getAllAsync<ProgrammeRow>(
+      `SELECT * FROM programmes WHERE channel_id IN (${chunk.map(() => '?').join(', ')})
+       AND start_ms <= ? AND stop_ms > ?`,
+      [...chunk, ms, ms],
+    );
+    for (const row of rows) {
+      const prior = result.get(row.channel_id);
+      if (prior === undefined || row.start_ms > prior.start.getTime()) {
+        result.set(row.channel_id, toProgramme(row));
+      }
+    }
+  }
+  return result;
+}
+
 export interface NowNextPair {
   now: Programme | null;
   next: Programme | null;

@@ -453,3 +453,28 @@ startes rulningen igen. Hastigheden er stadig 55 punkter per sekund,
 højden 40 punkter, og nyhedskilder, vejropdatering og indhold er uændrede.
 Typekontrol og eksisterende tests dækker ikke måling af billedfrekvens;
 den oplevede forbedring skal kontrolleres på Google TV Streameren.
+
+
+### v372: mindre arbejde før forsiden
+
+Skærmkode til trailer, afspillere, kanalguide og indstillinger evalueres først,
+når den pågældende skærm tegnes. Alt ligger fortsat i APK'en; der kræves intet
+netværk for at åbne skærmene. Registrering af native EPG og Watch Next sker
+fortsat før første tegning, og tema og afspillerindstillinger læses som før.
+
+Et allerede færdigt skema v27 gennemgår ikke CREATE-kommandoer eller skriver
+sit versionsstempel igen. Match-regler kontrolleres fortsat separat. Ældre
+skemaer bruger samme migrering, herunder v370-rettelsen af indeks efter ALTER.
+Testene dækker eksisterende v24/v25/v26 og en genstart uden skrivninger.
+
+Forsidens aktuelle programmer hentes i grupper frem for to opslag per kanal;
+hele programmet, herunder start-forfra og beskrivelse, bevares. Overlap og
+mere end 999 kanal-id'er er testet. Lokale filmhylder holder ikke kanalrækken
+tilbage. Logostier dannes uden et nyt native File-objekt per logo, og de to
+logotabeller læses parallelt. Skyens 15 sekunders opstartspause bliver ikke
+længere overskrevet af effekten for tilbagekomst fra afspilleren.
+
+Indstillinger → Fejlfinding har nu `opstart`-linjer med millisekunder for
+database, session, klar til forside og lokale kanalrækker. Det er appens
+JS-faser, ikke en måling fra Android-launcheren eller første synlige frame.
+Hastigheden er endnu ikke målt på den fysiske Google TV Streamer.

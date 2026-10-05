@@ -765,6 +765,14 @@ async function clearSyncTimes(db: SqlDatabase): Promise<void> {
 export async function migrate(db: SqlDatabase): Promise<void> {
   const version = await readUserVersion(db);
 
+  // En faerdig migrering har allerede oprettet alle tabeller og indekser.
+  // Ved normal opstart undgaas DDL og et nyt versionsstempel paa disken.
+  // Match-reglerne har deres egen version og skal stadig kontrolleres.
+  if (version === SCHEMA_VERSION) {
+    await refreshChannelsWhenMatchRulesChanged(db);
+    return;
+  }
+
   if (version > 0 && version < REBUILD_BELOW_VERSION) {
     const preserved = await readPreserved(db);
     for (const table of TABLES) {

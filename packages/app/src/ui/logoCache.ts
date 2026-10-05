@@ -64,9 +64,14 @@ export async function initLogoCache(db: SqlDatabase, fileStore: LogoFileStore): 
   store = fileStore;
   files.clear();
   misses.clear();
-  const rows = await db.getAllAsync<{ channel_key: string; url: string; file: string; bytes: number }>(
-    'SELECT channel_key, url, file, bytes FROM logo_files',
-  );
+  const [rows, missed] = await Promise.all([
+    db.getAllAsync<{ channel_key: string; url: string; file: string; bytes: number }>(
+      'SELECT channel_key, url, file, bytes FROM logo_files',
+    ),
+    db.getAllAsync<{ channel_key: string; tried: string; tried_ms: number }>(
+      'SELECT channel_key, tried, tried_ms FROM logo_misses',
+    ),
+  ]);
   for (const row of rows) {
     files.set(row.channel_key, {
       uri: fileStore.uriFor(row.file),
@@ -75,9 +80,6 @@ export async function initLogoCache(db: SqlDatabase, fileStore: LogoFileStore): 
       bytes: row.bytes,
     });
   }
-  const missed = await db.getAllAsync<{ channel_key: string; tried: string; tried_ms: number }>(
-    'SELECT channel_key, tried, tried_ms FROM logo_misses',
-  );
   for (const row of missed) misses.set(row.channel_key, { tried: row.tried, triedMs: row.tried_ms });
 }
 

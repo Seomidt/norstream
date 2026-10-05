@@ -36,6 +36,7 @@ function logosDirectory(): Directory {
  * `logoCache.ts` og er testet der.
  */
 export function createLogoFileStore(): LogoFileStore {
+  let folderUri: string | null = null;
   return {
     async download(url, fileName) {
       const target = new File(logosDirectory(), fileName);
@@ -64,7 +65,9 @@ export function createLogoFileStore(): LogoFileStore {
     },
 
     uriFor(fileName) {
-      return new File(logosDirectory(), fileName).uri;
+      // Paths.join bruger samme URI-regler som File, uden et native objekt
+      // per logo (ofte tusindvis ved opstart).
+      return Paths.join(folderUri ?? (folderUri = logosDirectory().uri), fileName);
     },
 
     async remove(uri) {
@@ -81,6 +84,7 @@ export function createLogoFileStore(): LogoFileStore {
         const folder = new Directory(Paths.document, FOLDER);
         if (folder.exists) folder.delete();
         directory = null;
+        folderUri = null;
       } catch {
         // Mappen kunne ikke slettes; de enkelte filer overskrives naar de hentes igen.
       }

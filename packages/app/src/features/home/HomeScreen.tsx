@@ -1,3 +1,4 @@
+import { deferredScreen } from '../../ui/deferredScreen.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Pressable, StyleSheet, Text, TVFocusGuideView, useTVEventHandler, View } from 'react-native';
 import { XtreamAuthError } from '@norstream/core';
@@ -20,20 +21,12 @@ import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
 import { forgetPosterMisses } from '../../ui/posterFill.js';
-import { BrowseScreen } from '../browse/BrowseScreen.js';
 import type { Level } from '../browse/BrowseScreen.js';
-import { FavoritesScreen } from '../favorites/FavoritesScreen.js';
 import { FrontScreen } from './FrontScreen.js';
-import { GuideScreen } from '../guide/GuideScreen.js';
 import { RADIO_START, RadioScreen } from '../radio/RadioScreen.js';
 import type { RadioPlace } from '../radio/RadioScreen.js';
-import { SourcesScreen } from '../sources/SourcesScreen.js';
 import type { PreviewHandle } from '../preview/MiniPreview.js';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { SettingsScreen } from '../settings/SettingsScreen.js';
-import { LogoGapsScreen } from '../settings/LogoGapsScreen.js';
-import { ConnectionCheckScreen } from '../settings/ConnectionCheckScreen.js';
-import { LogoPickerScreen } from '../settings/LogoPickerScreen.js';
 import { Notice } from '../../ui/Notice.js';
 import { applyStreamFormatSetting, applyVideoSurfaceSetting } from '../player/format.js';
 import { runWeeklyCloudBackup } from '../../storage/cloudBackup.js';
@@ -43,7 +36,6 @@ import { runCloudSync } from '../../storage/cloudAutoSync.js';
 import type { CloudSyncOutcome } from '../../storage/cloudAutoSync.js';
 import { forgetLogoMisses, resetLogo } from '../../ui/logoCache.js';
 import { VodScreen } from '../vod/VodScreen.js';
-import { SportScreen } from '../sport/SportScreen.js';
 import { refreshSportEpg } from '../sport/findMatches.js';
 import { enrichVodMeta } from '../../sync/vodMeta.js';
 import { tmdbFetch } from '../../sync/tmdb.js';
@@ -51,6 +43,35 @@ import { logEvent } from '../../diagnostics/log.js';
 import type { VodLevel } from '../vod/VodScreen.js';
 import type { StoredVodItem } from '../../storage/vod.js';
 import type { TmdbTitle } from '../../sync/tmdbHome.js';
+
+// Sjaeldnere skaerme skal ikke forsinke opstarten.
+const BrowseScreen = deferredScreen(
+  () => (require('../browse/BrowseScreen.js') as typeof import('../browse/BrowseScreen.js')).BrowseScreen,
+);
+const FavoritesScreen = deferredScreen(
+  () => (require('../favorites/FavoritesScreen.js') as typeof import('../favorites/FavoritesScreen.js')).FavoritesScreen,
+);
+const GuideScreen = deferredScreen(
+  () => (require('../guide/GuideScreen.js') as typeof import('../guide/GuideScreen.js')).GuideScreen,
+);
+const SourcesScreen = deferredScreen(
+  () => (require('../sources/SourcesScreen.js') as typeof import('../sources/SourcesScreen.js')).SourcesScreen,
+);
+const SettingsScreen = deferredScreen(
+  () => (require('../settings/SettingsScreen.js') as typeof import('../settings/SettingsScreen.js')).SettingsScreen,
+);
+const LogoGapsScreen = deferredScreen(
+  () => (require('../settings/LogoGapsScreen.js') as typeof import('../settings/LogoGapsScreen.js')).LogoGapsScreen,
+);
+const ConnectionCheckScreen = deferredScreen(
+  () => (require('../settings/ConnectionCheckScreen.js') as typeof import('../settings/ConnectionCheckScreen.js')).ConnectionCheckScreen,
+);
+const LogoPickerScreen = deferredScreen(
+  () => (require('../settings/LogoPickerScreen.js') as typeof import('../settings/LogoPickerScreen.js')).LogoPickerScreen,
+);
+const SportScreen = deferredScreen(
+  () => (require('../sport/SportScreen.js') as typeof import('../sport/SportScreen.js')).SportScreen,
+);
 
 /**
  * Hvor brugeren staar i Hjem.
@@ -348,8 +369,16 @@ export function HomeScreen({
     scheduleCloudSync(20_000);
   }, [favoritesToken, logoToken, scheduleCloudSync]);
   // Tilbage fra afspilleren eller en film: fremdriften kan vaere ny.
+  const cloudWasCovered = useRef(false);
   useEffect(() => {
-    if (!covered) scheduleCloudSync(5_000);
+    if (covered) {
+      cloudWasCovered.current = true;
+    } else if (cloudWasCovered.current) {
+      cloudWasCovered.current = false;
+      scheduleCloudSync(5_000);
+    }
+    // Foerste montering er ikke "tilbage fra afspiller": behold de 15 s
+    // fra opstartseffekten, saa skyen ikke konkurrerer med forsiden.
   }, [covered, scheduleCloudSync]);
 
   // Sportskanalernes programoversigt hentes i baggrunden lidt efter start

@@ -1,3 +1,5 @@
+import { logEvent } from './src/diagnostics/log.js';
+import { deferredScreen } from './src/ui/deferredScreen.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, Linking, StyleSheet, Text, View } from 'react-native';
 // Ikke react-natives egen SafeAreaView: den gør **ingenting paa Android**.
@@ -8,19 +10,13 @@ import { StatusBar } from 'expo-status-bar';
 import type { Programme } from '@norstream/core';
 import { HomeScreen } from './src/features/home/HomeScreen.js';
 import type { HomePlace } from './src/features/home/HomeScreen.js';
-import { OnboardingScreen } from './src/features/onboarding/OnboardingScreen.js';
-import { PlayerScreen } from './src/features/player/PlayerScreen.js';
-import { VodDetailScreen } from './src/features/vod/VodDetailScreen.js';
 import type { Playback } from './src/features/vod/VodDetailScreen.js';
-import { VodPlayerScreen } from './src/features/vod/VodPlayerScreen.js';
-import { TrailerScreen } from './src/features/vod/TrailerScreen.js';
 import { createSession, reloadSources } from './src/session.js';
 import { registerPanelEpgNative } from './src/sync/panelEpg.js';
 import { panelEpgNative } from './modules/panel-epg/index.js';
 import { parseWatchNextUri, registerWatchNextNative } from './src/features/vod/watchNext.js';
 import { watchNextNative } from './modules/watch-next/index.js';
 import type { AppSession } from './src/session.js';
-
 import type { StoredChannel } from './src/storage/channels.js';
 import { theme } from './src/ui/theme.js';
 import type { ThemeColors } from './src/ui/theme.js';
@@ -32,6 +28,23 @@ import { startTvKeyTracking } from './src/ui/tvKeys.js';
 import { TvPressable } from './src/ui/TvPressable.js';
 import { ReminderBanner } from './src/features/reminders/ReminderBanner.js';
 import { UpdateBanner } from './src/features/settings/UpdateBanner.js';
+
+// Sjaeldnere skaerme skal ikke forsinke opstarten.
+const OnboardingScreen = deferredScreen(
+  () => (require('./src/features/onboarding/OnboardingScreen.js') as typeof import('./src/features/onboarding/OnboardingScreen.js')).OnboardingScreen,
+);
+const PlayerScreen = deferredScreen(
+  () => (require('./src/features/player/PlayerScreen.js') as typeof import('./src/features/player/PlayerScreen.js')).PlayerScreen,
+);
+const VodDetailScreen = deferredScreen(
+  () => (require('./src/features/vod/VodDetailScreen.js') as typeof import('./src/features/vod/VodDetailScreen.js')).VodDetailScreen,
+);
+const VodPlayerScreen = deferredScreen(
+  () => (require('./src/features/vod/VodPlayerScreen.js') as typeof import('./src/features/vod/VodPlayerScreen.js')).VodPlayerScreen,
+);
+const TrailerScreen = deferredScreen(
+  () => (require('./src/features/vod/TrailerScreen.js') as typeof import('./src/features/vod/TrailerScreen.js')).TrailerScreen,
+);
 
 // Panelets store EPG-fil laeses i native kode (PanelEpgModule). Registreres
 // her, saa synkroniseringen ikke selv traekker React Native med i testene.
@@ -98,6 +111,7 @@ function AppInner() {
     let cancelled = false;
 
     async function boot(): Promise<void> {
+      const startedAt = Date.now();
       // Sessionen aabnes altid: den er ogsaa det der flytter en installation
       // fra tiden med ét panel over paa kilder. Foerst bagefter kan vi vide
       // om der er noget at vise.
@@ -107,6 +121,7 @@ function AppInner() {
       const [mode, placeKey] = await Promise.all([getThemeMode(created.db), getThemePlace(created.db)]);
       setThemePreference({ mode, ...(placeKey === null ? {} : { placeKey }) });
       setSession(created);
+      logEvent('opstart', `klar til forside: ${Date.now() - startedAt} ms`);
       setRoute(created.sources.length === 0 ? { name: 'onboarding' } : { name: 'home' });
       // Nye udgaver: UpdateBanner ser efter dem lidt efter start, henter paa
       // tv af sig selv og lader brugeren installere fra bjaelken (v341: foer

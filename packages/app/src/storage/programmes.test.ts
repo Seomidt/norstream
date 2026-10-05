@@ -9,6 +9,7 @@ import {
   listProgrammes,
   listProgrammesFor,
   nowNextFor,
+  nowProgrammesFor,
   nowTitlesFor,
   upsertProgrammes,
 } from './programmes.js';
@@ -262,5 +263,36 @@ describe('listProgrammesFor / nowNextFor (v340)', () => {
     expect(pairs.get('dr2')?.now).toBeNull();
     expect(pairs.get('dr2')?.next?.title).toBe('Natten');
     expect(pairs.has('ukendt')).toBe(false);
+  });
+});
+
+describe('forsidens samlede nu-opslag', () => {
+  it('bevarer start-forfra-data og vaelger seneste start ved overlap', async () => {
+    await upsertProgrammes(db, [
+      prog('dr1', 19, 22, 'Gammelt overlap'),
+      { ...prog('dr1', 20, 21, 'Nyheder'), description: 'Beskrivelse' },
+      prog('dr2', 19, 20, 'Sluttet'),
+      prog('dr2', 21, 22, 'Fremtid'),
+      prog('tv2', 20, 22, 'Film'),
+    ]);
+    let reads = 0;
+    const counted: SqlDatabase = { ...db, getAllAsync: async (sql, params) => {
+      reads++;
+      return db.getAllAsync(sql, params);
+    } };
+    const result = await nowProgrammesFor(counted, ['dr1', 'dr1', 'dr2', 'tv2', 'ukendt'], T(20));
+    expect(reads).toBe(1);
+    expect(result.get('dr1')).toEqual((await getNowNext(db, 'dr1', T(20))).now);
+    expect(result.get('dr1')?.description).toBe('Beskrivelse');
+    expect(result.get('tv2')?.title).toBe('Film');
+    expect(result.has('dr2')).toBe(false);
+    expect(result.has('ukendt')).toBe(false);
+  });
+
+  it('klarer mere end SQLites variabelgraense og tomme lister', async () => {
+    const ids = Array.from({ length: 1100 }, (_, i) => `c${i}`);
+    await upsertProgrammes(db, ids.map((id) => prog(id, 20, 21, id)));
+    expect((await nowProgrammesFor(db, ids, T(20))).size).toBe(1100);
+    expect((await nowProgrammesFor(db, [], T(20))).size).toBe(0);
   });
 });

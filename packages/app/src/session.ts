@@ -19,6 +19,7 @@ import {
 import { addSource, adoptLegacyKeys, listEnabledSources } from './storage/sources.js';
 import { adoptLegacySettings, getStreamFormatSetting } from './storage/settings.js';
 import type { SqlDatabase } from './storage/types.js';
+import { logEvent } from './diagnostics/log.js';
 
 export interface AppSession {
   db: SqlDatabase;
@@ -83,7 +84,9 @@ function hostOf(url: string): string {
 }
 
 export async function createSession(): Promise<AppSession> {
+  const startedAt = Date.now();
   const db = await openDatabase();
+  logEvent('opstart', `database klar: ${Date.now() - startedAt} ms`);
   await adoptLegacyInstallation(db);
 
   // De uafhaengige opstarts-laesninger paa én gang i stedet for i koe: de
@@ -103,6 +106,7 @@ export async function createSession(): Promise<AppSession> {
     initPosterFill(db),
   ]);
   applyStreamFormatSetting(format);
+  logEvent('opstart', `session klar: ${Date.now() - startedAt} ms`);
 
   // Nedkoelingen yderst (den ser panelets navn), DNS-noedudgangen inderst.
   const fetchImpl = withPanelCooldown(withDnsFallback(createFetchImpl()));

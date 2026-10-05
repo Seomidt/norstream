@@ -83,6 +83,20 @@ describe('migrate paa en frisk database', () => {
     expect(rows).toEqual([{ channel_id: '247634' }]);
   });
 
+  it('kan genstarte et aktuelt skema uden nogen skrivninger', async () => {
+    const db = createTestDatabase();
+    await migrate(db);
+    await db.runAsync("INSERT INTO settings (key, value) VALUES ('last_sync_ms:s1', '222')");
+    const readOnly: SqlDatabase = {
+      ...db,
+      execAsync: async () => { throw new Error('Opstart skrev til databasen'); },
+      runAsync: async () => { throw new Error('Opstart skrev til databasen'); },
+    };
+    await migrate(readOnly);
+    expect(await db.getFirstAsync("SELECT value FROM settings WHERE key = 'last_sync_ms:s1'")).toEqual({ value: '222' });
+    expect(await userVersion(db)).toBe(27);
+  });
+
   it('opretter indekset paa programmernes tidsvindue', async () => {
     const db = createTestDatabase();
     await migrate(db);
