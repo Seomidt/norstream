@@ -434,3 +434,22 @@ Opdateringsbanneret kører også på opstartsfejlskærmen, uafhængigt af
 databasen. Ved en fastlåst v369 kan man lade fejlskærmen stå ca. et minut
 og installere den nye udgave fra banneret. Afinstallation eller rydning
 af data er ikke nødvendig for denne databasefejl.
+
+
+## Nyhedsstriben fra v371
+
+Nyheds- og vejrdelen er memoiseret uafhængigt af uret, og hele striben
+springer guideopdateringer med uændrede props over. Den lineære animation
+bruger fortsat native driver, nu med eksplicit `isInteraction: false`.
+
+Android kan genbruge hver statisk tekstgruppe som en GPU-tekstur.
+Størrelsen måles per gruppe i fysiske pixels: højst 2048 × 256 og
+512 KiB beregnet RGBA-forbrug. Den samlede lange stribe caches aldrig
+som én tekstur. Lange overskrifter uden for grænsen vises uden denne cache.
+
+Når Hjem dækkes af afspilleren eller appen går i baggrunden, stoppes
+animationen, og hardwarecachen deaktiveres. Når guiden kommer frem igen,
+startes rulningen igen. Hastigheden er stadig 55 punkter per sekund,
+højden 40 punkter, og nyhedskilder, vejropdatering og indhold er uændrede.
+Typekontrol og eksisterende tests dækker ikke måling af billedfrekvens;
+den oplevede forbedring skal kontrolleres på Google TV Streameren.

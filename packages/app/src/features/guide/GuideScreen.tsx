@@ -69,6 +69,8 @@ interface Props {
   onAuthError: () => void;
   onBrowse: () => void;
   previewEnabled: boolean;
+  /** Guiden bliver monteret under afspilleren; skjulte animationer skal staa stille. */
+  active?: boolean;
   previewHandle: { current: PreviewHandle | null };
   /** Tv: pil hoejre fra menuen; den foerste raekkes foerste udsendelse faar fokus. */
   focusFirstSignal?: number;
@@ -126,6 +128,7 @@ export const GuideScreen = memo(function GuideScreen({
   onAuthError,
   onBrowse,
   previewEnabled,
+  active = true,
   previewHandle,
   focusFirstSignal = 0,
 }: Props) {
@@ -1117,7 +1120,7 @@ export const GuideScreen = memo(function GuideScreen({
               som paa en nyhedskanal. Kun i nyheds-tilstand og ikke mens hele
               dagen staar ovenpaa. */}
           {showNews && dayFor === null && (
-            <NewsTicker now={now} weather={weather} headlines={headlines} />
+            <NewsTicker now={now} weather={weather} headlines={headlines} active={active} />
           )}
         </>
       ) : (

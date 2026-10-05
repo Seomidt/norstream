@@ -731,6 +731,7 @@ export function HomeScreen({
             onRestart={openGuideRestart}
             onAuthError={handleAuthError}
             onBrowse={goBrowse}
+            active={!covered}
             previewEnabled={previewOn}
             previewHandle={previewHandle}
             focusFirstSignal={enterSignal}

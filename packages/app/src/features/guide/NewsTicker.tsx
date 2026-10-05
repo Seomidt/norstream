@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { memo, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import { Animated, AppState, Easing, PixelRatio, StyleSheet, Text, View } from 'react-native';
 import { weatherIcon, weatherText } from '@norstream/core';
 import type { WeatherIcon } from '@norstream/core';
 import { useStyles } from '../../ui/ThemeContext.js';
@@ -47,47 +48,73 @@ function weatherSegment(weather: Weather): string {
   return parts.join(' · ');
 }
 
-/** Én stribe indhold: vejret foerst (mrket VEJR), saa overskrifterne (kategori-mrke). */
-function Segments({ weather, headlines }: { weather: Weather | null; headlines: NewsHeadline[] }) {
+/** Smaa tekstdele kan genbruges af GPU'en; aldrig hele den lange stribe. */
+function CachedSegment({ active, children }: { active: boolean; children: ReactNode }) {
+  const styles = useStyles(makeStyles);
+  const [cacheable, setCacheable] = useState(false);
+  return <View
+    style={styles.segRow}
+    renderToHardwareTextureAndroid={active && cacheable}
+    onLayout={({ nativeEvent: { layout } }) => {
+      const scale = PixelRatio.get();
+      const width = layout.width * scale;
+      const height = layout.height * scale;
+      // Hoejst 512 KiB per del og ingen teksturer over 2048 pixels.
+      // Lange RSS-overskrifter og stor skrift vises stadig uden GPU-cache.
+      setCacheable(width > 0 && height > 0 && width <= 2048 && height <= 256 && width * height * 4 <= 512 * 1024);
+    }}
+  >{children}</View>;
+}
+
+/** Vejret foerst, saa overskrifterne. Ur- og guideopdateringer genbruger indholdet. */
+const Segments = memo(function Segments({ weather, headlines, active }: { weather: Weather | null; headlines: NewsHeadline[]; active: boolean }) {
   const styles = useStyles(makeStyles);
   return (
     <View style={styles.segments}>
       {weather !== null && (
-        <>
+        <CachedSegment active={active}>
           <Text style={styles.labelWx}>VEJR</Text>
           <Text style={styles.item}>{weatherSegment(weather)}</Text>
           <Text style={styles.dot}>•</Text>
-        </>
+        </CachedSegment>
       )}
       {headlines.map((headline, index) => (
-        <View key={`${index}-${headline.text}`} style={styles.segRow}>
+        <CachedSegment key={`${index}-${headline.text}`} active={active}>
           <Text style={headline.breaking ? styles.labelBreaking : styles.labelNw}>
             {headline.breaking ? 'BREAKING' : headline.label}
           </Text>
           <Text style={headline.breaking ? styles.itemBreaking : styles.item}>{headline.text}</Text>
           <Text style={styles.dot}>•</Text>
-        </View>
+        </CachedSegment>
       ))}
     </View>
   );
-}
+});
 
-export function NewsTicker({
+export const NewsTicker = memo(function NewsTicker({
   now,
   weather,
   headlines,
+  active = true,
 }: {
   now: Date;
   weather: Weather | null;
   headlines: NewsHeadline[];
+  active?: boolean;
 }) {
   const styles = useStyles(makeStyles);
+  const [foreground, setForeground] = useState(AppState.currentState !== 'background' && AppState.currentState !== 'inactive');
+  useEffect(() => {
+    const listener = AppState.addEventListener('change', (state) => setForeground(state === 'active'));
+    return () => listener.remove();
+  }, []);
+  const running = active && foreground;
   const translateX = useRef(new Animated.Value(0)).current;
   /** Bredden paa én kopi af indholdet; animationen kender foerst farten naar den er maalt. */
   const [contentWidth, setContentWidth] = useState(0);
 
   useEffect(() => {
-    if (contentWidth <= 0) return;
+    if (!running || contentWidth <= 0) return;
     translateX.setValue(0);
     // To kopier ligger side om side. Naar den foerste er rullet helt ud til
     // venstre (-bredde), staar den anden praecis hvor den foerste startede;
@@ -98,11 +125,13 @@ export function NewsTicker({
         duration: (contentWidth / PX_PER_SEC) * 1000,
         easing: Easing.linear,
         useNativeDriver: true,
+        // En evig stribe maa ikke holde guidens liste i venteposition.
+        isInteraction: false,
       }),
     );
     animation.start();
     return () => animation.stop();
-  }, [contentWidth, translateX]);
+  }, [contentWidth, translateX, running]);
 
   const hasContent = weather !== null || headlines.length > 0;
 
@@ -120,16 +149,16 @@ export function NewsTicker({
         {hasContent && (
           <Animated.View style={[styles.move, { transform: [{ translateX }] }]}>
             <View onLayout={(event) => setContentWidth(event.nativeEvent.layout.width)}>
-              <Segments weather={weather} headlines={headlines} />
+              <Segments weather={weather} headlines={headlines} active={running} />
             </View>
             {/* Kopi nummer to, saa der aldrig er et tomt hul efter den foerste. */}
-            <Segments weather={weather} headlines={headlines} />
+            <Segments weather={weather} headlines={headlines} active={running} />
           </Animated.View>
         )}
       </View>
     </View>
   );
-}
+});
 
 const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   bar: {
