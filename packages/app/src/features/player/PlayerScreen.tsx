@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import type { SubtitleTrack } from 'expo-video';
 import { buildTimeshiftUrl, detectTimeshiftDialect } from '@norstream/core';
-import type { Programme } from '@norstream/core';
+import type { Programme, StreamFormat, TimeshiftDialect } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
@@ -74,6 +74,7 @@ const STALL_TIMEOUT_MS = 15_000;
 const INITIAL_STALL_TIMEOUT_MS = 8000;
 /** Arkivets foerste buffer og seek skal naa at blive klar foer genforbindelse. */
 const ARCHIVE_INITIAL_TIMEOUT_MS = 30_000;
+const SEEK_CONFIRM_TIMEOUT_MS = 8000;
 /** Frosset billede: hvor tit positionen tjekkes, og hvor laenge den maa staa stille foer der genforbindes (v353). */
 const FROZEN_CHECK_MS = 3000;
 const FROZEN_AFTER_MS = 12_000;
@@ -127,6 +128,7 @@ export function PlayerScreen({
   const playbackStatus = useRef<(status: string) => void>(() => undefined);
   const playIntent = useRef(true);
   const refreshArchiveEnd = useRef<() => void>(() => undefined);
+  const archiveFormat = useRef<StreamFormat | null>(null);
   const requestSource = useCallback((uri: string | null): void => {
     changingSource.current = true;
     // En fejl kan kraeve en ny indlaesning af praecis samme URL.
@@ -183,7 +185,7 @@ export function PlayerScreen({
    * hvor panelets arkiv sluttede, da det blev bedt om — ved start-forfra paa
    * en udsendelse der sendes, er det midt i den. Se archiveContinuation.
    */
-  const archiveRef = useRef<{ programme: Programme; segmentStart: number; seekSeconds: number } | null>(null);
+  const archiveRef = useRef<{ programme: Programme; segmentStart: number; seekSeconds: number; format: StreamFormat; dialect: TimeshiftDialect } | null>(null);
   /** Afspillerens position i det nuvaerende stykke, i sekunder. */
   const positionRef = useRef(0);
   /** playFromStart, til lyttere der er sat op foer den er defineret laengere nede. */
@@ -226,6 +228,7 @@ export function PlayerScreen({
       preparingArchive.current = false;
       recovery.current.reset();
       playIntent.current = true;
+      archiveFormat.current = null;
       setChannel(target);
       setStartFrom(undefined);
       setRestarted(false);
@@ -284,7 +287,7 @@ export function PlayerScreen({
     p.timeUpdateEventInterval = 1;
   });
   const connection = useMemo(() => new PlaybackConnection(player), [player]);
-  const changePlaybackIntent = useCallback((desired: boolean): void => {
+  const changePlaybackIntent = useCallback((desired: boolean): boolean => {
     playIntent.current = desired;
     connection.setPlayingIntent(desired);
     if (!desired) {
@@ -294,11 +297,14 @@ export function PlayerScreen({
       const segment = archiveRef.current;
       if (segment !== null) segment.seekSeconds = positionRef.current;
       requestSource(source);
+      return false;
     } else if (player.status === 'idle' && archiveRef.current !== null && connection.committed) {
       refreshArchiveEnd.current();
+      return false;
     } else {
       playbackStatus.current(player.status);
     }
+    return !desired || (!connection.seeking && !changingSource.current && !preparingArchive.current);
   }, [player, connection, source, requestSource]);
 
   /**
@@ -311,6 +317,7 @@ export function PlayerScreen({
     const subscription = player.addListener('timeUpdate', ({ currentTime }: { currentTime: number }) => {
       if (changingSource.current || !connection.position(currentTime)) return;
       positionRef.current = currentTime;
+      if (connection.active && !everReady.current) playbackStatus.current(player.status);
       const segment = archiveRef.current;
       const absolutePosition = currentTime + (segment === null ? 0 : segment.segmentStart / 1000);
       if (recovery.current.position(absolutePosition, Date.now(), player.playing)) {
@@ -611,6 +618,13 @@ export function PlayerScreen({
       if (!playIntent.current) return;
 
       const { attempt, retry } = recovery.current.failure();
+      const unseeked = archiveRef.current;
+      if (retry && unseeked !== null && unseeked.seekSeconds > 0 && unseeked.format === 'ts' && unseeked.dialect === 'path' && connection.committed && !connection.active && player.status === 'readyToPlay') {
+        // Et panel kan sende TS uden laengde/seek-map. Det er klar data,
+        // men seek ignoreres; proev HLS-segmenter ved samme absolutte tid.
+        archiveFormat.current = 'm3u8';
+        logEvent('arkiv', 'TS naaede ikke spoletiden: proever HLS fra samme position');
+      }
       logEvent('afspiller', `fejl/haengt ved ${Math.round(positionRef.current)} s, forsoeg ${attempt} af ${MAX_RETRIES}${restarted ? ' (arkiv)' : ''}`);
       if (retry) {
         const reconnect = (): void => {
@@ -667,6 +681,11 @@ export function PlayerScreen({
 
       if (status === 'readyToPlay') {
         if (!connection.committed || changingSource.current) return;
+        if (!connection.active) {
+          clearStallTimer();
+          stallTimer = setTimeout(handleFailure, SEEK_CONFIRM_TIMEOUT_MS);
+          return;
+        }
         if (!everReady.current) logEvent('afspiller', `klar (${restarted ? 'arkiv' : 'live'}, ${/\.m3u8(\?|$)/.test(source) ? 'hls' : 'ts'})`);
         everReady.current = true;
         clearStallTimer();
@@ -795,6 +814,7 @@ export function PlayerScreen({
         recovery.current.reset();
         lastSaved.current = 0;
         playIntent.current = true;
+        archiveFormat.current = null;
       }
       try {
         const [dialect, offset] = await Promise.all([
@@ -833,7 +853,8 @@ export function PlayerScreen({
           'arkiv',
           `beder om ${dialect}-arkiv fra ${clockOf(window.from.getTime())}, ${window.minutes} min (udsendelse ${clockOf(programme.start.getTime())}–${clockOf(programme.stop.getTime())}, offset ${offset} min, spol ${Math.round(window.seekSeconds)} s)`,
         );
-        archiveRef.current = { programme, segmentStart: window.from.getTime(), seekSeconds: window.seekSeconds };
+        const format = archiveFormat.current ?? formatForPlatform();
+        archiveRef.current = { programme, segmentStart: window.from.getTime(), seekSeconds: window.seekSeconds, format, dialect };
         positionRef.current = window.seekSeconds;
         // Samme beholder som live (.ts paa Android): arkivet som HLS gav groen
         // skaerm med lyd paa DR-kanalerne paa tv, mens live i .ts var fint.
@@ -846,7 +867,7 @@ export function PlayerScreen({
             window.minutes,
             dialect,
             offset,
-            formatForPlatform(),
+            format,
           ),
         );
         setStreamError(null);
@@ -1067,7 +1088,7 @@ export function PlayerScreen({
         }}
         onToggle={() => {
           try {
-            changePlaybackIntent(!player.playing);
+            if (!changePlaybackIntent(!player.playing)) return;
             if (player.playing) player.pause();
             else player.play();
           } catch {
@@ -1095,7 +1116,7 @@ export function PlayerScreen({
         onPlayerKey={(key) => {
           try {
             if (key === 'select' || key === 'playPause') {
-              changePlaybackIntent(!player.playing);
+              if (!changePlaybackIntent(!player.playing)) return true;
               if (player.playing) player.pause();
               else player.play();
               return true;

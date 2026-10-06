@@ -31,6 +31,7 @@ export class PlaybackConnection {
   private expectedUri: string | null = null;
   private seekSeconds = 0;
   private wantsPlay = true;
+  private started = false;
   private disposed = false;
 
   constructor(private readonly player: PlaybackPort) {}
@@ -47,6 +48,10 @@ export class PlaybackConnection {
     return !this.disposed && this.loaded && this.replaced;
   }
 
+  get seeking(): boolean {
+    return this.seekSeconds > 0 && !this.seekConfirmed;
+  }
+
   /** Hver anmodning er ny, ogsaa naar den skal genindlaese samme URL. */
   load(source: VideoSource, archive: boolean, seekSeconds = 0, wantsPlay = true): Promise<void> {
     const generation = ++this.generation;
@@ -54,6 +59,7 @@ export class PlaybackConnection {
     this.replaced = false;
     this.ready = false;
     this.seekConfirmed = false;
+    this.started = false;
     this.expectedUri = uriOf(source);
     this.seekSeconds = Math.max(0, Number.isFinite(seekSeconds) ? seekSeconds : 0);
     this.wantsPlay = wantsPlay;
@@ -69,7 +75,7 @@ export class PlaybackConnection {
       // Seek saettes FOER play, ikke i en ready-haendelse fra den gamle kilde.
       this.player.currentTime = this.seekSeconds;
       this.seekConfirmed = this.seekSeconds === 0;
-      if (this.wantsPlay) this.player.play();
+      if (this.seekSeconds === 0) this.startIfWanted();
     };
     const operation = this.tail.then(run);
     // Et mislykket kald maa ikke blokere alle efterfoelgende genforsoeg.
@@ -90,11 +96,20 @@ export class PlaybackConnection {
    * Interval-haendelser fra en gammel kilde eller under indlaesning ignoreres. */
   position(seconds: number): boolean {
     if (!this.loaded || !this.replaced || !this.ready || this.disposed || !Number.isFinite(seconds)) return false;
+    // Tiden i en allerede koesat haendelse kan tilhoere foer seek/skift.
+    if (Math.abs(seconds - this.player.currentTime) > 2) return false;
     if (!this.seekConfirmed) {
       if (seconds < this.seekSeconds - 1 || seconds > this.seekSeconds + 10) return false;
       this.seekConfirmed = true;
+      this.startIfWanted();
     }
     return true;
+  }
+
+  private startIfWanted(): void {
+    if (!this.wantsPlay || this.started || this.disposed) return;
+    this.started = true;
+    this.player.play();
   }
 
   dispose(): void {
@@ -110,6 +125,7 @@ export class PlaybackConnection {
     this.replaced = false;
     this.ready = false;
     this.seekConfirmed = false;
+    this.started = false;
     this.expectedUri = null;
   }
 }

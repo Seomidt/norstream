@@ -505,10 +505,16 @@ stoppes. De sidste 30 s regnes ikke længere som set til ende; mangler panelet
 sidste arkivminut, beholdes positionen til det findes. Et sent database-svar
 må ikke genstarte den kanal der blev forladt med zap eller Tilbage.
 
-Kontrolleret: 1074 tests, fuld typekontrol og Android/Hermes-eksport. Der er
+Kontrolleret: 1075 tests, fuld typekontrol og Android/Hermes-eksport. Der er
 regressioner for en simuleret times igangværende udsendelse, samtidige kildeskift,
 klargøringsrækkefølge, seek, samme-URL-retry, pause, afbrydelse og minutgrænser.
 Før udgivelse skal TV-build, APK-version, Leanback/banner og signatur kontrolleres.
 Afspilning er ikke hardwaretestet på Google TV Streamer eller mod brugerens
 arkivserver. Et panel der kun giver endelige TS-stykker kræver fortsat et kildeskift;
 90 s er et buffer-mål og er ikke data som appen kan skabe, før panelet leverer dem.
+
+Seek bekræftes med en frisk native position, før positivt seek må starte lyd/billede.
+Hvis TS er klar men efter 8 s stadig ikke har nået spoletiden, prøves HLS ved
+samme absolutte position (kun path-dialekten; php-arkiv kan ignorere formatvalget).
+Det retter tilfælde hvor TS mangler længde/seek-map og ignorerer seek. En negativ
+regression med et ignoreret seek bekræfter, at gamle sekunder ikke afspilles.

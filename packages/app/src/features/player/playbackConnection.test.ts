@@ -32,16 +32,20 @@ describe('PlaybackConnection', () => {
     f.connection.sourceLoaded({ uri: 'archive.ts' });
     f.pending[0]!.resolve();
     await loaded;
-    expect(f.calls).toEqual(['pause', 'replace:archive.ts', 'play@42']);
+    expect(f.calls).toEqual(['pause', 'replace:archive.ts']);
     expect(f.player.bufferOptions).toEqual(ARCHIVE_BUFFER);
     expect(f.connection.position(0)).toBe(false);
     expect(f.connection.active).toBe(false);
     expect(f.connection.position(42.1)).toBe(true);
+    expect(f.calls).toEqual(['pause', 'replace:archive.ts', 'play@42']);
     expect(f.connection.active).toBe(true);
     // Klargoerings- og bufferhaendelser maa ikke genindlaese kilden.
     f.connection.status('loading');
     f.connection.status('readyToPlay');
-    for (let n = 43; n < 140; n += 1) expect(f.connection.position(n)).toBe(true);
+    for (let n = 43; n < 140; n += 1) {
+      f.player.currentTime = n;
+      expect(f.connection.position(n)).toBe(true);
+    }
     expect(f.calls.filter((c) => c.startsWith('replace:'))).toHaveLength(1);
   });
 
@@ -142,5 +146,30 @@ describe('PlaybackConnection', () => {
     await loaded;
     expect(f.player.currentTime).toBe(320);
     expect(f.calls.filter((c) => c.startsWith('play@'))).toHaveLength(0);
+  });
+
+  it('spiller ingen gamle sekunder naar en TS-kilde ignorerer seek; en seekbar kilde kan genoptage', async () => {
+    const f = fixture();
+    let actual = 0;
+    let seekable = false;
+    Object.defineProperty(f.player, 'currentTime', {
+      get: () => actual,
+      set: (time: number) => { actual = seekable ? time : 0; },
+    });
+    const ts = f.connection.load('archive.ts', true, 42);
+    await Promise.resolve(); f.pending[0]!.resolve(); await ts;
+    f.connection.sourceLoaded('archive.ts');
+    f.connection.status('readyToPlay');
+    expect(f.connection.position(0)).toBe(false);
+    expect(f.connection.active).toBe(false);
+    expect(f.calls.filter((c) => c.startsWith('play@'))).toHaveLength(0);
+    seekable = true;
+    const hls = f.connection.load('archive.m3u8', true, 42);
+    await Promise.resolve(); f.pending[1]!.resolve(); await hls;
+    expect(f.calls.filter((c) => c.startsWith('play@'))).toHaveLength(0);
+    f.connection.sourceLoaded('archive.m3u8');
+    f.connection.status('readyToPlay');
+    expect(f.connection.position(42)).toBe(true);
+    expect(f.calls.filter((c) => c.startsWith('play@'))).toEqual(['play@42']);
   });
 });
