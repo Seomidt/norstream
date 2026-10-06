@@ -478,3 +478,37 @@ Indstillinger → Fejlfinding har nu `opstart`-linjer med millisekunder for
 database, session, klar til forside og lokale kanalrækker. Det er appens
 JS-faser, ikke en måling fra Android-launcheren eller første synlige frame.
 Hastigheden er endnu ikke målt på den fysiske Google TV Streamer.
+
+
+### v373: én forbindelse ved start forfra
+
+`PlayerScreen` beholder én native `VideoPlayer` fra start til Tilbage. Tidligere
+oprettede `useVideoPlayer(source)` en ny afspiller ved hvert URL-skift, og
+`replace`-effekten åbnede derefter kilden igen. Det kunne overlappe den gamle
+forbindelse, nulstille bufferen og forstyrre et panel der kun tillader én stream.
+Nu går hver indlæsning gennem en serialiseret `replaceAsync`, med seek før play.
+Gamle metadata og interval-haendelser må ikke bekræfte den nye kildes position.
+En revision gør også et genforsøg på præcis samme URL til en reel indlæsning.
+
+Arkivbuffer: mål 90 s frem, 5 s før start, tid prioriteres over størrelse.
+Samme profil bruges fra guide og Start forfra inde i live-skærmen. Live beholder
+20 s / 1 s. Første indlæsning får 30 s for arkiv og 8 s for live; midlertidig
+buffering beholder sin eksisterende vagt. Ready eller URL-skift nulstiller ikke
+genforsøgene: det kræver ti sekunders sammenhængende afspilning. Seek, pause og
+to sekunder mellem gentagne udfald tæller ikke som denne fremdrift. Et nyt
+kanal-/programvalg har sit eget budget. TV-pause under indlæsning bevares.
+
+Arkivets start og varighed bruger panelets hele minutter. Programmets sekunder
+lægges til seek, og igangværende varighed rundes ned, så 90 s afstand til live
+ikke overskrides ved oprunding. To fortsættelser uden nye absolutte sekunder
+stoppes. De sidste 30 s regnes ikke længere som set til ende; mangler panelet
+sidste arkivminut, beholdes positionen til det findes. Et sent database-svar
+må ikke genstarte den kanal der blev forladt med zap eller Tilbage.
+
+Kontrolleret: 1074 tests, fuld typekontrol og Android/Hermes-eksport. Der er
+regressioner for en simuleret times igangværende udsendelse, samtidige kildeskift,
+klargøringsrækkefølge, seek, samme-URL-retry, pause, afbrydelse og minutgrænser.
+Før udgivelse skal TV-build, APK-version, Leanback/banner og signatur kontrolleres.
+Afspilning er ikke hardwaretestet på Google TV Streamer eller mod brugerens
+arkivserver. Et panel der kun giver endelige TS-stykker kræver fortsat et kildeskift;
+90 s er et buffer-mål og er ikke data som appen kan skabe, før panelet leverer dem.

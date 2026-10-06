@@ -13,13 +13,38 @@ export type ArchiveNext =
   | { kind: 'continue'; from: Date; seekSeconds: number; minutes: number }
   /** Indhentet den levende kant, og udsendelsen sendes stadig: skift til live. */
   | { kind: 'live' }
+  /** Panelet mangler det naeste faerdige minut; behold positionen og vent. */
+  | { kind: 'wait' }
   /** Udsendelsen er set til ende (eller sluttede): intet at goere. */
   | { kind: 'done' };
 
 /** Arkivet halter lidt efter live; tættere paa end det er der intet at hente. */
 export const LIVE_EDGE_LAG_MS = 90_000;
 /** De sidste sekunder af en udsendelse regnes som set til ende. */
-const END_SLACK_MS = 30_000;
+const END_SLACK_MS = 2000;
+
+/** Panelet accepterer kun starttid og varighed i HELE minutter. */
+export function archiveWindow(
+  programme: { start: Date; stop: Date },
+  from: Date,
+  seekSeconds: number,
+  nowMs: number,
+): { from: Date; seekSeconds: number; minutes: number } | null {
+  const origin = Math.floor(from.getTime() / 60_000) * 60_000;
+  const availableEnd = Math.min(programme.stop.getTime(), nowMs - LIVE_EDGE_LAG_MS);
+  const complete = programme.stop.getTime() <= nowMs - LIVE_EDGE_LAG_MS;
+  const minutes = complete
+    ? Math.ceil((availableEnd - origin) / 60_000)
+    : Math.floor((availableEnd - origin) / 60_000);
+  // Rund ikke et igangvaerende arkiv op ud over sikkerhedsafstanden. Et
+  // helt nyt program kan endnu ikke have et eneste faerdigt arkivminut.
+  if (minutes < 1) return null;
+  return {
+    from: new Date(origin),
+    seekSeconds: Math.max(0, seekSeconds) + (from.getTime() - origin) / 1000,
+    minutes,
+  };
+}
 
 export function archiveContinuation(
   programme: { start: Date; stop: Date },
@@ -31,15 +56,11 @@ export function archiveContinuation(
   const reached = segmentStartMs + position * 1000;
   const end = programme.stop.getTime();
   if (reached >= end - END_SLACK_MS) return { kind: 'done' };
-  if (reached >= nowMs - LIVE_EDGE_LAG_MS) return end > nowMs ? { kind: 'live' } : { kind: 'done' };
-  const from = Math.floor(reached / 60_000) * 60_000;
-  // Kun det der ligger i arkivet nu (v347): ikke ud i fremtiden paa en
-  // udsendelse der stadig sendes.
-  const until = Math.min(end, nowMs - LIVE_EDGE_LAG_MS);
+  if (reached >= nowMs && end > nowMs) return { kind: 'live' };
+  const window = archiveWindow(programme, new Date(reached), 0, nowMs);
+  if (window === null || window.seekSeconds >= window.minutes * 60 - 1) return { kind: 'wait' };
   return {
     kind: 'continue',
-    from: new Date(from),
-    seekSeconds: (reached - from) / 1000,
-    minutes: Math.max(1, Math.ceil((until - from) / 60_000)),
+    ...window,
   };
 }
