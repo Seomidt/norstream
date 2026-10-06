@@ -1,32 +1,20 @@
 /**
- * Trailere fra Apple TV (v336) — foerstevalg, brugerens eget valg.
- *
- * Brugeren fandt det: tv.apple.com viser trailerne uden login. Siden bruger
- * Apples "uts"-tjeneste. Maalt fra GitHubs maskine
- * (scripts/maal/appletv-trailer.mjs, appletv-struktur.mjs): soegningen svarer,
- * filmsiden har trailerne som almindelig HLS UDEN kopibeskyttelse (ingen
- * EXT-X-KEY / skd://), op til 4K; i fuld HD i biografformat (1918x802).
- *
- * Soegningen er upraecis ("Dune Part Two" gav Zero Dark Thirty, "Druk" gav
- * Argylle), og Apple kender filmene paa engelsk titel ("Another Round"). Derfor
- * soeges paa TMDB's engelske (og originale) titel, og en film bruges KUN naar
- * titel og aar passer. Ellers tager IMDb over.
- *
- * Parametrene er dem tv.apple.com selv sender. Aendrer Apple dem, svarer
- * soegningen ikke, og IMDb tager over — ret dem her (se maaleskripterne).
+ * Direkte Apple-trailere. Native-kataloget (pfm=appletv) indeholder lejefilm;
+ * web-kataloget oversaa bl.a. Vores loefte og Oppenheimer 6. oktober 2026.
+ * Danmark foerst, USA som reserve. Titel og aar skal altid passe.
  */
 
 export type GetJson = (url: string) => Promise<unknown>;
 
-const BASE = 'https://tv.apple.com/api/uts/v3';
+const BASE = 'https://uts-api.itunes.apple.com/uts/v3';
 const PARAMS: Record<string, string> = {
-  utscf: 'OjAAAAAAAAA~',
+  utscf: 'OjAAAAEAAAAAAAMAEAAAACMAKwAtADgA',
   utsk: '6e3013c6d6fae3c2::::::235656c069bb0efb',
   caller: 'web',
-  sf: '143441',
-  v: '68',
-  pfm: 'web',
-  locale: 'en-US',
+  sf: '143458',
+  v: '100',
+  pfm: 'appletv',
+  locale: 'da-DK',
 };
 
 /** Kortere end det er en teaser; laengere er ikke en trailer. */
@@ -120,6 +108,7 @@ export function pickAppleTrailers(data: unknown): AppleTrailer[] {
       out.push({ id: item.id, name: item.title ?? 'Trailer', seconds, url });
     }
   }
+  if (out.length > 0) return out;
   // Nogle filmsider har kun movieClips i playables, ingen Trailer-hylde.
   // Kun den allerede titel/aar-matchede side laeses; ikke relaterede film.
   const playables = (data as { data?: { playables?: Record<string, { itunesMediaApiData?: { movieClips?: Array<{ title?: string; hlsUrl?: string; durationInMilliseconds?: number }> } }> } } | null)?.data?.playables;
@@ -147,21 +136,19 @@ export async function findAppleTrailers(
   year: number | null,
 ): Promise<AppleTrailer[]> {
   const unique = [...new Set(titles.map((t) => t.trim()).filter((t) => t.length > 0))];
-  for (const term of unique) {
-    let search: unknown;
-    try {
-      search = await getJson(`${BASE}/search?${query({ searchTerm: term })}`);
-    } catch {
-      continue;
-    }
-    const hit = matchSearch(search, kind, unique, year);
-    if (hit === null || hit.id === undefined) continue;
-    try {
-      const page = await getJson(`${BASE}/${kind === 'series' ? 'shows' : 'movies'}/${encodeURIComponent(hit.id)}?${query()}`);
-      const trailers = pickAppleTrailers(page);
-      if (trailers.length > 0) return trailers;
-    } catch {
-      continue;
+  for (const region of [{ sf: '143458', locale: 'da-DK' }, { sf: '143441', locale: 'en-US' }]) {
+    // Alias-opslag er uafhaengige; et langsomt svar maa ikke give tre ventetider.
+    const hits = await Promise.all(unique.map(async (term) => {
+      try { return matchSearch(await getJson(`${BASE}/search?${query({ ...region, searchTerm: term })}`), kind, unique, year); }
+      catch { return null; }
+    }));
+    const ids = [...new Set(hits.map((hit) => hit?.id).filter((id): id is string => typeof id === 'string'))];
+    for (const id of ids) {
+      try {
+        const page = await getJson(`${BASE}/${kind === 'series' ? 'shows' : 'movies'}/${encodeURIComponent(id)}?${query(region)}`);
+        const trailers = pickAppleTrailers(page);
+        if (trailers.length > 0) return trailers;
+      } catch { /* Naeste matchede titel eller region. */ }
     }
   }
   return [];

@@ -84,6 +84,14 @@ describe('pickAppleTrailers', () => {
     expect(pickAppleTrailers({ data: {} })).toEqual([]);
   });
 
+  it('gentager ikke samme trailer gennem movieClips naar hylden allerede findes', () => {
+    const both = { data: { ...PAGE.data, playables: { film: { itunesMediaApiData: { movieClips: [
+      { title: 'Official Trailer', durationInMilliseconds: 150000, hlsUrl: 'https://apple.example/duplicate.m3u8' },
+    ] } } } } };
+    expect(pickAppleTrailers(both)).toHaveLength(2);
+    expect(pickAppleTrailers(both).some((video) => video.id.startsWith('clip-'))).toBe(false);
+  });
+
   it('finder movieClips uden Trailer-hylde og bruger varigheden i millisekunder', () => {
     expect(pickAppleTrailers({ data: { playables: { film: { itunesMediaApiData: { movieClips: [
       { title: 'Official Trailer', durationInMilliseconds: 150000, hlsUrl: 'https://apple.example/trailer.m3u8' },
@@ -108,6 +116,9 @@ describe('findAppleTrailers', () => {
     const found = await findAppleTrailers(getJson, 'movie', ['Oppenheimer'], 2023);
     expect(found[0]?.id).toBe('umc.cmc.t1');
     expect(asked[0]).toContain('searchTerm=Oppenheimer');
+    expect(asked[0]).toContain('pfm=appletv');
+    expect(asked[0]).toContain('sf=143458');
+    expect(asked[0]).toContain('locale=da-DK');
     expect(asked[1]).toContain('/movies/umc.cmc.opp?');
   });
 
@@ -116,4 +127,14 @@ describe('findAppleTrailers', () => {
     expect(await findAppleTrailers(getJson, 'movie', ['Dune: Part Two', 'Dune Part Two'], 2024)).toEqual([]);
     expect(await findAppleTrailers(async () => null, 'movie', ['Oppenheimer'], 2023)).toEqual([]);
   });
+  it('proever USA naar Danmark ikke har et praecist match', async () => {
+    const asked: string[] = [];
+    const found = await findAppleTrailers(async (url) => {
+      asked.push(url);
+      return url.includes('sf=143458') ? null : url.includes('/search?') ? SEARCH : PAGE;
+    }, 'movie', ['Oppenheimer'], 2023);
+    expect(found).toHaveLength(2);
+    expect(asked.some((url) => url.includes('sf=143441'))).toBe(true);
+  });
+
 });

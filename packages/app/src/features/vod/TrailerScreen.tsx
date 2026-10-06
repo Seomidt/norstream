@@ -11,9 +11,9 @@ import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { findLongerTrailer, searchYoutubeTrailers } from './trailerSearch.js';
-import { YoutubeProof } from './YoutubeProof.js';
 import { YoutubeTrailer } from './YoutubeTrailer.js';
-import { buildHlsMaster } from './youtubeStream.js';
+import { buildHlsMaster } from './trailerHls.js';
+import { findDirectTrailers } from './directTrailers.js';
 import { findAppleTrailers } from './appleTrailer.js';
 import { findImdbTrailers } from './imdbTrailer.js';
 import { logEvent } from '../../diagnostics/log.js';
@@ -38,12 +38,12 @@ interface NativeSource {
   attempt: number;
   seconds: number | null;
   contentType: 'hls' | 'progressive' | 'dash';
-  provider: 'Apple TV' | 'IMDb' | 'YouTube PO';
+  provider: 'Apple TV' | 'IMDb';
   imdbTitleId?: string;
   height?: number;
 }
 interface Candidate { id: string; checkLength: boolean }
-type Source = NativeSource | ({ kind: 'youtube' | 'proof'; resumeAt?: number } & Candidate) | { kind: 'looking' } | { kind: 'none' } | { kind: 'failed'; message: string };
+type Source = NativeSource | ({ kind: 'youtube'; resumeAt?: number } & Candidate) | { kind: 'looking' } | { kind: 'none' } | { kind: 'failed'; message: string };
 const NATIVE_READY_TIMEOUT_MS = 20_000;
 const NATIVE_STALL_MS = 15_000;
 const LOOKUP_TIMEOUT_MS = 8_000;
@@ -54,12 +54,7 @@ function clock(seconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-/**
- * Google TV bruger kun YouTube med bevis og hele lokale HD-filer.
- * Telefonens kildevalg er uafhaengigt af TV-afspilleren.
- * Soegningen finder YouTube-id'er; afspilningen forlader aldrig appen, heller
- * ikke naar en video er fjernet eller ikke maa indlejres.
- */
+/** Google TV bruger kun direkte HD-stroemme i appens native afspiller. */
 export function TrailerScreen({ session, trailerId, title, year, kind, onBack }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
@@ -169,15 +164,20 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         setSource(native);
         return;
       }
+      if (NATIVE_TV) {
+        setLoading(false);
+        setSource({ kind: 'failed', message: 'Ingen direkte HD-trailer blev fundet til denne titel.' });
+        return;
+      }
       for (;;) {
         if (!alive.current) return;
         const next = queue.current.shift();
         if (next !== undefined) {
           if (tried.current.has(next.id) || !/^[A-Za-z0-9_-]{11}$/.test(next.id)) continue;
           tried.current.add(next.id);
-          logEvent('trailer', NATIVE_TV ? `YouTube PO: ${next.id}, kun native HD paa TV` : 'YouTube: officiel indlejring i appen');
+          logEvent('trailer', 'YouTube: officiel indlejring paa telefon');
           setLoading(false);
-          setSource({ kind: NATIVE_TV ? 'proof' : 'youtube', ...next });
+          setSource({ kind: 'youtube', ...next });
           return;
         }
         if (!await refill()) break;
@@ -189,7 +189,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   }
 
   async function start(): Promise<void> {
-    if (NATIVE_TV) logEvent('trailer', `TV: ${cleanVodTitle(title).title.slice(0, 120)}, kun YouTube PO i HD`);
+    if (NATIVE_TV) logEvent('trailer', `TV: ${cleanVodTitle(title).title.slice(0, 120)}, direkte HD v374, ingen YouTube`);
     tmdbKey.current = await getTmdbApiKey(session.db);
     const clean = cleanVodTitle(title);
     const name = year === null ? title : `${title} (${year})`;
@@ -197,6 +197,17 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
     if (!alive.current) return;
     aliases.current = [...new Set([clean.title, info?.originalTitle, info?.englishTitle].filter((t): t is string => typeof t === 'string' && t.length > 0))].slice(0, 3);
     resolvedYear.current = info?.year ?? year ?? clean.year;
+    if (NATIVE_TV) {
+      const found = await findDirectTrailers({ getJson, getText, postJson }, kind, aliases.current, resolvedYear.current, info?.imdbId ?? null);
+      if (!alive.current) return;
+      logEvent('trailer', `Direkte HD: ${found.length} brugbare bud`);
+      for (const video of found) {
+        const uri = video.playlist === null ? video.url : manifest(video.id, video.playlist);
+        if (uri !== null) nativeQueue.current.push({ ...video, kind: 'native', uri, resumeAt: 0, attempt: 0 });
+      }
+      await playNext();
+      return;
+    }
     if (!isTV && Platform.OS === 'android') {
       // Uafhaengige kilder spoerges samtidig; Apple er stadig foerstevalg.
       const [apple, imdb] = await Promise.all([
@@ -220,11 +231,6 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   async function recoverNative(from: NativeSource, position: number, reason: string): Promise<void> {
     if (!alive.current || busy.current) return;
     logEvent('trailer', `${from.provider}: ${reason} ved ${Math.round(position)} s`);
-    if (isTV) {
-      setLoading(false);
-      setSource({ kind: 'failed', message: 'YouTube-traileren kunne ikke afspilles. Prøv igen, eller se oplysningerne under Vis loggen.' });
-      return;
-    }
     // Frisk IMDb-adresse, samme video og position, hoejst to gange i alt.
     if (from.imdbTitleId !== undefined && from.attempt < 2) {
       busy.current = true;
@@ -233,7 +239,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
       try {
         const refreshed = (await findImdbTrailers(postJson, from.imdbTitleId)).find((t) => t.videoId === from.id);
         if (!alive.current) return;
-        if (refreshed !== undefined) {
+        if (refreshed !== undefined && (!NATIVE_TV || (refreshed.contentType === 'progressive' && refreshed.height >= 720))) {
           setSource({ ...from, uri: refreshed.url, contentType: refreshed.contentType, resumeAt: position, attempt: from.attempt + 1 });
           return;
         }
@@ -257,17 +263,6 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
   return (
     <View style={styles.container}>
       <View style={[styles.frame, isTV && styles.frameFull]}>
-        {source.kind === 'proof' && <YoutubeProof key={source.id} id={source.id}
-          onFailed={() => {
-            setLoading(false);
-            setSource({ kind: 'failed', message: 'YouTube-traileren kunne ikke hentes i HD. Prøv igen, eller se oplysningerne under Vis loggen.' });
-          }}
-          onResolved={(result) => {
-            manifests.current.push(...result.files);
-            setLoading(true);
-            setSource({ kind: 'native', id: source.id, uri: result.uri, seconds: result.seconds, contentType: 'dash', provider: 'YouTube PO', height: result.height, resumeAt: 0, attempt: 0 });
-          }}
-        />}
         {!NATIVE_TV && source.kind === 'youtube' && <YoutubeTrailer
           key={source.id}
           id={source.id}
@@ -279,7 +274,7 @@ export function TrailerScreen({ session, trailerId, title, year, kind, onBack }:
         {source.kind === 'native' && <NativeTrailer
           key={`${source.id}:${source.attempt}`}
           uri={source.uri}
-          label={source.provider === 'YouTube PO' ? `YouTube • ${source.height ?? '?'}p` : source.provider}
+          label={source.height ? `${source.provider} • HD` : source.provider}
           resumeAt={source.resumeAt}
           expectedSeconds={source.seconds}
           contentType={source.contentType}
@@ -340,9 +335,9 @@ function NativeTrailer({
     p.loop = false;
     p.playbackRate = 1;
     p.timeUpdateEventInterval = 0.5;
-    // Lokale PO-filer er allerede hentet; streaming-bufferen er kun til telefonens kilder.
-    if (!isTV) p.bufferOptions = {
-      preferredForwardBufferDuration: 120,
+    // Hent loebende foran afspilningen med et fast hukommelsesloft.
+    p.bufferOptions = {
+      preferredForwardBufferDuration: isTV ? 90 : 120,
       minBufferForPlayback: 4,
       maxBufferBytes: 64 * 1024 * 1024,
       prioritizeTimeOverSizeThreshold: false,

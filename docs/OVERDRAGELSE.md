@@ -1,3 +1,24 @@
+## v374 — direkte HD-trailere på Google TV (6. oktober 2026)
+
+TV bruger Apple/IMDb og den native afspiller; ingen YouTube-, PO-token- eller
+WebView-afspilning i TV-forløbet. Apple søges i native-kataloget (`pfm=appletv`),
+Danmark først og USA som reserve. Webkataloget overså køb/leje-film, selv når
+traileren kunne åbnes direkte. Præcist titel-/år-match og IMDb-suggestion som
+reserve uden TMDB-nøgle; forsigtig slut-r-variant til fx “Vores løfter”.
+
+HLS vælges som H.264/AAC i HD (1280–1920 pixel bredde, højst 1080 højde;
+biografformat tilladt). Valgte video-/lyd-playlister skal være afsluttede og
+uden kryptering, 60–360 sek. IMDb bruger kun direkte MP4 i mindst 720p på TV.
+Ingen SD/HEVC/4K-reserve på TV. Native buffer 90 sek., minimum 4 sek., loft
+64 MiB; kildefejl går videre i en afgrænset kø. IMDb-URL kan fornys højst to
+gange for samme klip og position. Trailerafspilleren fylder TV-fladen og
+bevarer billedformatet. Telefonens YouTube-reserve er fortsat separat.
+
+Live målinger før udgivelse: Vores løfte på Apple i 1920×1038, ca. 122 sek.;
+Oppenheimer og Dune 2 på IMDb i 1920×1080, 187/160 sek. Hele video/lyd
+FFmpeg-dekodet uden fejl. Appens faktiske kildevalg testes også mod live API.
+Ingen fysisk Google TV- eller udbydertest; ingen garanti for alle titler.
+
 # NorStream — overdragelse
 
 **Dato:** 2026-09-05
