@@ -1,4 +1,6 @@
 import { logEvent } from './src/diagnostics/log.js';
+import { logPreviousExits } from './src/diagnostics/processExit.js';
+import { processDiagnosticsNative } from './modules/process-diagnostics/index.js';
 import { deferredScreen } from './src/ui/deferredScreen.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, Linking, StyleSheet, Text, View } from 'react-native';
@@ -50,6 +52,8 @@ const TrailerScreen = deferredScreen(
 // her, saa synkroniseringen ikke selv traekker React Native med i testene.
 registerPanelEpgNative(panelEpgNative);
 registerWatchNextNative(watchNextNative);
+// Ligger uden for session-opstarten: diagnostik maa ikke forsinke forsiden.
+void logPreviousExits(processDiagnosticsNative);
 
 type Route =
   | { name: 'loading' }

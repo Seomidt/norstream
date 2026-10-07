@@ -18,7 +18,11 @@ export const LIVE_BUFFER: BufferOptions = {
 export const ARCHIVE_BUFFER: BufferOptions = {
   preferredForwardBufferDuration: 90,
   minBufferForPlayback: 5,
-  prioritizeTimeOverSizeThreshold: true,
+  // Bevar tidsmaalet, men stop hentningen ved byte-budgettet paa Android.
+  // Med tidsprioritet ignoreres stoerrelsesgraensen indtil alle 90 sekunder
+  // er hentet; en hoej bitrate kan dermed presse appens Java-hukommelse.
+  maxBufferBytes: 64 * 1024 * 1024,
+  prioritizeTimeOverSizeThreshold: false,
 };
 
 export class PlaybackConnection {
