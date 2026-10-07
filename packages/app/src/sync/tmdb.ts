@@ -37,11 +37,12 @@ export const tmdbFetch: TmdbFetch = async (url, headers) => {
     return {
       ok: response.ok,
       status: response.status,
-      json: () => response.json() as Promise<unknown>,
-      text: () => response.text(),
+      json: async () => { try { return await response.json() as unknown; } finally { clearTimeout(timer); } },
+      text: async () => { try { return await response.text(); } finally { clearTimeout(timer); } },
     };
-  } finally {
+  } catch (cause) {
     clearTimeout(timer);
+    throw cause;
   }
 };
 
@@ -69,7 +70,7 @@ export interface CleanTitle {
 }
 
 /** Ord panelerne haenger paa titlen, som ikke er en del af den. */
-const NOISE = /\b(4K|UHD|HDR|FHD|HD|SD|1080p|720p|2160p|HEVC|H265|H264|x264|x265|MULTI|SUB|DUB|DUAL|NORDIC|DK|DAN|DANSK|DANISH|SWE|SVENSK|NOR|NORSK|ENG|NF|WEB-DL|WEBRIP|BLURAY|BRRIP|REMUX)\b/gi;
+const NOISE = /\b(4K|UHD|HDR|FHD|HD|SD|1080p|720p|2160p|HEVC|H265|H264|x264|x265|MULTI|SUB|DUB|DUAL|NORDIC|WEB-DL|WEBRIP|BLURAY|BRRIP|REMUX)\b/gi;
 
 /**
  * Titlen som TMDB kender den.
@@ -102,6 +103,7 @@ export function cleanVodTitle(name: string): CleanTitle {
     .replace(/[\[(][^\])]*[\])]/g, ' ')
     .replace(/\bS\d{1,2}(?:E\d{1,3})?\b/gi, ' ')
     .replace(/\b(?:season|saeson|sæson)\s*\d+\b/gi, ' ')
+    .replace(/\s+[-–|]\s*(?:DK|DAN|DANSK|DANISH|SWE|SVENSK|NOR|NORSK|ENG|NF)\s*$/u, ' ')
     .replace(NOISE, ' ')
     .replace(/[|]+/g, ' ')
     .replace(/\s[-–:]+\s*$/g, ' ')
@@ -115,6 +117,10 @@ const IMAGE_BASE = 'https://image.tmdb.org/t/p/w342';
 const API = 'https://api.themoviedb.org/3';
 
 interface SearchHit {
+  title?: string;
+  original_title?: string;
+  name?: string;
+  original_name?: string;
   id?: number;
   poster_path?: string | null;
   vote_average?: number;
@@ -129,18 +135,19 @@ interface SearchResult {
 }
 
 /**
- * Titlens opslag hos TMDB: id og plakat. Aarstallet bruges foerst; rammer
- * det ikke, proeves uden — panelets aarstal er tit et gaet. Null naar
- * TMDB ikke kender titlen, eller noget gaar galt: en plakat der mangler
- * er ikke en fejl paa skaermen.
+ * Validerer titel/originaltitel/alias og aar foer metadata accepteres.
+ * Flere udgaver uden aarstal afvises; netfejl gemmes aldrig som et nej.
  */
 export async function searchTmdb(
   fetchImpl: TmdbFetch,
   apiKey: string,
   kind: 'movie' | 'series',
   name: string,
+  yearHint: number | null = null,
 ): Promise<{ id: number; posterUrl: string | null; rating: number | null; genreIds: number[]; year: number | null } | null> {
-  const { title, year } = cleanVodTitle(name);
+  const cleaned = cleanVodTitle(name);
+  const title = cleaned.title;
+  const year = cleaned.year ?? (Number.isInteger(yearHint) && yearHint !== null && yearHint >= 1800 && yearHint <= 2100 ? yearHint : null);
   if (title.length === 0) return null;
   const endpoint = kind === 'series' ? 'tv' : 'movie';
   const yearParam = year === null ? '' : kind === 'series' ? `&first_air_date_year=${year}` : `&year=${year}`;
@@ -149,8 +156,8 @@ export async function searchTmdb(
     `${API}/search/${endpoint}?query=${encodeURIComponent(title)}` +
     `${yearParam}&include_adult=false&language=da-DK${auth.query}`;
   try {
-    let hit = await firstHit(fetchImpl, url, auth.headers);
-    if (hit === null && year !== null) hit = await firstHit(fetchImpl, url.replace(yearParam, ''), auth.headers);
+    let hit = await matchingHit(fetchImpl, url, auth.headers, title, year, endpoint);
+    if (hit === null && year !== null) hit = await matchingHit(fetchImpl, url.replace(yearParam, ''), auth.headers, title, year, endpoint);
     if (hit === null || typeof hit.id !== 'number') return null;
     // Karakteren taeller kun naar nogen har stemt; et nul fra ingen er ikke et nul.
     const rating =
@@ -173,17 +180,41 @@ export async function searchTmdb(
   }
 }
 
-async function firstHit(
-  fetchImpl: TmdbFetch,
-  url: string,
-  headers: Record<string, string> | undefined,
+/** Tegnsaetning og accenter maa variere; filmens identitet maa ikke. */
+export function titleIdentity(title: string): string {
+  return title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('da-DK').replace(/[^\p{L}\p{N}]/gu, '');
+}
+
+async function matchingHit(
+  fetchImpl: TmdbFetch, url: string, headers: Record<string, string> | undefined,
+  title: string, year: number | null, endpoint: 'movie' | 'tv',
 ): Promise<SearchHit | null> {
   const response = await fetchImpl(url, headers);
   if (!response.ok) throw new TmdbRequestError(response.status);
   const parsed = (await response.json()) as SearchResult;
-  // Den foerste med plakat; ellers den foerste overhovedet.
-  const results = parsed.results ?? [];
-  return results.find((result) => typeof result.poster_path === 'string') ?? results[0] ?? null;
+  const eligible = (Array.isArray(parsed.results) ? parsed.results : []).filter((hit) => {
+    if (!Number.isSafeInteger(hit.id) || (hit.id ?? 0) <= 0) return false;
+    const date = endpoint === 'movie' ? hit.release_date : hit.first_air_date;
+    // Aarstallet skal passe naar panelet angiver en indspilning.
+    return year === null || (typeof date === 'string' && Number(date.slice(0, 4)) === year);
+  });
+  const wanted = titleIdentity(title);
+  const matches = eligible.filter((hit) => [hit.title, hit.original_title, hit.name, hit.original_name]
+    .some((name) => typeof name === 'string' && titleIdentity(name) === wanted));
+  // Soegning rammer ogsaa alternative titler. Bekraeft dem paa selve filmen.
+  if (matches.length === 0) {
+    for (const hit of eligible.slice(0, 3)) {
+      const key = new URL(url).searchParams.get('api_key');
+      const query = key === null ? '' : `api_key=${encodeURIComponent(key)}`;
+      const alias = await fetchImpl(`${API}/${endpoint}/${hit.id}/alternative_titles?${query}`, headers);
+      if (!alias.ok) throw new TmdbRequestError(alias.status);
+      const data = await alias.json() as { titles?: { title?: string }[]; results?: { title?: string }[] };
+      if ((data.titles ?? data.results ?? []).some((item) => typeof item.title === 'string' && titleIdentity(item.title) === wanted)) matches.push(hit);
+    }
+  }
+  const unique = [...new Map(matches.map((hit) => [hit.id, hit])).values()];
+  // Flere indspilninger uden aarstal afvises frem for at gaette.
+  return unique.length === 1 ? unique[0]! : null;
 }
 
 /**
@@ -406,4 +437,13 @@ export function pickTmdbTrailers(videos: readonly Video[]): TmdbTrailer[] {
     out.push({ youtubeId: video.key, name: video.name ?? video.type ?? 'Trailer' });
   }
   return out;
+}
+
+/** IMDb-id fra den validerede TMDB-post. */
+export async function tmdbImdbId(fetchImpl: TmdbFetch, apiKey: string, kind: 'movie' | 'series', id: number): Promise<string | null> {
+  const auth = tmdbAuth(apiKey);
+  const response = await fetchImpl(`${API}/${kind === 'movie' ? 'movie' : 'tv'}/${id}/external_ids?${auth.query.replace(/^&/, '')}`, auth.headers);
+  if (!response.ok) throw new TmdbRequestError(response.status);
+  const data = await response.json() as { imdb_id?: string };
+  return typeof data.imdb_id === 'string' && /^tt\d{7,12}$/.test(data.imdb_id) ? data.imdb_id : null;
 }

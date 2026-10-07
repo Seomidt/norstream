@@ -5,7 +5,7 @@ import { originOf } from '@norstream/core';
 import { OTHER_COUNTRY_FLAG, OTHER_COUNTRY_KEY } from './countries.js';
 import { deadLogoOrigins } from './logoHosts.js';
 import type { CountryGroup } from './countries.js';
-import { GENRES, genreByKey, genresInText } from './genres.js';
+import { GENRES, genreByKey } from './genres.js';
 import type { GenreKey } from './genres.js';
 import { cachedQuery, invalidateQueryCache } from './queryCache.js';
 import { withTransaction } from './transaction.js';
@@ -331,6 +331,8 @@ export interface VodFilter {
   providers?: number[];
   /** Kun disse titler: noeglerne fra tjeneste-opslaget. Sat af skaermen, huskes ikke. */
   keys?: string[];
+  /** Soegning inden for det aktive udvalg; gemmes ikke. */
+  search?: string;
 }
 
 /**
@@ -344,6 +346,10 @@ export interface VodFilter {
 async function filterClause(db: SqlDatabase, filter: VodFilter): Promise<{ where: string; params: SqlValue[] }> {
   const where: string[] = ['i.kind = ?'];
   const params: SqlValue[] = [filter.kind];
+  if ((filter.search ?? '').trim().length > 0) {
+    where.push("i.name LIKE ? ESCAPE '\\'");
+    params.push(`%${filter.search!.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+  }
   // Tjeneste (v368/v369): enten paa tjeneste-opslagets liste (`keys`), eller
   // slaaet op per titel (`vod_posters.providers`). Begge veje taeller.
   const providerIds = filter.providers ?? [];
@@ -354,7 +360,7 @@ async function filterClause(db: SqlDatabase, filter: VodFilter): Promise<{ where
       params.push(JSON.stringify(filter.keys));
     }
     for (const id of providerIds) {
-      parts.push('fp.providers LIKE ?');
+      parts.push('(fp.metadata_version = 1 AND fp.providers LIKE ?)');
       params.push(`%,${Math.trunc(id)},%`);
     }
     where.push(`(${parts.join(' OR ')})`);
@@ -367,32 +373,35 @@ async function filterClause(db: SqlDatabase, filter: VodFilter): Promise<{ where
     params.push(JSON.stringify(ids));
   }
   if (filter.genres.length > 0) {
-    const wanted = new Set(filter.genres);
-    const ids = summaries.filter((c) => genresInText(c.name).some((g) => wanted.has(g))).map((c) => c.id);
-    const parts: string[] = ['i.category_id IN (SELECT value FROM json_each(?))'];
-    params.push(JSON.stringify(ids));
+    const metadata: string[] = [];
+    const details: string[] = [];
     for (const key of filter.genres) {
-      parts.push('fp.genres LIKE ?');
+      metadata.push('fp.genres LIKE ?');
       params.push(`%,${key},%`);
+    }
+    for (const key of filter.genres) {
       const genre = genreByKey(key);
       for (const pattern of genre?.patterns ?? []) {
         if (pattern.length >= 5) {
-          parts.push("lower(d.genre) LIKE ? ESCAPE '\\'");
+          details.push("lower(d.genre) LIKE ? ESCAPE '\\'");
           params.push(`%${pattern.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
         } else {
-          parts.push("(',' || replace(replace(lower(d.genre), ' ', ''), '/', ',') || ',') LIKE ?");
+          details.push("(',' || replace(replace(lower(d.genre), ' ', ''), '/', ',') || ',') LIKE ?");
           params.push(`%,${pattern},%`);
         }
       }
     }
-    where.push(`(${parts.join(' OR ')})`);
+    // Validerede filmdata foerst, filmens egne detaljer ved manglende genre.
+    // Et kategorinavn er ikke bevis for den enkelte films genre.
+    where.push(`CASE WHEN fp.metadata_version = 1 AND COALESCE(fp.genres, '') != ''
+      THEN (${metadata.join(' OR ')}) ELSE (${details.join(' OR ') || '0'}) END`);
   }
   if (filter.yearFrom !== null) {
-    where.push('COALESCE(fp.year, i.year) >= ?');
+    where.push('COALESCE(CASE WHEN fp.metadata_version = 1 THEN fp.year END, i.year) >= ?');
     params.push(filter.yearFrom);
   }
   if (filter.yearTo !== null) {
-    where.push('COALESCE(fp.year, i.year) <= ?');
+    where.push('COALESCE(CASE WHEN fp.metadata_version = 1 THEN fp.year END, i.year) <= ?');
     params.push(filter.yearTo);
   }
   return { where: `WHERE ${where.join(' AND ')}`, params };
@@ -403,7 +412,7 @@ function sortClause(sort: VodSort): string {
     case 'rating':
       return 'ORDER BY CASE WHEN COALESCE(NULLIF(i.rating, 0), fp.rating) IS NULL THEN 1 ELSE 0 END, COALESCE(NULLIF(i.rating, 0), fp.rating) DESC, i.added_ms DESC';
     case 'year':
-      return 'ORDER BY CASE WHEN COALESCE(fp.year, i.year) IS NULL THEN 1 ELSE 0 END, COALESCE(fp.year, i.year) DESC, i.added_ms DESC';
+      return 'ORDER BY CASE WHEN COALESCE(CASE WHEN fp.metadata_version = 1 THEN fp.year END, i.year) IS NULL THEN 1 ELSE 0 END, COALESCE(CASE WHEN fp.metadata_version = 1 THEN fp.year END, i.year) DESC, i.added_ms DESC';
     case 'title':
       return 'ORDER BY i.name COLLATE NOCASE';
     default:

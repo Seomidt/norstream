@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from 'react-native';
 import type { VodKind } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { CountryGroup } from '../../storage/countries.js';
@@ -15,21 +15,15 @@ import { tmdbFetch } from '../../sync/tmdb.js';
 import { theme } from '../../ui/theme.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { useStyles, useTheme } from '../../ui/ThemeContext.js';
+import { TvTextInput } from '../../ui/TvTextInput.js';
 import { TvPressable } from '../../ui/TvPressable.js';
-import { isTV } from '../../ui/tv.js';
+import { refocusLastPressed } from '../../ui/refocus.js';
+import { isTV, useCanvasSize } from '../../ui/tv.js';
 import { PosterGrid } from './VodScreen.js';
-import { SORT_LABELS, loadVodFilter, saveVodFilter, yearChoices, yearLabel } from './vodFilterState.js';
+import { SORT_LABELS, defaultVodFilter, loadVodFilter, saveVodFilter, yearChoices, yearLabel } from './vodFilterState.js';
 
-/**
- * Udvalg under Film/Serier (v367): lande, genrer, aar og sortering paa én
- * gang, "thriller · 2026 · DK + UK + US" paa fire tryk.
- *
- * Fire knapper oeverst viser det valgte; et tryk aabner raekken af valg
- * nedenunder (én aaben ad gangen), og gitteret under den tegnes om med det
- * samme. Lande og genrer kan vaelges flere af; aar og sortering ét. Valget
- * huskes. Paa tv er alle valg TvPressables i en ombrudt raekke, saa
- * fjernbetjeningen kommer rundt uden lister inde i lister.
- */
+/** Filtre i et fokusfaeldet panel; kataloget forbliver synligt bagved.
+ * Valg gemmes lokalt og resultater hentes fra databasen, ikke paa nettet. */
 const PAGE = 120;
 /** Hvor mange titler der slaas op hos TMDB naar skaermen aabnes, saa udvalget bliver bedre mens man ser paa det. */
 const ENRICH_ON_OPEN = 150;
@@ -49,7 +43,15 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const [filter, setFilter] = useState<VodFilter | null>(null);
-  const [panel, setPanel] = useState<Panel>(null);
+  const [panel, setPanel] = useState<Panel>('genres');
+  const [drawer, setDrawer] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const canvas = useCanvasSize();
+  function closeDrawer(): void {
+    setDrawer(false);
+    requestAnimationFrame(() => { refocusLastPressed(); });
+  }
   const [countries, setCountries] = useState<CountryGroup[]>([]);
   /** Tjenesterne valgt under Indstillinger (forsidens hylder). */
   const [services, setServices] = useState<HomeProvider[]>([]);
@@ -176,15 +178,81 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
         : `${chosen.length} tjenester`;
   const effective = serviceKeys === null || serviceKeys === 'loading' ? filter : { ...filter, keys: serviceKeys.keys };
 
+  function closeSearch(): void { setSearching(false); requestAnimationFrame(() => { refocusLastPressed(); }); }
+  function submitSearch(): void { update({ ...filter!, search: searchText.trim() }); closeSearch(); }
+
+  const activeCount = (filter.search ? 1 : 0) + filter.genres.length + filter.countries.length + chosen.length + (filter.yearFrom !== null || filter.yearTo !== null ? 1 : 0);
   const header = (
     <View>
       <View style={styles.bar}>
-        <Toggle label="Tjeneste" value={serviceLabel} open={panel === 'services'} onPress={() => setPanel(panel === 'services' ? null : 'services')} preferFocus />
-        <Toggle label="Land" value={countryLabel} open={panel === 'countries'} onPress={() => setPanel(panel === 'countries' ? null : 'countries')} />
-        <Toggle label="Genre" value={genreLabel} open={panel === 'genres'} onPress={() => setPanel(panel === 'genres' ? null : 'genres')} />
-        <Toggle label="År" value={yearLabel(filter, years)} open={panel === 'years'} onPress={() => setPanel(panel === 'years' ? null : 'years')} />
-        <Toggle label="Sortér" value={SORT_LABELS[filter.sort]} open={panel === 'sort'} onPress={() => setPanel(panel === 'sort' ? null : 'sort')} />
+        <Toggle horizontal label="Søg" value={filter.search || (kind === 'movie' ? 'Søg efter film' : 'Søg efter serier')} open={false} onPress={() => { setSearchText(filter.search ?? ''); setSearching(true); }} />
+        <Toggle horizontal label="Filtre" value={activeCount === 0 ? 'Alle titler' : `${activeCount} valgt`} open={drawer} onPress={() => { setPanel('genres'); setDrawer(true); }} preferFocus />
+        <Toggle horizontal label="Sortér" value={SORT_LABELS[filter.sort]} open={false} onPress={() => { setPanel('sort'); setDrawer(true); }} />
       </View>
+      <View style={styles.chips}>
+        {filter.search && <Chip label={`${filter.search} ×`} selected={false} onPress={() => update({ ...filter, search: undefined })} />}
+        {filter.genres.map((key) => <Chip key={key} label={`${genreNames.find((g) => g.key === key)?.name ?? key} ×`} selected={false} onPress={() => update({ ...filter, genres: filter.genres.filter((g) => g !== key) })} />)}
+        {(filter.yearFrom !== null || filter.yearTo !== null) && <Chip label={`${yearLabel(filter, years)} ×`} selected={false} onPress={() => update({ ...filter, yearFrom: null, yearTo: null })} />}
+        {filter.countries.map((key) => <Chip key={key} label={`${countries.find((c) => c.key === key)?.name ?? key} ×`} selected={false} onPress={() => update({ ...filter, countries: filter.countries.filter((c) => c !== key) })} />)}
+        {chosen.map((id) => <Chip key={id} label={`${services.find((p) => p.id === id)?.name ?? id} ×`} selected={false} onPress={() => update({ ...filter, providers: chosen.filter((p) => p !== id) })} />)}
+        {activeCount > 0 && <Chip label="Ryd filtre" selected={false} onPress={() => update({ ...defaultVodFilter(kind), sort: filter.sort })} />}
+      </View>
+      <Text style={styles.count}>{serviceKeys === 'loading' ? 'Tjekker tjenesten mod din pakke …' : loading ? 'Opdaterer udvalg …' : `${total ?? 0} ${kind === 'movie' ? 'film' : 'serier'}`}</Text>
+    </View>
+  );
+  const filterDrawer = (
+    <Modal visible={drawer} transparent animationType="fade" onRequestClose={closeDrawer}>
+      <View style={styles.backdrop}>
+        <TVFocusGuideView trapFocusUp trapFocusDown trapFocusLeft trapFocusRight style={[styles.drawer, { width: canvas.width >= 700 ? 360 : '100%', maxHeight: canvas.height }]}>
+          <Text style={styles.drawerTitle}>Filtre</Text>
+          <ScrollView style={styles.drawerScroll} contentContainerStyle={styles.drawerContent}>
+        <Toggle label="Genre" value={genreLabel} open={panel === 'genres'} onPress={() => setPanel(panel === 'genres' ? null : 'genres')} preferFocus={true} />
+      {panel === 'genres' && (
+        <View style={styles.chips}>
+          <Chip label="Alle genrer" selected={filter.genres.length === 0} onPress={() => update({ ...filter, genres: [] })} />
+          {genreNames.map((genre) => (
+            <Chip
+              key={genre.key}
+              label={genre.name}
+              column
+              selected={filter.genres.includes(genre.key)}
+              onPress={() => update({ ...filter, genres: toggle<GenreKey>(filter.genres, genre.key) })}
+            />
+          ))}
+        </View>
+      )}
+
+        <Toggle label="År" value={yearLabel(filter, years)} open={panel === 'years'} onPress={() => setPanel(panel === 'years' ? null : 'years')} preferFocus={false} />
+      {panel === 'years' && (
+        <View style={styles.chips}>
+          {years.map((choice) => (
+            <Chip
+              key={choice.label}
+              label={choice.label}
+              column
+              selected={filter.yearFrom === choice.from && filter.yearTo === choice.to}
+              onPress={() => update({ ...filter, yearFrom: choice.from, yearTo: choice.to })}
+            />
+          ))}
+        </View>
+      )}
+
+        <Toggle label="Land i pakken" value={countryLabel} open={panel === 'countries'} onPress={() => setPanel(panel === 'countries' ? null : 'countries')} preferFocus={false} />
+      {panel === 'countries' && (
+        <View style={styles.chips}>
+          <Chip label="Alle lande" selected={filter.countries.length === 0} onPress={() => update({ ...filter, countries: [] })} />
+          {countries.map((country) => (
+            <Chip
+              key={country.key}
+              label={`${country.flag} ${country.name}`}
+              selected={filter.countries.includes(country.key)}
+              onPress={() => update({ ...filter, countries: toggle(filter.countries, country.key) })}
+            />
+          ))}
+        </View>
+      )}
+
+        <Toggle label="Tjeneste" value={serviceLabel} open={panel === 'services'} onPress={() => setPanel(panel === 'services' ? null : 'services')} preferFocus={false} />
       {panel === 'services' && (
         <View style={styles.chips}>
           <Chip label="Alle" selected={chosen.length === 0} onPress={() => update({ ...filter, providers: [] })} />
@@ -200,44 +268,8 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
           {services.length > 0 && !hasTmdbKey && <Text style={styles.hint}>Kræver en TMDB-nøgle under Indstillinger.</Text>}
         </View>
       )}
-      {panel === 'countries' && (
-        <View style={styles.chips}>
-          <Chip label="Alle lande" selected={filter.countries.length === 0} onPress={() => update({ ...filter, countries: [] })} />
-          {countries.map((country) => (
-            <Chip
-              key={country.key}
-              label={`${country.flag} ${country.name}`}
-              selected={filter.countries.includes(country.key)}
-              onPress={() => update({ ...filter, countries: toggle(filter.countries, country.key) })}
-            />
-          ))}
-        </View>
-      )}
-      {panel === 'genres' && (
-        <View style={styles.chips}>
-          <Chip label="Alle genrer" selected={filter.genres.length === 0} onPress={() => update({ ...filter, genres: [] })} />
-          {genreNames.map((genre) => (
-            <Chip
-              key={genre.key}
-              label={genre.name}
-              selected={filter.genres.includes(genre.key)}
-              onPress={() => update({ ...filter, genres: toggle<GenreKey>(filter.genres, genre.key) })}
-            />
-          ))}
-        </View>
-      )}
-      {panel === 'years' && (
-        <View style={styles.chips}>
-          {years.map((choice) => (
-            <Chip
-              key={choice.label}
-              label={choice.label}
-              selected={filter.yearFrom === choice.from && filter.yearTo === choice.to}
-              onPress={() => update({ ...filter, yearFrom: choice.from, yearTo: choice.to })}
-            />
-          ))}
-        </View>
-      )}
+
+        <Toggle label="Sortér" value={SORT_LABELS[filter.sort]} open={panel === 'sort'} onPress={() => setPanel(panel === 'sort' ? null : 'sort')} preferFocus={false} />
       {panel === 'sort' && (
         <View style={styles.chips}>
           {(Object.keys(SORT_LABELS) as VodSort[]).map((sort) => (
@@ -245,17 +277,16 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
           ))}
         </View>
       )}
-      <Text style={styles.count}>
-        {serviceKeys === 'loading'
-          ? 'Slår tjenesten op og tjekker mod din pakke …'
-          : total === null
-            ? ' '
-            : `${total} ${kind === 'movie' ? 'film' : total === 1 ? 'serie' : 'serier'}${
-                serviceKeys !== null ? ` i din pakke af ${serviceKeys.listed} på tjenestens liste` : ''
-              }`}
-        {filter.genres.length > 0 && serviceKeys !== 'loading' ? ' · genren kendes fra kategorien, TMDB og panelets detaljer; flere kommer til efterhånden' : ''}
-      </Text>
-    </View>
+
+            <Text style={styles.hint}>Genre kommer fra validerede filmdata, ellers filmens egne detaljer. Land følger din pakkes grupper.</Text>
+          </ScrollView>
+          <View style={styles.drawerFooter}>
+            <Chip label={loading || serviceKeys === 'loading' ? 'Vis udvalg' : `Vis ${total ?? 0} ${kind === 'movie' ? 'film' : 'serier'}`} selected onPress={closeDrawer} />
+            <Chip label="Ryd alle filtre" selected={false} onPress={() => update({ ...defaultVodFilter(kind), sort: filter.sort })} />
+          </View>
+        </TVFocusGuideView>
+      </View>
+    </Modal>
   );
 
   const footer =
@@ -267,6 +298,20 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
 
   return (
     <View style={styles.container}>
+      {filterDrawer}
+      <Modal visible={searching} transparent animationType="fade" onRequestClose={closeSearch}>
+        <View style={styles.backdrop}>
+          <TVFocusGuideView trapFocusUp trapFocusDown trapFocusLeft trapFocusRight style={[styles.drawer, { width: canvas.width >= 700 ? 360 : '100%', maxHeight: canvas.height }]}>
+            <Text style={styles.drawerTitle}>Søg i udvalget</Text>
+            <View style={styles.drawerContent}>
+              <TvTextInput style={styles.searchInput} autoFocus value={searchText} onChangeText={setSearchText} onSubmitEditing={submitSearch}
+                placeholder={kind === 'movie' ? 'Filmtitel' : 'Serietitel'} returnKeyType="search" autoCorrect={false} />
+              <Chip label="Søg" selected onPress={submitSearch} />
+              <Chip label="Ryd søgning" selected={false} onPress={() => { update({ ...filter, search: undefined }); closeSearch(); }} />
+            </View>
+          </TVFocusGuideView>
+        </View>
+      </Modal>
       {loading && items.length === 0 ? (
         <View>
           {header}
@@ -285,10 +330,10 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
   );
 }
 
-function Toggle({ label, value, open, onPress, preferFocus = false }: { label: string; value: string; open: boolean; onPress: () => void; preferFocus?: boolean }) {
+function Toggle({ label, value, open, onPress, preferFocus = false, horizontal = false }: { label: string; value: string; open: boolean; onPress: () => void; preferFocus?: boolean; horizontal?: boolean }) {
   const styles = useStyles(makeStyles);
   return (
-    <TvPressable style={[styles.toggle, open && styles.toggleOpen]} onPress={onPress} hasTVPreferredFocus={isTV && preferFocus}>
+    <TvPressable style={[styles.toggle, horizontal && styles.horizontalToggle, open && styles.toggleOpen]} onPress={onPress} hasTVPreferredFocus={isTV && preferFocus}>
       <Text style={styles.toggleLabel}>{label}</Text>
       <Text style={styles.toggleValue} numberOfLines={1}>
         {value}
@@ -297,10 +342,10 @@ function Toggle({ label, value, open, onPress, preferFocus = false }: { label: s
   );
 }
 
-function Chip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
+function Chip({ label, selected, onPress, column = false }: { label: string; selected: boolean; onPress: () => void; column?: boolean }) {
   const styles = useStyles(makeStyles);
   return (
-    <TvPressable style={[styles.chip, selected && styles.chipSelected]} onPress={onPress} flat>
+    <TvPressable style={[styles.chip, column && styles.chipColumn, selected && styles.chipSelected]} onPress={onPress} accessibilityRole={column ? 'checkbox' : 'button'} accessibilityState={column ? { checked: selected } : undefined} flat>
       <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{selected ? `✓ ${label}` : label}</Text>
     </TvPressable>
   );
@@ -309,10 +354,16 @@ function Chip({ label, selected, onPress }: { label: string; selected: boolean; 
 const makeStyles = (colors: ThemeColors) =>
   StyleSheet.create({
     container: { flex: 1 },
+    backdrop: { flex: 1, alignItems: 'flex-end', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.45)' },
+    drawer: { height: '100%', backgroundColor: colors.background, paddingVertical: 12, borderLeftWidth: 1, borderColor: colors.border },
+    searchInput: { color: colors.text, backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: theme.radius, padding: 12, fontSize: 16 },
+    drawerTitle: { color: colors.text, fontSize: 22, fontWeight: '700', paddingHorizontal: 16, marginBottom: 10 },
+    drawerScroll: { flex: 1 },
+    drawerContent: { paddingHorizontal: 12, gap: 10, paddingBottom: 12 },
+    drawerFooter: { gap: 8, paddingHorizontal: 16, paddingTop: 10, borderTopWidth: 1, borderColor: colors.border },
     spinner: { marginTop: theme.spacing.xl },
     bar: { flexDirection: 'row', gap: theme.spacing.sm, paddingHorizontal: theme.spacing.md, marginBottom: theme.spacing.sm },
     toggle: {
-      flex: 1,
       backgroundColor: colors.surface,
       borderColor: colors.border,
       borderWidth: 1,
@@ -320,6 +371,7 @@ const makeStyles = (colors: ThemeColors) =>
       paddingVertical: theme.spacing.sm,
       paddingHorizontal: theme.spacing.sm + 2,
     },
+    horizontalToggle: { flex: 1, minWidth: 0 },
     toggleOpen: { borderColor: colors.accent },
     toggleLabel: { color: colors.textMuted, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 },
     toggleValue: { color: colors.text, fontSize: 14, fontWeight: '600', marginTop: 2 },
@@ -338,6 +390,7 @@ const makeStyles = (colors: ThemeColors) =>
       paddingVertical: 6,
       paddingHorizontal: theme.spacing.md,
     },
+    chipColumn: { flexBasis: '46%', borderRadius: theme.radius, minHeight: 38, justifyContent: 'center' },
     chipSelected: { backgroundColor: colors.accent, borderColor: colors.accent },
     chipText: { color: colors.text, fontSize: 14 },
     chipTextSelected: { color: '#fff', fontWeight: '700' },

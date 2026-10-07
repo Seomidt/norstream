@@ -34,7 +34,7 @@ function fakeDb() {
 const okFetch: TmdbFetch = async (url) => ({
   ok: true,
   status: 200,
-  json: async () => (url.includes('Dune') ? { results: [{ id: 1, poster_path: '/dune.jpg' }] } : { results: [] }),
+  json: async () => (url.includes('Dune') ? { results: [{ id: 1, title: 'Dune', poster_path: '/dune.jpg' }] } : { results: [] }),
   text: async () => '',
 });
 

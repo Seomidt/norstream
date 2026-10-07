@@ -385,7 +385,8 @@ CREATE TABLE IF NOT EXISTS vod_posters (
   genres   TEXT,
   year     INTEGER,
   tmdb_id  INTEGER,
-  providers TEXT
+  providers TEXT,
+  metadata_version INTEGER NOT NULL DEFAULT 0
 );
 
 -- Set faerdig: automatisk naar afspilningen naar slutningen, eller med et
@@ -458,7 +459,7 @@ const TABLES = [
 // v26: vod_posters.tmdb_id — saa "Netflix i din pakke" kan matche paa id (v368).
 // v27: vod_posters.providers — tjenesterne titlen ligger paa i Danmark, pakket
 // ",8,119," (v369): maerke paa plakaten og fuldt tjeneste-filter.
-const SCHEMA_VERSION = 27;
+const SCHEMA_VERSION = 28;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -797,6 +798,10 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     if (version > 0 && version < 25) await addV25Columns(db);
     if (version > 0 && version < 26) await addV26Columns(db);
     if (version > 0 && version < 27) await addV27Columns(db);
+    if (version > 0 && version < 28) {
+      const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(vod_posters)');
+      if (!columns.some((column) => column.name === 'metadata_version')) await db.execAsync('ALTER TABLE vod_posters ADD COLUMN metadata_version INTEGER NOT NULL DEFAULT 0');
+    }
     // v17 -> v18: den foerste netsoegning noterede 2.000 kanaler som soegt
     // uden held, fordi alle opslag blev afvist lokalt af panel-pausen. De
     // noter er ikke sande og skal vaek, ellers springes kanalerne over i

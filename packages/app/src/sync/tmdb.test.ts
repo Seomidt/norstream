@@ -36,7 +36,7 @@ function fakeFetch(answers: Array<[RegExp, unknown]>): FetchLike & { calls: stri
 
 describe('findTmdbPoster', () => {
   it('soeger paa film med aarstal og bygger plakatens adresse', async () => {
-    const fetchImpl = fakeFetch([[/search\/movie.*year=2021/, { results: [{ id: 1, poster_path: '/abc.jpg' }] }]]);
+    const fetchImpl = fakeFetch([[/search\/movie.*year=2021/, { results: [{ id: 1, title: 'Spider-Man', release_date: '2021-01-01', poster_path: '/abc.jpg' }] }]]);
     const url = await findTmdbPoster(fetchImpl, 'KEY', 'movie', 'DK - Spider-Man (2021)');
     expect(url).toBe('https://image.tmdb.org/t/p/w342/abc.jpg');
     expect(fetchImpl.calls[0]).toContain('query=Spider-Man');
@@ -45,7 +45,7 @@ describe('findTmdbPoster', () => {
   });
 
   it('soeger paa serier under tv', async () => {
-    const fetchImpl = fakeFetch([[/search\/tv/, { results: [{ id: 2, poster_path: '/crown.jpg' }] }]]);
+    const fetchImpl = fakeFetch([[/search\/tv/, { results: [{ id: 2, name: 'The Crown', poster_path: '/crown.jpg' }] }]]);
     expect(await findTmdbPoster(fetchImpl, 'KEY', 'series', 'The Crown S01')).toBe(
       'https://image.tmdb.org/t/p/w342/crown.jpg',
     );
@@ -54,7 +54,7 @@ describe('findTmdbPoster', () => {
   it('proever uden aarstal naar aarstallet ikke rammer', async () => {
     const fetchImpl = fakeFetch([
       [/year=1999/, { results: [] }],
-      [/search\/movie/, { results: [{ id: 3, poster_path: null }, { id: 4, poster_path: '/x.jpg' }] }],
+      [/search\/movie/, { results: [{ id: 3, title: 'Another film', release_date: '1999-01-01', poster_path: null }, { id: 4, title: 'Matrix', original_title: 'The Matrix', release_date: '1999-01-01', poster_path: '/x.jpg' }] }],
     ]);
     expect(await findTmdbPoster(fetchImpl, 'KEY', 'movie', 'Matrix (1999)')).toBe(
       'https://image.tmdb.org/t/p/w342/x.jpg',
@@ -95,7 +95,7 @@ describe('pickTmdbTrailer', () => {
 describe('findTmdbTrailer', () => {
   it('finder titlen, henter dens videoer og vaelger traileren', async () => {
     const fetchImpl = fakeFetch([
-      [/search\/movie/, { results: [{ id: 42, poster_path: '/p.jpg' }] }],
+      [/search\/movie/, { results: [{ id: 42, title: 'Dune', release_date: '2021-01-01', poster_path: '/p.jpg' }] }],
       [/movie\/42\/videos/, { results: [{ key: 'abc', site: 'YouTube', type: 'Trailer', official: true, name: 'Official Trailer' }] }],
     ]);
     expect(await findTmdbTrailer(fetchImpl, 'KEY', 'movie', 'Dune (2021)')).toEqual({
@@ -107,7 +107,7 @@ describe('findTmdbTrailer', () => {
 
   it('bruger tv-endepunktet for serier', async () => {
     const fetchImpl = fakeFetch([
-      [/search\/tv/, { results: [{ id: 7 }] }],
+      [/search\/tv/, { results: [{ id: 7, name: 'The Crown' }] }],
       [/tv\/7\/videos/, { results: [{ key: 'crown', site: 'YouTube', type: 'Trailer' }] }],
     ]);
     expect((await findTmdbTrailer(fetchImpl, 'KEY', 'series', 'The Crown'))?.youtubeId).toBe('crown');
@@ -120,7 +120,7 @@ describe('findTmdbTrailer', () => {
 
 describe('searchTmdb', () => {
   it('tager karakteren med, afrundet, og kun naar nogen har stemt', async () => {
-    const fetchImpl = fakeFetch([[/search\/movie/, { results: [{ id: 9, poster_path: '/d.jpg', vote_average: 7.86, vote_count: 120, genre_ids: [878, 12], release_date: '2024-02-28' }] }]]);
+    const fetchImpl = fakeFetch([[/search\/movie/, { results: [{ id: 9, title: 'Dune', poster_path: '/d.jpg', vote_average: 7.86, vote_count: 120, genre_ids: [878, 12], release_date: '2024-02-28' }] }]]);
     expect(await searchTmdb(fetchImpl, 'KEY', 'movie', 'Dune')).toEqual({
       id: 9,
       posterUrl: 'https://image.tmdb.org/t/p/w342/d.jpg',
@@ -129,7 +129,7 @@ describe('searchTmdb', () => {
       genreIds: [878, 12],
       year: 2024,
     });
-    const unrated = fakeFetch([[/search\/movie/, { results: [{ id: 9, poster_path: '/d.jpg', vote_average: 0, vote_count: 0 }] }]]);
+    const unrated = fakeFetch([[/search\/movie/, { results: [{ id: 9, title: 'Dune', poster_path: '/d.jpg', vote_average: 0, vote_count: 0 }] }]]);
     expect((await searchTmdb(unrated, 'KEY', 'movie', 'Dune'))?.rating).toBeNull();
   });
 });
@@ -161,7 +161,7 @@ describe('tmdbAuth', () => {
       headers: { Authorization: 'Bearer eyJhbGciOi.xxx' },
     });
 
-    const fetchImpl = fakeFetch([[/search\/movie/, { results: [{ id: 1, poster_path: '/a.jpg' }] }]]);
+    const fetchImpl = fakeFetch([[/search\/movie/, { results: [{ id: 1, title: 'Dune', poster_path: '/a.jpg' }] }]]);
     await searchTmdb(fetchImpl, 'eyJtoken', 'movie', 'Dune');
     expect(fetchImpl.calls[0]).not.toContain('api_key');
     expect(fetchImpl.headers[0]).toEqual({ Authorization: 'Bearer eyJtoken' });
@@ -199,5 +199,30 @@ describe('pickTmdbTrailer uden en rigtig trailer', () => {
     expect(pickTmdbTrailer([{ site: 'YouTube', type: 'Clip', key: 'c' }, { site: 'YouTube', type: 'Teaser', key: 't', name: 'Teaser' }])).toEqual({ youtubeId: 't', name: 'Teaser' });
     expect(pickTmdbTrailer([{ site: 'YouTube', type: 'Clip', key: 'c' }])?.youtubeId).toBe('c');
     expect(pickTmdbTrailer([{ site: 'Vimeo', type: 'Trailer', key: 'v' }])).toBeNull();
+  });
+});
+
+describe('valideret filmidentitet', () => {
+  it('afviser forkert titel og forkert indspilningsaar selv med en god plakat', async () => {
+    const f = fakeFetch([[/search\/movie/, { results: [
+      { id: 1, title: 'Another title', release_date: '2021-01-01', poster_path: '/a.jpg' },
+      { id: 2, title: 'Dune', release_date: '1984-01-01', poster_path: '/b.jpg' },
+    ] }]]);
+    expect(await searchTmdb(f, 'KEY', 'movie', 'Dune (2021)')).toBeNull();
+  });
+  it('vaelger det korrekte resultat frem for den foerste plakat, og afviser tvetydige remakes uden aar', async () => {
+    const f = fakeFetch([[/search\/movie/, { results: [
+      { id: 1, title: 'Dune', release_date: '1984-01-01', poster_path: '/a.jpg' },
+      { id: 2, title: 'Dune', release_date: '2021-01-01', poster_path: null },
+    ] }]]);
+    expect((await searchTmdb(f, 'KEY', 'movie', 'Dune (2021)'))?.id).toBe(2);
+    expect(await searchTmdb(f, 'KEY', 'movie', 'Dune')).toBeNull();
+  });
+  it('bekraefter en oversat titel via den konkrete films aliasliste', async () => {
+    const f = fakeFetch([
+      [/search\/movie/, { results: [{ id: 42, title: 'Original', release_date: '2024-01-01' }] }],
+      [/movie\/42\/alternative_titles/, { titles: [{ title: 'Vores løfte' }] }],
+    ]);
+    expect((await searchTmdb(f, 'KEY', 'movie', 'Vores løfte (2024)'))?.id).toBe(42);
   });
 });

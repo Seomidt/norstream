@@ -19,6 +19,7 @@ import {
   getGoogleSearchFields,
   getLastSyncMs,
   getSetting,
+  setSetting,
   getHomeProviders,
   getStreamFormatSetting,
   getVideoSurface,
@@ -175,6 +176,7 @@ export function SettingsScreen({
   const [youtubeKey, setYoutubeKey] = useState('');
   /** Brugerens egen noegle til TMDB, til plakater panelet ikke gav. */
   const [tmdbKey, setTmdbKey] = useState('');
+  const [omdbKey, setOmdbKey] = useState('');
   /**
    * Noeglen er laast som udgangspunkt, naar der staar en. Saa kan et
    * uheldigt tastetryk ikke aendre et enkelt tegn (det giver 401 og en tom
@@ -221,7 +223,7 @@ export function SettingsScreen({
   const [themePlace, setThemePlaceState] = useState(themePreference().placeKey);
 
   const load = useCallback(async (): Promise<void> => {
-    const [hiddenCountries, format, key, tmdb, preferredSubtitles, counts, google] = await Promise.all([
+    const [hiddenCountries, format, key, tmdb, preferredSubtitles, counts, google, omdb] = await Promise.all([
       listHiddenCountries(session.db),
       getStreamFormatSetting(session.db),
       getYoutubeApiKey(session.db),
@@ -229,6 +231,7 @@ export function SettingsScreen({
       getSubtitlePreference(session.db),
       vodCounts(session.db),
       getGoogleSearchFields(session.db),
+      getSetting(session.db, 'omdb_api_key'),
     ]);
     setGoogleKey(google.key);
     setGoogleCx(google.cx);
@@ -237,6 +240,7 @@ export function SettingsScreen({
     setStreamFormat(format);
     setYoutubeKey(key ?? '');
     setTmdbKey(tmdb ?? '');
+    setOmdbKey(omdb ?? '');
     setTmdbLocked((tmdb ?? '').trim().length > 0);
     setPosterApiKey(tmdb);
     setSubtitles(preferredSubtitles);
@@ -907,6 +911,12 @@ export function SettingsScreen({
         enten "API Key" eller "API Read Access Token". Begge virker; du skal kun bruge én.
         {isTV ? ' Den gemmes kun på denne enhed.' : ' Den gemmes kun på telefonen og i din sikkerhedskopi.'}
       </Text>
+
+      <Text style={styles.sectionTitle}>Ekstra filmdata</Text>
+      <Text style={styles.hint}>Valgfri OMDb-nøgle fra omdbapi.com. Udfylder manglende genre og år via filmens bekræftede IMDb-id. TMDB-data bevares.</Text>
+      <TvTextInput style={styles.input} value={omdbKey} secureTextEntry autoCorrect={false} autoCapitalize="none"
+        placeholder="OMDb API-nøgle (valgfri)" placeholderTextColor={colors.textMuted}
+        onChangeText={(value) => { setOmdbKey(value); void setSetting(session.db, 'omdb_api_key', value.trim()); }} />
 
       <Text style={styles.sectionTitle}>Forside</Text>
       <Text style={styles.hint}>

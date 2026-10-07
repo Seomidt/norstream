@@ -38,7 +38,7 @@ export async function loadVodFilter(db: SqlDatabase, kind: VodKind): Promise<Vod
 
 export async function saveVodFilter(db: SqlDatabase, filter: VodFilter): Promise<void> {
   // `keys` er tjeneste-opslagets svar og huskes ikke; det slaas op igen.
-  const { kind, keys: _keys, ...rest } = filter;
+  const { kind, keys: _keys, search: _search, ...rest } = filter;
   await setSetting(db, KEY(kind), JSON.stringify(rest));
 }
 
@@ -51,21 +51,22 @@ export interface YearChoice {
 /** Aarene som knapper: de tre seneste hver for sig, saa i spring. */
 export function yearChoices(now: Date = new Date()): YearChoice[] {
   const y = now.getFullYear();
+  const recent = Array.from({ length: 17 }, (_, index) => y - index);
+  const firstDecade = Math.floor((recent[recent.length - 1]! - 1) / 10) * 10;
+  const decades = Array.from({ length: Math.max(0, (firstDecade - 1900) / 10 + 1) }, (_, index) => firstDecade - index * 10);
   return [
     { label: 'Alle år', from: null, to: null },
-    { label: String(y), from: y, to: y },
-    { label: String(y - 1), from: y - 1, to: y - 1 },
-    { label: String(y - 2), from: y - 2, to: y - 2 },
-    { label: `${y - 6}–${y - 3}`, from: y - 6, to: y - 3 },
-    { label: `${y - 16}–${y - 7}`, from: y - 16, to: y - 7 },
-    { label: `Før ${y - 16}`, from: null, to: y - 17 },
+    { label: `2020–${y}`, from: 2020, to: y },
+    ...recent.map((year) => ({ label: String(year), from: year, to: year })),
+    ...decades.map((year) => ({ label: `${year}–${year + 9}`, from: year, to: year + 9 })),
+    { label: 'Før 1900', from: null, to: 1899 },
   ];
 }
 
 export const SORT_LABELS: Record<VodSort, string> = {
-  newest: 'Nyeste',
+  newest: 'Nyeste tilføjet',
   rating: 'Bedst bedømt',
-  year: 'Årstal',
+  year: 'Nyeste udgivelse',
   title: 'Titel',
 };
 

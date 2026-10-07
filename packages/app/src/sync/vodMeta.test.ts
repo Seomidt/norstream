@@ -22,7 +22,7 @@ function tmdb(answers: Record<string, { genre_ids: number[]; release_date: strin
     return {
       ok: true,
       status: 200,
-      json: async () => ({ results: hit === null || hit === undefined ? [] : [{ id: 1, poster_path: '/p.jpg', vote_average: 7.5, vote_count: 10, ...hit }] }),
+      json: async () => ({ results: hit === null || hit === undefined ? [] : [{ id: 1, title: query, poster_path: '/p.jpg', vote_average: 7.5, vote_count: 10, ...hit }] }),
       text: async () => '',
     };
   }) as unknown as TmdbFetch;
@@ -62,9 +62,9 @@ describe('enrichVodMeta (v367)', () => {
   });
 
   it('anden runde: tjenester per titel i DK, ogsaa "ingen", kun for titler med tmdb_id (v369)', async () => {
-    await db.runAsync("INSERT INTO vod_posters (item_key, url, rating, tried_ms, genres, year, tmdb_id) VALUES (?, NULL, NULL, 1, '', 2024, 500)", [`${sourceId}:movie-a`]);
-    await db.runAsync("INSERT INTO vod_posters (item_key, url, rating, tried_ms, genres, year, tmdb_id) VALUES (?, NULL, NULL, 1, '', 2024, 600)", [`${sourceId}:movie-b`]);
-    await db.runAsync("INSERT INTO vod_posters (item_key, url, rating, tried_ms, genres, year, tmdb_id) VALUES (?, NULL, NULL, 1, NULL, NULL, NULL)", [`${sourceId}:movie-c`]);
+    await db.runAsync("INSERT INTO vod_posters (item_key, url, rating, tried_ms, genres, year, tmdb_id, metadata_version) VALUES (?, NULL, NULL, 1, '', 2024, 500, 1)", [`${sourceId}:movie-a`]);
+    await db.runAsync("INSERT INTO vod_posters (item_key, url, rating, tried_ms, genres, year, tmdb_id, metadata_version) VALUES (?, NULL, NULL, 1, '', 2024, 600, 1)", [`${sourceId}:movie-b`]);
+    await db.runAsync("INSERT INTO vod_posters (item_key, url, rating, tried_ms, genres, year, tmdb_id, metadata_version) VALUES (?, NULL, NULL, 1, NULL, NULL, NULL, 1)", [`${sourceId}:movie-c`]);
     const fetchImpl = vi.fn(async (url: string) => {
       const dk = url.includes('/movie/500/') ? { flatrate: [{ provider_id: 8 }, { provider_id: 119 }], rent: [{ provider_id: 2 }] } : {};
       return { ok: true, status: 200, json: async () => ({ results: { DK: dk, US: { flatrate: [{ provider_id: 9 }] } } }), text: async () => '' };
@@ -87,4 +87,36 @@ describe('enrichVodMeta (v367)', () => {
     expect(await enrichVodMeta(db, fetchImpl, 'daarlig', { pauseMs: 0 })).toEqual({ looked: 0, found: 0 });
     expect(await db.getAllAsync('SELECT * FROM vod_posters')).toHaveLength(0);
   });
+});
+
+describe('revalidering af gamle match', () => {
+  it('retter tidligere forkert genre og nulstiller kun tjenester ved ny identitet', async () => {
+    await db.runAsync("INSERT INTO vod_posters (item_key, tried_ms, tmdb_id, genres, providers) VALUES (?, 1, 99, ',komedie,', ',8,')", [`${sourceId}:movie-a`]);
+    await enrichVodMeta(db, tmdb({ Natten: { genre_ids: [53], release_date: '2026-01-01' } }), 'key', { pauseMs: 0, limit: 1 });
+    expect(await db.getFirstAsync('SELECT genres, tmdb_id, metadata_version, providers FROM vod_posters WHERE item_key = ?', [`${sourceId}:movie-a`])).toEqual({ genres: ',thriller,', tmdb_id: 1, metadata_version: 1, providers: '' });
+  });
+  it('bevarer gamle data ved netfejl, men bruger dem ikke som valideret metadata', async () => {
+    await db.runAsync("INSERT INTO vod_posters (item_key, tried_ms, tmdb_id, genres, providers) VALUES (?, 1, 99, ',komedie,', ',8,')", [`${sourceId}:movie-a`]);
+    const offline: TmdbFetch = async () => { throw new Error('offline'); };
+    await enrichVodMeta(db, offline, 'key', { pauseMs: 0, limit: 1 });
+    expect(await db.getFirstAsync('SELECT genres, tmdb_id, metadata_version, providers FROM vod_posters WHERE item_key = ?', [`${sourceId}:movie-a`])).toEqual({ genres: ',komedie,', tmdb_id: 99, metadata_version: 0, providers: ',8,' });
+  });
+});
+
+it('revaliderer samme identitet uden at slette tjenestecachen', async () => {
+  await db.runAsync("INSERT INTO vod_posters (item_key, tried_ms, tmdb_id, genres, providers) VALUES (?, 1, 1, ',komedie,', ',8,')", [`${sourceId}:movie-a`]);
+  await enrichVodMeta(db, tmdb({ Natten: { genre_ids: [53], release_date: '2026-01-01' } }), 'key', { pauseMs: 0, limit: 1 });
+  expect(await db.getFirstAsync('SELECT providers FROM vod_posters WHERE item_key = ?', [`${sourceId}:movie-a`])).toEqual({ providers: ',8,' });
+});
+
+it('udfylder manglende genre fra OMDb via valideret IMDb-id og bevarer TMDB-aar', async () => {
+  await db.runAsync("INSERT INTO settings (key, value) VALUES ('omdb_api_key', 'test-key')");
+  const primary = tmdb({ Natten: { genre_ids: [], release_date: '2026-01-01' } });
+  const fetchImpl: TmdbFetch = async (url, headers) => {
+    if (url.includes('/external_ids')) return { ok: true, status: 200, json: async () => ({ imdb_id: 'tt1234567' }), text: async () => '' };
+    if (url.startsWith('https://www.omdbapi.com/')) return { ok: true, status: 200, json: async () => ({ Response: 'True', imdbID: 'tt1234567', Type: 'movie', Genre: 'Thriller', Year: '2026' }), text: async () => '' };
+    return primary(url, headers);
+  };
+  await enrichVodMeta(db, fetchImpl, 'key', { pauseMs: 0, limit: 1 });
+  expect(await db.getFirstAsync('SELECT genres, year, tmdb_id FROM vod_posters WHERE item_key = ?', [`${sourceId}:movie-a`])).toEqual({ genres: ',thriller,', year: 2026, tmdb_id: 1 });
 });

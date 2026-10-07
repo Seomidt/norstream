@@ -1,3 +1,4 @@
+import { VERIFIED_META_UPSERT } from '../storage/vodMetadata.js';
 import { genresFromTmdbIds, packGenres } from '../storage/genres.js';
 import { getTmdbApiKey } from '../storage/settings.js';
 import type { SqlDatabase } from '../storage/types.js';
@@ -135,11 +136,11 @@ function pump(): void {
 
 async function lookUp(job: { key: string; kind: 'movie' | 'series'; name: string }): Promise<void> {
   if (database === null || fetcher === null || apiKey === null) return;
-  const earlier = await database.getFirstAsync<{ url: string | null; tried_ms: number }>(
-    'SELECT url, tried_ms FROM vod_posters WHERE item_key = ?',
+  const earlier = await database.getFirstAsync<{ url: string | null; tried_ms: number; metadata_version: number }>(
+    'SELECT url, tried_ms, metadata_version FROM vod_posters WHERE item_key = ?',
     [job.key],
   );
-  if (earlier !== null) {
+  if (earlier !== null && earlier.metadata_version === 1) {
     if (earlier.url !== null) {
       found.set(job.key, earlier.url);
       notify(job.key);
@@ -160,7 +161,7 @@ async function lookUp(job: { key: string; kind: 'movie' | 'series'; name: string
   // Genre og aar foelger med i samme opslag (v367), til filteret under Film.
   await database
     .runAsync(
-      'INSERT OR REPLACE INTO vod_posters (item_key, url, rating, tried_ms, genres, year, tmdb_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      VERIFIED_META_UPSERT,
       [job.key, url, hit?.rating ?? null, Date.now(), hit === null ? null : packGenres(genresFromTmdbIds(hit.genreIds)) ?? '', hit?.year ?? null, hit?.id ?? null],
     )
     .catch(() => undefined);

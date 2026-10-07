@@ -35,8 +35,9 @@ beforeEach(async () => {
   ]);
   // TMDB-opslag: c er en thriller fra 2026 ifoelge TMDB; e fik aar 2008.
   // TMDB's aar gaar forud for panelets, som tit er et gaet.
-  await db.runAsync("INSERT INTO vod_posters (item_key, url, rating, tried_ms, genres, year) VALUES (?, NULL, 6.5, 1, ',thriller,drama,', 2026)", [`${sourceId}:movie-c`]);
-  await db.runAsync("INSERT INTO vod_posters (item_key, url, rating, tried_ms, genres, year) VALUES (?, NULL, NULL, 1, '', 2008)", [`${sourceId}:movie-e`]);
+  await db.runAsync("INSERT INTO vod_posters (item_key, url, rating, tried_ms, genres, year, metadata_version) VALUES (?, NULL, 6.5, 1, ',thriller,drama,', 2026, 1)", [`${sourceId}:movie-c`]);
+  await db.runAsync("INSERT INTO vod_posters (item_key, url, rating, tried_ms, genres, year, metadata_version) VALUES (?, NULL, NULL, 1, '', 2008, 1)", [`${sourceId}:movie-e`]);
+  for (const [id, genre] of [['a', 'Thriller'], ['d', 'Action']]) await db.runAsync('INSERT INTO vod_details (item_key, genre, fetched_ms) VALUES (?, ?, 1)', [`${sourceId}:movie-${id}`, genre]);
   // Panelets eget genrefelt (titlen har vaeret aabnet): Grin er ogsaa romantik.
   await db.runAsync(
     "INSERT INTO vod_details (item_key, poster_url, plot, genre, cast, director, duration_min, trailer_id, backdrop_url, rating, year, fetched_ms) VALUES (?, NULL, NULL, 'Comedy, Romance', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1)",
@@ -57,7 +58,7 @@ describe('listVodItemsFiltered (v367)', () => {
     expect(names(await listVodItemsFiltered(db, { ...base, countries: ['GB'] }, 50))).toEqual(['Grin']);
   });
 
-  it('genre fra kategorinavn, fra TMDB og fra panelets genrefelt', async () => {
+  it('genre fra valideret TMDB eller filmens egne detaljer', async () => {
     // Natten via kategorien "Thriller"; Ukendt genre via TMDB.
     expect(names(await listVodItemsFiltered(db, { ...base, genres: ['thriller'] }, 50))).toEqual(['Natten', 'Ukendt genre']);
     // Grin: kategorien "Comedy" OG detaljerne "Romance".
@@ -99,4 +100,25 @@ describe('listVodItemsFiltered (v367)', () => {
     expect(names(await listVodItemsFiltered(db, { ...base, sort: 'title' }, 2))).toEqual(['Eksplosion', 'Gammel']);
     expect(names(await listVodItemsFiltered(db, { ...base, sort: 'title' }, 2, 2))).toEqual(['Grin', 'Natten']);
   });
+});
+
+describe('genre-kilders prioritet', () => {
+  it('en forkert kategori eller provider-genre kan ikke tilsidesaette valideret filmgenre', async () => {
+    await db.runAsync("INSERT INTO vod_posters (item_key, tried_ms, genres, metadata_version) VALUES (?, 1, ',komedie,', 1)", [`${sourceId}:movie-a`]);
+    expect(names(await listVodItemsFiltered(db, { ...base, genres: ['thriller'] }, 50))).toEqual(['Ukendt genre']);
+    expect(names(await listVodItemsFiltered(db, { ...base, genres: ['komedie'] }, 50))).toEqual(['Natten', 'Grin']);
+  });
+  it('en kategoris genre alene er utilstraekkelig; gamle ukontrollerede metadata er heller ikke autoritative', async () => {
+    await db.runAsync('DELETE FROM vod_details WHERE item_key = ?', [`${sourceId}:movie-a`]);
+    await db.runAsync('UPDATE vod_posters SET metadata_version = 0');
+    expect(names(await listVodItemsFiltered(db, { ...base, genres: ['thriller'] }, 50))).toEqual([]);
+  });
+});
+
+it('soeger inden for genre/aar-udvalget og behandler jokertegn som tekst', async () => {
+  const filter = { ...base, genres: ['thriller' as const], yearFrom: 2026, search: 'Natten' };
+  expect(names(await listVodItemsFiltered(db, filter, 50))).toEqual(['Natten']);
+  expect(await countVodItemsFiltered(db, filter)).toBe(1);
+  expect(await countVodItemsFiltered(db, { ...filter, search: '%' })).toBe(0);
+  expect(await countVodItemsFiltered(db, { ...filter, search: '_' })).toBe(0);
 });

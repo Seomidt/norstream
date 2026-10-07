@@ -69,7 +69,7 @@ describe('migrate paa en frisk database', () => {
   it('stempler skemaversion 11', async () => {
     const db = createTestDatabase();
     await migrate(db);
-    expect(await userVersion(db)).toBe(27);
+    expect(await userVersion(db)).toBe(28);
   });
 
   it('er idempotent og sletter ikke data ved anden koersel', async () => {
@@ -94,7 +94,7 @@ describe('migrate paa en frisk database', () => {
     };
     await migrate(readOnly);
     expect(await db.getFirstAsync("SELECT value FROM settings WHERE key = 'last_sync_ms:s1'")).toEqual({ value: '222' });
-    expect(await userVersion(db)).toBe(27);
+    expect(await userVersion(db)).toBe(28);
   });
 
   it('opretter indekset paa programmernes tidsvindue', async () => {
@@ -162,7 +162,7 @@ describe('migrate til v13', () => {
       'SELECT channel_id FROM favorites ORDER BY position',
     );
     expect(rows.map((row) => row.channel_id)).toEqual(['s:2', 's:1', 's:3']);
-    expect(await userVersion(db)).toBe(27);
+    expect(await userVersion(db)).toBe(28);
   });
 });
 
@@ -237,7 +237,7 @@ describe('migrate fra v1', () => {
   it('stempler den nuvaerende version og opretter de nye tabeller', async () => {
     const db = await createV1Database();
     await migrate(db);
-    expect(await userVersion(db)).toBe(27);
+    expect(await userVersion(db)).toBe(28);
     const names = await tableNames(db);
     expect(names).toContain('epg_fetch');
     expect(names).toContain('hidden_countries');
@@ -251,7 +251,7 @@ describe('migrate fra v1', () => {
     await db.execAsync('PRAGMA user_version = 1');
 
     await expect(migrate(db)).resolves.toBeUndefined();
-    expect(await userVersion(db)).toBe(27);
+    expect(await userVersion(db)).toBe(28);
     expect(await tableNames(db)).toContain('favorites');
   });
 });
@@ -296,7 +296,7 @@ describe('migrate fra v2', () => {
 
     await migrate(db);
 
-    expect(await userVersion(db)).toBe(27);
+    expect(await userVersion(db)).toBe(28);
     expect(await tableNames(db)).toContain('epg_archive_fetch');
 
     // v2 -> v3 tilfoejer kun en tabel. Bygger den om alligevel, mister
@@ -374,7 +374,7 @@ PRAGMA user_version = 4;
     const db = await createV4();
     await migrate(db);
 
-    expect(await userVersion(db)).toBe(27);
+    expect(await userVersion(db)).toBe(28);
     expect(await tableNames(db)).toContain('sources');
 
     const channelColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(channels)');
@@ -429,7 +429,7 @@ PRAGMA user_version = 4;
     const db = await createV4();
     await db.execAsync("ALTER TABLE channels ADD COLUMN source_id TEXT NOT NULL DEFAULT ''");
     await expect(migrate(db)).resolves.toBeUndefined();
-    expect(await userVersion(db)).toBe(27);
+    expect(await userVersion(db)).toBe(28);
   });
 });
 
@@ -481,13 +481,14 @@ describe('naar reglerne for match_key er de samme', () => {
 // Historiske plakat-kolonner fra v365-v369, ikke det aktuelle CREATE-skema.
 // En frisk database finder ikke fejlen ved indeks foer ALTER under opgradering.
 describe('opgradering af en eksisterende plakatcache', () => {
-  it.each([24, 25, 26])('starter fra skema v%s og bevarer brugerens data', async (version) => {
+  it.each([24, 25, 26, 27])('starter fra skema v%s og bevarer brugerens data', async (version) => {
     const db = createTestDatabase();
     await db.execAsync(`
       CREATE TABLE vod_posters (
         item_key TEXT PRIMARY KEY, url TEXT, rating REAL, tried_ms INTEGER NOT NULL
         ${version >= 25 ? ', genres TEXT, year INTEGER' : ''}
         ${version >= 26 ? ', tmdb_id INTEGER' : ''}
+        ${version >= 27 ? ', providers TEXT' : ''}
       );
       CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE favorites (
@@ -502,7 +503,7 @@ describe('opgradering af en eksisterende plakatcache', () => {
       );
       INSERT INTO vod_posters VALUES ('film', 'https://example.test/poster', 8, 123
         ${version >= 25 ? ", '18', 2026" : ''}
-        ${version >= 26 ? ', 42' : ''});
+        ${version >= 26 ? ', 42' : ''}${version >= 27 ? ", ',8,'" : ''});
       INSERT INTO settings VALUES ('theme_mode', 'dark');
       INSERT INTO favorites VALUES ('s:1', NULL, 'dr1', 'DK', 0);
       INSERT INTO sources VALUES ('s', 'm3u', 'Min kilde', 'https://example.test/list', NULL, NULL, 1, 0, 1);
@@ -510,9 +511,10 @@ describe('opgradering af en eksisterende plakatcache', () => {
     `);
     await migrate(db);
     await migrate(db);
-    expect(await userVersion(db)).toBe(27);
+    expect(await userVersion(db)).toBe(28);
     const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(vod_posters)');
-    expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining(['genres', 'year', 'tmdb_id', 'providers']));
+    expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining(['genres', 'year', 'tmdb_id', 'providers', 'metadata_version']));
+    expect(await db.getFirstAsync('SELECT metadata_version FROM vod_posters')).toEqual({ metadata_version: 0 });
     expect(await db.getFirstAsync('SELECT item_key, url, rating, tried_ms FROM vod_posters')).toEqual({ item_key: 'film', url: 'https://example.test/poster', rating: 8, tried_ms: 123 });
     expect(await db.getFirstAsync("SELECT value FROM settings WHERE key = 'theme_mode'")).toEqual({ value: 'dark' });
     expect(await db.getFirstAsync('SELECT channel_id FROM favorites')).toEqual({ channel_id: 's:1' });

@@ -24,8 +24,9 @@ describe('vodFilterState (v367)', () => {
 
   it('aarene: de tre seneste hver for sig, saa spring', () => {
     const choices = yearChoices(new Date('2026-10-04'));
-    expect(choices.map((c) => c.label)).toEqual(['Alle år', '2026', '2025', '2024', '2020–2023', '2010–2019', 'Før 2010']);
-    expect(choices[6]).toEqual({ label: 'Før 2010', from: null, to: 2009 });
+    expect(choices).toContainEqual({ label: '2020–2026', from: 2020, to: 2026 });
+    expect(choices).toContainEqual({ label: '2015', from: 2015, to: 2015 });
+    expect(choices).toContainEqual({ label: '1990–1999', from: 1990, to: 1999 });
     expect(yearLabel({ ...defaultVodFilter('movie'), yearFrom: 2020, yearTo: 2023 }, choices)).toBe('2020–2023');
     expect(yearLabel({ ...defaultVodFilter('movie'), yearFrom: 1999, yearTo: 1999 }, choices)).toBe('1999');
   });

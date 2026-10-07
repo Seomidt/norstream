@@ -1,6 +1,9 @@
+import { getSetting } from '../storage/settings.js';
+import { omdbMetadata } from './omdb.js';
+import { VERIFIED_META_UPSERT } from '../storage/vodMetadata.js';
 import { genresFromTmdbIds, packGenres } from '../storage/genres.js';
 import type { SqlDatabase } from '../storage/types.js';
-import { TmdbRequestError, searchTmdb, watchProviders } from './tmdb.js';
+import { TmdbRequestError, searchTmdb, tmdbImdbId, watchProviders } from './tmdb.js';
 import type { TmdbFetch } from './tmdb.js';
 import { MISS_TTL_MS } from '../ui/posterFill.js';
 import { logEvent } from '../diagnostics/log.js';
@@ -45,23 +48,25 @@ async function run(
   const pauseMs = options.pauseMs ?? PAUSE_MS;
   // Ingen raekke endnu; eller en raekke fra foer v25 (fundet, men uden
   // genre); eller et nej der er gammelt nok til at proeve igen.
-  const rows = await db.getAllAsync<{ key: string; kind: string; name: string }>(
-    `SELECT i.key, i.kind, i.name FROM vod_items i
+  const rows = await db.getAllAsync<{ key: string; kind: string; name: string; year: number | null }>(
+    `SELECT i.key, i.kind, i.name, i.year FROM vod_items i
      LEFT JOIN vod_posters fp ON fp.item_key = i.key
      WHERE (fp.item_key IS NULL
-            OR (fp.genres IS NULL AND (fp.url IS NOT NULL OR fp.rating IS NOT NULL OR fp.tried_ms < ?)))
+            OR fp.metadata_version = 0
+            OR (fp.genres IS NULL AND fp.tried_ms < ?))
        ${options.kind === undefined ? '' : 'AND i.kind = ?'}
      ORDER BY i.added_ms DESC, i.sort_order LIMIT ?`,
     options.kind === undefined ? [now() - MISS_TTL_MS, limit] : [now() - MISS_TTL_MS, options.kind, limit],
   );
   if (rows.length === 0) return { looked: 0, found: 0 };
+  const omdbKey = await getSetting(db, 'omdb_api_key');
   const startedAt = now();
   let looked = 0;
   let found = 0;
   for (const row of rows) {
     let hit: Awaited<ReturnType<typeof searchTmdb>>;
     try {
-      hit = await searchTmdb(fetchImpl, apiKey, row.kind === 'series' ? 'series' : 'movie', row.name);
+      hit = await searchTmdb(fetchImpl, apiKey, row.kind === 'series' ? 'series' : 'movie', row.name, row.year);
     } catch (cause) {
       // Noeglen afvist eller TMDB nede: resten venter til naeste gang.
       logEvent('baggrund', `film-info: stoppede efter ${looked} opslag (${cause instanceof TmdbRequestError && cause.status !== null ? `HTTP ${cause.status}` : 'intet svar'})`);
@@ -70,11 +75,26 @@ async function run(
     looked += 1;
     if (hit !== null) found += 1;
     // En fundet titel uden genre faar '' og ikke NULL, saa den ikke slaas op igen.
-    const genres = hit === null ? null : packGenres(genresFromTmdbIds(hit.genreIds)) ?? '';
+    let genreKeys = hit === null ? [] : genresFromTmdbIds(hit.genreIds);
+    let releasedYear = hit?.year ?? null;
+    if (hit !== null && omdbKey !== null && omdbKey.trim().length > 0 && (genreKeys.length === 0 || releasedYear === null)) {
+      // Reservekilden udfylder kun huller; fejl maa ikke overskrive
+      // TMDBs validerede resultat.
+      try {
+        const kind = row.kind === 'series' ? 'series' : 'movie';
+        const imdbId = await tmdbImdbId(fetchImpl, apiKey, kind, hit.id);
+        const reserve = imdbId === null ? null : await omdbMetadata(fetchImpl, omdbKey, imdbId, kind, releasedYear);
+        if (reserve !== null) {
+          if (genreKeys.length === 0) genreKeys = reserve.genres;
+          if (releasedYear === null) releasedYear = reserve.year;
+        }
+      } catch { /* Bevar det validerede resultat. */ }
+    }
+    const genres = hit === null ? null : packGenres(genreKeys) ?? '';
     await db
       .runAsync(
-        'INSERT OR REPLACE INTO vod_posters (item_key, url, rating, tried_ms, genres, year, tmdb_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [row.key, hit?.posterUrl ?? null, hit?.rating ?? null, now(), genres, hit?.year ?? null, hit?.id ?? null],
+        VERIFIED_META_UPSERT,
+        [row.key, hit?.posterUrl ?? null, hit?.rating ?? null, now(), genres, releasedYear, hit?.id ?? null],
       )
       .catch(() => undefined);
     if (pauseMs > 0) await new Promise((resolve) => setTimeout(resolve, pauseMs));
@@ -111,7 +131,7 @@ export async function fillProviders(
   const rows = await db.getAllAsync<{ key: string; kind: string; tmdb_id: number }>(
     `SELECT i.key, i.kind, fp.tmdb_id FROM vod_items i
      JOIN vod_posters fp ON fp.item_key = i.key
-     WHERE fp.tmdb_id IS NOT NULL AND fp.providers IS NULL
+     WHERE fp.metadata_version = 1 AND fp.tmdb_id IS NOT NULL AND fp.providers IS NULL
        ${options.kind === undefined ? '' : 'AND i.kind = ?'}
      ORDER BY i.added_ms DESC, i.sort_order LIMIT ?`,
     options.kind === undefined ? [limit] : [options.kind, limit],

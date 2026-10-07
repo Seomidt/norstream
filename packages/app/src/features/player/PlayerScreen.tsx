@@ -1,3 +1,4 @@
+import { archiveStopped, playbackFailureKind } from './archiveWatchdog.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -445,6 +446,8 @@ export function PlayerScreen({
         `stroemmen sluttede ved ${Math.round(positionRef.current)} s (stykke fra ${clockOf(segment.segmentStart)}) → ${next.kind}${next.kind === 'continue' ? ` fra ${clockOf(next.from.getTime())} +${Math.round(next.seekSeconds)} s` : ''}`,
       );
       if (next.kind === 'wait') {
+        setRadioState('connecting');
+        setAudioState('Venter på næste arkivstykke …');
         // Ingen nye data endnu. Genstart ikke det samme minut, og spring
         // heller ikke de sidste sekunder over naar programmet lige sluttede.
         const waitingAt = positionRef.current;
@@ -746,7 +749,10 @@ export function PlayerScreen({
       }
     };
     playbackStatus.current = handleStatus;
-    const subscription = player.addListener('statusChange', ({ status }) => handleStatus(status));
+    const subscription = player.addListener('statusChange', ({ status, error }) => {
+      if (status === 'error') logEvent('afspiller', `native fejltype: ${playbackFailureKind(error?.message)}`);
+      handleStatus(status);
+    });
 
     // Frosset billede (v353): afspilleren melder 'readyToPlay' og 'playing',
     // men tiden staar stille. Det er det brugeren saa som "billedet fryser
@@ -756,6 +762,7 @@ export function PlayerScreen({
     // stall. Pause og en stream der er sluttet taeller ikke (playing er falsk).
     let lastPosition = positionRef.current;
     let stillSince: number | null = null;
+    let stoppedSince: number | null = null;
     const frozenTimer = setInterval(() => {
       if (cancelled || changingSource.current || preparingArchive.current) return;
       let shouldAdvance = false;
@@ -765,6 +772,22 @@ export function PlayerScreen({
         return;
       }
       const position = positionRef.current;
+      const silentStop = archiveStopped({ archive: restarted, wantsPlay: playIntent.current, active: connection.committed && !connection.seeking,
+        changing: changingSource.current || preparingArchive.current, playing: player.playing, status: player.status });
+      if (silentStop && retryTimer === null && !gaveUp) {
+        stoppedSince ??= Date.now();
+        if (Date.now() - stoppedSince >= FROZEN_AFTER_MS) {
+          stoppedSince = null;
+          const duration = player.duration;
+          if (Number.isFinite(duration) && duration > 0 && player.currentTime >= duration - 1) {
+            logEvent('arkiv', 'stoppet ved stykkets slutning uden slut-haendelse: kontrollerer fortsaettelse');
+            refreshArchiveEnd.current();
+          } else {
+            logEvent('arkiv', `stoppet uden pause/fejl ved ${Math.round(position)} s: genforbinder`);
+            handleFailure();
+          }
+        }
+      } else stoppedSince = null;
       if (!shouldAdvance || position !== lastPosition) {
         lastPosition = position;
         stillSince = null;
@@ -1054,16 +1077,32 @@ export function PlayerScreen({
   // sin egen skaerm) og kun til billedet er klart (radioState skifter til
   // 'playing'); en fejl viser sin egen tekst i stedet.
   const connectingOverlay =
-    !isRadio && radioState === 'connecting' && hasVideo !== true && streamError === null ? (
+    !isRadio && radioState === 'connecting' && (hasVideo !== true || restarted) && streamError === null ? (
       <View style={styles.connecting} pointerEvents="none">
         <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={48} />
         <Text style={styles.connectingName} numberOfLines={1}>
           {channel.name}
         </Text>
         <ActivityIndicator color={colors.accent} />
-        <Text style={styles.connectingHint}>Forbinder …</Text>
+        <Text style={styles.connectingHint}>{audioState === 'Venter på næste arkivstykke …' ? audioState : 'Forbinder …'}</Text>
       </View>
     ) : null;
+
+  const failureOverlay = streamError === null ? null : (
+    <View style={styles.connecting}>
+      <Text style={styles.connectingName}>{streamError}</Text>
+      <TvPressable hasTVPreferredFocus={isTV} onPress={() => {
+        recovery.current.reset();
+        playIntent.current = true;
+        const segment = archiveRef.current;
+        if (segment !== null) {
+          void playFromStart(segment.programme, new Date(segment.segmentStart + positionRef.current * 1000), 0, true);
+        } else if (source !== null) { setStreamError(null); requestSource(source); }
+      }}>
+        <Text style={styles.connectingName}>Prøv igen</Text>
+      </TvPressable>
+    </View>
+  );
 
   if (isRadio) {
     const shown: RadioState = radioState === 'playing' && !playing ? 'paused' : radioState;
@@ -1156,6 +1195,7 @@ export function PlayerScreen({
           <>
             {banner}
             {connectingOverlay}
+            {failureOverlay}
             {subtitlePicker}
             {channelOverlay}
           </>
