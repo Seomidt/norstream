@@ -16,6 +16,24 @@ describe('archiveContinuation', () => {
     expect(next).toEqual({ kind: 'continue', from: new Date(at('20:30')), seekSeconds: 42, minutes: 30 });
   });
 
+  it('starter naeste minut ved 120 s uden et helt minuts overlap fra en millisekunds afrunding', () => {
+    for (const seconds of [120, 119.999, 119.999999, 120.000001]) {
+      expect(archiveContinuation(show, at('20:00'), seconds, at('20:06')))
+        .toEqual({ kind: 'continue', from: new Date(at('20:02')), seekSeconds: 0, minutes: 2 });
+    }
+  });
+
+  it('bevarer reelle sekunder fra TV-loggen og springer ikke til stykkets bestilte slutminut', () => {
+    expect(archiveContinuation(show, at('20:00'), 119.75, at('20:06')))
+      .toMatchObject({ kind: 'continue', from: new Date(at('20:01')), seekSeconds: 59.75 });
+    expect(archiveContinuation(show, at('20:01'), 154, at('20:08')))
+      .toMatchObject({ kind: 'continue', from: new Date(at('20:03')), seekSeconds: 34 });
+    expect(archiveContinuation(show, at('20:03'), 179, at('20:10')))
+      .toMatchObject({ kind: 'continue', from: new Date(at('20:05')), seekSeconds: 59 });
+    expect(archiveContinuation(show, at('20:00'), 596, at('20:22')))
+      .toMatchObject({ kind: 'continue', from: new Date(at('20:09')), seekSeconds: 56 });
+  });
+
   it('beder aldrig om arkiv ud i fremtiden paa en udsendelse der stadig sendes (v347)', () => {
     // Kl. 20:30: arkivet gik til 20:10 (hentet kl. 20:11). Naeste stykke gaar
     // kun til lidt foer nu (20:28:30), ikke til udsendelsens slutning 21:00.

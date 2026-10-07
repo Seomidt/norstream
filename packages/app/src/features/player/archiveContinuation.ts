@@ -53,7 +53,13 @@ export function archiveContinuation(
   nowMs: number,
 ): ArchiveNext {
   const position = Number.isFinite(positionSeconds) && positionSeconds > 0 ? positionSeconds : 0;
-  const reached = segmentStartMs + position * 1000;
+  const rawReached = segmentStartMs + position * 1000;
+  // Native tid kan ligge 1 ms under et helt minut, mens loggen viser 120 s.
+  // Date trunkerer og gjorde det til forrige minut + 59.999 s: unoedigt seek
+  // gennem et helt overlap. Kun 1 ms normaliseres; reelle 154/179/596 s fra
+  // TV-loggen bevares, ogsaa naar panelet leverer mindre end bestilt.
+  const nearestMinute = Math.round(rawReached / 60_000) * 60_000;
+  const reached = Math.abs(rawReached - nearestMinute) <= 1 ? nearestMinute : rawReached;
   const end = programme.stop.getTime();
   if (reached >= end - END_SLACK_MS) return { kind: 'done' };
   if (reached >= nowMs && end > nowMs) return { kind: 'live' };

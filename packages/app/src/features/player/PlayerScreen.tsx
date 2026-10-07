@@ -402,8 +402,11 @@ export function PlayerScreen({
 
   // Kun metadata fra den kilde vi faktisk har bedt om maa godkendes.
   useEffect(() => {
-    const loaded = player.addListener('sourceLoad', ({ videoSource }) => {
-      connection.sourceLoaded(videoSource);
+    const loaded = player.addListener('sourceLoad', ({ videoSource, duration, availableVideoTracks, availableAudioTracks }) => {
+      if (!connection.sourceLoaded(videoSource)) return;
+      if (archiveRef.current !== null) {
+        logEvent('arkiv', `metadata klar: laengde ${Number.isFinite(duration) && duration > 0 ? duration.toFixed(3) : '?'} s, ${availableVideoTracks.length} videospor, ${availableAudioTracks.length} lydspor`);
+      }
       if (connection.committed && !changingSource.current) playbackStatus.current(player.status);
     });
     const status = player.addListener('statusChange', ({ status }) => connection.status(status));
@@ -443,7 +446,7 @@ export function PlayerScreen({
       const next = archiveContinuation(airing, segment.segmentStart, positionRef.current, nowMs);
       logEvent(
         'arkiv',
-        `stroemmen sluttede ved ${Math.round(positionRef.current)} s (stykke fra ${clockOf(segment.segmentStart)}) → ${next.kind}${next.kind === 'continue' ? ` fra ${clockOf(next.from.getTime())} +${Math.round(next.seekSeconds)} s` : ''}`,
+        `stroemmen sluttede ved ${positionRef.current.toFixed(3)} s (stykke fra ${clockOf(segment.segmentStart)}) → ${next.kind}${next.kind === 'continue' ? ` fra ${clockOf(next.from.getTime())} +${next.seekSeconds.toFixed(3)} s` : ''}`,
       );
       if (next.kind === 'wait') {
         setRadioState('connecting');
@@ -558,6 +561,7 @@ export function PlayerScreen({
   useEffect(() => {
     if (source === null) return;
     let cancelled = false;
+    changingSource.current = true;
     recovery.current.beginLoad();
     const seek = archiveRef.current?.seekSeconds ?? 0;
     positionRef.current = seek;
@@ -565,11 +569,13 @@ export function PlayerScreen({
       .then(() => {
         if (cancelled) return;
         changingSource.current = false;
+        if (archiveRef.current !== null) logEvent('arkiv', `nyt stykke klargjort efter metadata og buffer; spol ${seek.toFixed(3)} s`);
         playbackStatus.current(player.status);
       })
       .catch(() => {
         if (cancelled) return;
         changingSource.current = false;
+        logEvent('afspiller', `indlaesning afbrudt i fase ${connection.preparationPhase}`);
         nativeFailure.current();
       });
     return () => {
@@ -744,7 +750,10 @@ export function PlayerScreen({
       // bliver afspilleren haengende i 'loading' uden at komme videre, er
       // streamen faldet ud midt i afspilningen, selv om der aldrig kom en
       // egentlig fejl.
-      if (status === 'loading' && stallTimer === null) {
+      // Mens replace/metadata klargoeres har connection sin egen deadline.
+      // En status-timer her kunne udloepe under changingSource, blive
+      // ignoreret og staa som en doed timer, saa intet senere blev opdaget.
+      if (status === 'loading' && !changingSource.current && stallTimer === null) {
         stallTimer = setTimeout(handleFailure, everReady.current ? STALL_TIMEOUT_MS : restarted ? ARCHIVE_INITIAL_TIMEOUT_MS : INITIAL_STALL_TIMEOUT_MS);
       }
     };
@@ -857,7 +866,7 @@ export function PlayerScreen({
         }
         logEvent(
           'arkiv',
-          `beder om ${dialect}-arkiv fra ${clockOf(window.from.getTime())}, ${window.minutes} min (udsendelse ${clockOf(programme.start.getTime())}–${clockOf(programme.stop.getTime())}, offset ${offset} min, spol ${Math.round(window.seekSeconds)} s)`,
+          `beder om ${dialect}-arkiv fra ${clockOf(window.from.getTime())}, ${window.minutes} min (udsendelse ${clockOf(programme.start.getTime())}–${clockOf(programme.stop.getTime())}, offset ${offset} min, spol ${window.seekSeconds.toFixed(3)} s)`,
         );
         const format = archiveFormat.current ?? formatForPlatform();
         archiveRef.current = { programme, segmentStart: window.from.getTime(), seekSeconds: window.seekSeconds, format, dialect };
