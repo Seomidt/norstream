@@ -35,11 +35,12 @@ type ServiceKeys = null | 'loading' | { keys: string[]; listed: number };
 
 interface Props {
   session: AppSession;
+  active: boolean;
   kind: VodKind;
   onOpen: (item: StoredVodItem) => void;
 }
 
-export function VodFilterScreen({ session, kind, onOpen }: Props) {
+export function VodFilterScreen({ session, active, kind, onOpen }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const [filter, setFilter] = useState<VodFilter | null>(null);
@@ -47,6 +48,13 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
   const [drawer, setDrawer] = useState(false);
   const [searching, setSearching] = useState(false);
   const [searchText, setSearchText] = useState('');
+  // Home bevarer fanen monteret. En skjult fane maa ikke bevare et native
+  // modalvindue, der fanger Tilbage og fokus paa en anden destination.
+  useEffect(() => {
+    if (active) return;
+    setDrawer(false);
+    setSearching(false);
+  }, [active]);
   const canvas = useCanvasSize();
   function closeDrawer(): void {
     setDrawer(false);
@@ -186,7 +194,7 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
     <View>
       <View style={styles.bar}>
         <Toggle horizontal label="Søg" value={filter.search || (kind === 'movie' ? 'Søg efter film' : 'Søg efter serier')} open={false} onPress={() => { setSearchText(filter.search ?? ''); setSearching(true); }} />
-        <Toggle horizontal label="Filtre" value={activeCount === 0 ? 'Alle titler' : `${activeCount} valgt`} open={drawer} onPress={() => { setPanel('genres'); setDrawer(true); }} preferFocus />
+        <Toggle horizontal label="Filtre" value={activeCount === 0 ? 'Alle titler' : `${activeCount} valgt`} open={drawer} onPress={() => { setPanel('genres'); setDrawer(true); }} preferFocus={active} />
         <Toggle horizontal label="Sortér" value={SORT_LABELS[filter.sort]} open={false} onPress={() => { setPanel('sort'); setDrawer(true); }} />
       </View>
       <View style={styles.chips}>
@@ -201,7 +209,7 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
     </View>
   );
   const filterDrawer = (
-    <Modal visible={drawer} transparent animationType="fade" onRequestClose={closeDrawer}>
+    <Modal visible={active && drawer} transparent animationType="fade" onRequestClose={closeDrawer}>
       <View style={styles.backdrop}>
         <TVFocusGuideView trapFocusUp trapFocusDown trapFocusLeft trapFocusRight style={[styles.drawer, { width: canvas.width >= 700 ? 360 : '100%', maxHeight: canvas.height }]}>
           <Text style={styles.drawerTitle}>Filtre</Text>
@@ -299,7 +307,7 @@ export function VodFilterScreen({ session, kind, onOpen }: Props) {
   return (
     <View style={styles.container}>
       {filterDrawer}
-      <Modal visible={searching} transparent animationType="fade" onRequestClose={closeSearch}>
+      <Modal visible={active && searching} transparent animationType="fade" onRequestClose={closeSearch}>
         <View style={styles.backdrop}>
           <TVFocusGuideView trapFocusUp trapFocusDown trapFocusLeft trapFocusRight style={[styles.drawer, { width: canvas.width >= 700 ? 360 : '100%', maxHeight: canvas.height }]}>
             <Text style={styles.drawerTitle}>Søg i udvalget</Text>

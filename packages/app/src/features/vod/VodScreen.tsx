@@ -34,6 +34,7 @@ import { cameBySelect } from '../../ui/tvKeys.js';
 import { ensurePoster, foundPoster, subscribePoster } from '../../ui/posterFill.js';
 import { serviceBadgeFor, setKnownServices } from '../../ui/serviceBadges.js';
 import { getHomeProviders } from '../../storage/settings.js';
+import { parentVodLevel } from './vodNavigation.js';
 
 /**
  * Hvor langt man er naaet: forsiden, land -> kategori -> titler.
@@ -52,6 +53,8 @@ export type VodLevel =
 
 interface Props {
   session: AppSession;
+  active: boolean;
+  backRef: { current: () => boolean };
   level: VodLevel;
   onLevelChange: (level: VodLevel) => void;
   onOpen: (item: StoredVodItem) => void;
@@ -79,13 +82,25 @@ const COLUMNS = isTV ? 6 : 3;
  * er vejen naar man vil se noget *bestemt*, og de er ordnet som kanalerne, saa
  * appen er den samme app paa begge faner.
  */
-export function VodScreen({ session, level, onLevelChange, onOpen, onTrailer, onOpenSettings }: Props) {
+export function VodScreen({ session, active, backRef, level, onLevelChange, onOpen, onTrailer, onOpenSettings }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<StoredVodItem[]>([]);
   const [loading, setLoading] = useState(false);
+  // En soegning tegnes foer katalog-niveauet. Tilbage skal rydde den,
+  // ellers aendres niveauet bag en resultatside som stadig bliver staaende.
+  backRef.current = (): boolean => {
+    if (!active || (search.length === 0 && query.length === 0)) return false;
+    setSearch('');
+    setQuery('');
+    return true;
+  };
+  const back = (): void => {
+    const parent = parentVodLevel(level);
+    if (parent !== null) onLevelChange(parent);
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => setQuery(search.trim()), SEARCH_DEBOUNCE_MS);
@@ -156,7 +171,7 @@ export function VodScreen({ session, level, onLevelChange, onOpen, onTrailer, on
         {/* Soegefeltet soeger i panelet, ikke i biografen; paa tv tog det
             fokus (og tastaturet kom frem) naar siden aabnede. */}
         {!isTV && searchField}
-        <Crumb label="Biograf" onBack={() => onLevelChange({ name: 'home' })} />
+        <Crumb label="Biograf" onBack={back} />
         <CinemaScreen session={session} onOpen={onOpen} onTrailer={onTrailer} onOpenSettings={onOpenSettings} />
       </View>
     );
@@ -166,7 +181,7 @@ export function VodScreen({ session, level, onLevelChange, onOpen, onTrailer, on
     return (
       <View style={styles.container}>
         {searchField}
-        <Crumb label={kindLabel(level.kind)} onBack={() => onLevelChange({ name: 'home' })} />
+        <Crumb label={kindLabel(level.kind)} onBack={back} />
         <Countries
           session={session}
           kind={level.kind}
@@ -181,8 +196,8 @@ export function VodScreen({ session, level, onLevelChange, onOpen, onTrailer, on
     return (
       <View style={styles.container}>
         {!isTV && searchField}
-        <Crumb label={`${kindLabel(level.kind)} · udvalg`} onBack={() => onLevelChange({ name: 'countries', kind: level.kind })} />
-        <VodFilterScreen session={session} kind={level.kind} onOpen={onOpen} />
+        <Crumb label={`${kindLabel(level.kind)} · udvalg`} onBack={back} />
+        <VodFilterScreen key={level.kind} session={session} active={active} kind={level.kind} onOpen={onOpen} />
       </View>
     );
   }
@@ -193,7 +208,7 @@ export function VodScreen({ session, level, onLevelChange, onOpen, onTrailer, on
         {searchField}
         <Crumb
           label={`${level.country.flag} ${level.country.name} · ${kindLabel(level.kind)}`}
-          onBack={() => onLevelChange({ name: 'countries', kind: level.kind })}
+          onBack={back}
         />
         <Categories
           session={session}
@@ -212,7 +227,7 @@ export function VodScreen({ session, level, onLevelChange, onOpen, onTrailer, on
       {searchField}
       <Crumb
         label={`${level.country.flag} ${level.category.name}`}
-        onBack={() => onLevelChange({ name: 'categories', kind: level.kind, country: level.country })}
+        onBack={back}
       />
       <Items session={session} categoryId={level.category.id} onOpen={onOpen} />
     </View>

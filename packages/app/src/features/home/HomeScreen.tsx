@@ -22,6 +22,7 @@ import { TvPressable } from '../../ui/TvPressable.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
 import { forgetPosterMisses } from '../../ui/posterFill.js';
 import type { Level } from '../browse/BrowseScreen.js';
+import { parentVodLevel } from '../vod/vodNavigation.js';
 import { FrontScreen } from './FrontScreen.js';
 import { RADIO_START, RadioScreen } from '../radio/RadioScreen.js';
 import type { RadioPlace } from '../radio/RadioScreen.js';
@@ -198,6 +199,7 @@ export function HomeScreen({
   const guideBack = useRef<() => boolean>(() => false);
   /** Radioens egen tilbage-vej (internetradioens land og soegning), foer fanens. */
   const radioBack = useRef<() => boolean>(() => false);
+  const vodBack = useRef<() => boolean>(() => false);
   const [pickingLogoFor, setPickingLogoFor] = useState<string | null>(null);
   const [logoToken, setLogoToken] = useState(0);
 
@@ -245,18 +247,11 @@ export function HomeScreen({
         return true;
       }
     }
-    if (tab === 'vod' && place.vod !== null) {
-      const level = place.vod;
-      if (level.name === 'items') {
-        onPlaceChange({ ...place, vod: { name: 'categories', kind: level.kind, country: level.country } });
-        return true;
-      }
-      if (level.name === 'categories') {
-        onPlaceChange({ ...place, vod: { name: 'countries', kind: level.kind } });
-        return true;
-      }
-      if (level.name === 'countries' || level.name === 'cinema') {
-        onPlaceChange({ ...place, vod: { name: 'home' } });
+    if (tab === 'vod') {
+      if (vodBack.current()) return true;
+      const parent = parentVodLevel(place.vod ?? DEFAULT_VOD_LEVEL);
+      if (parent !== null) {
+        onPlaceChange({ ...place, vod: parent });
         return true;
       }
     }
@@ -777,6 +772,8 @@ export function HomeScreen({
           <View style={[styles.body, tab !== 'vod' && styles.hiddenTab]}>
           <VodScreen
             session={session}
+            active={tab === 'vod' && !covered}
+            backRef={vodBack}
             level={place.vod ?? DEFAULT_VOD_LEVEL}
             onLevelChange={(level) => onPlaceChange({ ...place, vod: level })}
             onOpen={onOpenVod}
