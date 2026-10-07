@@ -11,6 +11,8 @@ adskilt. År kan vælges enkeltvis for de seneste 17 år, i årtier eller som
 intervallet 2020 til indeværende år. Land i pakken er pakkens landgruppe,
 ikke en påstand om filmens produktionsland.
 
+Årstallet under plakaten bruger samme prioritet som årsfiltret.
+
 TMDB-resultater accepteres først efter match af titel, originaltitel eller
 et bekræftet alias og det angivne år. Filmer og serier søges i hver deres
 endepunkt. Forskellige indspilninger uden et årstal afvises som tvetydige.
@@ -61,7 +63,7 @@ recovery. Én native forbindelse, søgekontrol, TS→HLS ved ignoreret seek og
 
 ## Verifikation og begrænsninger
 
-Hele testsuiten (1105 tests), alle workspace-typer og Android/Hermes-eksport kontrolleres
+Hele testsuiten (1106 tests), alle workspace-typer og Android/Hermes-eksport kontrolleres
 før build. APK-version, TV-manifest/banner, arm64/Hermes og signatur skal
 kontrolleres før det sædvanlige udgivelsesworkflow startes.
 

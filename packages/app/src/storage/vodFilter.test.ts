@@ -122,3 +122,12 @@ it('soeger inden for genre/aar-udvalget og behandler jokertegn som tekst', async
   expect(await countVodItemsFiltered(db, { ...filter, search: '%' })).toBe(0);
   expect(await countVodItemsFiltered(db, { ...filter, search: '_' })).toBe(0);
 });
+
+it('viser det samme validerede aar under plakaten som aarsfilteret bruger', async () => {
+  await db.runAsync('UPDATE vod_items SET year = 2001 WHERE key = ?', [`${sourceId}:movie-c`]);
+  const filtered = await listVodItemsFiltered(db, { ...base, yearFrom: 2026, yearTo: 2026 }, 50);
+  expect(filtered.find((item) => item.id === 'c')?.year).toBe(2026);
+  await db.runAsync('UPDATE vod_posters SET metadata_version = 0 WHERE item_key = ?', [`${sourceId}:movie-c`]);
+  const legacy = await listVodItemsFiltered(db, { ...base, search: 'Ukendt genre' }, 50);
+  expect(legacy[0]?.year).toBe(2001);
+});

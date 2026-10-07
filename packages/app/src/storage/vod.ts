@@ -102,7 +102,7 @@ function toStored(row: ItemRow): StoredVodItem {
 
 const SELECT_ITEM = `
   SELECT i.key, i.source_id, i.item_id, i.kind, i.name, i.poster_url, i.category_id,
-         c.name AS category_name, i.rating, i.year, i.added_ms, i.container_ext,
+         c.name AS category_name, i.rating, COALESCE(CASE WHEN fp.metadata_version = 1 THEN fp.year END, i.year) AS year, i.added_ms, i.container_ext,
          CASE WHEN w.item_key IS NOT NULL THEN 1 ELSE NULL END AS in_watchlist,
          p.position_s, p.duration_s,
          fp.url AS found_poster_url,
