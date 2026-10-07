@@ -1,4 +1,4 @@
-import { archiveStopped, playbackFailureKind } from './archiveWatchdog.js';
+import { playbackFailureKind } from './archiveWatchdog.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -762,7 +762,6 @@ export function PlayerScreen({
     // stall. Pause og en stream der er sluttet taeller ikke (playing er falsk).
     let lastPosition = positionRef.current;
     let stillSince: number | null = null;
-    let stoppedSince: number | null = null;
     const frozenTimer = setInterval(() => {
       if (cancelled || changingSource.current || preparingArchive.current) return;
       let shouldAdvance = false;
@@ -772,22 +771,6 @@ export function PlayerScreen({
         return;
       }
       const position = positionRef.current;
-      const silentStop = archiveStopped({ archive: restarted, wantsPlay: playIntent.current, active: connection.committed && !connection.seeking,
-        changing: changingSource.current || preparingArchive.current, playing: player.playing, status: player.status });
-      if (silentStop && retryTimer === null && !gaveUp) {
-        stoppedSince ??= Date.now();
-        if (Date.now() - stoppedSince >= FROZEN_AFTER_MS) {
-          stoppedSince = null;
-          const duration = player.duration;
-          if (Number.isFinite(duration) && duration > 0 && player.currentTime >= duration - 1) {
-            logEvent('arkiv', 'stoppet ved stykkets slutning uden slut-haendelse: kontrollerer fortsaettelse');
-            refreshArchiveEnd.current();
-          } else {
-            logEvent('arkiv', `stoppet uden pause/fejl ved ${Math.round(position)} s: genforbinder`);
-            handleFailure();
-          }
-        }
-      } else stoppedSince = null;
       if (!shouldAdvance || position !== lastPosition) {
         lastPosition = position;
         stillSince = null;

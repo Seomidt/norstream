@@ -1,9 +1,3 @@
-/** Native afspilning kan stoppe uden slut/fejl-haendelse. Pause, buffering
- * og klargoering af en ny kilde maa ikke udloese genforbindelse. */
-export function archiveStopped(input: { archive: boolean; wantsPlay: boolean; active: boolean; changing: boolean; playing: boolean; status: string }): boolean {
-  return input.archive && input.wantsPlay && input.active && !input.changing && !input.playing && (input.status === 'readyToPlay' || input.status === 'idle');
-}
-
 /** Raa native fejl kan indeholde kodeord i URI; kun faste kategorier logges. */
 export function playbackFailureKind(message: string | undefined): string {
   if (message === undefined) return 'ukendt';
