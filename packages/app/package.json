@@ -9,7 +9,7 @@
     "android": "expo run:android",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --project ../../scripts/tsconfig.youtube-proof.json",
-    "postinstall": "node ../../scripts/build-youtube-proof.mjs"
+    "postinstall": "node ../../scripts/build-youtube-proof.mjs && node ../../scripts/patch-video-errors.mjs"
   },
   "dependencies": {
     "@norstream/core": "*",

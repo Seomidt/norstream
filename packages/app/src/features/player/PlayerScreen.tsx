@@ -1,4 +1,4 @@
-import { playbackFailureKind } from './archiveWatchdog.js';
+import { nativeFailureDetails, playbackClock, playbackFailureKind } from './archiveWatchdog.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -75,7 +75,6 @@ const STALL_TIMEOUT_MS = 15_000;
 const INITIAL_STALL_TIMEOUT_MS = 8000;
 /** Arkivets foerste buffer og seek skal naa at blive klar foer genforbindelse. */
 const ARCHIVE_INITIAL_TIMEOUT_MS = 30_000;
-const SEEK_CONFIRM_TIMEOUT_MS = 8000;
 /** Frosset billede: hvor tit positionen tjekkes, og hvor laenge den maa staa stille foer der genforbindes (v353). */
 const FROZEN_CHECK_MS = 3000;
 const FROZEN_AFTER_MS = 12_000;
@@ -316,7 +315,8 @@ export function PlayerScreen({
   const lastSaved = useRef(0);
   useEffect(() => {
     const subscription = player.addListener('timeUpdate', ({ currentTime }: { currentTime: number }) => {
-      if (changingSource.current || !connection.position(currentTime)) return;
+      // Positionen bekraefter ogsaa seek mens load stadig afventer det.
+      if (!connection.position(currentTime)) return;
       positionRef.current = currentTime;
       if (connection.active && !everReady.current) playbackStatus.current(player.status);
       const segment = archiveRef.current;
@@ -569,7 +569,7 @@ export function PlayerScreen({
       .then(() => {
         if (cancelled) return;
         changingSource.current = false;
-        if (archiveRef.current !== null) logEvent('arkiv', `nyt stykke klargjort efter metadata og buffer; spol ${seek.toFixed(3)} s`);
+        if (archiveRef.current !== null) logEvent('arkiv', `nyt stykke klargjort efter metadata, buffer og bekraeftet spoling; spol ${seek.toFixed(3)} s`);
         playbackStatus.current(player.status);
       })
       .catch(() => {
@@ -628,7 +628,7 @@ export function PlayerScreen({
 
       const { attempt, retry } = recovery.current.failure();
       const unseeked = archiveRef.current;
-      if (retry && unseeked !== null && unseeked.seekSeconds > 0 && unseeked.format === 'ts' && unseeked.dialect === 'path' && connection.committed && !connection.active && player.status === 'readyToPlay') {
+      if (retry && unseeked !== null && unseeked.seekSeconds > 0 && unseeked.format === 'ts' && unseeked.dialect === 'path' && (connection.committed || connection.seekTimedOut) && !connection.active && (player.status === 'readyToPlay' || connection.seekTimedOut)) {
         // Et panel kan sende TS uden laengde/seek-map. Det er klar data,
         // men seek ignoreres; proev HLS-segmenter ved samme absolutte tid.
         archiveFormat.current = 'm3u8';
@@ -690,11 +690,7 @@ export function PlayerScreen({
 
       if (status === 'readyToPlay') {
         if (!connection.committed || changingSource.current) return;
-        if (!connection.active) {
-          clearStallTimer();
-          stallTimer = setTimeout(handleFailure, SEEK_CONFIRM_TIMEOUT_MS);
-          return;
-        }
+        if (!connection.active) return; // connection ejer hele seek-deadlinen
         if (!everReady.current) logEvent('afspiller', `klar (${restarted ? 'arkiv' : 'live'}, ${/\.m3u8(\?|$)/.test(source) ? 'hls' : 'ts'})`);
         everReady.current = true;
         clearStallTimer();
@@ -759,7 +755,7 @@ export function PlayerScreen({
     };
     playbackStatus.current = handleStatus;
     const subscription = player.addListener('statusChange', ({ status, error }) => {
-      if (status === 'error') logEvent('afspiller', `native fejltype: ${playbackFailureKind(error?.message)}`);
+      if (status === 'error') logEvent('afspiller', `native fejltype: ${playbackFailureKind(error?.message)} (${nativeFailureDetails(error)})`);
       handleStatus(status);
     });
 
@@ -779,7 +775,16 @@ export function PlayerScreen({
       } catch {
         return;
       }
-      const position = positionRef.current;
+      // Interval-haendelser kan vaere forsinket af JS. Kontroller native
+      // afspilningsuret foer en forbindelse med fuld buffer rives ned.
+      let position = positionRef.current;
+      try {
+        const nativePosition = player.currentTime;
+        position = playbackClock(position, nativePosition, connection.active);
+        positionRef.current = position;
+      } catch {
+        return;
+      }
       if (!shouldAdvance || position !== lastPosition) {
         lastPosition = position;
         stillSince = null;
@@ -801,7 +806,7 @@ export function PlayerScreen({
       }
       logEvent(
         'afspiller',
-        `billedet staar stille ved ${Math.round(position)} s i ${Math.round(FROZEN_AFTER_MS / 1000)} s (buffer til ${buffered < 0 ? '?' : Math.round(buffered)} s): genforbinder`,
+        `afspilningsuret staar stille ved ${position.toFixed(3)} s i ${Math.round(FROZEN_AFTER_MS / 1000)} s (buffer til ${buffered < 0 ? '?' : Math.round(buffered)} s): genforbinder`,
       );
       handleFailure();
     }, FROZEN_CHECK_MS);

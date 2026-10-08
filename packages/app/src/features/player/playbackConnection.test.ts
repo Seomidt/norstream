@@ -44,11 +44,11 @@ describe('PlaybackConnection', () => {
     expect(seeks).toEqual([]);
     nativeReady = true;
     f.connection.status('readyToPlay');
-    await loaded;
     expect(seeks).toEqual([56]);
     expect(f.connection.position(0)).toBe(false);
     expect(f.connection.position(56)).toBe(true);
     expect(f.calls.at(-1)).toBe('play@56');
+    await loaded;
   });
 
   it('afviser en ny kilde uden metadata og READY efter en afgraenset ventetid', async () => {
@@ -77,12 +77,13 @@ describe('PlaybackConnection', () => {
     expect(f.connection.committed).toBe(false);
     expect(f.connection.sourceLoaded({ uri: 'archive.ts' })).toBe(true);
     f.pending[0]!.resolve();
-    await loaded;
+    await Promise.resolve(); await Promise.resolve();
     expect(f.calls).toEqual(['pause', 'replace:archive.ts']);
     expect(f.player.bufferOptions).toEqual(ARCHIVE_BUFFER);
     expect(f.connection.position(0)).toBe(false);
     expect(f.connection.active).toBe(false);
     expect(f.connection.position(42.1)).toBe(true);
+    await loaded;
     expect(f.calls).toEqual(['pause', 'replace:archive.ts', 'play@42']);
     expect(f.connection.active).toBe(true);
     // Klargoerings- og bufferhaendelser maa ikke genindlaese kilden.
@@ -127,8 +128,9 @@ describe('PlaybackConnection', () => {
       f.pending.at(-1)!.resolve();
       f.connection.sourceLoaded('same.ts');
       f.connection.status('readyToPlay');
-      await loaded;
+      await Promise.resolve(); await Promise.resolve();
       expect(f.connection.position(seek)).toBe(true);
+      await loaded;
     }
     expect(f.calls.filter((c) => c.startsWith('replace:'))).toHaveLength(3);
     expect(f.calls.filter((c) => c.startsWith('play@'))).toEqual(['play@0', 'play@42', 'play@59']);
@@ -188,9 +190,10 @@ describe('PlaybackConnection', () => {
     expect(f.player.currentTime).toBe(0);
     f.connection.sourceLoaded('archive.ts');
     f.connection.status('readyToPlay');
-    await loaded;
+    await Promise.resolve(); await Promise.resolve();
     expect(f.player.currentTime).toBe(320);
     expect(f.connection.position(320)).toBe(true);
+    await loaded;
     expect(f.calls.filter((c) => c.startsWith('play@'))).toHaveLength(0);
   });
 
@@ -202,9 +205,10 @@ describe('PlaybackConnection', () => {
     f.pending[0]!.resolve();
     f.connection.sourceLoaded('archive.ts');
     f.connection.status('readyToPlay');
-    await loaded;
+    await Promise.resolve(); await Promise.resolve();
     expect(f.player.currentTime).toBe(320);
     expect(f.connection.position(320)).toBe(true);
+    await loaded;
     expect(f.calls.filter((c) => c.startsWith('play@'))).toHaveLength(0);
   });
 
@@ -220,18 +224,21 @@ describe('PlaybackConnection', () => {
     await Promise.resolve(); f.pending[0]!.resolve();
     f.connection.sourceLoaded('archive.ts');
     f.connection.status('readyToPlay');
-    await ts;
+    await Promise.resolve(); await Promise.resolve();
     expect(f.connection.position(0)).toBe(false);
     expect(f.connection.active).toBe(false);
     expect(f.calls.filter((c) => c.startsWith('play@'))).toHaveLength(0);
     seekable = true;
     const hls = f.connection.load('archive.m3u8', true, 42);
-    await Promise.resolve(); f.pending[1]!.resolve();
+    await ts; await Promise.resolve();
+    f.pending[1]!.resolve();
     expect(f.calls.filter((c) => c.startsWith('play@'))).toHaveLength(0);
     f.connection.sourceLoaded('archive.m3u8');
     f.connection.status('readyToPlay');
-    await hls;
+    await ts; // forladt kilde annulleres ved load af HLS
+    await Promise.resolve(); await Promise.resolve();
     expect(f.connection.position(42)).toBe(true);
+    await hls;
     expect(f.calls.filter((c) => c.startsWith('play@'))).toEqual(['play@42']);
   });
 
@@ -253,12 +260,13 @@ describe('PlaybackConnection', () => {
         expect(f.connection.active).toBe(false);
       }
     }
-    await loaded;
+    await Promise.resolve(); await Promise.resolve();
     expect(f.player.currentTime).toBe(56);
     f.connection.status('loading'); // seek henter sin nye buffer
     expect(f.connection.position(56)).toBe(false);
     f.connection.status('readyToPlay');
     expect(f.connection.position(56)).toBe(true);
+    await loaded;
     f.player.currentTime = 57;
     f.connection.status('readyToPlay');
     f.connection.sourceLoaded('next.ts');
@@ -340,8 +348,9 @@ describe('PlaybackConnection', () => {
     await Promise.resolve(); f.pending[1]!.resolve();
     f.connection.sourceLoaded('retry.ts');
     f.connection.status('readyToPlay');
-    await fresh;
+    await Promise.resolve(); await Promise.resolve();
     expect(f.connection.position(56)).toBe(true);
+    await fresh;
     expect(f.calls.filter((c) => c.startsWith('play@'))).toEqual(['play@56']);
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -363,8 +372,9 @@ describe('PlaybackConnection', () => {
     f.pending[1]!.resolve();
     f.connection.sourceLoaded('retry.ts');
     f.connection.status('readyToPlay');
-    await fresh;
+    await Promise.resolve(); await Promise.resolve();
     expect(f.connection.position(56)).toBe(true);
+    await fresh;
     expect(f.calls.filter((c) => c.startsWith('play@'))).toEqual(['play@56']);
   });
 
@@ -385,4 +395,48 @@ describe('PlaybackConnection', () => {
     expect(f.calls.filter((c) => c.startsWith('replace:'))).toEqual(['replace:stuck.ts']);
     expect(f.calls.filter((c) => c.startsWith('play@'))).toHaveLength(0);
   });
+  it('venter paa 16 s seek-buffer fra v379-loggen uden at bruge retry efter 8 s', async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    let completed = false;
+    const loaded = f.connection.load('retry.ts', true, 50.268).then(() => { completed = true; });
+    await Promise.resolve(); f.pending[0]!.resolve();
+    f.connection.sourceLoaded('retry.ts');
+    f.connection.status('readyToPlay');
+    await vi.advanceTimersByTimeAsync(0);
+    f.connection.status('loading');
+    await vi.advanceTimersByTimeAsync(16_000);
+    expect(completed).toBe(false);
+    expect(f.calls.filter((c) => c.startsWith('play@'))).toHaveLength(0);
+    expect(f.connection.position(50.268)).toBe(false);
+    f.connection.status('readyToPlay');
+    expect(f.connection.position(50.268)).toBe(true);
+    await loaded;
+    expect(f.calls.filter((c) => c.startsWith('replace:'))).toHaveLength(1);
+    expect(f.calls.at(-1)).toBe('play@50.268');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('gentagne READY for et ignoreret seek forlaenger ikke deadlinen og sen READY starter ikke', async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    const loaded = f.connection.load('unseekable.ts', true, 50.268);
+    const rejected = expect(loaded).rejects.toThrow('preparation-timeout:spoling');
+    await Promise.resolve(); f.pending[0]!.resolve();
+    f.connection.sourceLoaded('unseekable.ts');
+    f.connection.status('readyToPlay');
+    for (let n = 0; n < 3; n += 1) {
+      await vi.advanceTimersByTimeAsync(9000);
+      f.connection.status('readyToPlay');
+      f.player.currentTime = 0;
+      expect(f.connection.position(0)).toBe(false);
+    }
+    await vi.advanceTimersByTimeAsync(3000);
+    await rejected;
+    f.player.currentTime = 50.268;
+    f.connection.status('readyToPlay');
+    expect(f.connection.position(50.268)).toBe(false);
+    expect(f.calls.filter((c) => c.startsWith('play@'))).toHaveLength(0);
+  });
+
 });

@@ -34,6 +34,7 @@ export class PlaybackConnection {
   private seekApplied = false;
   private seekConfirmed = false;
   private failed = false;
+  private timedOut = false;
   private expectedUri: string | null = null;
   private seekSeconds = 0;
   private wantsPlay = true;
@@ -63,6 +64,10 @@ export class PlaybackConnection {
     return this.seekSeconds > 0 && !this.seekConfirmed;
   }
 
+  get seekTimedOut(): boolean {
+    return this.timedOut && this.seekApplied && !this.seekConfirmed;
+  }
+
   /** Kun fase-navne, aldrig en kilde-URL eller en native fejlbesked. */
   get preparationPhase(): string {
     if (!this.replaced) return 'kildeskift';
@@ -82,6 +87,7 @@ export class PlaybackConnection {
     this.seekApplied = false;
     this.seekConfirmed = false;
     this.failed = false;
+    this.timedOut = false;
     this.started = false;
     this.expectedUri = uriOf(source);
     this.seekSeconds = Math.max(0, Number.isFinite(seekSeconds) ? seekSeconds : 0);
@@ -93,6 +99,7 @@ export class PlaybackConnection {
       const timer = setTimeout(() => {
         if (generation !== this.generation || this.disposed) return;
         this.failed = true;
+        this.timedOut = true;
         this.finishPreparation(new Error(`preparation-timeout:${this.preparationPhase}`));
       }, archive ? 30_000 : 8000);
       this.preparation = { resolve, reject, timer };
@@ -147,7 +154,14 @@ export class PlaybackConnection {
     if (!this.seekConfirmed) {
       if (seconds < this.seekSeconds - 1 || seconds > this.seekSeconds + 10) return false;
       this.seekConfirmed = true;
-      this.startIfWanted();
+      try {
+        this.startIfWanted();
+        this.finishPreparation();
+      } catch (error: unknown) {
+        this.failed = true;
+        this.finishPreparation(error);
+        return false;
+      }
     }
     return true;
   }
@@ -160,8 +174,12 @@ export class PlaybackConnection {
       this.seekApplied = true;
       this.player.currentTime = this.seekSeconds;
       this.seekConfirmed = this.seekSeconds === 0;
-      if (this.seekConfirmed) this.startIfWanted();
-      this.finishPreparation();
+      if (this.seekConfirmed) {
+        this.startIfWanted();
+        this.finishPreparation();
+      }
+      // Positivt seek har samme absolutte deadline som metadata og buffer.
+      // READY foer seek maa ikke afslutte ventetiden eller starte en 8 s retry.
     } catch (error: unknown) {
       this.failed = true;
       this.finishPreparation(error);
