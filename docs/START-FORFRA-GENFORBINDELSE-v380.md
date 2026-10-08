@@ -39,6 +39,20 @@ udløst af forsinkede JavaScript-hændelser.
 trailers, filmfiltre og navigation er bevaret. Der åbnes ingen parallelle
 streamforbindelser.
 
+## Native byggekontrol
+
+Byg 561 var grønt, men APK-kontrollen fandt kun de oprindelige felter i
+PlaybackError. Expo linkede modulets færdige AAR i stedet for den patched
+Kotlin-kilde. APK'en blev derfor ikke udgivet. Appens package.json angiver nu
+`expo.autolinking.android.buildFromSource: ["expo-video"]`, som Expos
+Autolinking dokumenterer til ændringer i modulets native kildekode:
+https://docs.expo.dev/guides/prebuilt-expo-modules/
+
+CI-testen kræver både de faktisk installerede native felter og den præcise
+buildFromSource-konfiguration. Den sidste APK-kontrol kræver felterne
+message, errorCode og errorType i DEX-klassens egne field_id-poster. En grøn
+CI eller et grønt build er ikke tilstrækkeligt alene.
+
 ## Verifikation og begrænsning
 
 Regressionen reproducerer seek til 50,268 sekunder, 16 sekunders buffering
