@@ -1,3 +1,5 @@
+import { TV_CODEC_OPTIONS, videoFrameSummary } from './tvCodec.js';
+import type { VideoFrameSample } from './tvCodec.js';
 import { nativeFailureDetails, playbackClock, playbackFailureKind } from './archiveWatchdog.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -285,7 +287,7 @@ export function PlayerScreen({
     p.showNowPlayingNotification = isRadio;
     // Hvert sekund: hvor langt arkivstreamen er naaet, til "Fortsaet".
     p.timeUpdateEventInterval = 1;
-  });
+  }, isTV ? TV_CODEC_OPTIONS : undefined);
   const connection = useMemo(() => new PlaybackConnection(player), [player]);
   const changePlaybackIntent = useCallback((desired: boolean): boolean => {
     playIntent.current = desired;
@@ -314,10 +316,21 @@ export function PlayerScreen({
    */
   const lastSaved = useRef(0);
   useEffect(() => {
-    const subscription = player.addListener('timeUpdate', ({ currentTime }: { currentTime: number }) => {
+    let lastVideoLog = 0;
+    const subscription = player.addListener('timeUpdate', (sample: { currentTime: number } & VideoFrameSample) => {
+      const { currentTime } = sample;
       // Positionen bekraefter ogsaa seek mens load stadig afventer det.
       if (!connection.position(currentTime)) return;
       positionRef.current = currentTime;
+      // Native videofremdrift: et fremadgaaende lydur beviser ikke nye billeder.
+      // Kun arkiv paa TV, hoejst hver 30 s og aldrig under kilde/seek-skift.
+      if (isTV && archiveRef.current !== null && connection.active && !changingSource.current && player.playing && Date.now() - lastVideoLog >= 30_000) {
+        const summary = videoFrameSummary(sample, currentTime);
+        if (summary !== null) {
+          logEvent('arkiv', summary);
+          lastVideoLog = Date.now();
+        }
+      }
       if (connection.active && !everReady.current) playbackStatus.current(player.status);
       const segment = archiveRef.current;
       const absolutePosition = currentTime + (segment === null ? 0 : segment.segmentStart / 1000);
