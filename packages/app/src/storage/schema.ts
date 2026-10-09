@@ -12,7 +12,13 @@ import type { SqlDatabase } from './types.js';
  * `stream_id`. 87 % af panelets kanaler har intet `epg_channel_id`, og med det
  * som noegle ville de aldrig kunne faa programdata.
  */
-const SCHEMA = `
+const DIAGNOSTIC_SCHEMA = `
+CREATE TABLE IF NOT EXISTS diagnostic_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, line TEXT NOT NULL CHECK(length(line)<=300));
+CREATE TABLE IF NOT EXISTS diagnostic_outbox (id INTEGER PRIMARY KEY CHECK(id=1), support_code TEXT NOT NULL, report_id TEXT NOT NULL, payload TEXT NOT NULL CHECK(length(payload)<=32768));
+`;
+
+const SCHEMA = `${DIAGNOSTIC_SCHEMA}
+
 -- Hvert sted kanaler kommer fra: et Xtream-panel eller en M3U-liste.
 -- Adgangskoder staar her **ikke**; de ligger i Keychain under kildens id.
 CREATE TABLE IF NOT EXISTS sources (
@@ -459,7 +465,8 @@ const TABLES = [
 // v26: vod_posters.tmdb_id — saa "Netflix i din pakke" kan matche paa id (v368).
 // v27: vod_posters.providers — tjenesterne titlen ligger paa i Danmark, pakket
 // ",8,119," (v369): maerke paa plakaten og fuldt tjeneste-filter.
-const SCHEMA_VERSION = 28;
+// v29: lokal fejlfindingsjournal og enkelt outbox; ingen aendring i programdata.
+const SCHEMA_VERSION = 29;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -770,6 +777,13 @@ export async function migrate(db: SqlDatabase): Promise<void> {
   // Ved normal opstart undgaas DDL og et nyt versionsstempel paa disken.
   // Match-reglerne har deres egen version og skal stadig kontrolleres.
   if (version === SCHEMA_VERSION) {
+    await refreshChannelsWhenMatchRulesChanged(db);
+    return;
+  }
+
+  if (version === 28) {
+    await db.execAsync(DIAGNOSTIC_SCHEMA);
+    await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     await refreshChannelsWhenMatchRulesChanged(db);
     return;
   }

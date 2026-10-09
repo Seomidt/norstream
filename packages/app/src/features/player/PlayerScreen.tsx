@@ -1,3 +1,4 @@
+import { setPlaybackSnapshot, closePlaybackSnapshot } from '../../diagnostics/reporter.js';
 import { TV_CODEC_OPTIONS, videoFrameSummary } from './tvCodec.js';
 import type { VideoFrameSample } from './tvCodec.js';
 import { nativeFailureDetails, playbackClock, playbackFailureKind } from './archiveWatchdog.js';
@@ -319,6 +320,14 @@ export function PlayerScreen({
     let lastVideoLog = 0;
     const subscription = player.addListener('timeUpdate', (sample: { currentTime: number } & VideoFrameSample) => {
       const { currentTime } = sample;
+      // Kun observation: ingen seek, kildevalg eller ekstra medieforbindelse.
+      const context = archiveRef.current;
+      setPlaybackSnapshot({ observedAt: Date.now(), mode: context === null ? 'live' : 'archive',
+        status: player.status, playing: player.playing, position: currentTime,
+        buffered: sample.bufferedPosition ?? undefined, duration: player.duration,
+        programmeStart: context?.programme.start.getTime(), programmeStop: context?.programme.stop.getTime(),
+        segmentStart: context?.segmentStart, queued: sample.videoQueuedFrames ?? undefined,
+        rendered: sample.videoRenderedFrames ?? undefined, dropped: sample.videoDroppedFrames ?? undefined });
       // Positionen bekraefter ogsaa seek mens load stadig afventer det.
       if (!connection.position(currentTime)) return;
       positionRef.current = currentTime;
@@ -345,7 +354,7 @@ export function PlayerScreen({
       lastSaved.current = absolute;
       void saveArchiveProgress(session.db, channel.id, startFrom, absolute).catch(() => undefined);
     });
-    return () => subscription.remove();
+    return () => { subscription.remove(); closePlaybackSnapshot(); };
   }, [player, connection, restarted, startFrom, session.db, channel.id]);
   useEffect(() => {
     try {

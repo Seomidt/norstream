@@ -19,6 +19,7 @@ import {
 import { addSource, adoptLegacyKeys, listEnabledSources } from './storage/sources.js';
 import { adoptLegacySettings, getStreamFormatSetting } from './storage/settings.js';
 import type { SqlDatabase } from './storage/types.js';
+import { startDiagnostics } from './diagnostics/runtime.js';
 import { logEvent } from './diagnostics/log.js';
 
 export interface AppSession {
@@ -86,6 +87,7 @@ function hostOf(url: string): string {
 export async function createSession(): Promise<AppSession> {
   const startedAt = Date.now();
   const db = await openDatabase();
+  startDiagnostics(db);
   logEvent('opstart', `database klar: ${Date.now() - startedAt} ms`);
   await adoptLegacyInstallation(db);
 

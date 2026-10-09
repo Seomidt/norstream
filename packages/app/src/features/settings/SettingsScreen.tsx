@@ -64,6 +64,7 @@ import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { TvTextInput } from '../../ui/TvTextInput.js';
 import { testOpenSubtitles } from '../vod/externalSubtitles.js';
+import { DiagnosticSettings } from './DiagnosticSettings.js';
 import { CloudBackup } from './CloudBackup.js';
 import { diagnosePanelEpg } from '../../sync/panelEpg.js';
 import { recentLog } from '../../diagnostics/log.js';
@@ -812,7 +813,7 @@ export function SettingsScreen({
           <Text style={styles.subLabel}>Log fra afspilleren og guiden</Text>
           <Text style={styles.hint}>
             De sidste linjer om hvad afspilleren bad om og svarede (start forfra, genforbindelser) og guidens
-            bladring. Tag et skærmbillede af dem, når noget går galt. Ingen adresser skrives her.
+            bladring. Gemmes lokalt i op til et døgn, også efter genstart. Ingen adresser skrives her.
           </Text>
           <TvPressable style={styles.row} onPress={() => setLogLines(recentLog(40))}>
             <View style={styles.rowText}>
@@ -825,6 +826,8 @@ export function SettingsScreen({
             </View>
             <Text style={styles.actionText}>Vis</Text>
           </TvPressable>
+
+          <DiagnosticSettings />
 
           <Text style={styles.subLabel}>Streamformat</Text>
           <Text style={styles.hint}>
