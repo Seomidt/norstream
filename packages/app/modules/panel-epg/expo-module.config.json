@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["dk.seomidt.norstream.panelepg.PanelEpgModule"]
+  }
+}

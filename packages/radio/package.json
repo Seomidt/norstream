@@ -1,0 +1,36 @@
+{
+  "name": "@norstream/radio",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@norstream/app": "*",
+    "@norstream/core": "*",
+    "expo": "~57.0.20",
+    "expo-build-properties": "~57.0.17",
+    "expo-file-system": "~57.0.6",
+    "expo-keep-awake": "~57.0.1",
+    "expo-secure-store": "~57.0.3",
+    "expo-sqlite": "~57.0.2",
+    "expo-status-bar": "~57.0.1",
+    "expo-system-ui": "~57.0.3",
+    "expo-video": "~57.0.3",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "npm:react-native-tvos@0.86.2-0",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-web": "^0.21.2",
+    "expo-modules-core": "~57.0.16"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3",
+    "vitest": "^2.1.9"
+  }
+}
