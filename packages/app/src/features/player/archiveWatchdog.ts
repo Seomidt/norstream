@@ -54,3 +54,19 @@ export class ArchiveWatchdog {
     return true;
   }
 }
+
+/** Et fremadgaaende lydur maa ikke flytte resume forbi det sidste billede. */
+export class ArchiveVideoClock {
+  private rendered: number | null = null;
+  private seconds = 0;
+  reset(seconds: number): void { this.rendered = null; this.seconds = seconds; }
+  get hasFrames(): boolean { return this.rendered !== null; }
+  get position(): number { return this.seconds; }
+  observe(seconds: number, rendered: unknown): number {
+    if (!Number.isFinite(seconds) || seconds < 0) return this.seconds;
+    if (typeof rendered !== 'number' || !Number.isSafeInteger(rendered) || rendered < 0) return this.seconds;
+    if (rendered > 0 && (this.rendered === null || rendered > this.rendered)) this.seconds = seconds;
+    this.rendered = rendered;
+    return this.seconds;
+  }
+}

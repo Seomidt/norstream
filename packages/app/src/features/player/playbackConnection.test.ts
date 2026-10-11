@@ -8,6 +8,8 @@ function fixture() {
   const pending: Array<{ resolve: () => void; reject: () => void }> = [];
   const player: PlaybackPort = {
     currentTime: 0,
+    muted: false,
+    playbackRate: 1,
     bufferOptions: LIVE_BUFFER,
     pause: () => { calls.push('pause'); },
     play: () => { calls.push(`play@${player.currentTime}`); },
@@ -520,4 +522,53 @@ describe('PlaybackConnection', () => {
     expect(f.calls.filter((c) => c.startsWith('play@'))).toHaveLength(0);
   });
 
+});
+
+it('laeser v383-loggens 16.050 s overlap sekventielt uden native seek eller hoerbar gentagelse', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  let clock = 0;
+  const seeks: number[] = [];
+  Object.defineProperty(f.player, 'currentTime', { get: () => clock, set: (time: number) => { clock = time; seeks.push(time); } });
+  const loaded = f.connection.load('php.ts', true, 16.050, true, true);
+  await Promise.resolve(); f.pending[0]!.resolve();
+  f.connection.sourceLoaded('php.ts'); f.connection.status('readyToPlay');
+  await Promise.resolve(); await Promise.resolve();
+  expect(f.player.muted).toBe(true);
+  expect(f.player.playbackRate).toBe(4);
+  expect(f.connection.prepared).toBe(false);
+  clock = 16;
+  await vi.advanceTimersByTimeAsync(50);
+  expect(f.connection.prepared).toBe(false);
+  clock = 16.1;
+  await vi.advanceTimersByTimeAsync(50);
+  await loaded;
+  expect(f.connection.prepared).toBe(true);
+  expect(f.player.muted).toBe(false);
+  expect(f.player.playbackRate).toBe(1);
+  // replaceAsync nulstiller ved 0 i testens native stub; ingen positiv seek.
+  expect(seeks.filter(time => time > 0)).toEqual([]);
+  expect(f.calls.at(-1)).toBe('play@16.1');
+  f.connection.cancel();
+  vi.useRealTimers();
+});
+
+it.each(['cancel', 'error', 'timeout'])('genopretter lyd/hastighed ved afbrudt sekventielt overlap: %s', async reason => {
+  vi.useFakeTimers();
+  const f = fixture();
+  f.player.muted = true; f.player.playbackRate = 1.25;
+  const loaded = f.connection.load('php.ts', true, 59.946, false, true);
+  const settled = loaded.catch(() => undefined);
+  await Promise.resolve(); f.pending[0]!.resolve();
+  f.connection.sourceLoaded('php.ts'); f.connection.status('readyToPlay');
+  await Promise.resolve(); await Promise.resolve();
+  expect(f.player.playbackRate).toBe(4);
+  if (reason === 'cancel') f.connection.cancel();
+  if (reason === 'error') f.connection.status('error');
+  if (reason === 'timeout') await vi.advanceTimersByTimeAsync(45_001);
+  await settled;
+  expect(f.player.muted).toBe(true);
+  expect(f.player.playbackRate).toBe(1.25);
+  expect(f.connection.prepared).toBe(false);
+  vi.useRealTimers();
 });

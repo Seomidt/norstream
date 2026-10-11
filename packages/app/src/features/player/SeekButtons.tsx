@@ -19,17 +19,20 @@ export function SeekButtons({
   playing,
   preferFocus = false,
   onPlaybackIntentChange,
+  onSeek,
 }: {
   player: VideoPlayer;
   playing: boolean;
   /** Paa tv: "30 s frem" faar fokus naar bjaelken kommer frem, saa et reklameblok er to tryk vaek. */
   preferFocus?: boolean;
+  onSeek?: (seconds: number) => void;
   onPlaybackIntentChange?: (playing: boolean) => boolean | void;
 }) {
   const styles = useStyles(makeStyles);
   const seek = (seconds: number): void => {
     try {
-      player.seekBy(seconds);
+      if (onSeek) onSeek(seconds);
+      else player.seekBy(seconds);
     } catch {
       // Afspilleren er vaek.
     }

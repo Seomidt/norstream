@@ -131,8 +131,9 @@ describe('syncPanelEpg', () => {
     });
     const result = await syncPanelEpg(db, sourceId, creds, { now: NOW, native });
     expect(result).toEqual({ matched: count, programmes: count });
-    // 320 feed-id'er i klumper af 300: to gennemloeb, ingen over 300.
-    expect(native.asked.map((ids) => ids.length)).toEqual([300, 20]);
+    // Det stoerre syvdages-vindue maa ikke samle alle feed-id'er i ét svar.
+    expect(native.asked.every(ids => ids.length > 0 && ids.length <= 60)).toBe(true);
+    expect(new Set(native.asked.flat()).size).toBe(count);
     // En kanal langt bag de 150 foerste faar ogsaa sine programmer.
     expect(await programmesFor(`${sourceId}:${100 + 310}`)).toEqual([{ title: 'Kamp paa SportChannel310.uk', description: null }]);
   });
@@ -200,4 +201,21 @@ describe('syncPanelEpg', () => {
     const inTwoHours = new Date(NOW.getTime() + 2 * 60 * 60_000);
     expect(await syncPanelEpg(db, sourceId, creds, { now: inTwoHours, native: fakeNative() })).not.toBeNull();
   });
+});
+
+it('henter syv hele arkivdage selv for en ikke-favorit med friske programmer forude', async () => {
+  const archive = { ...ch('3', 'DNK| DR1 FHD', 'DR1.dk'), hasArchive: true, archiveDays: 7 };
+  await replaceChannels(db, sourceId, [archive]);
+  const key = `${sourceId}:3`;
+  await db.runAsync('INSERT INTO programmes(channel_id,start_ms,stop_ms,title) VALUES(?,?,?,?)', [key, NOW.getTime(), NOW.getTime() + 3_600_000, 'Nu']);
+  const native = fakeNative();
+  native.programmes = vi.fn(async (_path, ids, from, to) => {
+    expect(JSON.parse(ids)).toContain('DR1.dk');
+    const earliest = new Date(NOW); earliest.setHours(0, 0, 0, 0); earliest.setDate(earliest.getDate() - 7);
+    expect(from).toBe(earliest.getTime());
+    expect(to).toBeGreaterThan(NOW.getTime());
+    return JSON.stringify([{ c: 'DR1.dk', s: from + 3600_000, e: from + 7200_000, t: 'Syv dage tilbage' }]);
+  });
+  await syncPanelEpg(db, sourceId, creds, { now: NOW, native });
+  expect(await programmesFor(key)).toContainEqual({ title: 'Syv dage tilbage', description: null });
 });

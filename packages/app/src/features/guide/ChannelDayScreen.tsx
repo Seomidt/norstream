@@ -4,6 +4,7 @@ import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { listProgrammes } from '../../storage/programmes.js';
+import { startPanelEpg, panelEpgInFlight } from '../../sync/panelEpg.js';
 import { ensureFullEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
@@ -130,7 +131,12 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
     void load();
     void ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, [channel])
       .catch(() => undefined)
-      .then(() => {
+      .then(async () => {
+        if (cancelled) return;
+        const creds = session.credsBySource.get(channel.sourceId);
+        if (channel.hasArchive && creds !== undefined) {
+          await (panelEpgInFlight() ?? startPanelEpg(session.db, [{ sourceId: channel.sourceId, creds }]));
+        }
         if (cancelled) return;
         setFetching(false);
         void load();
@@ -142,17 +148,17 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, channel.id]);
 
-  // Antal bagud-dage foelger den aeldste udsendelse i spanet, saa der ikke staar
-  // tomme fantom-dage, men praecis lige saa langt tilbage som der er data.
+  // Vis de arkivdage panelet oplyser, ogsaa mens historikken hentes.
+  // EPG-huller maa ikke skjule dage der faktisk findes i kanalens arkiv.
   const daysBack = useMemo((): number => {
-    if (allProgrammes === null || allProgrammes.length === 0) return 1;
+    if (allProgrammes === null || allProgrammes.length === 0) return Math.min(MAX_DAYS_BACK, Math.max(1, channel.archiveDays));
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const earliest = new Date(allProgrammes[0]!.start);
     earliest.setHours(0, 0, 0, 0);
     const diffDays = Math.round((todayStart.getTime() - earliest.getTime()) / 86_400_000);
-    return Math.min(MAX_DAYS_BACK, Math.max(1, diffDays));
-  }, [allProgrammes]);
+    return Math.min(MAX_DAYS_BACK, Math.max(1, channel.archiveDays, diffDays));
+  }, [allProgrammes, channel.archiveDays]);
 
   function stateOf(programme: Programme): CellState {
     const ms = now.getTime();

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { ArchiveWatchdog, nativeFailureDetails, playbackClock, playbackFailureKind } from './archiveWatchdog.js';
+import { ArchiveWatchdog, ArchiveVideoClock, nativeFailureDetails, playbackClock, playbackFailureKind } from './archiveWatchdog.js';
 
 it('logger aldrig en raa native URI eller private fejltekst', () => {
   expect(playbackFailureKind('Source error https://panel.test/user/secret/file.ts')).toBe('netvaerk/kilde');
@@ -85,4 +85,17 @@ it('ugyldige native maalinger og et ur der stilles tilbage udloeser ikke en fals
   expect(watchdog.stalled(100, 1000, true)).toBe(false);
   expect(watchdog.stalled(100, 15_999, true)).toBe(false);
   expect(watchdog.stalled(100, 16_000, true)).toBe(true);
+});
+
+it('v383-loggens lydur paa 48.290 s flytter ikke resume forbi sidste billede ved 18.290 s', () => {
+  const clock = new ArchiveVideoClock();
+  clock.reset(16.050);
+  expect(clock.observe(16.747, 19)).toBe(16.747);
+  expect(clock.observe(18.290, 59)).toBe(18.290);
+  expect(clock.observe(48.290, 59)).toBe(18.290);
+  expect(clock.observe(50, 59)).toBe(18.290);
+  clock.reset(18.290);
+  expect(clock.hasFrames).toBe(false);
+  expect(clock.observe(18.4, 1)).toBe(18.4);
+  expect(clock.observe(19.4, 26)).toBe(19.4);
 });

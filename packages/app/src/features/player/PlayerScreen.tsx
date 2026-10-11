@@ -1,9 +1,9 @@
 import { setPlaybackSnapshot, closePlaybackSnapshot } from '../../diagnostics/reporter.js';
 import { TV_CODEC_OPTIONS, videoFrameSummary } from './tvCodec.js';
 import type { VideoFrameSample } from './tvCodec.js';
-import { ArchiveWatchdog, nativeFailureDetails, playbackClock, playbackFailureKind } from './archiveWatchdog.js';
+import { ArchiveWatchdog, ArchiveVideoClock, nativeFailureDetails, playbackClock, playbackFailureKind } from './archiveWatchdog.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import type { SubtitleTrack } from 'expo-video';
@@ -293,6 +293,7 @@ export function PlayerScreen({
   const changePlaybackIntent = useCallback((desired: boolean): boolean => {
     playIntent.current = desired;
     connection.setPlayingIntent(desired);
+    if (connection.seeking) return false;
     if (!desired) {
       cancelPendingRetry.current();
     } else if (player.status === 'error' && source !== null) {
@@ -316,6 +317,7 @@ export function PlayerScreen({
    * anden vej: naar streamen er klar, spoles der til hvor man slap.
    */
   const lastSaved = useRef(0);
+  const archiveVideoClock = useRef(new ArchiveVideoClock());
   useEffect(() => {
     let lastVideoLog = 0;
     const subscription = player.addListener('timeUpdate', (sample: { currentTime: number } & VideoFrameSample) => {
@@ -330,7 +332,9 @@ export function PlayerScreen({
         rendered: sample.videoRenderedFrames ?? undefined, dropped: sample.videoDroppedFrames ?? undefined });
       // Positionen bekraefter ogsaa seek mens load stadig afventer det.
       if (!connection.position(currentTime)) return;
-      positionRef.current = currentTime;
+      positionRef.current = isTV && context !== null
+        ? archiveVideoClock.current.observe(currentTime, sample.videoRenderedFrames)
+        : currentTime;
       // Native videofremdrift: et fremadgaaende lydur beviser ikke nye billeder.
       // Kun arkiv paa TV, hoejst hver 30 s og aldrig under kilde/seek-skift.
       if (isTV && archiveRef.current !== null && connection.active && !changingSource.current && player.playing && Date.now() - lastVideoLog >= 30_000) {
@@ -342,14 +346,14 @@ export function PlayerScreen({
       }
       if (connection.active && !everReady.current) playbackStatus.current(player.status);
       const segment = archiveRef.current;
-      const absolutePosition = currentTime + (segment === null ? 0 : segment.segmentStart / 1000);
+      const absolutePosition = positionRef.current + (segment === null ? 0 : segment.segmentStart / 1000);
       if (recovery.current.position(absolutePosition, Date.now(), player.playing)) {
         cancelPendingRetry.current();
         setStreamError(null);
       }
       if (!restarted || startFrom === undefined) return;
       // Positionen i hele udsendelsen, ogsaa naar et senere stykke af arkivet spiller.
-      const absolute = currentTime + (segment === null ? 0 : (segment.segmentStart - startFrom.start.getTime()) / 1000);
+      const absolute = positionRef.current + (segment === null ? 0 : (segment.segmentStart - startFrom.start.getTime()) / 1000);
       if (absolute - lastSaved.current < 10 && absolute >= lastSaved.current) return;
       lastSaved.current = absolute;
       void saveArchiveProgress(session.db, channel.id, startFrom, absolute).catch(() => undefined);
@@ -587,7 +591,12 @@ export function PlayerScreen({
     recovery.current.beginLoad();
     const seek = archiveRef.current?.seekSeconds ?? 0;
     positionRef.current = seek;
-    void connection.load(streamSource(source), archiveRef.current !== null, seek, playIntent.current)
+    archiveVideoClock.current.reset(seek);
+    const segment = archiveRef.current;
+    const linear = Platform.OS === 'android' && segment !== null && (segment.dialect === 'php' || segment.format === 'ts');
+    setRadioState('connecting');
+    if (linear) logEvent('arkiv', `sekventiel TS v384: overlap ${seek.toFixed(3)} s, ingen PCR-byte-seek`);
+    void connection.load(streamSource(source), segment !== null, seek, playIntent.current, linear)
       .then(() => {
         if (cancelled) return;
         changingSource.current = false;
@@ -654,7 +663,7 @@ export function PlayerScreen({
       // Et bekraeftet stykke har stadig et gyldigt ur, selv om active er
       // falsk midlertidigt. Genoptag dér, aldrig fra den gamle JS-position.
       if (archiveRef.current !== null && connection.prepared) {
-        try { positionRef.current = playbackClock(positionRef.current, player.currentTime, true); } catch { /* Afspilleren er vaek. */ }
+        try { positionRef.current = isTV && archiveVideoClock.current.hasFrames ? archiveVideoClock.current.position : playbackClock(positionRef.current, player.currentTime, true); } catch { /* Afspilleren er vaek. */ }
       }
 
       const { attempt, retry } = recovery.current.failure();
@@ -814,12 +823,12 @@ export function PlayerScreen({
           const expected = playIntent.current && connection.prepared
             && (status === 'loading' || status === 'readyToPlay')
             && (isTV || player.playing || status === 'loading');
-          const position = playbackClock(positionRef.current, player.currentTime, connection.prepared);
+          const position = isTV && archiveVideoClock.current.hasFrames ? archiveVideoClock.current.position : playbackClock(positionRef.current, player.currentTime, connection.prepared);
           if (connection.prepared) positionRef.current = position;
           if (archiveWatchdog.stalled(position, Date.now(), expected)) {
             let buffered = -1;
             try { buffered = player.bufferedPosition; } catch { /* Buffermaaling maa ikke blokere genforbindelse. */ }
-            logEvent('afspiller', `arkiv uden fremdrift v383: ${position.toFixed(3)} s, ${status}, buffer til ${Number.isFinite(buffered) && buffered >= 0 ? Math.round(buffered) : '?'} s: genforbinder`);
+            logEvent('afspiller', `arkiv uden fremdrift v384: ${position.toFixed(3)} s, ${status}, buffer til ${Number.isFinite(buffered) && buffered >= 0 ? Math.round(buffered) : '?'} s: genforbinder`);
             handleFailure();
           }
         } catch {
@@ -1054,7 +1063,7 @@ export function PlayerScreen({
       )}
       {/* Startet forfra paa tv: pause og spoling, saa reklamerne kan
           springes over. Paa telefonen har afspillerens egne knapper det. */}
-      {restarted && isTV && <SeekButtons player={player} playing={playing} preferFocus onPlaybackIntentChange={changePlaybackIntent} />}
+      {restarted && isTV && <SeekButtons player={player} playing={playing} preferFocus onPlaybackIntentChange={changePlaybackIntent} onSeek={seekArchive} />}
       <TvPressable
         style={styles.button}
         hasTVPreferredFocus={isTV && !restarted && !canRestart}
@@ -1082,6 +1091,22 @@ export function PlayerScreen({
       {restarted && isTV && videoInfo !== null && <Text style={styles.videoInfo}>{videoInfo}</Text>}
     </>
   );
+
+  function seekArchive(seconds: number): void {
+    const segment = archiveRef.current;
+    if (segment === null || changingSource.current || preparingArchive.current || !connection.prepared) return;
+    if (Platform.OS !== 'android' || (segment.dialect !== 'php' && segment.format !== 'ts')) {
+      player.seekBy(seconds);
+      return;
+    }
+    const start = segment.programme.start.getTime();
+    const stop = segment.programme.stop.getTime();
+    const available = Date.now() - 90_000;
+    const latest = stop <= available ? stop - 2000 : available - 60_000;
+    const target = Math.max(start, Math.min(latest, segment.segmentStart + (positionRef.current + seconds) * 1000));
+    recovery.current.reset();
+    void playFromStart(segment.programme, new Date(target), 0, true);
+  }
 
   const subtitlePicker = showingSubtitles ? (
     <TrackPicker
@@ -1199,7 +1224,7 @@ export function PlayerScreen({
         // Paa tv uden afspillerens egne knapper: de tog fjernbetjeningen,
         // saa Tilbage foerst lukkede dem og saa maaske kanalen. Appens egen
         // bjaelke har det samme, og Tilbage gaar altid til listen.
-        video={<VideoView style={StyleSheet.absoluteFill} player={player} nativeControls={!isTV} surfaceType={surfaceTypeForPlatform()} />}
+        video={<VideoView style={[StyleSheet.absoluteFill, restarted && radioState === 'connecting' && { opacity: 0 }]} player={player} nativeControls={!isTV} surfaceType={surfaceTypeForPlatform()} />}
         bar={actions}
         playing={playing}
         // Paa tv: staar man og spoler (start-forfra/arkiv), skjules bjaelken fra
@@ -1239,8 +1264,8 @@ export function PlayerScreen({
             if (key === 'up') return false;
             // Spoling kun i arkivet: en live-kanal har intet at spole i.
             if (!restarted) return false;
-            if (key === 'left' || key === 'rewind') player.seekBy(-10);
-            else player.seekBy(30);
+            if (key === 'left' || key === 'rewind') seekArchive(-10);
+            else seekArchive(30);
             return true;
           } catch {
             return false;

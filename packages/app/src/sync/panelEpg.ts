@@ -46,7 +46,13 @@ export const PANEL_EPG_INTERVAL_MS = 24 * 60 * 60_000;
 const FORCE_MIN_MS = 60 * 60_000;
 /** Efter en fejl: proev igen om en time, ikke om et doegn. */
 const RETRY_MS = 60 * 60_000;
-const BEFORE_MS = 24 * 60 * 60_000;
+/** Hele syv kalenderdage, ogsaa foerste dags morgen og omkring sommertid. */
+export function panelEpgFrom(now: Date): number {
+  const from = new Date(now);
+  from.setHours(0, 0, 0, 0);
+  from.setDate(from.getDate() - 7);
+  return from.getTime();
+}
 const AFTER_MS = 48 * 60 * 60_000;
 /** Et sikkerhedsloft; langt over en normal favoritliste, saa alle favoritter kommer med. */
 const MAX_WANTED = 5000;
@@ -60,12 +66,12 @@ const HAS_EPG_AHEAD_MS = 6 * 60 * 60_000;
  */
 export const FILE_SPORT_CAP = 2500;
 /** Feed-id'er per native laesning; hver er ét gennemloeb af filen, og svaret holdes paa faa MB. */
-const PROGRAMME_CHUNK = 300;
+const PROGRAMME_CHUNK = 60;
 
 // "2": v321 tager alle favoritter med (ogsaa dem med EPG-id uden programmer).
-// "3": v342 tager sportskanalerne med. Ny noegle hver gang, saa den koerer
+// "3": v342 sport; "4": v384 syv dage og alle arkivkanaler. Ny noegle, saa den koerer
 // med det samme efter opdateringen i stedet for om et doegn.
-const lastKey = (sourceId: string): string => `last_panel_epg3_ms:${sourceId}`;
+const lastKey = (sourceId: string): string => `last_panel_epg4_ms:${sourceId}`;
 /** De kanaler sidste koersel hentede for; aendrer listen sig, koeres der igen (hoejst hver time). */
 const wantedKey = (sourceId: string): string => `panel_epg_wanted:${sourceId}`;
 
@@ -141,6 +147,20 @@ export async function syncPanelEpg(
      LIMIT ${MAX_WANTED}`,
     [sourceId, nowMs, nowMs + HAS_EPG_AHEAD_MS],
   );
+  // Alle arkivkanaler, ogsaa dem der har EPG forude: fremtidige
+  // programmer siger intet om hvorvidt sidste uges oversigt er hentet.
+  const archives = await db.getAllAsync<WantedChannel>(
+    `SELECT c.id AS key, c.name AS name, c.country AS country, c.epg_channel_id AS epgId
+     FROM channels c LEFT JOIN favorites f ON f.channel_id = c.id
+     WHERE c.source_id = ? AND c.has_archive = 1
+     ORDER BY f.channel_id IS NULL, f.position, c.id`,
+    [sourceId],
+  );
+  const favoriteKeys = new Set(wanted.map(entry => entry.key));
+  for (const entry of archives) if (!favoriteKeys.has(entry.key)) {
+    wanted.push(entry);
+    favoriteKeys.add(entry.key);
+  }
   // Sportskanalerne (v342): dem uden programmer forude, uanset EPG-id —
   // `refreshSportEpg` har allerede spurgt panelet per kanal for dem der kan.
   // v352: alle pakkens sportskanaler i rang-orden, ikke kun de 150 i `refresh`.
@@ -204,7 +224,7 @@ export async function syncPanelEpg(
     logEvent('baggrund', `panel-fil: hentet paa ${Math.round((Date.now() - startedAt) / 1000)} s, ${feed.length} kanaler i filen, ${matches.size} af ${wanted.length} fundet`);
     if (matches.size === 0) return { matched: 0, programmes: 0 };
 
-    const from = now.getTime() - BEFORE_MS;
+    const from = panelEpgFrom(now);
     const to = now.getTime() + AFTER_MS;
     // I klumper: hver klump er ét gennemloeb af filen i native kode og et
     // JSON-svar paa faa MB, skrevet foer den naeste laeses (v352).
@@ -380,7 +400,7 @@ export async function diagnosePanelEpg(
     }
     if (matches.size === 0) return lines.join('\n');
     const found = JSON.parse(
-      await native.programmes(path, JSON.stringify([...matches.keys()]), nowMs - BEFORE_MS, nowMs + AFTER_MS),
+      await native.programmes(path, JSON.stringify([...matches.keys()]), panelEpgFrom(now), nowMs + AFTER_MS),
     ) as FeedProgramme[];
     const programmes: Programme[] = [];
     for (const entry of found) {
@@ -390,7 +410,7 @@ export async function diagnosePanelEpg(
     }
     await upsertProgrammes(db, programmes, { replaceWindow: true });
     lines.push(`Programmer fra filen for de parrede: ${programmes.length} (skrevet ind).`);
-    if (programmes.length === 0) lines.push('Filen har kanalerne, men ingen programmer for dem i vinduet (i går–om to dage).');
+    if (programmes.length === 0) lines.push('Filen har kanalerne, men ingen programmer for dem i vinduet (syv dage tilbage–om to dage).');
   } catch (cause) {
     lines.push(`Filen kunne ikke hentes/læses: ${safeText(cause)}`);
   } finally {

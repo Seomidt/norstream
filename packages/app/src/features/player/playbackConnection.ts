@@ -7,6 +7,8 @@ export interface PlaybackPort {
   pause(): void;
   play(): void;
   currentTime: number;
+  muted: boolean;
+  playbackRate: number;
   bufferOptions: BufferOptions;
 }
 
@@ -38,6 +40,8 @@ export class PlaybackConnection {
   private expectedUri: string | null = null;
   private seekSeconds = 0;
   private archive = false;
+  private linear = false;
+  private preroll: { muted: boolean; rate: number; timer: ReturnType<typeof setInterval> } | null = null;
   private wantsPlay = true;
   private started = false;
   private disposed = false;
@@ -76,6 +80,7 @@ export class PlaybackConnection {
 
   /** Kun fase-navne, aldrig en kilde-URL eller en native fejlbesked. */
   get preparationPhase(): string {
+    if (this.preroll !== null) return 'sekventielt overlap';
     if (!this.replaced) return 'kildeskift';
     if (!this.loaded) return 'metadata';
     if (!this.ready) return this.seekApplied && this.seekSeconds > 0 ? 'buffer efter spoling' : 'buffer';
@@ -84,7 +89,7 @@ export class PlaybackConnection {
   }
 
   /** Hver anmodning er ny, ogsaa naar den skal genindlaese samme URL. */
-  load(source: VideoSource, archive: boolean, seekSeconds = 0, wantsPlay = true): Promise<void> {
+  load(source: VideoSource, archive: boolean, seekSeconds = 0, wantsPlay = true, linear = false): Promise<void> {
     this.finishPreparation();
     const generation = ++this.generation;
     this.loaded = false;
@@ -98,6 +103,7 @@ export class PlaybackConnection {
     this.expectedUri = uriOf(source);
     this.seekSeconds = Math.max(0, Number.isFinite(seekSeconds) ? seekSeconds : 0);
     this.archive = archive;
+    this.linear = archive && linear;
     this.wantsPlay = wantsPlay;
     // replaceAsync paa Android afslutter kun prepare()-kaldet. Det lover
     // hverken nye spor, en seek-map eller en faerdig buffer. Vent paa begge
@@ -108,7 +114,7 @@ export class PlaybackConnection {
         this.failed = true;
         this.timedOut = true;
         this.finishPreparation(new Error(`preparation-timeout:${this.preparationPhase}`));
-      }, archive ? 30_000 : 8000);
+      }, this.linear && this.seekSeconds > 0 ? 45_000 : archive ? 30_000 : 8000);
       this.preparation = { resolve, reject, timer };
     });
     const run = async (): Promise<void> => {
@@ -121,7 +127,7 @@ export class PlaybackConnection {
       // levere forkert. Startup stiler mod overlap + 5 s, stadig med samme
       // 64 MiB loft; efter bekraeftelse bruges normal genbuffring igen.
       this.player.bufferOptions = archive
-        ? { ...ARCHIVE_BUFFER, minBufferForPlayback: Math.min(90, this.seekSeconds + 5) }
+        ? { ...ARCHIVE_BUFFER, minBufferForPlayback: this.linear ? 5 : Math.min(90, this.seekSeconds + 5) }
         : LIVE_BUFFER;
       // Android frigiver den gamle MediaSource foer den nye forberedes.
       // iOS' asynkrone forberedelse afsluttes foer naeste replace starter.
@@ -167,9 +173,11 @@ export class PlaybackConnection {
     // Tiden i en allerede koesat haendelse kan tilhoere foer seek/skift.
     if (Math.abs(seconds - this.player.currentTime) > 2) return false;
     if (!this.seekConfirmed) {
+      if (this.linear && seconds < this.seekSeconds) return false;
       if (seconds < this.seekSeconds - 1 || seconds > this.seekSeconds + 10) return false;
       this.seekConfirmed = true;
       try {
+        this.restorePreroll();
         this.restoreBuffer();
         this.startIfWanted();
         this.finishPreparation();
@@ -188,7 +196,22 @@ export class PlaybackConnection {
       // Praecis én gang, efter DEN NYE kildes metadata og foerste buffer.
       // Afspilleren er pauset indtil en frisk position bekraefter seek.
       this.seekApplied = true;
-      this.player.currentTime = this.seekSeconds;
+      if (this.linear && this.seekSeconds > 0) {
+        // Laes det korte minut-overlap i raekkefoelge. Intet seekTo() og
+        // dermed ingen ny Range-anmodning til en gaettet TS-byteposition.
+        const muted = this.player.muted;
+        const rate = this.player.playbackRate;
+        const timer = setInterval(() => {
+          try { this.position(this.player.currentTime); }
+          catch (error: unknown) { this.failed = true; this.finishPreparation(error); }
+        }, 50);
+        this.preroll = { muted, rate, timer };
+        this.player.muted = true;
+        this.player.playbackRate = 4;
+        this.player.play();
+        return;
+      }
+      if (!this.linear) this.player.currentTime = this.seekSeconds;
       this.seekConfirmed = this.seekSeconds === 0;
       if (this.seekConfirmed) {
         this.restoreBuffer();
@@ -203,7 +226,19 @@ export class PlaybackConnection {
     }
   }
 
+  private restorePreroll(): void {
+    const previous = this.preroll;
+    if (previous === null) return;
+    this.preroll = null;
+    clearInterval(previous.timer);
+    // Oprydning maa ikke kaste fra timeout eller unmount hvis native er vaek.
+    try { this.player.pause(); } catch { /* Frigivet afspiller. */ }
+    try { this.player.playbackRate = previous.rate; } catch { /* Frigivet afspiller. */ }
+    try { this.player.muted = previous.muted; } catch { /* Frigivet afspiller. */ }
+  }
+
   private finishPreparation(error?: unknown): void {
+    this.restorePreroll();
     const pending = this.preparation;
     if (pending === null) return;
     this.preparation = null;
