@@ -30,7 +30,13 @@ export function archiveWindow(
   seekSeconds: number,
   nowMs: number,
 ): { from: Date; seekSeconds: number; minutes: number } | null {
-  const origin = Math.floor(from.getTime() / 60_000) * 60_000;
+  const seek = Number.isFinite(seekSeconds) ? Math.max(0, seekSeconds) : 0;
+  // Hent fra det minut der faktisk skal ses, og behold kun sekund-overlap.
+  // Et resume paa fx 320 s maa ikke hente de foerste fem minutter igen og
+  // derefter vaere afhaengigt af panelets byte-seek i en sammenfoejet TS.
+  const requested = from.getTime() + seek * 1000;
+  const origin = Math.floor(requested / 60_000) * 60_000;
+  if (!Number.isFinite(origin)) return null;
   const availableEnd = Math.min(programme.stop.getTime(), nowMs - LIVE_EDGE_LAG_MS);
   const complete = programme.stop.getTime() <= nowMs - LIVE_EDGE_LAG_MS;
   const minutes = complete
@@ -41,7 +47,7 @@ export function archiveWindow(
   if (minutes < 1) return null;
   return {
     from: new Date(origin),
-    seekSeconds: Math.max(0, seekSeconds) + (from.getTime() - origin) / 1000,
+    seekSeconds: (requested - origin) / 1000,
     minutes,
   };
 }

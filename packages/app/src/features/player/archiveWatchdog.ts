@@ -22,3 +22,35 @@ export function nativeFailureDetails(error: unknown): string {
 export function playbackClock(eventPosition: number, nativePosition: number, active: boolean): number {
   return active && Number.isFinite(nativePosition) && nativePosition >= 0 ? nativePosition : eventPosition;
 }
+
+/** READY og playing kan skifte flere gange i sekundet ved en tom TS-buffer.
+ * Kun reel native fremdrift, pause eller kildeskift nulstiller denne vagt. */
+export class ArchiveWatchdog {
+  private anchor: { position: number; now: number } | null = null;
+  private fired = false;
+
+  constructor(private readonly timeoutMs: number) {}
+
+  reset(): void {
+    this.anchor = null;
+    this.fired = false;
+  }
+
+  stalled(position: number, now: number, expected: boolean): boolean {
+    if (!expected || !Number.isFinite(position) || position < 0 || !Number.isFinite(now)) {
+      this.reset();
+      return false;
+    }
+    const previous = this.anchor;
+    // Smal tidsstempeljitter taeller ikke som nye billeder. Bevaegelsen
+    // maales fra ankeret, saa langsom men vedvarende fremdrift stadig ses.
+    if (previous === null || now < previous.now || Math.abs(position - previous.position) >= 0.25) {
+      this.anchor = { position, now };
+      this.fired = false;
+      return false;
+    }
+    if (this.fired || now - previous.now < this.timeoutMs) return false;
+    this.fired = true;
+    return true;
+  }
+}

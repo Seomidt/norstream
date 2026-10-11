@@ -37,6 +37,7 @@ export class PlaybackConnection {
   private timedOut = false;
   private expectedUri: string | null = null;
   private seekSeconds = 0;
+  private archive = false;
   private wantsPlay = true;
   private started = false;
   private disposed = false;
@@ -53,7 +54,12 @@ export class PlaybackConnection {
   }
 
   get active(): boolean {
-    return !this.disposed && !this.failed && this.loaded && this.replaced && this.ready && this.seekConfirmed;
+    return this.prepared && this.ready;
+  }
+
+  /** Den bekraeftede position gaelder ogsaa under senere genbuffring. */
+  get prepared(): boolean {
+    return !this.disposed && !this.failed && this.loaded && this.replaced && this.seekConfirmed;
   }
 
   get committed(): boolean {
@@ -72,7 +78,7 @@ export class PlaybackConnection {
   get preparationPhase(): string {
     if (!this.replaced) return 'kildeskift';
     if (!this.loaded) return 'metadata';
-    if (!this.ready) return 'buffer';
+    if (!this.ready) return this.seekApplied && this.seekSeconds > 0 ? 'buffer efter spoling' : 'buffer';
     if (!this.seekConfirmed) return 'spoling';
     return 'klar';
   }
@@ -91,6 +97,7 @@ export class PlaybackConnection {
     this.started = false;
     this.expectedUri = uriOf(source);
     this.seekSeconds = Math.max(0, Number.isFinite(seekSeconds) ? seekSeconds : 0);
+    this.archive = archive;
     this.wantsPlay = wantsPlay;
     // replaceAsync paa Android afslutter kun prepare()-kaldet. Det lover
     // hverken nye spor, en seek-map eller en faerdig buffer. Vent paa begge
@@ -107,7 +114,15 @@ export class PlaybackConnection {
     const run = async (): Promise<void> => {
       if (this.disposed || this.failed || generation !== this.generation) return;
       this.player.pause();
-      this.player.bufferOptions = archive ? ARCHIVE_BUFFER : LIVE_BUFFER;
+      // Et minut-overlap skal ligge i sample-koeerne FOER seek. De 90 s
+      // fremadbuffer var kun et efterfoelgende maal: foerste READY kom ved
+      // 5 s, og et seek til 59.946 s forlod derfor den eksisterende buffer.
+      // Media3 maatte saa hente ved en TS-byteposition, som PHP-arkivet kan
+      // levere forkert. Startup stiler mod overlap + 5 s, stadig med samme
+      // 64 MiB loft; efter bekraeftelse bruges normal genbuffring igen.
+      this.player.bufferOptions = archive
+        ? { ...ARCHIVE_BUFFER, minBufferForPlayback: Math.min(90, this.seekSeconds + 5) }
+        : LIVE_BUFFER;
       // Android frigiver den gamle MediaSource foer den nye forberedes.
       // iOS' asynkrone forberedelse afsluttes foer naeste replace starter.
       await this.player.replaceAsync(source);
@@ -137,7 +152,7 @@ export class PlaybackConnection {
 
   status(status: string): void {
     this.ready = status === 'readyToPlay';
-    if (status === 'error' && this.preparation !== null) {
+    if (status === 'error') {
       this.failed = true;
       this.finishPreparation(new Error('native-preparation-error'));
       return;
@@ -155,6 +170,7 @@ export class PlaybackConnection {
       if (seconds < this.seekSeconds - 1 || seconds > this.seekSeconds + 10) return false;
       this.seekConfirmed = true;
       try {
+        this.restoreBuffer();
         this.startIfWanted();
         this.finishPreparation();
       } catch (error: unknown) {
@@ -175,6 +191,7 @@ export class PlaybackConnection {
       this.player.currentTime = this.seekSeconds;
       this.seekConfirmed = this.seekSeconds === 0;
       if (this.seekConfirmed) {
+        this.restoreBuffer();
         this.startIfWanted();
         this.finishPreparation();
       }
@@ -199,6 +216,10 @@ export class PlaybackConnection {
     if (!this.wantsPlay || this.started || this.disposed) return;
     this.started = true;
     this.player.play();
+  }
+
+  private restoreBuffer(): void {
+    if (this.archive) this.player.bufferOptions = ARCHIVE_BUFFER;
   }
 
   dispose(): void {

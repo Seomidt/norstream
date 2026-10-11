@@ -23,6 +23,86 @@ function fixture() {
 describe('PlaybackConnection', () => {
   afterEach(() => vi.useRealTimers());
 
+  it('genoptager v382-loggens 59.946 s inde i den foerste buffer uden et nyt netvaerks-seek', async () => {
+    const f = fixture();
+    let actual = 0;
+    let buffered = 0;
+    let remoteSeeks = 0;
+    Object.defineProperty(f.player, 'currentTime', {
+      get: () => actual,
+      set: (time: number) => {
+        actual = time;
+        // Media3 kan spole i allerede indlaeste sample-koeer. Et seek ud
+        // over dem kraever en ny indlaesning fra panelets TS-byteposition.
+        if (time > buffered) {
+          remoteSeeks += 1;
+          f.connection.status('loading');
+        }
+      },
+    });
+    const loaded = f.connection.load('next-php-archive.ts', true, 59.946);
+    await Promise.resolve(); f.pending[0]!.resolve();
+    f.connection.sourceLoaded('next-php-archive.ts');
+    // Foerste READY foelger loadControls startup-graense, ikke de 90 s
+    // den bagefter stiler mod. I v382 var den kun 5 s.
+    buffered = f.player.bufferOptions.minBufferForPlayback!;
+    f.connection.status('readyToPlay');
+    await Promise.resolve(); await Promise.resolve();
+    const confirmed = f.connection.position(59.946);
+    f.connection.cancel();
+    await loaded;
+    expect(remoteSeeks).toBe(0);
+    expect(confirmed).toBe(true);
+    expect(f.calls.filter((call) => call.startsWith('replace:'))).toHaveLength(1);
+    expect(f.calls.filter((call) => call.startsWith('play@'))).toEqual(['play@59.946']);
+    // Efter klargoering kraever senere genbuffring igen kun 5 s.
+    expect(f.player.bufferOptions).toEqual(ARCHIVE_BUFFER);
+  });
+
+  it('bevarer et bekraeftet arkivur under tom buffer, men aldrig gennem et nyt kildeskift', async () => {
+    const f = fixture();
+    const loaded = f.connection.load('archive.ts', true, 59.946);
+    await Promise.resolve(); f.pending[0]!.resolve();
+    f.connection.sourceLoaded('archive.ts');
+    f.connection.status('readyToPlay');
+    await Promise.resolve(); await Promise.resolve();
+    f.connection.position(59.946);
+    await loaded;
+    expect(f.connection.prepared).toBe(true);
+    f.connection.status('loading');
+    expect(f.connection.active).toBe(false);
+    expect(f.connection.prepared).toBe(true); // vagten maa laese native currentTime
+    f.connection.status('error');
+    expect(f.connection.prepared).toBe(false); // et fejlet native ur maa ikke sende os tilbage til 0
+    f.connection.cancel();
+    expect(f.connection.prepared).toBe(false);
+    const next = f.connection.load('next.ts', true, 42);
+    await Promise.resolve(); f.pending[1]!.resolve();
+    f.connection.sourceLoaded('next.ts');
+    f.connection.status('readyToPlay');
+    await Promise.resolve(); await Promise.resolve();
+    expect(f.connection.prepared).toBe(false); // gammel tid kan ikke bevise nyt seek
+    f.connection.position(42);
+    await next;
+    expect(f.connection.prepared).toBe(true);
+  });
+
+  it('startup-seek faar aldrig lov at ignorere arkivets 64 MiB loft', async () => {
+    const f = fixture();
+    const loaded = f.connection.load('high-bitrate.ts', true, 59.946, false);
+    await Promise.resolve();
+    expect(f.player.bufferOptions.maxBufferBytes).toBe(67_108_864);
+    expect(f.player.bufferOptions.prioritizeTimeOverSizeThreshold).toBe(false);
+    expect(f.player.bufferOptions.minBufferForPlayback).toBeCloseTo(64.946);
+    f.pending[0]!.resolve(); f.connection.sourceLoaded('high-bitrate.ts');
+    f.connection.status('readyToPlay');
+    await Promise.resolve(); await Promise.resolve();
+    f.connection.position(59.946);
+    await loaded;
+    expect(f.player.bufferOptions.minBufferForPlayback).toBe(5);
+    expect(f.calls.filter(call => call.startsWith('play@'))).toEqual([]); // rigtig pause bevares
+  });
+
   it('venter paa den nye kildes metadata OG buffer foer et seek, som ellers ignoreres', async () => {
     const f = fixture();
     let nativeReady = false;
@@ -79,13 +159,14 @@ describe('PlaybackConnection', () => {
     f.pending[0]!.resolve();
     await Promise.resolve(); await Promise.resolve();
     expect(f.calls).toEqual(['pause', 'replace:archive.ts']);
-    expect(f.player.bufferOptions).toEqual(ARCHIVE_BUFFER);
+    expect(f.player.bufferOptions).toEqual({ ...ARCHIVE_BUFFER, minBufferForPlayback: 47 });
     expect(f.connection.position(0)).toBe(false);
     expect(f.connection.active).toBe(false);
     expect(f.connection.position(42.1)).toBe(true);
     await loaded;
     expect(f.calls).toEqual(['pause', 'replace:archive.ts', 'play@42']);
     expect(f.connection.active).toBe(true);
+    expect(f.player.bufferOptions).toEqual(ARCHIVE_BUFFER);
     // Klargoerings- og bufferhaendelser maa ikke genindlaese kilden.
     f.connection.status('loading');
     f.connection.status('readyToPlay');

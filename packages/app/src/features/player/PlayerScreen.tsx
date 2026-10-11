@@ -1,7 +1,7 @@
 import { setPlaybackSnapshot, closePlaybackSnapshot } from '../../diagnostics/reporter.js';
 import { TV_CODEC_OPTIONS, videoFrameSummary } from './tvCodec.js';
 import type { VideoFrameSample } from './tvCodec.js';
-import { nativeFailureDetails, playbackClock, playbackFailureKind } from './archiveWatchdog.js';
+import { ArchiveWatchdog, nativeFailureDetails, playbackClock, playbackFailureKind } from './archiveWatchdog.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -627,6 +627,8 @@ export function PlayerScreen({
     let gaveUp = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let stallTimer: ReturnType<typeof setTimeout> | null = null;
+    const archiveWatchdog = new ArchiveWatchdog(STALL_TIMEOUT_MS);
+    let lastBufferLog = 0;
 
     const cancelRetry = (): void => {
       if (retryTimer !== null) clearTimeout(retryTimer);
@@ -647,6 +649,13 @@ export function PlayerScreen({
       if (cancelled || gaveUp || retryTimer !== null || preparingArchive.current || changingSource.current) return;
       clearStallTimer();
       if (!playIntent.current) return;
+
+      // Under buffering kan sidste READY-timeUpdate ligge bag native uret.
+      // Et bekraeftet stykke har stadig et gyldigt ur, selv om active er
+      // falsk midlertidigt. Genoptag dér, aldrig fra den gamle JS-position.
+      if (archiveRef.current !== null && connection.prepared) {
+        try { positionRef.current = playbackClock(positionRef.current, player.currentTime, true); } catch { /* Afspilleren er vaek. */ }
+      }
 
       const { attempt, retry } = recovery.current.failure();
       const unseeked = archiveRef.current;
@@ -759,7 +768,10 @@ export function PlayerScreen({
         return;
       }
       if (status === 'loading') {
-        if (everReady.current) logEvent('afspiller', `buffrer ved ${Math.round(positionRef.current)} s`);
+        if (everReady.current && Date.now() - lastBufferLog >= 5000) {
+          logEvent('afspiller', `buffrer ved ${Math.round(positionRef.current)} s`);
+          lastBufferLog = Date.now();
+        }
         setAudioState('Forbinder …');
         setRadioState('connecting');
       }
@@ -771,7 +783,9 @@ export function PlayerScreen({
       // Mens replace/metadata klargoeres har connection sin egen deadline.
       // En status-timer her kunne udloepe under changingSource, blive
       // ignoreret og staa som en doed timer, saa intet senere blev opdaget.
-      if (status === 'loading' && !changingSource.current && stallTimer === null) {
+      // Arkivets stopvagt nedenfor overlever READY/loading-oscillation.
+      // En READY-haendelse alene maa ikke give en ny ventetid uden billeder.
+      if (status === 'loading' && archiveRef.current === null && !changingSource.current && stallTimer === null) {
         stallTimer = setTimeout(handleFailure, everReady.current ? STALL_TIMEOUT_MS : restarted ? ARCHIVE_INITIAL_TIMEOUT_MS : INITIAL_STALL_TIMEOUT_MS);
       }
     };
@@ -790,7 +804,29 @@ export function PlayerScreen({
     let lastPosition = positionRef.current;
     let stillSince: number | null = null;
     const frozenTimer = setInterval(() => {
-      if (cancelled || changingSource.current || preparingArchive.current) return;
+      if (cancelled || changingSource.current || preparingArchive.current) {
+        archiveWatchdog.reset();
+        return;
+      }
+      if (archiveRef.current !== null) {
+        try {
+          const status = player.status;
+          const expected = playIntent.current && connection.prepared
+            && (status === 'loading' || status === 'readyToPlay')
+            && (isTV || player.playing || status === 'loading');
+          const position = playbackClock(positionRef.current, player.currentTime, connection.prepared);
+          if (connection.prepared) positionRef.current = position;
+          if (archiveWatchdog.stalled(position, Date.now(), expected)) {
+            let buffered = -1;
+            try { buffered = player.bufferedPosition; } catch { /* Buffermaaling maa ikke blokere genforbindelse. */ }
+            logEvent('afspiller', `arkiv uden fremdrift v383: ${position.toFixed(3)} s, ${status}, buffer til ${Number.isFinite(buffered) && buffered >= 0 ? Math.round(buffered) : '?'} s: genforbinder`);
+            handleFailure();
+          }
+        } catch {
+          // Afspilleren er vaek. Ingen ekstra forbindelse aabnes her.
+        }
+        return;
+      }
       let shouldAdvance = false;
       try {
         shouldAdvance = player.playing && player.status === 'readyToPlay';

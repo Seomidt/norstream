@@ -86,10 +86,20 @@ describe('archiveContinuation', () => {
       .toEqual({ from: show.start, seekSeconds: 0, minutes: 1 });
   });
 
-  it('tager programmets sekunder med i seek naar panelet runder starttiden ned', () => {
+  it('flytter et langt resume til det rigtige arkivminut og bevarer programmets sekunder', () => {
     const start = new Date(at('20:00') + 25_000);
     expect(archiveWindow({ ...show, start }, start, 320, at('22:00')))
-      .toEqual({ from: show.start, seekSeconds: 345, minutes: 60 });
+      .toEqual({ from: new Date(at('20:05')), seekSeconds: 45, minutes: 55 });
+  });
+
+  it('genoptager paa praecis samme absolutte sted ved alle 60 sekunder i et arkivminut', () => {
+    for (let second = 0; second < 60; second += 1) {
+      const seek = 320 + second + 0.946;
+      const window = archiveWindow(show, show.start, seek, at('22:00'))!;
+      expect(window.seekSeconds).toBeGreaterThanOrEqual(0);
+      expect(window.seekSeconds).toBeLessThan(60);
+      expect(window.from.getTime() + window.seekSeconds * 1000).toBe(show.start.getTime() + seek * 1000);
+    }
   });
 
   it('ser en hel igangvaerende times udsendelse uden huller eller gentagne minutter', () => {
