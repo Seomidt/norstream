@@ -10,6 +10,7 @@ import { programmeOptions } from './layout.js';
 import type { CellState } from './layout.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
+import { restartModeFor } from '../player/restart.js';
 
 interface Props {
   channel: StoredChannel;
@@ -50,6 +51,7 @@ export function ProgrammeSheet({
   const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
   const options = programmeOptions(state, channel, hasDialect);
+  const trial = restartModeFor(channel.hasArchive, hasDialect, programme !== null && (state === 'live' || state === 'past')) === 'trial';
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -75,7 +77,7 @@ export function ProgrammeSheet({
 
         <Text style={styles.title}>{programme === null ? channel.name : programme.title}</Text>
 
-        <ScrollView style={styles.descriptionBox}>
+        <ScrollView style={[styles.descriptionBox, isTV && trial && styles.trialDescriptionBox]}>
           <Text style={styles.description}>
             {programme === null
               ? 'Udbyderen har ingen programoversigt for kanalen i dette tidsrum. Kanalen kan ses direkte.'
@@ -96,13 +98,13 @@ export function ProgrammeSheet({
               <Text style={styles.buttonText}>Se {channel.name}</Text>
             </TvPressable>
           )}
-          {options.restart && (
+          {(options.restart || trial) && (
             <TvPressable
               style={[styles.button, !options.play && styles.buttonAccent]}
               onPress={onRestart}
               hasTVPreferredFocus={isTV && !options.play}
             >
-              <Text style={styles.buttonText}>▶ Start forfra</Text>
+              <Text style={styles.buttonText}>{trial ? '▶ Prøv start forfra' : '▶ Start forfra'}</Text>
             </TvPressable>
           )}
           {reminder !== undefined && programme !== null && state === 'future' && (
@@ -112,9 +114,13 @@ export function ProgrammeSheet({
           )}
           {!options.restart && programme !== null && (
             <Text style={styles.hint}>
-              {channel.hasArchive
+              {state === 'future'
+                ? 'Udsendelsen er ikke begyndt endnu.'
+                : trial
+                ? 'Udbyderen oplyser ikke arkiv. Du kan afprøve, om udsendelsen kan startes forfra.'
+                : channel.hasArchive
                 ? 'Appen har ikke fundet vejen til udbyderens arkiv endnu, så udsendelsen kan ikke startes forfra.'
-                : 'Kanalen har intet arkiv hos udbyderen, så kun direkte visning er mulig.'}
+                : 'Udbyderen oplyser ikke arkiv på kanalen. Appen mangler også vejen til arkivet.'}
             </Text>
           )}
         </View>
@@ -174,6 +180,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     marginTop: theme.spacing.md,
   },
   descriptionBox: { maxHeight: 160, marginTop: theme.spacing.sm },
+  trialDescriptionBox: { maxHeight: 80 },
   description: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
   actions: { marginTop: theme.spacing.lg, gap: theme.spacing.sm },
   button: {

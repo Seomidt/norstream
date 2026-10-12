@@ -270,3 +270,46 @@ describe('Tilbage fra hele dagen bruger den rigtige TV-guide', () => {
     expect(mocks.log).not.toHaveBeenCalledWith('guide', expect.stringContaining(': fokus bekraeftet'));
   });
 });
+
+describe('manuelt arkivforsoeg i TV-programbladet', () => {
+  it.each(['live', 'past'] as const)('kan vaelges med OK for %s uden at saette udbyderens arkivflag', async (state) => {
+    const selected = { ...channel, hasArchive: false, archiveDays: 0 };
+    const restart = vi.fn();
+    const play = vi.fn();
+    const tree = await mount(createElement(ProgrammeSheet, {
+      channel: selected, programme: programmes()[336]!, state, hasDialect: true,
+      onPlay: play, onRestart: restart, onClose: vi.fn(),
+    }));
+    const button = tree.root.findAllByType(TvPressable).find(n => textOf(n).includes('Prøv start forfra'))!;
+    expect(button).toBeDefined();
+    await act(async () => button.props.onPress());
+    expect(restart).toHaveBeenCalledTimes(1);
+    expect(play).not.toHaveBeenCalled();
+    expect(selected.hasArchive).toBe(false);
+    expect(selected.archiveDays).toBe(0);
+    const description = tree.root.findByType(host('ScrollView'));
+    expect(description.props.style[1].maxHeight).toBe(80);
+  });
+
+  it.each([
+    { state: 'future' as const, programme: true, dialect: true },
+    { state: 'gap' as const, programme: false, dialect: true },
+    { state: 'live' as const, programme: true, dialect: false },
+  ])('viser ikke en proeve for manglende forudsaetninger: $state/$dialect', async ({ state, programme, dialect }) => {
+    const tree = await mount(createElement(ProgrammeSheet, {
+      channel: { ...channel, hasArchive: false }, programme: programme ? programmes()[336]! : null,
+      state, hasDialect: dialect, onPlay: vi.fn(), onRestart: vi.fn(), onClose: vi.fn(),
+    }));
+    expect(tree.root.findAllByType(TvPressable).some(n => textOf(n).includes('Prøv start forfra'))).toBe(false);
+  });
+
+  it('beholder den normale Start forfra paa en kanal med annonceret arkiv', async () => {
+    const tree = await mount(createElement(ProgrammeSheet, {
+      channel, programme: programmes()[336]!, state: 'live', hasDialect: true,
+      onPlay: vi.fn(), onRestart: vi.fn(), onClose: vi.fn(),
+    }));
+    const buttons = tree.root.findAllByType(TvPressable).map(textOf);
+    expect(buttons).toContain('▶ Start forfra');
+    expect(buttons).not.toContain('▶ Prøv start forfra');
+  });
+});
