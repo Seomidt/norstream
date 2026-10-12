@@ -1,4 +1,4 @@
-import { deriveCountry, deriveCountryLoose, normaliseChannelName } from '@norstream/core';
+import { deriveCountry, deriveCountryLoose, legacyNamesFor, normaliseChannelName } from '@norstream/core';
 
 /** En af appens kanaler der mangler EPG: noeglen, navnet og landet (ISO-kode eller ''). */
 export interface WantedChannel {
@@ -65,12 +65,16 @@ export function matchPanelEpg(wanted: readonly WantedChannel[], feed: readonly F
     const names = [...channel.n, channel.id.replace(/\.[a-z]{2}$/i, '')];
     const seen = new Set<string>();
     for (const name of names) {
-      const key = normaliseChannelName(name);
-      if (key.length === 0 || seen.has(key)) continue;
-      seen.add(key);
-      const list = byName.get(key);
-      if (list === undefined) byName.set(key, [ref]);
-      else list.push(ref);
+      const normalised = normaliseChannelName(name);
+      // V Film/Viasat Film og V Series/Viasat Series er kendte
+      // omdoebninger. Begge sider kan bruge det gamle navn.
+      for (const key of [normalised, ...legacyNamesFor(normalised)]) {
+        if (key.length === 0 || seen.has(key)) continue;
+        seen.add(key);
+        const list = byName.get(key);
+        if (list === undefined) byName.set(key, [ref]);
+        else list.push(ref);
+      }
     }
   }
 
@@ -93,8 +97,12 @@ export function matchPanelEpg(wanted: readonly WantedChannel[], feed: readonly F
     }
     const key = normaliseChannelName(channel.name);
     if (key.length === 0) continue;
-    const candidates = byName.get(key);
-    if (candidates === undefined || candidates.length === 0) continue;
+    const distinct = new Map<string, FeedRef>();
+    for (const alias of [key, ...legacyNamesFor(key)]) {
+      for (const ref of byName.get(alias) ?? []) if (!distinct.has(ref.id)) distinct.set(ref.id, ref);
+    }
+    const candidates = [...distinct.values()];
+    if (candidates.length === 0) continue;
     const country = channel.country.toUpperCase();
     let pick: FeedRef | undefined;
     if (country.length > 0) {

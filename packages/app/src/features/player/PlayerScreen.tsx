@@ -1,4 +1,5 @@
 import { setPlaybackSnapshot, closePlaybackSnapshot } from '../../diagnostics/reporter.js';
+import { channelEpgSummary } from '../../diagnostics/channelEpg.js';
 import { TV_CODEC_OPTIONS, videoFrameSummary } from './tvCodec.js';
 import type { VideoFrameSample } from './tvCodec.js';
 import { ArchiveWatchdog, ArchiveVideoClock, nativeFailureDetails, playbackClock, playbackFailureKind } from './archiveWatchdog.js';
@@ -581,6 +582,7 @@ export function PlayerScreen({
       const dialect = await getTimeshiftDialect(session.db, channel.sourceId);
       if (cancelled) return;
       setRestartBlock(restartBlockFor(channel.hasArchive, dialect !== null, result.now !== null));
+      logEvent('epg', channelEpgSummary(channel, { hasDialect: dialect !== null, hasCurrent: result.now !== null }));
 
     }
 
@@ -1019,6 +1021,7 @@ export function PlayerScreen({
       setNow(result.now);
       setNext(result.next);
       setRestartBlock(restartBlockFor(channel.hasArchive, dialect !== null, result.now !== null));
+      logEvent('epg', channelEpgSummary(channel, { hasDialect: dialect !== null, hasCurrent: result.now !== null }));
     } finally {
       setRepairing(false);
     }

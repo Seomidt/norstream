@@ -60,7 +60,7 @@ beforeEach(async () => {
   await replaceChannels(db, sourceId, [
     // Britisk uden EPG-id: panelet giver den ingen EPG per kanal.
     ch('1', 'UK| BBC ONE HD'),
-    // Dansk med EPG-id: klares af get_short_epg og skal ikke med her.
+    // Dansk med EPG-id: filen maa ogsaa supplere dens korte nu/naeste.
     ch('2', 'DNK| DR1 HD', 'DR1.dk'),
   ]);
   await setFavorite(db, `${sourceId}:1`, true);
@@ -158,7 +158,7 @@ describe('syncPanelEpg', () => {
     expect(await programmesFor(`${sourceId}:2`)).toEqual([{ title: 'TV Avisen', description: null }]);
   });
 
-  it('lader favoritter med EPG-id vaere, naar de allerede har programmer', async () => {
+  it('supplerer en favorit med nu/naeste i stedet for at springe hele guiden over', async () => {
     await db.runAsync('INSERT INTO epg_fetch (stream_id, fetched_at) VALUES (?, ?)', [`${sourceId}:2`, NOW.getTime()]);
     await db.runAsync('INSERT INTO programmes VALUES (?, ?, ?, ?, NULL)', [
       `${sourceId}:2`,
@@ -167,8 +167,45 @@ describe('syncPanelEpg', () => {
       'Fra panelet',
     ]);
     const native = fakeNative();
+    native.programmes = vi.fn(async (_path, ids) => {
+      native.asked.push(JSON.parse(ids));
+      return JSON.stringify([
+        { c: 'DR1.dk', s: NOW.getTime() + 7_200_000, e: NOW.getTime() + 10_800_000, t: 'Resten af dagen' },
+      ]);
+    });
     await syncPanelEpg(db, sourceId, creds, { now: NOW, native });
-    expect(native.asked).toEqual([['BBCOne.uk']]);
+    expect(native.asked[0]).toContain('DR1.dk');
+    expect(await programmesFor(`${sourceId}:2`)).toEqual([
+      { title: 'Fra panelet', description: null },
+      { title: 'Resten af dagen', description: null },
+    ]);
+  });
+
+  it('giver en V Film-favorit resten af dagen gennem det gamle feednavn uden at opfinde arkiv', async () => {
+    await replaceChannels(db, sourceId, [ch('3', 'DNK| V Film Hits FHD')]);
+    const key = `${sourceId}:3`;
+    await setFavorite(db, key, true);
+    await db.runAsync('INSERT INTO programmes(channel_id,start_ms,stop_ms,title) VALUES(?,?,?,?)',
+      [key, NOW.getTime(), NOW.getTime() + 3_600_000, 'Filmen nu']);
+    const native = fakeNative();
+    native.channels = vi.fn(async () => JSON.stringify([
+      { id: 'ViasatFilmHits.se', n: ['Viasat Film Hits'] },
+      { id: 'ViasatFilmHits.dk', n: ['Viasat Film Hits'] },
+    ]));
+    native.programmes = vi.fn(async (_path, ids) => {
+      native.asked.push(JSON.parse(ids));
+      return JSON.stringify([
+        { c: 'ViasatFilmHits.dk', s: NOW.getTime() + 3_600_000, e: NOW.getTime() + 9_000_000, t: 'Naeste film' },
+      ]);
+    });
+    expect(await syncPanelEpg(db, sourceId, creds, { now: NOW, native })).toEqual({ matched: 1, programmes: 1 });
+    expect(native.asked).toEqual([['ViasatFilmHits.dk']]);
+    expect(await programmesFor(key)).toEqual([
+      { title: 'Filmen nu', description: null },
+      { title: 'Naeste film', description: null },
+    ]);
+    expect(await db.getFirstAsync('SELECT has_archive,archive_days FROM channels WHERE id=?', [key]))
+      .toEqual({ has_archive: 0, archive_days: 0 });
   });
 
   it('henter hoejst én gang i doegnet, og Hent hoejst én gang i timen', async () => {

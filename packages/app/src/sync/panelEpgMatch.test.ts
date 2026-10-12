@@ -18,6 +18,44 @@ describe('feedCountry', () => {
 });
 
 describe('matchPanelEpg', () => {
+  it.each(['Action', 'Hits', 'Family', 'Premiere'])(
+    'matcher V Film %s og Viasat Film i begge retninger med korrekt land', (variant) => {
+      for (const [panelName, feedName] of [
+        [`V Film ${variant}`, `Viasat Film ${variant}`],
+        [`Viasat Film ${variant}`, `V Film ${variant}`],
+      ]) {
+        const result = matchPanelEpg(
+          [{ key: 'p:film', name: `DNK| ${panelName} FHD MULTI`, country: 'DK' }],
+          [{ id: 'film.se', n: [feedName] }, { id: 'film.dk', n: [feedName] }],
+        );
+        expect([...result.entries()]).toEqual([['film.dk', ['p:film']]]);
+      }
+    },
+  );
+
+  it('tager ikke svenske programmer paa en dansk V Film via det gamle navn', () => {
+    expect(matchPanelEpg(
+      [{ key: 'p:film', name: 'DNK| V Film Hits HD', country: 'DK' }],
+      [{ id: 'film.se', n: ['Viasat Film Hits'] }],
+    ).size).toBe(0);
+  });
+
+  it('taeller ikke samme feed flere gange naar begge navne staar i filen', () => {
+    const result = matchPanelEpg(
+      [{ key: 'p:film', name: 'V Film Hits', country: '' }],
+      [{ id: 'VFilmHits', n: ['V Film Hits', 'Viasat Film Hits'] }],
+    );
+    expect([...result.entries()]).toEqual([['VFilmHits', ['p:film']]]);
+  });
+
+  it('bevarer direkte EPG-id ogsaa naar et andet feed matcher det nye navn', () => {
+    const result = matchPanelEpg(
+      [{ key: 'p:series', name: 'DNK| V Series', country: 'DK', epgId: 'exact.dk' }],
+      [{ id: 'new.dk', n: ['V Series'] }, { id: 'exact.dk', n: ['Viasat Series'] }],
+    );
+    expect([...result.entries()]).toEqual([['exact.dk', ['p:series']]]);
+  });
+
   it('matcher en britisk panelkanal paa navn og land', () => {
     const result = matchPanelEpg(
       [{ key: 'p:1', name: 'UK| BBC ONE HD', country: 'GB' }],

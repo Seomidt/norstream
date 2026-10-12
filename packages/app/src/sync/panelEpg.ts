@@ -11,8 +11,7 @@ import { logEvent } from '../diagnostics/log.js';
 import type { FeedChannel, WantedChannel } from './panelEpgMatch.js';
 
 /**
- * EPG fra panelets egen XMLTV-fil (xmltv.php) til de favoritter panelet
- * ikke giver EPG for per kanal — i praksis UK, US m.fl.
+ * EPG fra panelets egen XMLTV-fil (xmltv.php) til favoritter og arkivkanaler.
  *
  * Panelets `get_short_epg` virker kun for kanaler med et EPG-id (13 %, mest
  * de danske). TiviMate faar resten fra den store fil og matcher paa navn.
@@ -21,8 +20,9 @@ import type { FeedChannel, WantedChannel } from './panelEpgMatch.js';
  *
  *  - Filen hentes og laeses i en baggrundstraad i native kode (PanelEpgModule),
  *    aldrig i JavaScript og aldrig hele i hukommelsen.
- *  - Kun favoritter (det guiden viser) som panelet ikke giver EPG for per
- *    kanal, og kun et vindue paa tre doegn. Favoritter, ikke alle 22.000.
+ *  - Alle favoritter (det guiden viser) og alle arkivkanaler, i vinduet
+ *    syv dage bagud og to dage frem. Favoritter, ikke alle 22.000.
+ *    Nu/naeste er ikke bevis for at resten af guiden er hentet (v388).
  *    Fra v342 ogsaa sportskanalerne "Find kampen" soeger i, for de fleste af
  *    dem (UK, US …) har intet EPG-id og fik ellers aldrig programmer — saa
  *    fandt Sport kun det danske. Fra v352 ALLE sportskanaler i pakken
@@ -69,9 +69,9 @@ export const FILE_SPORT_CAP = 2500;
 const PROGRAMME_CHUNK = 60;
 
 // "2": v321 tager alle favoritter med (ogsaa dem med EPG-id uden programmer).
-// "3": v342 sport; "4": v384 syv dage og alle arkivkanaler. Ny noegle, saa den koerer
+// "3": v342 sport; "4": v384 arkiv; "5": v388 fuld favorit-EPG og navnealiaser. Ny noegle, saa den koerer
 // med det samme efter opdateringen i stedet for om et doegn.
-const lastKey = (sourceId: string): string => `last_panel_epg4_ms:${sourceId}`;
+const lastKey = (sourceId: string): string => `last_panel_epg5_ms:${sourceId}`;
 /** De kanaler sidste koersel hentede for; aendrer listen sig, koeres der igen (hoejst hver time). */
 const wantedKey = (sourceId: string): string => `panel_epg_wanted:${sourceId}`;
 
@@ -128,24 +128,18 @@ export async function syncPanelEpg(
   // Aldrig oftere end hver time — heller ikke med "Hent".
   if (age < FORCE_MIN_MS) return null;
 
-  // Alle favoritter uden programmer i de naeste timer, uanset EPG-id (v343).
-  // Foer skulle panelet foerst vaere spurgt per kanal (epg_fetch) foer en
-  // favorit MED EPG-id kom med; koerte den daglige hentning foer det, stod
-  // favoritterne uden EPG et doegn, mens sportskanalerne fik deres. Dem der
-  // allerede har EPG, roeres stadig ikke — ellers blev hundredvis af danske
-  // favoritter skrevet dobbelt.
+  // Alle favoritter: get_short_epg kan give det aktuelle program uden at
+  // getFullEpg giver resten. Et eneste program forude maa derfor ikke
+  // blokere filens fulde oversigt. Filen hentes stadig hoejst dagligt.
   const nowMs = now.getTime();
   const wanted = await db.getAllAsync<WantedChannel>(
     `SELECT c.id AS key, c.name AS name, c.country AS country, c.epg_channel_id AS epgId
      FROM favorites f
      JOIN channels c ON c.id = f.channel_id
      WHERE c.source_id = ?
-       AND NOT EXISTS (
-         SELECT 1 FROM programmes p WHERE p.channel_id = c.id AND p.stop_ms > ? AND p.start_ms < ?
-       )
      ORDER BY f.position IS NULL, f.position
      LIMIT ${MAX_WANTED}`,
-    [sourceId, nowMs, nowMs + HAS_EPG_AHEAD_MS],
+    [sourceId],
   );
   // Alle arkivkanaler, ogsaa dem der har EPG forude: fremtidige
   // programmer siger intet om hvorvidt sidste uges oversigt er hentet.

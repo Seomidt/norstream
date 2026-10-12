@@ -47,7 +47,7 @@ vi.mock('../../sync/epgCache.js', () => ({ ensureFullEpg: mocks.full, ensureEpg:
 vi.mock('../../sync/panelEpg.js', () => ({ panelEpgInFlight: mocks.panel, startPanelEpg: mocks.panel }));
 vi.mock('../../sync/weather.js', () => ({ loadCachedWeather: async () => null, refreshWeather: async () => null }));
 vi.mock('../../sync/news.js', () => ({ loadCachedNews: async () => null, refreshNews: async () => null }));
-vi.mock('../../diagnostics/log.js', () => ({ logEvent: mocks.log }));
+vi.mock('../../diagnostics/log.js', () => ({ logEvent: mocks.log, safe: (text: string) => text }));
 vi.mock('../../ui/ChannelLogo.js', () => ({ ChannelLogo: () => null }));
 vi.mock('../../ui/Notice.js', () => ({ Notice: () => null }));
 vi.mock('../preview/MiniPreview.js', () => ({ MiniPreview: () => null }));
@@ -151,6 +151,19 @@ describe('dagsoversigt paa TV med faktisk React-livscyklus', () => {
     expect(tree.root.findByType(host('NativeList')).props.data).toHaveLength(48);
     expect(tree.root.findAllByType(host('ActivityIndicator')).length).toBeGreaterThan(0);
     await act(async () => panel.resolve(null));
+  });
+
+  it('supplerer dagsoversigten fra filen ogsaa paa en kanal uden arkiv', async () => {
+    const selected = { ...channel, name: 'DNK| V Film Hits', hasArchive: false, archiveDays: 0, epgChannelId: null };
+    const all = programmes(selected.id);
+    const current = all.filter(p => p.start.getTime() <= Date.now() && p.stop.getTime() > Date.now());
+    mocks.list.mockResolvedValueOnce(current).mockResolvedValueOnce(current).mockResolvedValueOnce(all);
+    const tree = await mount(dayElement(selected));
+    await measureDay(tree);
+    expect(mocks.panel).toHaveBeenCalled();
+    expect(tree.root.findByType(host('NativeList')).props.data).toHaveLength(48);
+    expect(mocks.log).toHaveBeenCalledWith('epg', expect.stringContaining('VFILMHITS, EPG-id nej, arkiv nej'));
+    expect(mocks.log).toHaveBeenCalledWith('epg', expect.stringContaining('fuld tabel 480'));
   });
 
   it('et sent tomt cache-svar kan ikke slette den frisk hentede tabel', async () => {

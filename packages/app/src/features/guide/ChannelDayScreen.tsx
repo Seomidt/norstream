@@ -18,6 +18,7 @@ import { refocusLastPressed } from '../../ui/refocus.js';
 import { isTV } from '../../ui/tv.js';
 import { addReminder, hasReminder, removeReminder } from '../../storage/reminders.js';
 import { logEvent } from '../../diagnostics/log.js';
+import { channelEpgSummary } from '../../diagnostics/channelEpg.js';
 
 interface Props {
   session: AppSession;
@@ -140,7 +141,9 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
         await load();
         if (cancelled) return;
         const creds = session.credsBySource.get(channel.sourceId);
-        if (channel.hasArchive && creds !== undefined) {
+        // En fuld guide kraever ikke arkiv. Filen kan have oversigten,
+        // selv naar panelets tabel kun gav nu/naeste eller intet.
+        if (creds !== undefined) {
           await (panelEpgInFlight() ?? startPanelEpg(session.db, [{ sourceId: channel.sourceId, creds }]));
         }
         if (cancelled) return;
@@ -156,6 +159,16 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
       cancelled = true;
     };
   }, [session, channel.id, channel.sourceId, channel.hasArchive, dayBounds]);
+
+  useEffect(() => {
+    if (allProgrammes === null) return;
+    const at = Date.now();
+    logEvent('epg', channelEpgSummary(channel, {
+      hasDialect,
+      hasCurrent: allProgrammes.some(p => p.start.getTime() <= at && p.stop.getTime() > at),
+      programmeCount: allProgrammes.length,
+    }));
+  }, [channel, hasDialect, allProgrammes]);
 
   useEffect(() => {
     if (programmes !== null) {
