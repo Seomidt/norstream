@@ -222,9 +222,32 @@ export const GuideScreen = memo(function GuideScreen({
   });
   /** Kanalen hvis hele dag vises, i stedet for gitteret. */
   const [dayFor, setDayFor] = useState<StoredChannel | null>(null);
+  // Gem den oprindelige guide-celle; globale "sidste tryk" bliver aendret
+  // af alle dagsknapperne, saa det kan ikke bruges til denne tilbage-vej.
+  const dayOrigin = useRef<{ channelId: string; key: string; atMs: number | null } | null>(null);
+  const dayWasOpen = useRef(false);
+  useEffect(() => {
+    if (dayFor !== null) {
+      dayWasOpen.current = true;
+      return;
+    }
+    if (!dayWasOpen.current) return;
+    dayWasOpen.current = false;
+    const origin = dayOrigin.current;
+    dayOrigin.current = null;
+    if (!isTV || origin === null) return;
+    // Gitteret har display:none under dagssiden. Vent paa at Android har
+    // lagt det frem igen, foer cellen faar sit eksisterende fokussignal.
+    const timer = setTimeout(() => {
+      logEvent('guide', 'hele dagen v385: beder om fokus paa oprindelig guide-celle');
+      setFocusTarget(origin);
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [dayFor]);
   if (backRef !== undefined) {
     backRef.current = (): boolean => {
       if (dayFor !== null) {
+        logEvent('guide', 'hele dagen v385: Tilbage lukker kun dagssiden');
         setDayFor(null);
         return true;
       }
@@ -334,9 +357,11 @@ export const GuideScreen = memo(function GuideScreen({
     }
     if (!sheetWasOpen.current || !isTV) return;
     sheetWasOpen.current = false;
+    // Naar arket aabner hele dagen, skal fokus blive paa dagssiden.
+    if (dayFor !== null) return;
     const timer = setTimeout(() => refocusLastPressed(), 80);
     return () => clearTimeout(timer);
-  }, [sheet]);
+  }, [sheet, dayFor]);
   /** Om der er sat paamindelse paa bladets udsendelse; null mens det slaas op. */
   const [sheetReminder, setSheetReminder] = useState<boolean | null>(null);
   useEffect(() => {
@@ -1162,6 +1187,7 @@ export const GuideScreen = memo(function GuideScreen({
           }}
           onDay={() => {
             const channel = sheet.channel;
+            dayOrigin.current = { channelId: channel.id, key: sheet.cell.key, atMs: sheet.cell.programme?.start.getTime() ?? null };
             setSheet(null);
             setDayFor(channel);
           }}

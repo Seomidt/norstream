@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from 'react-native';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
@@ -17,6 +17,7 @@ import { keepInMiddle, useTvListTail } from '../../ui/tvScroll.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
 import { isTV } from '../../ui/tv.js';
 import { addReminder, hasReminder, removeReminder } from '../../storage/reminders.js';
+import { logEvent } from '../../diagnostics/log.js';
 
 interface Props {
   session: AppSession;
@@ -107,8 +108,11 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
   const liveIndex =
     programmes === null || dayDelta !== 0 ? -1 : programmes.findIndex((programme) => programme.stop.getTime() > now.getTime());
   useEffect(() => {
-    if (liveIndex <= 0) return;
-    const frame = requestAnimationFrame(() => listRef.current?.scrollToIndex({ index: liveIndex, animated: false, viewPosition: 0 }));
+    if (programmes === null) return;
+    const frame = requestAnimationFrame(() => {
+      if (liveIndex > 0) listRef.current?.scrollToIndex({ index: liveIndex, animated: false, viewPosition: 0 });
+      else listRef.current?.scrollToOffset({ offset: 0, animated: false });
+    });
     return () => cancelAnimationFrame(frame);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [programmes === null, dayDelta]);
@@ -175,7 +179,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
   for (let delta = -daysBack; delta <= DAYS_FORWARD; delta += 1) days.push(delta);
 
   return (
-    <View style={styles.container}>
+    <TVFocusGuideView style={styles.container} autoFocus={isTV} trapFocusLeft={isTV} trapFocusRight={isTV}>
       <TvPressable style={styles.crumb} focusable={!isTV} onPress={onBack} hitSlop={8}>
         <Text style={styles.crumbBack}>‹</Text>
         <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={28} />
@@ -185,7 +189,13 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
         {fetching && <ActivityIndicator color={colors.accent} />}
       </TvPressable>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dayRow} contentContainerStyle={styles.dayRowContent}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.dayRow}
+        contentContainerStyle={styles.dayRowContent}
+        onLayout={({ nativeEvent: { layout } }) => logEvent('guide', `hele dagen v385: dagsvaelger ${Math.round(layout.width)}x${Math.round(layout.height)}, ${days.length} dage`)}
+      >
         {days.map((delta) => (
           <TvPressable
             key={delta}
@@ -194,7 +204,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
             hasTVPreferredFocus={isTV && delta === dayDelta}
             onPress={() => setDayDelta(delta)}
           >
-            <Text style={[styles.dayChipText, delta === dayDelta && styles.dayChipTextActive]}>
+            <Text numberOfLines={1} style={[styles.dayChipText, delta === dayDelta && styles.dayChipTextActive]}>
               {dayLabel(now, delta)}
             </Text>
           </TvPressable>
@@ -211,6 +221,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
         </View>
       ) : (
         <FlatList
+          style={styles.programmeList}
           removeClippedSubviews={false}
           ref={listRef}
           data={programmes}
@@ -298,7 +309,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
           }}
         />
       )}
-    </View>
+    </TVFocusGuideView>
   );
 }
 
@@ -325,6 +336,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   crumb: {
+    flexShrink: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: theme.spacing.sm,
@@ -333,8 +345,11 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   crumbBack: { color: colors.accent, fontSize: 26 },
   crumbLabel: { flex: 1, color: colors.text, fontSize: 17, fontWeight: '700' },
-  dayRow: { flexGrow: 0 },
-  dayRowContent: { paddingHorizontal: theme.spacing.sm, paddingBottom: theme.spacing.sm, gap: theme.spacing.xs },
+  // ScrollView har flexShrink: 1 som standard. Programlisten maa ikke
+  // presse denne raekke ned til nul, naar dens lange indhold lander.
+  dayRow: { flexGrow: 0, flexShrink: 0, minHeight: 48 },
+  dayRowContent: { alignItems: 'center', paddingHorizontal: theme.spacing.sm, paddingVertical: theme.spacing.sm, gap: theme.spacing.xs },
+  programmeList: { flex: 1, minHeight: 0 },
   dayChip: {
     paddingHorizontal: theme.spacing.sm + 2,
     paddingVertical: theme.spacing.xs + 1,
@@ -342,7 +357,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.surface,
   },
   dayChipActive: { backgroundColor: colors.accent },
-  dayChipText: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
+  dayChipText: { color: colors.textMuted, fontSize: isTV ? 14 : 12, fontWeight: '600' },
   dayChipTextActive: { color: colors.text },
   hint: { color: colors.textMuted, fontSize: 13, paddingHorizontal: theme.spacing.md, paddingBottom: theme.spacing.sm },
   empty: { color: colors.textMuted, textAlign: 'center', padding: theme.spacing.lg },
