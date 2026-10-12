@@ -35,6 +35,7 @@ import { ensurePoster, foundPoster, subscribePoster } from '../../ui/posterFill.
 import { serviceBadgeFor, setKnownServices } from '../../ui/serviceBadges.js';
 import { getHomeProviders } from '../../storage/settings.js';
 import { parentVodLevel } from './vodNavigation.js';
+import { useVodShelfRefresh } from './useVodShelfRefresh.js';
 
 /**
  * Hvor langt man er naaet: forsiden, land -> kategori -> titler.
@@ -54,6 +55,7 @@ export type VodLevel =
 interface Props {
   session: AppSession;
   active: boolean;
+  reloadToken?: number;
   backRef: { current: () => boolean };
   level: VodLevel;
   onLevelChange: (level: VodLevel) => void;
@@ -82,7 +84,7 @@ const COLUMNS = isTV ? 6 : 3;
  * er vejen naar man vil se noget *bestemt*, og de er ordnet som kanalerne, saa
  * appen er den samme app paa begge faner.
  */
-export function VodScreen({ session, active, backRef, level, onLevelChange, onOpen, onTrailer, onOpenSettings }: Props) {
+export function VodScreen({ session, active, reloadToken = 0, backRef, level, onLevelChange, onOpen, onTrailer, onOpenSettings }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const [search, setSearch] = useState('');
@@ -157,6 +159,8 @@ export function VodScreen({ session, active, backRef, level, onLevelChange, onOp
         {searchField}
         <Home
           session={session}
+          active={active}
+          reloadToken={reloadToken}
           onOpen={onOpen}
           onBrowse={(kind) => onLevelChange({ name: 'countries', kind })}
           onCinema={() => onLevelChange({ name: 'cinema' })}
@@ -240,11 +244,15 @@ function kindLabel(kind: VodKind): string {
 
 function Home({
   session,
+  active,
+  reloadToken,
   onOpen,
   onBrowse,
   onCinema,
 }: {
   session: AppSession;
+  active: boolean;
+  reloadToken: number;
   onOpen: (item: StoredVodItem) => void;
   onBrowse: (kind: VodKind) => void;
   onCinema: () => void;
@@ -274,9 +282,7 @@ function Home({
     setNewSeries(s);
   }, [session.db]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useVodShelfRefresh(load, active, reloadToken);
 
   if (counts === null) {
     return <ActivityIndicator color={colors.accent} style={styles.spinner} />;

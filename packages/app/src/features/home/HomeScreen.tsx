@@ -788,6 +788,7 @@ export function HomeScreen({
           <View style={[styles.body, tab !== 'vod' && styles.hiddenTab]}>
           <VodScreen
             session={session}
+            reloadToken={favoritesToken}
             active={tab === 'vod' && !covered}
             backRef={vodBack}
             level={place.vod ?? DEFAULT_VOD_LEVEL}

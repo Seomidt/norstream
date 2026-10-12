@@ -165,6 +165,21 @@ describe('min liste og fortsaet', () => {
     expect((await listVodItems(db, { inProgressOnly: true })).map((i) => i.name)).toEqual(['Heat']);
   });
 
+  it('viser serien fra skyens afsnits-fremdrift uden en lokal afsnitsliste', async () => {
+    await replaceVodItems(db, sourceId, 'series', [movie('99', 'Jane', null, { kind: 'series' }), movie('990', 'Anden serie', null, { kind: 'series' })]);
+    const [series] = await listVodItems(db, { kind: 'series', search: 'Jane' });
+    await saveProgress(db, `${series!.key}:a`, 200, 2400, new Date(1000));
+    await saveProgress(db, `${series!.key}:b`, 400, 2400, new Date(2000));
+    await saveProgress(db, `${sourceId}:movie-12`, 800, 3600, new Date(1500));
+    const rows = await listVodItems(db, { inProgressOnly: true });
+    expect(rows.map(i => i.name)).toEqual(['Jane', 'Heat']);
+    expect(rows[0]?.positionSeconds).toBe(400);
+    expect(rows[0]?.key).toBe(series!.key);
+    expect((await listVodItems(db, { kind: 'series', inProgressOnly: true, limit: 1 })).map(i => i.name)).toEqual(['Jane']);
+    await saveProgress(db, `${series!.key}:b`, 2400, 2400, new Date(3000));
+    expect((await listVodItems(db, { inProgressOnly: true })).map(i => i.name)).toEqual(['Heat']);
+  });
+
   // Et tryk paa den forkerte film skal ikke lande i "Fortsaet".
   it('gemmer ikke under et minut', async () => {
     const [item] = await listVodItems(db, { search: 'Heat' });

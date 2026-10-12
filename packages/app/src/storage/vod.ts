@@ -307,7 +307,17 @@ export async function listVodItems(
     limit = 'LIMIT ?';
     params.push(Math.max(1, Math.trunc(opts.limit)));
   }
-  const rows = await db.getAllAsync<ItemRow>(`${SELECT_ITEM} ${clause} ${order} ${limit}`, params);
+  // Serie-fremdrift ligger paa afsnittets noegle. Praefikset virker ogsaa
+  // efter sky-gendannelse, foer afsnitslisten er hentet paa denne boks.
+  const select = opts.inProgressOnly === true
+    ? SELECT_ITEM.replace('LEFT JOIN vod_progress p ON p.item_key = i.key', `LEFT JOIN vod_progress p ON p.item_key = (
+        SELECT vp.item_key FROM vod_progress vp
+        WHERE vp.item_key = i.key OR (i.kind = 'series'
+          AND substr(vp.item_key, 1, length(i.key) + 1) = i.key || ':')
+        ORDER BY vp.updated_ms DESC, vp.item_key DESC LIMIT 1
+      )`)
+    : SELECT_ITEM;
+  const rows = await db.getAllAsync<ItemRow>(`${select} ${clause} ${order} ${limit}`, params);
   const dead = await deadLogoOrigins(db);
   return rows.map((row) => withoutDeadPoster(toStored(row), dead));
 }

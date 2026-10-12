@@ -8,7 +8,7 @@ import { getSkySyncState, setSkyCode, setSkySync } from './settings.js';
 import { addSource } from './sources.js';
 import { createTestDatabase } from './testDb.js';
 import type { SqlDatabase } from './types.js';
-import { getProgress, replaceVodItems, saveProgress } from './vod.js';
+import { getProgress, listVodItems, replaceVodItems, saveProgress, setInWatchlist } from './vod.js';
 
 /** Én sky, delt mellem boksene. */
 function fakeCloud(): CloudIo & { store: Map<string, string>; uploads: number } {
@@ -131,6 +131,24 @@ describe('runCloudSync', () => {
     await saveProgress(b.db, `${b.sourceId}:movie-7`, 900, 6000, new Date(2500));
     expect((await runCloudSync(b.db, cloud, 3000)).outcome).toBe('applied');
     expect((await getProgress(b.db, `${b.sourceId}:movie-7`))?.positionSeconds).toBe(900);
+  });
+
+  it('egen sky-kode gemmer liste og serie-afsnit paa en anden installation', async () => {
+    for (const box of [a, b]) {
+      await replaceVodItems(box.db, box.sourceId, 'series', [{ id: '99', kind: 'series', name: 'Jane', posterUrl: null, categoryId: null, rating: null, year: null, added: null, containerExtension: null }]);
+    }
+    await setInWatchlist(a.db, `${a.sourceId}:movie-7`, true);
+    await saveProgress(a.db, `${a.sourceId}:series-99:episode-8`, 720, 2400, new Date(1000));
+    expect((await runCloudSync(a.db, cloud, 2000)).outcome).toBe('uploaded');
+    expect((await runCloudSync(b.db, cloud, 3000)).outcome).toBe('applied');
+    expect((await listVodItems(b.db, { watchlistOnly: true })).map(i => i.name)).toEqual(['Dune']);
+    expect((await listVodItems(b.db, { inProgressOnly: true })).map(i => [i.name, i.positionSeconds])).toEqual([['Jane', 720]]);
+    await setInWatchlist(b.db, `${b.sourceId}:series-99`, true);
+    await saveProgress(b.db, `${b.sourceId}:series-99:episode-8`, 900, 2400, new Date(4000));
+    expect((await runCloudSync(b.db, cloud, 5000)).outcome).toBe('uploaded');
+    expect((await runCloudSync(a.db, cloud, 6000)).outcome).toBe('applied');
+    expect((await listVodItems(a.db, { watchlistOnly: true })).map(i => i.name)).toEqual(['Dune', 'Jane']);
+    expect((await getProgress(a.db, `${a.sourceId}:series-99:episode-8`))?.positionSeconds).toBe(900);
   });
 
   it('markCloudApplied: efter et manuelt Hent ses skyen som synkroniseret', async () => {
