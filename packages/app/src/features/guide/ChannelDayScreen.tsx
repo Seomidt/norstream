@@ -32,6 +32,8 @@ interface Props {
 const DAYS_FORWARD = 2;
 /** Laengere tilbage end det har intet panel gemt. */
 const MAX_DAYS_BACK = 7;
+/** Fast hoejde giver et praecist rul til nu, ogsaa foer raekken er tegnet. */
+const PROGRAMME_ROW_HEIGHT = 76;
 
 /**
  * Én kanal, hele dagen: i dag, i gaar, saa langt arkivet raekker, og et par
@@ -54,6 +56,8 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
   const [allProgrammes, setAllProgrammes] = useState<Programme[] | null>(null);
   const [dayDelta, setDayDelta] = useState(0);
   const [fetching, setFetching] = useState(true);
+  const [listHeight, setListHeight] = useState(0);
+  const [dayWantsFocus, setDayWantsFocus] = useState(isTV);
   const [sheet, setSheet] = useState<{ programme: Programme; state: CellState } | null>(null);
   // Naar arket lukker, tilbage til det der aabnede det: ellers gav Android
   // fokus til det foerste trykpunkt paa skaermen.
@@ -107,50 +111,57 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
   const listRef = useRef<FlatList<Programme>>(null);
   const liveIndex =
     programmes === null || dayDelta !== 0 ? -1 : programmes.findIndex((programme) => programme.stop.getTime() > now.getTime());
-  useEffect(() => {
-    if (programmes === null) return;
-    const frame = requestAnimationFrame(() => {
-      if (liveIndex > 0) listRef.current?.scrollToIndex({ index: liveIndex, animated: false, viewPosition: 0 });
-      else listRef.current?.scrollToOffset({ offset: 0, animated: false });
-    });
-    return () => cancelAnimationFrame(frame);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [programmes === null, dayDelta]);
-
-  // Hele det vindue dagssiden kan bladre i, i ét opslag: fra MAX_DAYS_BACK dage
-  // tilbage til et par dage frem. Samme lokale database som guiden.
-  const load = useCallback(async (): Promise<void> => {
-    const from = new Date();
-    from.setHours(0, 0, 0, 0);
-    from.setDate(from.getDate() - MAX_DAYS_BACK);
-    const to = new Date();
-    to.setHours(0, 0, 0, 0);
-    to.setDate(to.getDate() + DAYS_FORWARD + 1);
-    setAllProgrammes(await listProgrammes(session.db, channel.id, from, to));
-  }, [session.db, channel.id]);
-
-  // Foerst det cachen har, saa hele tabellen fra panelet, saa igen.
+  // Vis cache straks og kanalens nye tabel FOER den store XMLTV-fil er klar.
+  // Et sent cache-svar maa ikke overskrive den friske tabel eller en ny kanal.
   useEffect(() => {
     let cancelled = false;
+    let readNumber = 0;
+    const load = async (): Promise<void> => {
+      const own = ++readNumber;
+      const from = dayBounds(-MAX_DAYS_BACK).from;
+      const to = dayBounds(DAYS_FORWARD).to;
+      try {
+        const items = await listProgrammes(session.db, channel.id, from, to);
+        if (!cancelled && own === readNumber) setAllProgrammes(items);
+      } catch {
+        if (!cancelled && own === readNumber) {
+          logEvent('guide', 'hele dagen v386: programtabellen kunne ikke laeses');
+          setAllProgrammes((current) => current ?? []);
+        }
+      }
+    };
+    setAllProgrammes(null);
+    setFetching(true);
     void load();
     void ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, [channel])
       .catch(() => undefined)
       .then(async () => {
+        if (cancelled) return;
+        await load();
         if (cancelled) return;
         const creds = session.credsBySource.get(channel.sourceId);
         if (channel.hasArchive && creds !== undefined) {
           await (panelEpgInFlight() ?? startPanelEpg(session.db, [{ sourceId: channel.sourceId, creds }]));
         }
         if (cancelled) return;
-        setFetching(false);
-        void load();
+        await load();
+      })
+      .catch(() => {
+        if (!cancelled) logEvent('guide', 'hele dagen v386: opdateringen mislykkedes, beholder programtabellen');
+      })
+      .finally(() => {
+        if (!cancelled) setFetching(false);
       });
     return () => {
       cancelled = true;
     };
-    // Kun ved aabning; dagsskift skaeres ud af det hentede nedenfor.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, channel.id]);
+  }, [session, channel.id, channel.sourceId, channel.hasArchive, dayBounds]);
+
+  useEffect(() => {
+    if (programmes !== null) {
+      logEvent('guide', `hele dagen v386: dag ${dayDelta}, ${programmes.length} programmer, ${allProgrammes?.length ?? 0} i tabellen`);
+    }
+  }, [programmes, allProgrammes, dayDelta]);
 
   // Vis de arkivdage panelet oplyser, ogsaa mens historikken hentes.
   // EPG-huller maa ikke skjule dage der faktisk findes i kanalens arkiv.
@@ -194,14 +205,15 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
         showsHorizontalScrollIndicator={false}
         style={styles.dayRow}
         contentContainerStyle={styles.dayRowContent}
-        onLayout={({ nativeEvent: { layout } }) => logEvent('guide', `hele dagen v385: dagsvaelger ${Math.round(layout.width)}x${Math.round(layout.height)}, ${days.length} dage`)}
+        onLayout={({ nativeEvent: { layout } }) => logEvent('guide', `hele dagen v386: dagsvaelger ${Math.round(layout.width)}x${Math.round(layout.height)}, ${days.length} dage`)}
       >
         {days.map((delta) => (
           <TvPressable
             key={delta}
             style={[styles.dayChip, delta === dayDelta && styles.dayChipActive]}
             // Paa tv lander fjernbetjeningen paa den valgte dag naar siden aabner.
-            hasTVPreferredFocus={isTV && delta === dayDelta}
+            hasTVPreferredFocus={dayWantsFocus && delta === dayDelta}
+            onFocus={() => setDayWantsFocus(false)}
             onPress={() => setDayDelta(delta)}
           >
             <Text numberOfLines={1} style={[styles.dayChipText, delta === dayDelta && styles.dayChipTextActive]}>
@@ -215,34 +227,37 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
         <Text style={styles.hint}>Kanalen har intet arkiv hos udbyderen, så du kan se oversigten, men ikke starte tidligere udsendelser forfra.</Text>
       )}
 
+      <View
+        style={styles.programmeFrame}
+        onLayout={({ nativeEvent: { layout } }) => {
+          setListHeight(layout.height);
+          logEvent('guide', `hele dagen v386: programfelt ${Math.round(layout.width)}x${Math.round(layout.height)}`);
+        }}
+      >
       {programmes === null ? (
         <View style={styles.centered}>
           <ActivityIndicator color={colors.accent} />
         </View>
-      ) : (
+      ) : programmes.length === 0 ? (
+        <Text style={styles.empty}>
+          {fetching ? 'Henter programtabellen …' : 'Udbyderen har ingen tabel for denne dag.'}
+        </Text>
+      ) : listHeight > 0 ? (
         <FlatList
-          style={styles.programmeList}
+          key={dayDelta}
+          // TV-FlatList har et ekstra fokuslag uden flex. En fast maalt
+          // hoejde paa scrollfladen begraenser ogsaa dette ydre lag.
+          style={{ height: listHeight }}
           removeClippedSubviews={false}
           ref={listRef}
           data={programmes}
           keyExtractor={(item) => String(item.start.getTime())}
           contentContainerStyle={tail}
-          // Let foerste tegning: tegn kun en haandfuld raekker, saa markoeren
-          // kommer hurtigt. Foer blev ALLE raekker op til den live-udsendelse
-          // (tit 40+) tegnet paa én gang, og paa tv-boksen tog det lang tid foer
-          // man kunne koere op/ned. scrollToIndex + onScrollToIndexFailed henter
-          // resten og ruller ned til nu.
+          getItemLayout={(_, index) => ({ length: PROGRAMME_ROW_HEIGHT, offset: PROGRAMME_ROW_HEIGHT * index, index })}
+          initialScrollIndex={Math.max(0, liveIndex)}
           initialNumToRender={12}
           maxToRenderPerBatch={12}
           windowSize={9}
-          onScrollToIndexFailed={(info) => {
-            setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, animated: false, viewPosition: 0 }), 300);
-          }}
-          ListEmptyComponent={
-            <Text style={styles.empty}>
-              {fetching ? 'Henter programtabellen …' : 'Udbyderen har ingen tabel for denne dag.'}
-            </Text>
-          }
           renderItem={({ item, index }) => {
             const state = stateOf(item);
             const restartable = state === 'past' && channel.hasArchive && hasDialect;
@@ -265,7 +280,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
                   <Text style={[styles.title, state === 'past' && !restartable && styles.titleMuted]} numberOfLines={2}>
                     {item.title}
                   </Text>
-                  <Text style={styles.meta}>
+                  <Text numberOfLines={1} style={styles.meta}>
                     {clock(item.start)} – {clock(item.stop)}
                     {state === 'live' ? ' · Sendes nu' : ''}
                     {restartable ? ' · ⏱ Start forfra' : ''}
@@ -276,7 +291,8 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
             );
           }}
         />
-      )}
+      ) : null}
+      </View>
 
       {sheet !== null && (
         <ProgrammeSheet
@@ -349,7 +365,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   // presse denne raekke ned til nul, naar dens lange indhold lander.
   dayRow: { flexGrow: 0, flexShrink: 0, minHeight: 48 },
   dayRowContent: { alignItems: 'center', paddingHorizontal: theme.spacing.sm, paddingVertical: theme.spacing.sm, gap: theme.spacing.xs },
-  programmeList: { flex: 1, minHeight: 0 },
+  programmeFrame: { flex: 1, minHeight: 0, overflow: 'hidden' },
   dayChip: {
     paddingHorizontal: theme.spacing.sm + 2,
     paddingVertical: theme.spacing.xs + 1,
@@ -362,6 +378,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   hint: { color: colors.textMuted, fontSize: 13, paddingHorizontal: theme.spacing.md, paddingBottom: theme.spacing.sm },
   empty: { color: colors.textMuted, textAlign: 'center', padding: theme.spacing.lg },
   row: {
+    height: PROGRAMME_ROW_HEIGHT,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
@@ -372,8 +389,8 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   rowLive: { backgroundColor: colors.surface },
   time: { width: 52, color: colors.textMuted, fontSize: 13, fontVariant: ['tabular-nums'] },
   rowText: { flex: 1 },
-  title: { color: colors.text, fontSize: 15, fontWeight: '600' },
+  title: { color: colors.text, fontSize: 15, lineHeight: 18, fontWeight: '600' },
   titleMuted: { color: colors.textMuted, fontWeight: '400' },
-  meta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  meta: { color: colors.textMuted, fontSize: 12, lineHeight: 14, marginTop: 2 },
   chevron: { color: colors.accent, fontSize: 16, marginLeft: theme.spacing.sm, width: 18 },
 });

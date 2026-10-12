@@ -81,6 +81,11 @@ interface Props {
   onStepTime: (deltaMin: number) => void;
   /** Pil hoejre fra menuen: den foerste raekke faar fokus. */
   focusFirstSignal: number;
+  /** Skjult af dagsside, programark eller afspiller: ingen fjernbetjening. */
+  active: boolean;
+  /** Kanalen man kom fra; slippes foerst ved dens native fokus-haendelse. */
+  returnFocusChannelId: string | null;
+  onReturnFocus: (restored: boolean) => void;
 }
 
 /**
@@ -101,8 +106,20 @@ export function TimelineGrid({
   offsetMinutes,
   onStepTime,
   focusFirstSignal,
+  active,
+  returnFocusChannelId,
+  onReturnFocus,
 }: Props) {
   const styles = useStyles(makeStyles);
+  const rowNodes = useRef(new Map<string, View>());
+  const focusedRow = useRef<string | null>(null);
+  const requestedChannel = useRef(returnFocusChannelId);
+  requestedChannel.current = returnFocusChannelId;
+  const [listHeight, setListHeight] = useState(0);
+  const registerRow = useCallback((id: string, node: View | null) => {
+    if (node === null) rowNodes.current.delete(id);
+    else rowNodes.current.set(id, node);
+  }, []);
 
   // Vinduet: forankret til den halve time, saa kolonnerne staar paa 18:00/18:30
   // og ikke paa et skaevt minuttal. Forskydningen laegges oven paa.
@@ -113,6 +130,7 @@ export function TimelineGrid({
 
   // Pil venstre/hoejre skruer paa tiden — ét tastetryk, ikke en fokusflytning.
   useTVEventHandler((event) => {
+    if (!active || focusedRow.current === null) return;
     if (event.eventType !== 'right' && event.eventType !== 'left') return;
     // Reager paa tast-SLIP (action 1), ikke paa tryk-ned (0). Denne boks sender
     // KUN slip-haendelsen for pil venstre/hoejre — proevede vi at reagere paa
@@ -176,8 +194,13 @@ export function TimelineGrid({
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const onRowFocus = useCallback(
     (channel: StoredChannel, index: number) => {
+      focusedRow.current = channel.id;
       onFocusChannel(channel);
       setFocusedId(channel.id);
+      if (channel.id === requestedChannel.current) {
+        requestedChannel.current = null;
+        onReturnFocus(true);
+      }
       // Uden animation: op/ned foeles hurtigere ("saet klik-farten lidt op").
       try {
         listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: false });
@@ -185,8 +208,35 @@ export function TimelineGrid({
         // Maalet er ikke tegnet endnu; onScrollToIndexFailed haandterer det.
       }
     },
-    [onFocusChannel],
+    [onFocusChannel, onReturnFocus],
   );
+  const onRowBlur = useCallback((id: string) => {
+    if (focusedRow.current === id) focusedRow.current = null;
+  }, []);
+
+  // Send kommandoen til den rigtige native TV-raekke. Foerste forsoeg sker
+  // efter commit; gentag kort indtil onFocus bekraefter, aldrig et puls der
+  // forsvinder foer Android har lagt baggrunden frem.
+  useEffect(() => {
+    if (!active || returnFocusChannelId === null || listHeight <= 0) return;
+    const index = channels.findIndex((channel) => channel.id === returnFocusChannelId);
+    if (index < 0) return;
+    listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: false });
+    const request = () => {
+      if (requestedChannel.current === returnFocusChannelId) rowNodes.current.get(returnFocusChannelId)?.requestTVFocus();
+    };
+    const frame = requestAnimationFrame(request);
+    const retry = setInterval(request, 150);
+    const timeout = setTimeout(() => {
+      clearInterval(retry);
+      if (requestedChannel.current === returnFocusChannelId) onReturnFocus(false);
+    }, 1500);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearInterval(retry);
+      clearTimeout(timeout);
+    };
+  }, [active, returnFocusChannelId, channels, listHeight, onReturnFocus]);
 
   // Fortael boksen til hoejre hvilken udsendelse den fokuserede kanal viser i
   // det aktuelle vindue: live naar nu er i vinduet, ellers den foerste rigtige
@@ -228,12 +278,14 @@ export function TimelineGrid({
         nowMs={nowMs}
         hasDialect={hasDialectFor(item)}
         index={index}
-        focusPulse={index === 0 && focusPulse}
+        focusPulse={active && (item.id === returnFocusChannelId || (returnFocusChannelId === null && index === 0 && focusPulse))}
+        registerRow={registerRow}
         onFocusRow={onRowFocus}
+        onBlurRow={onRowBlur}
         onOpen={onOpen}
       />
     ),
-    [progMap, windowStartMs, windowEndMs, nowMs, hasDialectFor, focusPulse, onRowFocus, onOpen],
+    [progMap, windowStartMs, windowEndMs, nowMs, hasDialectFor, focusPulse, active, returnFocusChannelId, registerRow, onRowFocus, onRowBlur, onOpen],
   );
 
   return (
@@ -260,8 +312,15 @@ export function TimelineGrid({
       {/* Fang fokus til siderne: pil venstre/hoejre skruer paa tiden (ovenfor) og
           maa ikke slippe ud i menuen. Op fra oeverste raekke naar gruppe-chipsene;
           ned er almindelig listenavigation. */}
-      <TVFocusGuideView style={styles.list} trapFocusLeft trapFocusRight>
+      <TVFocusGuideView
+        style={styles.list}
+        trapFocusLeft
+        trapFocusRight
+        onLayout={({ nativeEvent: { layout } }) => setListHeight(layout.height)}
+      >
+        {listHeight > 0 && (
         <FlatList
+          style={{ height: listHeight }}
           ref={listRef}
           data={channels}
           keyExtractor={(c) => c.id}
@@ -274,6 +333,7 @@ export function TimelineGrid({
           onScrollToIndexFailed={() => undefined}
           contentContainerStyle={{ paddingBottom: ROW_HEIGHT * 4 }}
         />
+        )}
       </TVFocusGuideView>
     </View>
   );
@@ -290,7 +350,9 @@ const ChannelRow = memo(function ChannelRow({
   hasDialect,
   index,
   focusPulse,
+  registerRow,
   onFocusRow,
+  onBlurRow,
   onOpen,
 }: {
   channel: StoredChannel;
@@ -301,10 +363,13 @@ const ChannelRow = memo(function ChannelRow({
   hasDialect: boolean;
   index: number;
   focusPulse: boolean;
+  registerRow: (id: string, node: View | null) => void;
   onFocusRow: (channel: StoredChannel, index: number) => void;
+  onBlurRow: (id: string) => void;
   onOpen: (channel: StoredChannel, programme: Programme | null, state: CellState) => void;
 }) {
   const styles = useStyles(makeStyles);
+  const rowRef = useCallback((node: View | null) => registerRow(channel.id, node), [channel.id, registerRow]);
   const cells = useMemo(
     () => layoutRow(programmes, new Date(windowStartMs), new Date(windowEndMs), new Date(nowMs)),
     [programmes, windowStartMs, windowEndMs, nowMs],
@@ -320,10 +385,12 @@ const ChannelRow = memo(function ChannelRow({
 
   return (
     <TvPressable
+      ref={rowRef}
       style={styles.row}
       flat
       hasTVPreferredFocus={focusPulse}
       onFocus={() => onFocusRow(channel, index)}
+      onBlur={() => onBlurRow(channel.id)}
       onPress={() => onOpen(channel, primary?.programme ?? null, primary?.state ?? 'gap')}
     >
       <View style={styles.channelCell}>

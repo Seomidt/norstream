@@ -225,30 +225,26 @@ export const GuideScreen = memo(function GuideScreen({
   // Gem den oprindelige guide-celle; globale "sidste tryk" bliver aendret
   // af alle dagsknapperne, saa det kan ikke bruges til denne tilbage-vej.
   const dayOrigin = useRef<{ channelId: string; key: string; atMs: number | null } | null>(null);
-  const dayWasOpen = useRef(false);
-  useEffect(() => {
-    if (dayFor !== null) {
-      dayWasOpen.current = true;
-      return;
-    }
-    if (!dayWasOpen.current) return;
-    dayWasOpen.current = false;
+  const [returnFocusChannelId, setReturnFocusChannelId] = useState<string | null>(null);
+  const closeDay = useCallback(() => {
     const origin = dayOrigin.current;
     dayOrigin.current = null;
-    if (!isTV || origin === null) return;
-    // Gitteret har display:none under dagssiden. Vent paa at Android har
-    // lagt det frem igen, foer cellen faar sit eksisterende fokussignal.
-    const timer = setTimeout(() => {
-      logEvent('guide', 'hele dagen v385: beder om fokus paa oprindelig guide-celle');
-      setFocusTarget(origin);
-    }, 80);
-    return () => clearTimeout(timer);
-  }, [dayFor]);
+    // TV bruger TimelineGrid (hele kanalraekker), ikke telefonens GuideRow.
+    // Fokusmaalet holdes indtil den rigtige TV-raekke bekraefter onFocus.
+    if (isTV && origin !== null) setReturnFocusChannelId(origin.channelId);
+    setDayFor(null);
+    logEvent('guide', 'hele dagen v386: Tilbage lukker dagssiden, gendanner kanalraekken');
+  }, []);
+  const onDayFocusRestored = useCallback((restored: boolean) => {
+    setReturnFocusChannelId(null);
+    logEvent('guide', restored
+      ? 'hele dagen v386: fokus bekraeftet paa oprindelig TV-kanalraekke'
+      : 'hele dagen v386: TV-fokus blev ikke bekraeftet inden 1500 ms');
+  }, []);
   if (backRef !== undefined) {
     backRef.current = (): boolean => {
       if (dayFor !== null) {
-        logEvent('guide', 'hele dagen v385: Tilbage lukker kun dagssiden');
-        setDayFor(null);
+        closeDay();
         return true;
       }
       // Tilbage gaar DIREKTE til menuen (ét tryk). Foer stillede det foerst
@@ -831,7 +827,7 @@ export const GuideScreen = memo(function GuideScreen({
           session={session}
           channel={dayFor}
           hasDialect={hasDialectFor(dayFor)}
-          onBack={() => setDayFor(null)}
+          onBack={closeDay}
           onPlay={(channel) => onPlay(channel, channels)}
           onRestart={(channel, programme) => onRestart(channel, programme)}
         />
@@ -1035,6 +1031,9 @@ export const GuideScreen = memo(function GuideScreen({
             })
           }
           focusFirstSignal={focusFirstSignal}
+          active={active && dayFor === null && sheet === null}
+          returnFocusChannelId={returnFocusChannelId}
+          onReturnFocus={onDayFocusRestored}
         />
       )}
       {!isTV && (
@@ -1133,14 +1132,18 @@ export const GuideScreen = memo(function GuideScreen({
           Det var brugerens forslag, og det er saadan de fleste tv-guider
           er bygget. Ellers preview og boks over gitteret. */}
       {isTV ? (
-        // Skjult mens hele dagen staar ovenpaa: gitterets celler og knapper
-        // ligger ellers stadig under laget og faar fjernbetjeningens fokus,
-        // saa dagsknapperne i laget ikke kunne vaelges.
+        // Behold layout og scrollposition under dagssiden. Native fokus
+        // spaerres paa hele baggrunden; display:none mister listens maal.
         <>
-          <View style={[styles.tvSplit, dayFor !== null && styles.hidden]}>
+          <TVFocusGuideView
+            style={[styles.tvSplit, dayFor !== null && styles.coveredGuide]}
+            focusable={dayFor === null}
+            autoFocus
+            pointerEvents={dayFor === null ? 'auto' : 'none'}
+          >
             <View style={styles.tvLeft}>{guideBlock}</View>
             <View style={[styles.tvRight, !showClockWeather && styles.tvRightNarrow]}>{topBlock}</View>
-          </View>
+          </TVFocusGuideView>
           {/* Nyhedsstriben ligger i bunden i fuld bredde (uden for delingen),
               som paa en nyhedskanal. Kun i nyheds-tilstand og ikke mens hele
               dagen staar ovenpaa. */}
@@ -1188,6 +1191,7 @@ export const GuideScreen = memo(function GuideScreen({
           onDay={() => {
             const channel = sheet.channel;
             dayOrigin.current = { channelId: channel.id, key: sheet.cell.key, atMs: sheet.cell.programme?.start.getTime() ?? null };
+            setReturnFocusChannelId(null);
             setSheet(null);
             setDayFor(channel);
           }}
@@ -1492,7 +1496,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   clockCol: { width: 90 },
   previewFill: { flex: 1, minWidth: 0 },
   tvSplit: { flex: 1, flexDirection: 'row' },
-  hidden: { display: 'none' },
+  coveredGuide: { opacity: 0 },
   tvLeft: { flex: 1 },
   // Lidt bredere paa tv end foer (28%), saa der er plads til uret ved siden af
   // preview uden at klemme selve previewet. Uden ur/vejr: tilbage til 28%.

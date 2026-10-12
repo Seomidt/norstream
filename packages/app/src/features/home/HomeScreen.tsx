@@ -215,7 +215,14 @@ export function HomeScreen({
   // land -> kategori -> kanaler i Kanaler, og forsiden -> land -> kategori ->
   // titler i Film. Paa forsiden af en fane: intet at gaa op i.
   backRef.current = (): boolean => {
-    if (tab === 'guide' && guideBack.current()) return true;
+    if (tab === 'guide' && guideBack.current()) {
+      // Et gammelt piltryk maa ikke skifte fane, mens dagssiden lukkes og
+      // Android kortvarigt leder efter fokus paa baggrunden.
+      if (pendingTab.current !== null) clearTimeout(pendingTab.current);
+      pendingTab.current = null;
+      lastKey.current = { type: 'back', at: Date.now() };
+      return true;
+    }
     if (tab === 'radio' && radioBack.current()) return true;
     if (tab === 'settings' && pickingLogoFor !== null) {
       setPickingLogoFor(null);
@@ -614,6 +621,8 @@ export function HomeScreen({
     setRailOpen(true);
   };
   const onRailBlur = () => {
+    if (pendingTab.current !== null) clearTimeout(pendingTab.current);
+    pendingTab.current = null;
     railFocused.current = false;
     railBlurredAt.current = Date.now();
     if (railTimer.current !== null) clearTimeout(railTimer.current);
