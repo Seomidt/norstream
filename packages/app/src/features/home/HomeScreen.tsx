@@ -7,12 +7,14 @@ import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import {
   clearLastSyncMs,
+  getLastSyncMs,
   getMiniPreviewEnabled,
   getStreamFormatSetting,
   getTmdbApiKey,
   getVideoSurface,
 } from '../../storage/settings.js';
-import { syncAllSources } from '../../sync/syncAll.js';
+import { CHANNEL_SYNC_INTERVAL_MS, syncAllSources } from '../../sync/syncAll.js';
+import { useAutomaticChannelSync } from '../../sync/useAutomaticChannelSync.js';
 import { prefetchFavouritesEpg } from '../../sync/prefetchEpg.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles } from '../../ui/ThemeContext.js';
@@ -442,7 +444,10 @@ export function HomeScreen({
       // Kun naar noget FAKTISK blev hentet. Foer blev token'en haevet ved hver
       // synk — ogsaa naar alt var friskt og blev sprunget over — og saa
       // genindlaeste forsiden ALT en ekstra gang ved hver app-start.
-      if (result.synced > 0) setFavoritesToken((value) => value + 1);
+      if (result.synced > 0) {
+        setFavoritesToken((value) => value + 1);
+        logEvent('baggrund', 'kanaler v390: arkivstatus opdateret fra udbyderen');
+      }
 
       // Bagefter, og uden at nogen venter paa det: favoritternes programtabel
       // for det naeste doegn, saa guiden er fyldt naar den aabnes. Fejler det,
@@ -454,15 +459,14 @@ export function HomeScreen({
     [session],
   );
 
-  // Foerste gang skaermen vises: hent hvis cachen er gammel eller tom. Det
-  // daekker ogsaa foerste start efter onboarding, hvor der aldrig har vaeret
-  // en synkronisering — uden det landede brugeren paa en tom liste.
-  const autoSyncStarted = useRef(false);
-  useEffect(() => {
-    if (autoSyncStarted.current) return;
-    autoSyncStarted.current = true;
-    void syncFromPanel(false);
-  }, [syncFromPanel]);
+  // Arkivflag maa ikke fryse paa startvaerdien, hvis appen bliver aaben i
+  // flere dage. Tjek kun alderen naar Hjem er synlig, og hent hoejst dagligt.
+  const refreshChannelsIfDue = useCallback(async (): Promise<void> => {
+    const times = await Promise.all(session.sources.map(source => getLastSyncMs(session.db, source.source.id)));
+    const now = Date.now();
+    if (times.some(last => last === null || now - last >= CHANNEL_SYNC_INTERVAL_MS)) await syncFromPanel(false);
+  }, [session, syncFromPanel]);
+  useAutomaticChannelSync(refreshChannelsIfDue, covered !== true);
 
   const refresh = useCallback((): void => {
     void (async () => {
@@ -766,6 +770,7 @@ export function HomeScreen({
             onAuthError={handleAuthError}
             onBrowse={goBrowse}
             active={!covered}
+            reloadToken={favoritesToken}
             previewEnabled={previewOn}
             previewHandle={previewHandle}
             focusFirstSignal={enterSignal}

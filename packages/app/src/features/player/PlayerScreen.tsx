@@ -37,7 +37,7 @@ import { PlaybackConnection } from './playbackConnection.js';
 import { PlaybackRecovery } from './playbackRecovery.js';
 import { clockOf, logEvent } from '../../diagnostics/log.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback, surfaceTypeForPlatform } from './format.js';
-import { restartBlockFor, restartHint, restartModeFor } from './restart.js';
+import { restartBlockFor, restartHint } from './restart.js';
 import { TrackPicker } from './TrackPicker.js';
 import { ChannelOverlay } from './ChannelOverlay.js';
 import { LandscapePlayer, useLandscape } from './Landscape.js';
@@ -154,8 +154,6 @@ export function PlayerScreen({
    * forbi paa et grundlag vi ikke har naaet at faa.
    */
   const [restartBlock, setRestartBlock] = useState<RestartBlock | null | undefined>(undefined);
-  const [hasArchivePath, setHasArchivePath] = useState(false);
-  const [archiveTrialError, setArchiveTrialError] = useState<string | null>(null);
   const [repairing, setRepairing] = useState(false);
   /**
    * Sat naar en start-forfra endte som direkte udsendelse alligevel.
@@ -202,29 +200,6 @@ export function PlayerScreen({
   }, []);
   /** playFromStart, til lyttere der er sat op foer den er defineret laengere nede. */
   const playFromStartRef = useRef<(programme: Programme, from?: Date, seekSeconds?: number, reconnect?: boolean) => Promise<void>>(async () => undefined);
-
-  /** Kun et manuelt arkivforsoeg uden udbyderflag falder tilbage paa live. */
-  const returnFromArchiveTrial = useCallback((): boolean => {
-    if (channel.hasArchive || archiveRef.current === null) return false;
-    cancelPendingRetry.current();
-    archiveRequest.current += 1;
-    preparingArchive.current = false;
-    archiveRef.current = null;
-    archiveFormat.current = null;
-    recovery.current.reset();
-    positionRef.current = 0;
-    setStartFrom(undefined);
-    setRestarted(false);
-    setFellBackToLive(true);
-    setCaughtUpToLive(false);
-    setStreamError(null);
-    setArchiveTrialError('Start forfra kunne ikke afspilles på denne kanal. Kanalen vises direkte.');
-    logEvent('arkiv', 'arkivproeve v389: kunne ikke afspilles efter genforsoeg, vender tilbage til live');
-    requestSource(liveUrlFor(access, channel, formatForPlatform()));
-    return true;
-  }, [channel, access, requestSource]);
-
-  useEffect(() => { setArchiveTrialError(null); }, [channel.id, channel.sourceId]);
 
   // "Se videre" oeverst i favoritterne: den kanal der sidst blev set.
   useEffect(() => {
@@ -529,7 +504,6 @@ export function PlayerScreen({
           return;
         }
         logEvent('arkiv', 'to fortsaettelser uden nye sekunder: stopper gentagelsen');
-        if (returnFromArchiveTrial()) return;
         setStreamError('Arkivet leverer ikke mere lige nu. Prøv igen.');
         return;
       }
@@ -549,7 +523,7 @@ export function PlayerScreen({
       if (waitTimer !== null) clearTimeout(waitTimer);
       if (refreshArchiveEnd.current === continueArchive) refreshArchiveEnd.current = () => undefined;
     };
-  }, [player, connection, sourceRevision, isRadio, restarted, access, channel, requestSource, returnFromArchiveTrial]);
+  }, [player, connection, sourceRevision, isRadio, restarted, access, channel, requestSource]);
 
   /**
    * Videosporet, til én linje i bjaelken paa tv: format, stoerrelse og om
@@ -597,7 +571,6 @@ export function PlayerScreen({
     let cancelled = false;
 
     async function loadEpg(): Promise<void> {
-      setHasArchivePath(false);
       // Opslaget sker paa kanalens eget id — Xtreams stream_id. I v1 gik det
       // gennem epg_channel_id, som 87 % af panelets kanaler ikke har, saa
       // start-forfra var utilgaengeligt for dem uanset deres arkiv.
@@ -608,7 +581,6 @@ export function PlayerScreen({
 
       const dialect = await getTimeshiftDialect(session.db, channel.sourceId);
       if (cancelled) return;
-      setHasArchivePath(dialect !== null);
       setRestartBlock(restartBlockFor(channel.hasArchive, dialect !== null, result.now !== null));
       logEvent('epg', channelEpgSummary(channel, { hasDialect: dialect !== null, hasCurrent: result.now !== null }));
 
@@ -751,12 +723,6 @@ export function PlayerScreen({
         return;
       }
 
-      // Et eksplicit forsoeg paa en kanal uden arkivflag maa ikke ende
-      // i en sort skaerm. De normale, annoncerede arkiver roeres ikke.
-      if (restarted && returnFromArchiveTrial()) {
-        gaveUp = true;
-        return;
-      }
       logEvent('afspiller', 'opgiver: "Streamen kunne ikke afspilles"');
       gaveUp = true;
       // Den raa besked fra expo-video maa aldrig vises. Den stammer fra
@@ -930,7 +896,7 @@ export function PlayerScreen({
       if (nativeFailure.current === handleFailure) nativeFailure.current = () => undefined;
       if (playbackStatus.current === handleStatus) playbackStatus.current = () => undefined;
     };
-  }, [player, connection, source, sourceRevision, triedFallback, restarted, access, channel, autoSelectSubtitle, requestSource, returnFromArchiveTrial]);
+  }, [player, connection, source, sourceRevision, triedFallback, restarted, access, channel, autoSelectSubtitle, requestSource]);
 
   const playFromStart = useCallback(
     async (programme: Programme, from: Date = programme.start, seekSeconds = 0, reconnect = false): Promise<void> => {
@@ -940,7 +906,6 @@ export function PlayerScreen({
       changingSource.current = true;
       startFromHandled.current = true;
       if (!reconnect) {
-        setArchiveTrialError(null);
         recovery.current.reset();
         lastSaved.current = 0;
         playIntent.current = true;
@@ -984,7 +949,6 @@ export function PlayerScreen({
           `beder om ${dialect}-arkiv fra ${clockOf(window.from.getTime())}, ${window.minutes} min (udsendelse ${clockOf(programme.start.getTime())}–${clockOf(programme.stop.getTime())}, offset ${offset} min, spol ${window.seekSeconds.toFixed(3)} s)`,
         );
         const format = archiveFormat.current ?? formatForPlatform();
-        if (!reconnect && !channel.hasArchive) logEvent('arkiv', 'arkivproeve v389: eksplicit start forfra trods manglende arkivflag');
         archiveRef.current = { programme, segmentStart: window.from.getTime(), seekSeconds: window.seekSeconds, format, dialect };
         positionRef.current = window.seekSeconds;
         // Samme beholder som live (.ts paa Android): arkivet som HLS gav groen
@@ -1056,7 +1020,6 @@ export function PlayerScreen({
       ]);
       setNow(result.now);
       setNext(result.next);
-      setHasArchivePath(dialect !== null);
       setRestartBlock(restartBlockFor(channel.hasArchive, dialect !== null, result.now !== null));
       logEvent('epg', channelEpgSummary(channel, { hasDialect: dialect !== null, hasCurrent: result.now !== null }));
     } finally {
@@ -1084,8 +1047,7 @@ export function PlayerScreen({
   // en knap have fokus med det samme: ellers skulle man trykke sig ned til
   // den ("skal trykke en masse gange"). Spoler man, er det 30 s frem;
   // ellers Start forfra; og er den der ikke, Tilbage.
-  const restartMode = restartModeFor(channel.hasArchive, hasArchivePath, now !== null && now.channelId === channel.id);
-  const canRestart = !restarted && restartMode !== null && now !== null && access?.creds != null;
+  const canRestart = !restarted && restartBlock === null && now !== null;
   // Raekkefoelgen er Googles: den primaere handling foerst, for det er den
   // fokus lander paa. Start forfra eller spoling, saa tekst, saa zap.
   const actions = (
@@ -1103,10 +1065,10 @@ export function PlayerScreen({
           style={[styles.button, styles.buttonAccent]}
           hasTVPreferredFocus={isTV}
           onPress={() => {
-            if (now !== null) void playFromStart(now);
+            void playFromStart(now);
           }}
         >
-          <Text style={styles.buttonText}>{restartMode === 'trial' ? 'Prøv start forfra' : 'Start forfra'}</Text>
+          <Text style={styles.buttonText}>Start forfra</Text>
         </TvPressable>
       )}
       {/* Startet forfra paa tv: pause og spoling, saa reklamerne kan
@@ -1186,15 +1148,15 @@ export function PlayerScreen({
     />
   ) : null;
 
-  const banner = bannerShown || archiveTrialError !== null ? (
+  const banner = bannerShown ? (
     <View style={styles.banner} pointerEvents="none">
       <Text style={styles.bannerName} numberOfLines={1}>
         {zapIndex === -1 ? '' : `${zapIndex + 1} · `}
         {channel.name}
       </Text>
       <Text style={styles.bannerTitle} numberOfLines={1}>
-        {archiveTrialError ?? now?.title ?? 'Henter programdata …'}
-        {archiveTrialError === null && next !== null ? `  ·  Derefter: ${next.title}` : ''}
+        {now?.title ?? 'Henter programdata …'}
+        {next !== null ? `  ·  Derefter: ${next.title}` : ''}
       </Text>
     </View>
   ) : null;

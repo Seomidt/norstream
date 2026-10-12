@@ -74,6 +74,8 @@ interface Props {
   previewHandle: { current: PreviewHandle | null };
   /** Tv: pil hoejre fra menuen; den foerste raekkes foerste udsendelse faar fokus. */
   focusFirstSignal?: number;
+  /** Friske kanaldata, herunder aendrede arkivflag; bevar rul og undersider. */
+  reloadToken?: number;
 }
 
 /**
@@ -131,6 +133,7 @@ export const GuideScreen = memo(function GuideScreen({
   active = true,
   previewHandle,
   focusFirstSignal = 0,
+  reloadToken = 0,
 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
@@ -425,7 +428,7 @@ export const GuideScreen = memo(function GuideScreen({
         setGroup(current);
         setChannels(favourites);
         setDialectSources(withDialect);
-        setPreviewChannel((current) => current ?? favourites[0] ?? null);
+        setPreviewChannel((current) => favourites.find(c => c.id === current?.id) ?? favourites[0] ?? null);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -433,7 +436,7 @@ export const GuideScreen = memo(function GuideScreen({
     return () => {
       cancelled = true;
     };
-  }, [session.db, groupTick]);
+  }, [session.db, groupTick, reloadToken]);
   // Efter et gruppeskift: fokus paa den nye foerste raekke naar den er der.
   useEffect(() => {
     if (loading || groupTick === 0) return;
@@ -820,13 +823,15 @@ export const GuideScreen = memo(function GuideScreen({
 
   // Dagssiden laegges oven paa guiden, ikke i stedet for den: saa staar
   // guiden praecis hvor man var, rullet og det hele, naar man gaar tilbage.
+  const dayChannel = dayFor === null ? null : channels.find(c => c.id === dayFor.id) ?? dayFor;
+  const sheetChannel = sheet === null ? null : channels.find(c => c.id === sheet.channel.id) ?? sheet.channel;
   const dayView =
-    dayFor !== null ? (
+    dayChannel !== null ? (
       <View style={styles.dayOverlay}>
         <ChannelDayScreen
           session={session}
-          channel={dayFor}
-          hasDialect={hasDialectFor(dayFor)}
+          channel={dayChannel}
+          hasDialect={hasDialectFor(dayChannel)}
           onBack={closeDay}
           onPlay={(channel) => onPlay(channel, channels)}
           onRestart={(channel, programme) => onRestart(channel, programme)}
@@ -1157,12 +1162,12 @@ export const GuideScreen = memo(function GuideScreen({
           {guideBlock}
         </>
       )}
-      {sheet !== null && (
+      {sheet !== null && sheetChannel !== null && (
         <ProgrammeSheet
-          channel={sheet.channel}
+          channel={sheetChannel}
           programme={sheet.cell.programme}
           state={sheet.cell.state}
-          hasDialect={hasDialectFor(sheet.channel)}
+          hasDialect={hasDialectFor(sheetChannel)}
           reminder={
             sheetReminder === null
               ? undefined
@@ -1181,15 +1186,15 @@ export const GuideScreen = memo(function GuideScreen({
           onClose={() => setSheet(null)}
           onPlay={() => {
             setSheet(null);
-            onPlay(sheet.channel, channels);
+            onPlay(sheetChannel, channels);
           }}
           onRestart={() => {
             const programme = sheet.cell.programme;
             setSheet(null);
-            if (programme !== null) onRestart(sheet.channel, programme);
+            if (programme !== null) onRestart(sheetChannel, programme);
           }}
           onDay={() => {
-            const channel = sheet.channel;
+            const channel = sheetChannel;
             dayOrigin.current = { channelId: channel.id, key: sheet.cell.key, atMs: sheet.cell.programme?.start.getTime() ?? null };
             setReturnFocusChannelId(null);
             setSheet(null);

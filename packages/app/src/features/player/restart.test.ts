@@ -1,19 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { restartBlockFor, restartHint, restartModeFor } from './restart.js';
-
-describe('restartModeFor', () => {
-  it('tilbyder eksplicit forsoeg naar kun udbyderens arkivflag mangler', () => {
-    expect(restartModeFor(false, true, true)).toBe('trial');
-    expect(restartModeFor(true, true, true)).toBe('ready');
-  });
-  it('tilbyder ikke et forsoeg uden program eller kendt arkivvej', () => {
-    for (const archive of [true, false]) {
-      expect(restartModeFor(archive, false, true)).toBeNull();
-      expect(restartModeFor(archive, true, false)).toBeNull();
-      expect(restartModeFor(archive, false, false)).toBeNull();
-    }
-  });
-});
+import { restartBlockFor, restartHint } from './restart.js';
 
 describe('restartBlockFor', () => {
   it('giver null naar alt er paa plads', () => {
@@ -43,8 +29,9 @@ describe('restartHint', () => {
     expect(restartHint('no-epg').action).toBe('Hent program');
   });
 
-  it('forklarer manglende arkivflag uden at love optagelser', () => {
-    // Den separate, manuelt valgte knap ligger i afspillerens handlinger.
+  it('lover ingenting naar kanalen slet ikke har arkiv', () => {
+    // Der er ikke noget appen kan goere, og en knap der ikke virker er
+    // vaerre end ingen knap.
     expect(restartHint('no-archive').action).toBeNull();
   });
 

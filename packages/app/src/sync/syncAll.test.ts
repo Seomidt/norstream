@@ -8,6 +8,8 @@ import { createTestDatabase } from '../storage/testDb.js';
 import type { SqlDatabase } from '../storage/types.js';
 import type { SourceAccess } from '../sources/access.js';
 import { syncAllSources } from './syncAll.js';
+import { programmeOptions } from '../features/guide/layout.js';
+import { addSource } from '../storage/sources.js';
 
 const creds: XtreamCredentials = {
   baseUrl: 'http://panel.example:8080',
@@ -29,7 +31,7 @@ function source(id: string, kind: Source['kind'], name = id): Source {
 }
 
 /** Panel der svarer paa Xtream-kald og paa M3U-listen. */
-function world(options: { authFails?: string[]; dead?: string[] } = {}): FetchLike {
+function world(options: { authFails?: string[]; dead?: string[]; archive?: boolean } = {}): FetchLike {
   return vi.fn(async (url: string) => {
     if (url.endsWith('.m3u')) {
       return {
@@ -53,7 +55,7 @@ function world(options: { authFails?: string[]; dead?: string[] } = {}): FetchLi
     return {
       ok: true,
       status: 200,
-      text: async () => '', json: async () => [{ stream_id: '1', name: 'DR1', category_id: '1' }],
+      text: async () => '', json: async () => [{ stream_id: '1', name: 'DR1', category_id: '1', tv_archive: options.archive ? 1 : 0, tv_archive_duration: options.archive ? 7 : 0 }],
     };
   }) as unknown as FetchLike;
 }
@@ -66,6 +68,28 @@ beforeEach(async () => {
 });
 
 describe('syncAllSources', () => {
+  it('genaktiverer arkiv ved naeste automatiske kanalhentning og bevarer det ved netfejl', async () => {
+    await setLogoRegistryEnabled(db, false);
+    const saved = await addSource(db, { kind: 'xtream', name: 'Panel', url: creds.baseUrl, username: creds.username });
+    const accesses: SourceAccess[] = [{ source: saved, creds }];
+    const now = new Date('2026-10-12T12:00:00Z');
+    await syncAllSources(db, accesses, world({ archive: false }), { now });
+    let channel = (await listChannels(db))[0]!;
+    expect(channel.hasArchive).toBe(false);
+    expect(programmeOptions('live', channel, true).restart).toBe(false);
+    const added = world({ archive: true });
+    // Et friskt katalog maa ikke hentes ved hvert resume.
+    await syncAllSources(db, accesses, added, { now: new Date(now.getTime() + 60_000) });
+    expect(added).not.toHaveBeenCalled();
+    await syncAllSources(db, accesses, added, { now: new Date(now.getTime() + 24 * 3600_000) });
+    channel = (await listChannels(db))[0]!;
+    expect(channel.hasArchive).toBe(true); expect(channel.archiveDays).toBe(7);
+    expect(programmeOptions('live', channel, true).restart).toBe(true);
+    await syncAllSources(db, accesses, world({ dead: ['panel.example:8080'] }), { now: new Date(now.getTime() + 48 * 3600_000) });
+    expect((await listChannels(db))[0]!.hasArchive).toBe(true);
+    await syncAllSources(db, accesses, world({ archive: false }), { now: new Date(now.getTime() + 48 * 3600_000 + 60_000) });
+    expect((await listChannels(db))[0]!.hasArchive).toBe(false);
+  });
   it('henter baade paneler og lister', async () => {
     const accesses: SourceAccess[] = [
       { source: source('p1', 'xtream'), creds },
