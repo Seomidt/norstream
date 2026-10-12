@@ -310,12 +310,21 @@ export async function listVodItems(
   // Serie-fremdrift ligger paa afsnittets noegle. Praefikset virker ogsaa
   // efter sky-gendannelse, foer afsnitslisten er hentet paa denne boks.
   const select = opts.inProgressOnly === true
-    ? SELECT_ITEM.replace('LEFT JOIN vod_progress p ON p.item_key = i.key', `LEFT JOIN vod_progress p ON p.item_key = (
-        SELECT vp.item_key FROM vod_progress vp
-        WHERE vp.item_key = i.key OR (i.kind = 'series'
-          AND substr(vp.item_key, 1, length(i.key) + 1) = i.key || ':')
-        ORDER BY vp.updated_ms DESC, vp.item_key DESC LIMIT 1
-      )`)
+    ? `WITH progress_keys AS (
+        SELECT *, instr(item_key, ':') AS source_end,
+          instr(substr(item_key, instr(item_key, ':') + 1), ':') AS episode_start
+        FROM vod_progress
+      ), ranked_progress AS (
+        SELECT *, row_number() OVER (
+          PARTITION BY CASE WHEN episode_start > 0
+            THEN substr(item_key, 1, source_end + episode_start - 1) ELSE item_key END
+          ORDER BY updated_ms DESC, item_key DESC
+        ) AS recency,
+        CASE WHEN episode_start > 0
+          THEN substr(item_key, 1, source_end + episode_start - 1) ELSE item_key END AS title_key
+        FROM progress_keys
+      ) ${SELECT_ITEM.replace('LEFT JOIN vod_progress p ON p.item_key = i.key',
+        'LEFT JOIN ranked_progress p ON p.title_key = i.key AND p.recency = 1')}`
     : SELECT_ITEM;
   const rows = await db.getAllAsync<ItemRow>(`${select} ${clause} ${order} ${limit}`, params);
   const dead = await deadLogoOrigins(db);
