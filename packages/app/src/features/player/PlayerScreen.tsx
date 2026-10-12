@@ -48,6 +48,8 @@ import type { RadioState } from './RadioView.js';
 import { pickPreferredSubtitle, sameTrack, trackName } from './tracks.js';
 import type { RestartBlock } from './restart.js';
 import { SeekButtons } from './SeekButtons.js';
+import { ArchiveProgress } from './ArchiveProgress.js';
+import { archiveProgressTime } from './archiveProgress.js';
 
 interface Props {
   session: AppSession;
@@ -191,6 +193,10 @@ export function PlayerScreen({
   const archiveRef = useRef<{ programme: Programme; segmentStart: number; seekSeconds: number; format: StreamFormat; dialect: TimeshiftDialect } | null>(null);
   /** Afspillerens position i det nuvaerende stykke, i sekunder. */
   const positionRef = useRef(0);
+  const readArchiveProgress = useCallback(() => {
+    const segment = archiveRef.current;
+    return segment === null ? null : archiveProgressTime(segment.programme, segment.segmentStart, positionRef.current);
+  }, []);
   /** playFromStart, til lyttere der er sat op foer den er defineret laengere nede. */
   const playFromStartRef = useRef<(programme: Programme, from?: Date, seekSeconds?: number, reconnect?: boolean) => Promise<void>>(async () => undefined);
 
@@ -1043,6 +1049,7 @@ export function PlayerScreen({
   // fokus lander paa. Start forfra eller spoling, saa tekst, saa zap.
   const actions = (
     <>
+      {restarted && isTV && <ArchiveProgress read={readArchiveProgress} />}
       {/* Ingen Tilbage-knap paa tv: Google — "brug fjernbetjeningens
           Tilbage, vis ikke en knap paa skaermen". */}
       {!isTV && (
@@ -1231,6 +1238,7 @@ export function PlayerScreen({
         // start, saa pil venstre/hoejre spoler med det samme. Paa en direkte
         // live-kanal bliver bjaelken fremme, saa "Start forfra" kan ses.
         initialBarShown={!isTV || !restarted}
+        selectShowsControls={restarted}
         suspended={showingChannels}
         onPlayerKey={(key) => {
           try {

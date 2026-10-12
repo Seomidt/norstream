@@ -197,6 +197,7 @@ export function HomeScreen({
   const [showingCheck, setShowingCheck] = useState(false);
   /** Guidens egen tilbage-vej (dagssiden), foer fanens. */
   const guideBack = useRef<() => boolean>(() => false);
+  const sportBack = useRef<() => boolean>(() => false);
   /** Radioens egen tilbage-vej (internetradioens land og soegning), foer fanens. */
   const radioBack = useRef<() => boolean>(() => false);
   const vodBack = useRef<() => boolean>(() => false);
@@ -215,8 +216,8 @@ export function HomeScreen({
   // land -> kategori -> kanaler i Kanaler, og forsiden -> land -> kategori ->
   // titler i Film. Paa forsiden af en fane: intet at gaa op i.
   backRef.current = (): boolean => {
-    if (tab === 'guide' && guideBack.current()) {
-      // Et gammelt piltryk maa ikke skifte fane, mens dagssiden lukkes og
+    if ((tab === 'guide' && guideBack.current()) || (tab === 'sport' && sportBack.current())) {
+      // Et gammelt piltryk maa ikke skifte fane, mens undersiden lukkes og
       // Android kortvarigt leder efter fokus paa baggrunden.
       if (pendingTab.current !== null) clearTimeout(pendingTab.current);
       pendingTab.current = null;
@@ -772,6 +773,7 @@ export function HomeScreen({
         )}
         {tab === 'sport' && (
           <SportScreen
+            backRef={sportBack}
             session={session}
             onPlay={(channel, neighbours) => open(channel, undefined, neighbours)}
             focusFirstSignal={enterSignal}

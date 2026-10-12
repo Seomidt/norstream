@@ -70,6 +70,7 @@ export function LandscapePlayer({
   playing = true,
   initialBarShown = true,
   suspended = false,
+  selectShowsControls = false,
   onPlayerKey,
 }: {
   /** Selve videoen; laegges over hele skaermen. */
@@ -93,6 +94,8 @@ export function LandscapePlayer({
    * holder paa fokus fjernes, saa listen kan faa det.
    */
   suspended?: boolean;
+  /** Foerste OK viser kun bjaelken, mens udsendelsen fortsaetter. */
+  selectShowsControls?: boolean;
   /**
    * Tv, Googles regler for afspilning (TV-PC, TV-PP): OK pauser og
    * genoptager, pil venstre/hoejre zapper (eller spoler i arkivet), og
@@ -162,7 +165,7 @@ export function LandscapePlayer({
 
     if (onPlayerKey !== undefined) {
       if (type === 'playPause' || type === 'rewind' || type === 'fastForward') onPlayerKey(type);
-      else if (!barShownRef.current && type === 'select') onPlayerKey(type);
+      else if (!barShownRef.current && type === 'select' && !selectShowsControls) onPlayerKey(type);
     }
     setBarShown(true);
     setActivity((value) => value + 1);

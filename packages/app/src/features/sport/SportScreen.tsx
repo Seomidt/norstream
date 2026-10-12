@@ -25,6 +25,8 @@ interface Props {
   onPlay: (channel: StoredChannel, neighbours: StoredChannel[]) => void;
   /** Taelles op naar pil-hoejre fra menuen skal give skaermen fokus. */
   focusFirstSignal?: number;
+  /** Tilbage rydder hold-/sportsfilteret foer fanen forlades. */
+  backRef?: { current: () => boolean };
 }
 
 const SEARCH_DEBOUNCE_MS = 350;
@@ -45,11 +47,14 @@ const SUGGESTIONS = ['Superliga', 'Premier League', 'Champions League', 'Formel 
  * - Der soeges kun i programoversigten der er hentet: favoritterne og
  *   sportskanalerne hentes her (hoejst hvert tyvende minut).
  */
-export function SportScreen({ session, onPlay, focusFirstSignal = 0 }: Props) {
+export function SportScreen({ session, onPlay, focusFirstSignal = 0, backRef }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const tail = useTvListTail();
   const listRef = useRef<FlatList<Match>>(null);
+  const searchButtonRef = useRef<View>(null);
+  const [returnFocus, setReturnFocus] = useState(false);
+  const searchSequence = useRef(0);
   const [text, setText] = useState('');
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState(!isTV);
@@ -60,6 +65,33 @@ export function SportScreen({ session, onPlay, focusFirstSignal = 0 }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [now, setNow] = useState(Date.now());
+  const clearFilter = useCallback(() => {
+    setText('');
+    setQuery('');
+    setEditing(!isTV);
+    setReturnFocus(isTV);
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, []);
+  if (backRef !== undefined) backRef.current = () => {
+    if (isTV && editing) {
+      setEditing(false);
+      setReturnFocus(true);
+      return true;
+    }
+    if (text.trim().length > 0 || query.length > 0) {
+      clearFilter();
+      return true;
+    }
+    return false;
+  };
+  useEffect(() => {
+    if (!returnFocus || editing) return;
+    const request = () => searchButtonRef.current?.requestTVFocus();
+    const frame = requestAnimationFrame(request);
+    const retry = setInterval(request, 150);
+    const timeout = setTimeout(() => setReturnFocus(false), 1500);
+    return () => { cancelAnimationFrame(frame); clearInterval(retry); clearTimeout(timeout); };
+  }, [returnFocus, editing]);
 
   // Fra menuen (pil-hoejre): soegeknappen beder om fokus i én tegning.
   const consumed = useRef(focusFirstSignal);
@@ -94,11 +126,13 @@ export function SportScreen({ session, onPlay, focusFirstSignal = 0 }: Props) {
   }, [session.db, loadReminders]);
 
   const search = useCallback(async (): Promise<void> => {
+    const own = ++searchSequence.current;
     const at = Date.now();
     setNow(at);
     try {
       if (query.length > 0) {
-        setMatches(await findMatches(session.db, query, { now: at }));
+        const found = await findMatches(session.db, query, { now: at });
+        if (own === searchSequence.current) setMatches(found);
         return;
       }
       // Uden soegning: mine holds kampe, samlet og uden dubletter.
@@ -111,14 +145,15 @@ export function SportScreen({ session, onPlay, focusFirstSignal = 0 }: Props) {
           all.push(match);
         }
       }
-      setMatches(all.sort((a, b) => Number(b.live) - Number(a.live) || a.startMs - b.startMs));
+      if (own === searchSequence.current) setMatches(all.sort((a, b) => Number(b.live) - Number(a.live) || a.startMs - b.startMs));
     } catch {
-      setMatches([]);
+      if (own === searchSequence.current) setMatches([]);
     }
   }, [query, teams, session.db]);
 
   useEffect(() => {
     void search();
+    return () => { searchSequence.current += 1; };
   }, [search]);
 
   // Programoversigten for sportskanalerne, i baggrunden: panelet per kanal
@@ -232,7 +267,7 @@ export function SportScreen({ session, onPlay, focusFirstSignal = 0 }: Props) {
           }}
         />
       ) : (
-        <TvPressable style={styles.searchButton} hasTVPreferredFocus={enterFocus} onPress={() => setEditing(true)}>
+        <TvPressable ref={searchButtonRef} style={styles.searchButton} hasTVPreferredFocus={enterFocus || returnFocus} onFocus={() => setReturnFocus(false)} onPress={() => setEditing(true)}>
           <Text style={styles.searchText} numberOfLines={1}>
             🔍 {query.length > 0 ? query : 'Søg efter hold, liga eller sport'}
           </Text>
@@ -248,15 +283,12 @@ export function SportScreen({ session, onPlay, focusFirstSignal = 0 }: Props) {
         {query.length > 0 && (
           <TvPressable
             style={styles.chip}
-            onPress={() => {
-              setText('');
-              setQuery('');
-            }}
+            onPress={clearFilter}
           >
-            <Text style={styles.chipText}>Mine hold</Text>
+            <Text style={styles.chipText}>Alle sportsgrene</Text>
           </TvPressable>
         )}
-        {(teams.length > 0 ? teams : SUGGESTIONS).map((name) => (
+        {[...teams, ...SUGGESTIONS.filter((name) => !teams.some((team) => normalizeText(team) === normalizeText(name)))].map((name) => (
           <TvPressable
             key={name}
             style={[styles.chip, normalizeText(name) === normalizedQuery && styles.chipActive]}
@@ -265,7 +297,7 @@ export function SportScreen({ session, onPlay, focusFirstSignal = 0 }: Props) {
               setQuery(name);
             }}
           >
-            <Text style={styles.chipText}>{teams.length > 0 ? `★ ${name}` : name}</Text>
+            <Text style={styles.chipText}>{teams.includes(name) ? `★ ${name}` : name}</Text>
           </TvPressable>
         ))}
       </ScrollView>
@@ -299,6 +331,7 @@ export function SportScreen({ session, onPlay, focusFirstSignal = 0 }: Props) {
   return (
     <View style={styles.container}>
       <FlatList
+        removeClippedSubviews={false}
         ref={listRef}
         data={matches ?? []}
         keyExtractor={(match) => match.key}
