@@ -1,3 +1,4 @@
+import { watchArchivePreparation } from './archivePreparation.js';
 import { setPlaybackSnapshot, closePlaybackSnapshot } from '../../diagnostics/reporter.js';
 import { channelEpgSummary } from '../../diagnostics/channelEpg.js';
 import { TV_CODEC_OPTIONS, videoFrameSummary } from './tvCodec.js';
@@ -604,21 +605,25 @@ export function PlayerScreen({
     const linear = Platform.OS === 'android' && segment !== null && (segment.dialect === 'php' || segment.format === 'ts');
     setRadioState('connecting');
     if (linear) logEvent('arkiv', `sekventiel TS v384: overlap ${seek.toFixed(3)} s, ingen PCR-byte-seek`);
+    const stopObserving = segment === null ? null : watchArchivePreparation(player, connection, seek, line => logEvent('arkiv', line));
     void connection.load(streamSource(source), segment !== null, seek, playIntent.current, linear)
       .then(() => {
         if (cancelled) return;
+        stopObserving?.('klar');
         changingSource.current = false;
         if (archiveRef.current !== null) logEvent('arkiv', `nyt stykke klargjort efter metadata, buffer og bekraeftet spoling; spol ${seek.toFixed(3)} s`);
         playbackStatus.current(player.status);
       })
       .catch(() => {
         if (cancelled) return;
+        stopObserving?.('fejl');
         changingSource.current = false;
         logEvent('afspiller', `indlaesning afbrudt i fase ${connection.preparationPhase}`);
         nativeFailure.current();
       });
     return () => {
       cancelled = true;
+      stopObserving?.('afbrudt');
       connection.cancel();
     };
   }, [player, connection, source, sourceRevision]);
