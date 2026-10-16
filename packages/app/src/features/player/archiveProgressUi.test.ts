@@ -31,7 +31,7 @@ function text(): string {
   return tree!.root.findAllByType('Text' as ElementType).map((node) => node.children.join('')).join(' · ');
 }
 describe('OK viser arkivtid uden at pause', () => {
-  it('viser tidslinjen paa keyup, bevarer afspilning og skjuler igen efter fem sekunder', async () => {
+  it('viser tidslinjen paa keyup, bevarer afspilning og skjuler igen efter ti sekunder', async () => {
     const playerKey = vi.fn(() => true);
     const read = vi.fn(() => ({ elapsed: 754, duration: 2700, remaining: 1946 }));
     await act(async () => {
@@ -46,6 +46,10 @@ describe('OK viser arkivtid uden at pause', () => {
     expect(text()).toBe('12:34 / 45:00 · 32:26 tilbage');
     expect(playerKey).not.toHaveBeenCalled();
     await act(async () => { vi.advanceTimersByTime(5000); });
+    expect(tree!.root.findAllByType(ArchiveProgress)).toHaveLength(1);
+    await act(async () => { vi.advanceTimersByTime(4999); });
+    expect(tree!.root.findAllByType(ArchiveProgress)).toHaveLength(1);
+    await act(async () => { vi.advanceTimersByTime(1); });
     expect(tree!.root.findAllByType(ArchiveProgress)).toHaveLength(0);
     const reads = read.mock.calls.length;
     await act(async () => { vi.advanceTimersByTime(1000); });
