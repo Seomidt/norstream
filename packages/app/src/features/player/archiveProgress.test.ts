@@ -30,6 +30,11 @@ describe('tidsvisning for hele start-forfra-udsendelsen', () => {
     expect(archiveProgressTime({ start, stop: start }, start.getTime(), 0)).toBe(null);
     expect(archiveProgressTime({ start: new Date(NaN), stop: programme.stop }, start.getTime(), 0)).toBe(null);
   });
+  it('taeller videre efter EPG-slut og medregner slutmargenen i resttiden', () => {
+    const stop = new Date(programme.stop.getTime() + 300_000);
+    expect(archiveProgressTime(programme, programme.stop.getTime(), 42, stop))
+      .toEqual({ elapsed: 3642, duration: 3900, remaining: 258, guideDuration: 3600 });
+  });
   it.each([[0, '0:00'], [754, '12:34'], [3599, '59:59'], [3600, '1:00:00'], [7384, '2:03:04']])('formaterer %i sekunder som %s', (seconds, expected) => {
     expect(archiveTimeLabel(seconds as number)).toBe(expected);
   });

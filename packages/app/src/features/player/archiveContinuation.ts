@@ -15,11 +15,28 @@ export type ArchiveNext =
   | { kind: 'live' }
   /** Panelet mangler det naeste faerdige minut; behold positionen og vent. */
   | { kind: 'wait' }
-  /** Udsendelsen er set til ende (eller sluttede): intet at goere. */
+  /** Den valgte afspilningsgraense er naaet; vis et afslutningsvalg. */
   | { kind: 'done' };
 
 /** Arkivet halter lidt efter live; tættere paa end det er der intet at hente. */
 export const LIVE_EDGE_LAG_MS = 90_000;
+/** EPG-tider er planlagte tider, ikke en garanti for sidste billede. */
+export const ARCHIVE_END_MARGIN_MINUTES = 5;
+export const ARCHIVE_END_MARGIN_MS = ARCHIVE_END_MARGIN_MINUTES * 60_000;
+
+/** Afspilningsgraensen holdes adskilt fra programmets titel og EPG-tider.
+ * En manuel forlaengelse bevares ved genforbindelse og spoling. */
+export function archivePlaybackBounds(
+  programme: { start: Date; stop: Date },
+  untilMs?: number,
+): { start: Date; stop: Date; liveStop: Date } {
+  const minimum = programme.stop.getTime() + ARCHIVE_END_MARGIN_MS;
+  return {
+    start: programme.start,
+    stop: new Date(typeof untilMs === 'number' && Number.isFinite(untilMs) ? Math.max(minimum, untilMs) : minimum),
+    liveStop: programme.stop,
+  };
+}
 /** De sidste sekunder af en udsendelse regnes som set til ende. */
 const END_SLACK_MS = 2000;
 
@@ -53,7 +70,7 @@ export function archiveWindow(
 }
 
 export function archiveContinuation(
-  programme: { start: Date; stop: Date },
+  programme: { start: Date; stop: Date; liveStop?: Date },
   segmentStartMs: number,
   positionSeconds: number,
   nowMs: number,
@@ -68,7 +85,9 @@ export function archiveContinuation(
   const reached = Math.abs(rawReached - nearestMinute) <= 1 ? nearestMinute : rawReached;
   const end = programme.stop.getTime();
   if (reached >= end - END_SLACK_MS) return { kind: 'done' };
-  if (reached >= nowMs && end > nowMs) return { kind: 'live' };
+  // Slutmargenen maa ikke faa en faerdig udsendelse til at ligne en der
+  // stadig sendes og dermed udloese et utilsigtet spring til live.
+  if (reached >= nowMs && (programme.liveStop?.getTime() ?? end) > nowMs) return { kind: 'live' };
   const window = archiveWindow(programme, new Date(reached), 0, nowMs);
   if (window === null || window.seekSeconds >= window.minutes * 60 - 1) return { kind: 'wait' };
   return {

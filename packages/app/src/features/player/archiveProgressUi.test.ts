@@ -13,6 +13,7 @@ vi.mock('expo-keep-awake', () => ({ useKeepAwake: () => {} }));
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
 import { ArchiveProgress } from './ArchiveProgress.js';
 import { LandscapePlayer } from './Landscape.js';
+import { ArchiveEnd } from './ArchiveEnd.js';
 
 let tree: ReactTestRenderer | null = null;
 beforeEach(() => {
@@ -72,5 +73,35 @@ describe('OK viser arkivtid uden at pause', () => {
     expect(playerKey).toHaveBeenCalledWith('select');
     await act(async () => events.key!({ eventType: 'playPause', eventKeyAction: 1 }));
     expect(playerKey).toHaveBeenCalledWith('playPause');
+  });
+  it('forklarer slutmargenen og viser et ur der stadig gaar frem efter EPG-slut', async () => {
+    await act(async () => { tree = create(createElement(ArchiveProgress, {
+      read: () => ({ elapsed: 1242, duration: 1500, remaining: 258, guideDuration: 1200 }),
+    })); });
+    expect(text()).toContain('20:42 / 25:00 · 4:18 tilbage');
+    expect(text()).toContain('Inkl. 5 min ekstra til afslutningen');
+  });
+  it('giver slutvalget fokus, skjuler knapperne bagved og skifter kun efter brugerens tryk', async () => {
+    const onContinue = vi.fn();
+    const onLive = vi.fn();
+    const playerKey = vi.fn(() => true);
+    await act(async () => { tree = create(createElement(LandscapePlayer, {
+      video: null, playing: false, suspended: true, initialBarShown: false,
+      bar: createElement('Text', null, 'Bagved'), onPlayerKey: playerKey,
+      overlays: createElement(ArchiveEnd, { onContinue, onLive }),
+    })); });
+    expect(text()).not.toContain('Bagved');
+    const buttons = tree!.root.findAllByType('Pressable' as ElementType);
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0]!.props.hasTVPreferredFocus).toBe(true);
+    await act(async () => { vi.advanceTimersByTime(60_000); events.key!({ eventType: 'select', eventKeyAction: 1 }); });
+    expect(onContinue).not.toHaveBeenCalled();
+    expect(onLive).not.toHaveBeenCalled();
+    expect(playerKey).not.toHaveBeenCalled();
+    await act(async () => buttons[0]!.props.onPress({}));
+    expect(onContinue).toHaveBeenCalledTimes(1);
+    expect(onLive).not.toHaveBeenCalled();
+    await act(async () => buttons[1]!.props.onPress({}));
+    expect(onLive).toHaveBeenCalledTimes(1);
   });
 });

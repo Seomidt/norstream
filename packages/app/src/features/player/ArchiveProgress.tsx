@@ -37,6 +37,9 @@ export function ArchiveProgress({ read }: { read: () => ArchiveProgressTime | nu
       <View style={styles.track}>
         <View style={[styles.fill, { width: `${time.elapsed / time.duration * 100}%` }]} />
       </View>
+      {time.guideDuration !== undefined && (
+        <Text style={styles.margin}>Inkl. {Math.ceil((time.duration - time.guideDuration) / 60)} min ekstra til afslutningen</Text>
+      )}
     </View>
   );
 }
@@ -48,4 +51,5 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   remaining: { color: colors.textMuted, fontSize: 15, fontVariant: ['tabular-nums'] },
   track: { height: 3, marginTop: 6, backgroundColor: colors.border, borderRadius: 2 },
   fill: { height: 3, backgroundColor: colors.accent, borderRadius: 2 },
+  margin: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
 });
