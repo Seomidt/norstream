@@ -72,6 +72,9 @@ interface Props {
   resumeAtSeconds?: number;
 }
 
+/** Mere laesetid til kanal og program ved zap paa TV. */
+const CHANNEL_BANNER_MS = isTV ? 10_000 : 3_000;
+
 const MAX_RETRIES = 2;
 const RETRY_BACKOFF_MS = 1500;
 /** Hvor laenge afspilleren maa haenge i buffering MIDT i afspilningen foer vi
@@ -251,7 +254,7 @@ export function PlayerScreen({
       setRestartBlock(undefined);
       setNow(null);
       setNext(null);
-      setBannerUntil(Date.now() + 3_000);
+      setBannerUntil(Date.now() + CHANNEL_BANNER_MS);
       requestSource(liveUrlFor(session.access(target.sourceId), target, formatForPlatform()));
     },
     [channel, session, requestSource],
@@ -513,7 +516,7 @@ export function PlayerScreen({
       caughtUpHandled.current = true;
       setRestarted(false);
       setCaughtUpToLive(true);
-      setBannerUntil(Date.now() + 3_000);
+      setBannerUntil(Date.now() + CHANNEL_BANNER_MS);
       recovery.current.reset();
       requestSource(liveUrlFor(access, channel, formatForPlatform()));
     };

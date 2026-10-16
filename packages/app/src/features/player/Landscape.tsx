@@ -32,7 +32,7 @@ export function useLandscape(): boolean {
 }
 
 /** Hvor laenge bjaelken staar, foer den gemmer sig igen. */
-const AUTO_HIDE_MS = 5_000;
+const AUTO_HIDE_MS = isTV ? 10_000 : 5_000;
 
 /** Tasterne fra fjernbetjeningen som afspilleren selv skal tage sig af. */
 export type PlayerKey = 'select' | 'left' | 'right' | 'up' | 'down' | 'playPause' | 'rewind' | 'fastForward';
@@ -42,7 +42,7 @@ export type PlayerKey = 'select' | 'left' | 'right' | 'up' | 'down' | 'playPause
  *
  * Kun disse viser bjaelken OG giver auto-skjul-uret ny tid. Alt andet
  * (fokus/blur, og navnlig `pan` fra en beroeringsfjernbetjening der driver i
- * tomgang) ignoreres — ellers blev 5-sekunders-uret nulstillet konstant af
+ * tomgang) ignoreres — ellers blev auto-skjul-uret nulstillet konstant af
  * haendelser brugeren ikke selv sendte, og bjaelken blev staaende for evigt
  * midt i en film.
  */
