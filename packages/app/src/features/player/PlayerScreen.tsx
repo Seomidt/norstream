@@ -33,7 +33,7 @@ import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { setLastChannelId } from '../../storage/settings.js';
 import { recordChannelWatch, saveArchiveProgress } from '../../storage/history.js';
-import { ARCHIVE_END_MARGIN_MS, archiveContinuation, archivePlaybackBounds, archiveWindow } from './archiveContinuation.js';
+import { archiveContinuation, archivePlaybackBounds, archiveWindow } from './archiveContinuation.js';
 import { PlaybackConnection } from './playbackConnection.js';
 import { PlaybackRecovery } from './playbackRecovery.js';
 import { clockOf, logEvent } from '../../diagnostics/log.js';
@@ -51,7 +51,7 @@ import { pickPreferredSubtitle, sameTrack, trackName } from './tracks.js';
 import type { RestartBlock } from './restart.js';
 import { SeekButtons } from './SeekButtons.js';
 import { ArchiveProgress } from './ArchiveProgress.js';
-import { ArchiveEnd } from './ArchiveEnd.js';
+import { archiveQueueSource, archiveQueueSummary } from './archiveQueue.js';
 import { archiveProgressTime } from './archiveProgress.js';
 
 interface Props {
@@ -181,7 +181,6 @@ export function PlayerScreen({
   const [restarted, setRestarted] = useState(startFrom !== undefined);
   const [triedFallback, setTriedFallback] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
-  const [archiveEndShown, setArchiveEndShown] = useState(false);
   /**
    * Radio har intet billede, saa der er intet at se paa mens man venter.
    * Derfor siges det med ord hvor langt afspilleren er: forbinder, spiller
@@ -197,7 +196,7 @@ export function PlayerScreen({
    * hvor panelets arkiv sluttede, da det blev bedt om — ved start-forfra paa
    * en udsendelse der sendes, er det midt i den. Se archiveContinuation.
    */
-  const archiveRef = useRef<{ programme: Programme; playbackStop: Date; segmentStart: number; seekSeconds: number; format: StreamFormat; dialect: TimeshiftDialect } | null>(null);
+  const archiveRef = useRef<{ programme: Programme; playbackStop: Date; segmentStart: number; seekSeconds: number; format: StreamFormat; dialect: TimeshiftDialect; panelOffsetMinutes: number } | null>(null);
   /** Afspillerens position i det nuvaerende stykke, i sekunder. */
   const positionRef = useRef(0);
   const readArchiveProgress = useCallback(() => {
@@ -253,7 +252,6 @@ export function PlayerScreen({
       setCaughtUpToLive(false);
       setTriedFallback(false);
       setStreamError(null);
-      setArchiveEndShown(false);
       setRestartBlock(undefined);
       setNow(null);
       setNext(null);
@@ -304,21 +302,27 @@ export function PlayerScreen({
     p.timeUpdateEventInterval = 1;
   }, isTV ? TV_CODEC_OPTIONS : undefined);
   const connection = useMemo(() => new PlaybackConnection(player), [player]);
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const events = player as unknown as { addListener(name: string, fn: (event: Parameters<typeof archiveQueueSummary>[0]) => void): { remove(): void } };
+    const subscription = events.addListener('norstreamArchive', event => {
+      const summary = archiveQueueSummary(event);
+      if (summary !== null) logEvent('arkiv', summary);
+    });
+    return () => subscription.remove();
+  }, [player]);
   const finishArchive = useCallback((): void => {
-    // Et normalt slutpunkt er ikke en fejl eller et oenske om at starte
-    // samme stykke igen. Stop ogsaa genforsoegsuret foer afslutningsvalget.
+    // Efter 15 min slutmargen afsluttes automatisk til oversigten.
+    // Intet slutvalg og ingen genstart af den samme faerdige udsendelse.
     playIntent.current = false;
+    archiveRequest.current += 1;
     connection.setPlayingIntent(false);
     cancelPendingRetry.current();
     try { player.pause(); } catch { /* Afspilleren kan vaere lukket. */ }
-    setPlaying(false);
-    setStreamError(null);
-    setRadioState('paused');
-    setArchiveEndShown(true);
-    logEvent('arkiv', 'slutgraense v394: arkiv og slutmargen naaet; afventer brugerens valg');
-  }, [connection, player]);
+    logEvent('arkiv', 'slutgraense v395: 15 min slutmargen naaet; tilbage til oversigten');
+    onBack();
+  }, [connection, player, onBack]);
   const changePlaybackIntent = useCallback((desired: boolean): boolean => {
-    if (archiveEndShown) return false;
     playIntent.current = desired;
     connection.setPlayingIntent(desired);
     if (connection.seeking) return false;
@@ -337,7 +341,7 @@ export function PlayerScreen({
       playbackStatus.current(player.status);
     }
     return !desired || (!connection.seeking && !changingSource.current && !preparingArchive.current);
-  }, [player, connection, source, requestSource, archiveEndShown]);
+  }, [player, connection, source, requestSource]);
 
   /**
    * Fremdrift i arkivet, til forsidens "Fortsaet": gemmes hvert tiende
@@ -629,7 +633,7 @@ export function PlayerScreen({
     setRadioState('connecting');
     if (linear) logEvent('arkiv', `sekventiel TS v384: overlap ${seek.toFixed(3)} s, ingen PCR-byte-seek`);
     const stopObserving = segment === null ? null : watchArchivePreparation(player, connection, seek, line => logEvent('arkiv', line));
-    void connection.load(streamSource(source), segment !== null, seek, playIntent.current, linear)
+    void connection.load(archiveQueueSource(streamSource(source), segment, sourceRevision, isTV && Platform.OS === 'android'), segment !== null, seek, playIntent.current, linear)
       .then(() => {
         if (cancelled) return;
         stopObserving?.('klar');
@@ -936,7 +940,6 @@ export function PlayerScreen({
       preparingArchive.current = true;
       changingSource.current = true;
       startFromHandled.current = true;
-      setArchiveEndShown(false);
       if (!reconnect) {
         recovery.current.reset();
         lastSaved.current = 0;
@@ -973,8 +976,7 @@ export function PlayerScreen({
         const previous = archiveRef.current;
         const sameProgramme = previous?.programme.channelId === programme.channelId && previous.programme.start.getTime() === programme.start.getTime();
         const bounds = archivePlaybackBounds(programme, untilMs ?? (reconnect && sameProgramme ? previous?.playbackStop.getTime() : undefined));
-        // En manuelt valgt forlaengelse huskes ogsaa hvis panelet endnu
-        // ikke har et helt nyt minut. "Proev igen" bruger samme graense.
+        // Bevar slutgraensen, ogsaa naar panelet mangler det naeste minut.
         if (reconnect && sameProgramme && previous !== null) previous.playbackStop = bounds.stop;
         const window = archiveWindow(bounds, from, seekSeconds, Date.now());
         if (window === null || window.seekSeconds >= window.minutes * 60) {
@@ -986,9 +988,9 @@ export function PlayerScreen({
           'arkiv',
           `beder om ${dialect}-arkiv fra ${clockOf(window.from.getTime())}, ${window.minutes} min (udsendelse ${clockOf(programme.start.getTime())}–${clockOf(programme.stop.getTime())}, offset ${offset} min, spol ${window.seekSeconds.toFixed(3)} s)`,
         );
-        logEvent('arkiv', `slutgraense v394: guide ${clockOf(programme.stop.getTime())}, arkiv til ${clockOf(bounds.stop.getTime())}`);
+        logEvent('arkiv', `slutgraense v395: guide ${clockOf(programme.stop.getTime())}, arkiv til ${clockOf(bounds.stop.getTime())}`);
         const format = archiveFormat.current ?? formatForPlatform();
-        archiveRef.current = { programme, playbackStop: bounds.stop, segmentStart: window.from.getTime(), seekSeconds: window.seekSeconds, format, dialect };
+        archiveRef.current = { programme, playbackStop: bounds.stop, segmentStart: window.from.getTime(), seekSeconds: window.seekSeconds, format, dialect, panelOffsetMinutes: offset };
         positionRef.current = window.seekSeconds;
         // Samme beholder som live (.ts paa Android): arkivet som HLS gav groen
         // skaerm med lyd paa DR-kanalerne paa tv, mens live i .ts var fint.
@@ -1233,36 +1235,6 @@ export function PlayerScreen({
     </View>
   );
 
-  const archiveEndOverlay = !archiveEndShown ? null : (
-    <ArchiveEnd
-      onContinue={() => {
-        const segment = archiveRef.current;
-        if (segment === null) return;
-        const reached = segment.segmentStart + positionRef.current * 1000;
-        recovery.current.reset();
-        playIntent.current = true;
-        connection.setPlayingIntent(true);
-        void playFromStart(segment.programme, new Date(reached), 0, true, Math.max(reached, segment.playbackStop.getTime()) + ARCHIVE_END_MARGIN_MS);
-      }}
-      onLive={() => {
-        archiveRequest.current += 1;
-        preparingArchive.current = false;
-        cancelPendingRetry.current();
-        recovery.current.reset();
-        playIntent.current = true;
-        connection.setPlayingIntent(true);
-        archiveRef.current = null;
-        setArchiveEndShown(false);
-        setStreamError(null);
-        setStartFrom(undefined);
-        setRestarted(false);
-        setBannerUntil(Date.now() + CHANNEL_BANNER_MS);
-        requestSource(liveUrlFor(access, channel, formatForPlatform()));
-        logEvent('arkiv', 'slutgraense v394: brugeren valgte direkte');
-      }}
-    />
-  );
-
   if (isRadio) {
     const shown: RadioState = radioState === 'playing' && !playing ? 'paused' : radioState;
     return (
@@ -1311,7 +1283,7 @@ export function PlayerScreen({
         // live-kanal bliver bjaelken fremme, saa "Start forfra" kan ses.
         initialBarShown={!isTV || !restarted}
         selectShowsControls={restarted}
-        suspended={showingChannels || archiveEndShown}
+        suspended={showingChannels}
         onPlayerKey={(key) => {
           try {
             if (key === 'select' || key === 'playPause') {
@@ -1356,7 +1328,6 @@ export function PlayerScreen({
             {banner}
             {connectingOverlay}
             {failureOverlay}
-            {archiveEndOverlay}
             {subtitlePicker}
             {channelOverlay}
           </>
@@ -1372,7 +1343,6 @@ export function PlayerScreen({
       <View>
         <VideoView style={styles.video} player={player} nativeControls />
         {banner}
-        {archiveEndOverlay}
       </View>
 
       <View style={styles.info}>

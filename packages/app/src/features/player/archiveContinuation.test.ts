@@ -135,10 +135,10 @@ describe('slutmargen efter programguiden', () => {
     expect(archiveWindow(bounds, news.start, 0, at('18:19') + 8546))
       .toEqual({ from: news.start, seekSeconds: 0, minutes: 17 });
     expect(archiveContinuation(bounds, at('18:00'), 1020.379, at('18:36') + 10171))
-      .toMatchObject({ kind: 'continue', from: new Date(at('18:17')), seekSeconds: 0.379, minutes: 8 });
+      .toMatchObject({ kind: 'continue', from: new Date(at('18:17')), seekSeconds: 0.379, minutes: 17 });
     expect(archiveContinuation(bounds, at('18:17'), 179.340, at('18:39') + 8451))
-      .toEqual({ kind: 'continue', from: new Date(at('18:19')), seekSeconds: 59.34, minutes: 6 });
-    expect(archiveContinuation(bounds, at('18:19'), 360 - 0.66, at('18:45')))
+      .toEqual({ kind: 'continue', from: new Date(at('18:19')), seekSeconds: 59.34, minutes: 16 });
+    expect(archiveContinuation(bounds, at('18:19'), 960 - 0.66, at('18:55')))
       .toEqual({ kind: 'done' });
     expect(news.stop.getTime()).toBe(at('18:20'));
   });
@@ -148,14 +148,14 @@ describe('slutmargen efter programguiden', () => {
     expect(archiveContinuation(bounds, at('18:00'), 60, at('18:20')))
       .toMatchObject({ kind: 'continue', from: new Date(at('18:01')) });
     expect(archiveContinuation(bounds, at('18:00'), 20 * 60, at('18:40')))
-      .toMatchObject({ kind: 'continue', from: new Date(at('18:20')), minutes: 5 });
+      .toMatchObject({ kind: 'continue', from: new Date(at('18:20')), minutes: 15 });
     expect(archiveContinuation(bounds, at('18:00'), 21 * 60, at('18:21')))
       .toEqual({ kind: 'wait' });
   });
 
   it('venter paa den sidste del af slutmargenen og bestiller aldrig fremtidige minutter', () => {
     const bounds = archivePlaybackBounds(news);
-    expect(archiveContinuation(bounds, at('18:24'), 0, at('18:25'))).toEqual({ kind: 'wait' });
+    expect(archiveContinuation(bounds, at('18:34'), 0, at('18:35'))).toEqual({ kind: 'wait' });
     for (let second = 0; second < 60; second += 1) {
       const now = at('18:22') + second * 1000;
       const window = archiveWindow(bounds, new Date(at('18:19')), 59.34, now);
@@ -163,13 +163,13 @@ describe('slutmargen efter programguiden', () => {
     }
   });
 
-  it('bevarer en manuelt forlaenget graense ved nye stykker uden at aendre EPG-programmet', () => {
-    const bounds = archivePlaybackBounds(news, at('18:30'));
+  it('bevarer slutgraensen ved nye stykker uden at aendre EPG-programmet', () => {
+    const bounds = archivePlaybackBounds(news, at('18:40'));
     const window = archiveWindow(bounds, new Date(at('18:24')), 59.34, at('18:50'))!;
-    expect(window).toEqual({ from: new Date(at('18:24')), seekSeconds: 59.34, minutes: 6 });
-    expect(archivePlaybackBounds(news, bounds.stop.getTime()).stop.getTime()).toBe(at('18:30'));
+    expect(window).toEqual({ from: new Date(at('18:24')), seekSeconds: 59.34, minutes: 16 });
+    expect(archivePlaybackBounds(news, bounds.stop.getTime()).stop.getTime()).toBe(at('18:40'));
     expect(archiveContinuation(bounds, at('18:24'), 60, at('18:50')).kind).toBe('continue');
-    expect(archivePlaybackBounds(news, NaN).stop.getTime()).toBe(at('18:25'));
+    expect(archivePlaybackBounds(news, NaN).stop.getTime()).toBe(at('18:35'));
     expect(news.stop.getTime()).toBe(at('18:20'));
   });
 });

@@ -15,17 +15,17 @@ export type ArchiveNext =
   | { kind: 'live' }
   /** Panelet mangler det naeste faerdige minut; behold positionen og vent. */
   | { kind: 'wait' }
-  /** Den valgte afspilningsgraense er naaet; vis et afslutningsvalg. */
+  /** Udsendelse og slutmargen er naaet; afslut automatisk. */
   | { kind: 'done' };
 
 /** Arkivet halter lidt efter live; tættere paa end det er der intet at hente. */
 export const LIVE_EDGE_LAG_MS = 90_000;
 /** EPG-tider er planlagte tider, ikke en garanti for sidste billede. */
-export const ARCHIVE_END_MARGIN_MINUTES = 5;
+export const ARCHIVE_END_MARGIN_MINUTES = 15;
 export const ARCHIVE_END_MARGIN_MS = ARCHIVE_END_MARGIN_MINUTES * 60_000;
 
 /** Afspilningsgraensen holdes adskilt fra programmets titel og EPG-tider.
- * En manuel forlaengelse bevares ved genforbindelse og spoling. */
+ * Graensen bevares ved genforbindelse og spoling. */
 export function archivePlaybackBounds(
   programme: { start: Date; stop: Date },
   untilMs?: number,

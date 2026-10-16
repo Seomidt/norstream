@@ -10,6 +10,7 @@ const f = vi.hoisted(() => ({
   listeners: new Map<string, Set<(value: any) => void>>(),
   requests: [] as Array<{ from: Date; minutes: number }>,
   loads: [] as Array<{ source: unknown; seek: number }>,
+  back: vi.fn(),
   setting: vi.fn(async () => 'php'),
   player: {
     currentTime: 0, bufferedPosition: 90, duration: 1020, playing: true,
@@ -76,7 +77,6 @@ vi.mock('./useRadioNowPlaying.js', () => ({ useRadioNowPlaying: () => null }));
 vi.mock('../radio/useSaveSong.js', () => ({ useSaveSong: () => null }));
 
 import { PlayerScreen } from './PlayerScreen.js';
-import { ArchiveEnd } from './ArchiveEnd.js';
 import { LandscapePlayer } from './Landscape.js';
 
 const at = (time: string) => new Date(`2026-10-16T${time}Z`);
@@ -91,6 +91,7 @@ beforeEach(() => {
   f.requests.length = 0; f.loads.length = 0; f.listeners.clear();
   f.player.currentTime = 0; f.player.status = 'readyToPlay'; f.player.playing = true;
   f.setting.mockReset().mockResolvedValue('php');
+  f.back.mockReset();
   tree = null;
 });
 afterEach(async () => {
@@ -99,7 +100,7 @@ afterEach(async () => {
   expect(vi.getTimerCount()).toBe(0);
   vi.unstubAllGlobals(); vi.useRealTimers();
 });
-const mount = async () => act(async () => { tree = create(createElement(PlayerScreen, { session, channel, startFrom: news, onBack: () => {} })); });
+const mount = async () => act(async () => { tree = create(createElement(PlayerScreen, { session, channel, startFrom: news, onBack: f.back })); });
 async function end(position: number, now: string) {
   vi.setSystemTime(at(now));
   await act(async () => {
@@ -109,30 +110,44 @@ async function end(position: number, now: string) {
 }
 
 describe('TV2: igangvaerende udsendelse slutter under forsinket afspilning', () => {
-  it('henter afslutningen fra samme punkt, viser slutvalg og forlaenger kun ved tryk', async () => {
+  it('fortsaetter automatisk 15 min efter EPG-slut og gaar derefter til oversigten uden slutvalg', async () => {
     await mount();
     expect(f.requests[0]).toEqual({ from: news.start, minutes: 17 });
     await end(1020.379, '18:36:10.171');
-    expect(f.requests[1]).toEqual({ from: at('18:17:00'), minutes: 8 });
+    expect(f.requests[1]).toEqual({ from: at('18:17:00'), minutes: 17 });
     expect(f.loads[1]!.seek).toBeCloseTo(0.379);
     await end(179.340, '18:39:08.451');
-    expect(f.requests[2]).toEqual({ from: at('18:19:00'), minutes: 6 });
+    expect(f.requests[2]).toEqual({ from: at('18:19:00'), minutes: 16 });
     expect(f.loads[2]!.seek).toBeCloseTo(59.34);
-    expect(tree!.root.findAllByType(ArchiveEnd)).toHaveLength(0);
+    // Hverken EPG-slut eller den tidligere femminutters graense maa stoppe.
     await end(359.34, '18:44:08.451');
-    expect(tree!.root.findByType(LandscapePlayer).props.suspended).toBe(true);
+    expect(f.back).not.toHaveBeenCalled();
+    expect(f.requests[3]).toEqual({ from: at('18:24:00'), minutes: 11 });
+    expect(tree!.root.findByType(LandscapePlayer).props.suspended).toBe(false);
+    const texts = tree!.root.findAllByType('Text' as any).map(n => n.children.join('')).join(' ');
+    expect(texts).not.toContain('Hent 5 min mere');
+    expect(texts).not.toContain('Hent 15 min mere');
+    expect(texts).not.toContain('Arkivstykket er slut');
+    await end(659.34, '18:54:08.451');
+    expect(f.back).toHaveBeenCalledTimes(1);
     expect(f.player.playing).toBe(false);
     await act(async () => { vi.advanceTimersByTime(60_000); });
-    expect(f.loads).toHaveLength(3);
-    await act(async () => tree!.root.findByType(ArchiveEnd).props.onContinue());
-    expect(f.requests[3]).toEqual({ from: at('18:24:00'), minutes: 6 });
-    expect(f.loads[3]!.seek).toBeCloseTo(59.34);
-    expect(tree!.root.findAllByType(ArchiveEnd)).toHaveLength(0);
-    await end(359.34, '18:50:08.451');
-    await act(async () => tree!.root.findByType(ArchiveEnd).props.onLive());
-    expect(f.loads.at(-1)!.source).toBe('https://example.invalid/live.ts');
     expect(f.requests).toHaveLength(4);
-    expect(tree!.root.findAllByType(ArchiveEnd)).toHaveLength(0);
+  });
+
+  it('bevarer hele udsendelsens position naar native koe skifter uden JS-kildeskift', async () => {
+    await mount();
+    // Media3 holder et sammenhaengende ur, selv om foerste stykke var 17 min.
+    await act(async () => {
+      f.player.currentTime = 1201;
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 1201, bufferedPosition: 1291 });
+    });
+    expect(f.requests).toHaveLength(1);
+    expect(f.loads).toHaveLength(1);
+    expect(f.back).not.toHaveBeenCalled();
+    await end(2099.34, '18:54:08.451');
+    expect(f.back).toHaveBeenCalledTimes(1);
+    expect(f.requests).toHaveLength(1);
   });
 
   it('aabner ikke en sen arkivfortsaettelse efter brugeren er gaaet tilbage', async () => {
