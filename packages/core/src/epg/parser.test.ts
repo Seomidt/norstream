@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createXmltvParser } from './parser.js';
+import type { XmltvChannel } from './parser.js';
 import type { Programme } from '../models.js';
 
 const XML = `<?xml version="1.0"?>
@@ -116,5 +117,67 @@ describe('createXmltvParser', () => {
     const result = collect([xml]);
     expect(result).toHaveLength(1);
     expect(result[0]?.channelId).toBe('a&b');
+  });
+});
+
+describe('kanaler med logo', () => {
+  // Det er her logoet staar i standarden. En udbyder der leverer en
+  // XMLTV-fil, leverer altsaa tit ogsaa logoerne — og de havde ingen anden
+  // vej ind i appen.
+  it('laeser id, logo og navne ud af et channel-element', () => {
+    const channels: XmltvChannel[] = [];
+    const parser = createXmltvParser(
+      () => undefined,
+      (channel) => channels.push(channel),
+    );
+    parser.write(
+      '<tv><channel id="DR1.dk"><display-name>DR1</display-name><display-name>DR 1</display-name>' +
+        '<icon src="https://logo/dr1.png" width="200"/></channel>' +
+        '<channel id="TV2.dk"><display-name>TV 2</display-name></channel>' +
+        '<programme start="20260907190000 +0200" stop="20260907200000 +0200" channel="DR1.dk">' +
+        '<title>Nyheder</title></programme></tv>',
+    );
+    parser.end();
+    expect(channels).toEqual([
+      { id: 'DR1.dk', iconUrl: 'https://logo/dr1.png', displayNames: ['DR1', 'DR 1'] },
+      { id: 'TV2.dk', iconUrl: null, displayNames: ['TV 2'] },
+    ]);
+  });
+
+  it('forveksler ikke programmets channel-attribut med et channel-element', () => {
+    const channels: XmltvChannel[] = [];
+    const programmes: string[] = [];
+    const parser = createXmltvParser(
+      (programme) => programmes.push(programme.title),
+      (channel) => channels.push(channel),
+    );
+    parser.write(
+      '<programme start="20260907190000 +0200" stop="20260907200000 +0200" channel="DR1.dk">' +
+        '<title>Nyheder</title></programme>',
+    );
+    parser.end();
+    expect(channels).toEqual([]);
+    expect(programmes).toEqual(['Nyheder']);
+  });
+
+  it('laeser kanaler delt over to bidder', () => {
+    const channels: XmltvChannel[] = [];
+    const parser = createXmltvParser(() => undefined, (channel) => channels.push(channel));
+    parser.write('<channel id="DR1.dk"><icon src="htt');
+    parser.write('ps://logo/dr1.png"/></channel>');
+    parser.end();
+    expect(channels[0]?.iconUrl).toBe('https://logo/dr1.png');
+  });
+
+  it('kraever ikke at nogen lytter efter kanaler', () => {
+    const titles: string[] = [];
+    const parser = createXmltvParser((programme) => titles.push(programme.title));
+    parser.write(
+      '<channel id="DR1.dk"><icon src="x"/></channel>' +
+        '<programme start="20260907190000 +0200" stop="20260907200000 +0200" channel="DR1.dk">' +
+        '<title>Nyheder</title></programme>',
+    );
+    parser.end();
+    expect(titles).toEqual(['Nyheder']);
   });
 });

@@ -1,0 +1,49 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.INTERNET" />
+  <!-- Besked naar nettet er tilbage, saa radioen kommer igen med det samme. -->
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+  <!-- Vaekkeuret: praecise alarmer (Android 13+ giver USE_EXACT_ALARM til ure; foer det SCHEDULE_EXACT_ALARM) og genopsaetning efter genstart. -->
+  <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+  <application>
+    <!-- Smaa, cachede logoer til bilens lister; se Artwork.kt. -->
+    <provider
+      android:name="dk.seomidt.norradio.auto.ArtworkProvider"
+      android:authorities="${applicationId}.art"
+      android:exported="true"
+      android:grantUriPermissions="true" />
+
+    <!-- Vaekkeuret ringer, eller telefonen er genstartet: se AlarmReceiver.kt. -->
+    <receiver
+      android:name="dk.seomidt.norradio.auto.AlarmReceiver"
+      android:exported="false">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+        <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+      </intent-filter>
+    </receiver>
+
+    <!-- Siger til Android Auto at appen er en medie-app. -->
+    <meta-data
+      android:name="com.google.android.gms.car.application"
+      android:resource="@xml/automotive_app_desc" />
+
+    <!-- Afspilleren bag baade appen og bilen: Android Auto starter den selv,
+         ogsaa naar appen ikke er aaben. -->
+    <service
+      android:name="dk.seomidt.norradio.auto.RadioAutoService"
+      android:exported="true"
+      android:foregroundServiceType="mediaPlayback">
+      <intent-filter>
+        <action android:name="androidx.media3.session.MediaLibraryService" />
+        <action android:name="android.media.browse.MediaBrowserService" />
+      </intent-filter>
+    </service>
+  </application>
+</manifest>

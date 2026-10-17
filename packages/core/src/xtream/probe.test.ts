@@ -15,7 +15,7 @@ describe('detectTimeshiftDialect', () => {
     const fetchImpl: FetchLike = vi.fn(async (url: string) => ({
       ok: url.includes('timeshift.php'),
       status: url.includes('timeshift.php') ? 200 : 404,
-      json: async () => ({}),
+      text: async () => '', json: async () => ({}),
     }));
     await expect(detectTimeshiftDialect(creds, '1', fetchImpl)).resolves.toBe('php');
   });
@@ -24,7 +24,7 @@ describe('detectTimeshiftDialect', () => {
     const fetchImpl: FetchLike = vi.fn(async (url: string) => ({
       ok: url.includes('/timeshift/'),
       status: url.includes('/timeshift/') ? 200 : 404,
-      json: async () => ({}),
+      text: async () => '', json: async () => ({}),
     }));
     await expect(detectTimeshiftDialect(creds, '1', fetchImpl)).resolves.toBe('path');
   });
@@ -33,7 +33,7 @@ describe('detectTimeshiftDialect', () => {
     const fetchImpl: FetchLike = vi.fn(async () => ({
       ok: false,
       status: 404,
-      json: async () => ({}),
+      text: async () => '', json: async () => ({}),
     }));
     await expect(detectTimeshiftDialect(creds, '1', fetchImpl)).resolves.toBeNull();
   });
@@ -49,7 +49,7 @@ describe('detectTimeshiftDialect', () => {
     const seen: string[] = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string) => {
       seen.push(url);
-      return { ok: false, status: 404, json: async () => ({}) };
+      return { ok: false, status: 404, text: async () => '', json: async () => ({}) };
     });
     await detectTimeshiftDialect(creds, '1', fetchImpl);
     expect(seen[0]).toContain('timeshift.php');
@@ -63,7 +63,7 @@ describe('detectTimeshiftDialect', () => {
       const isPath = url.includes('/timeshift/');
       const isDeep = url.includes(deepStart);
       const ok = isPath && isDeep;
-      return { ok, status: ok ? 200 : 404, json: async () => ({}) };
+      return { ok, status: ok ? 200 : 404, text: async () => '', json: async () => ({}) };
     });
     await expect(detectTimeshiftDialect(creds, '1', fetchImpl, now)).resolves.toBe('path');
     // 4 forsøg: php og path én time tilbage (begge fejler), så php og path
@@ -75,7 +75,7 @@ describe('detectTimeshiftDialect', () => {
     const fetchImpl: FetchLike = vi.fn(async () => ({
       ok: false,
       status: 404,
-      json: async () => ({}),
+      text: async () => '', json: async () => ({}),
     }));
     await expect(detectTimeshiftDialect(creds, '1', fetchImpl)).resolves.toBeNull();
     expect(fetchImpl).toHaveBeenCalledTimes(4);
@@ -87,7 +87,7 @@ describe('detectTimeshiftDialect', () => {
     const seen: string[] = [];
     const fetchImpl: FetchLike = vi.fn(async (url: string) => {
       seen.push(url);
-      return { ok: false, status: 404, json: async () => ({}) };
+      return { ok: false, status: 404, text: async () => '', json: async () => ({}) };
     });
     await detectTimeshiftDialect(creds, '1', fetchImpl, now, 120);
     expect(seen[0]).toContain(encodeURIComponent(expectedStart));

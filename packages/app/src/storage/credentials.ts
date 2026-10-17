@@ -2,7 +2,13 @@ import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import type { XtreamCredentials } from '@norstream/core';
 
-const KEY = 'uhf_play_xtream_credentials';
+/** Nøglen fra tiden med ét panel. Laeses stadig, saa den kan flyttes over. */
+const LEGACY_KEY = 'uhf_play_xtream_credentials';
+
+/** Én kilde, ét sted i Keychain. */
+function keyFor(sourceId: string): string {
+  return `norstream_source_${sourceId}`;
+}
 
 /**
  * expo-secure-store har ingen web-implementering (den er en tom stub der
@@ -11,12 +17,30 @@ const KEY = 'uhf_play_xtream_credentials';
  * genindlaes. Det er bevidst — vi vil ikke gemme et panel-kodeord i
  * localStorage, hvor det ligger i klartekst og kan laeses af ethvert script
  * paa origin'et. Web er en udviklings-flade her, ikke en distributions-
- * platform (spec'en shipper til iOS, Android, Apple TV og Android TV), saa
- * "log ind igen efter genindlaes" er en accepteret konsekvens, ikke en fejl.
- * Native platforme bruger stadig expo-secure-store (Keychain/Keystore)
- * uaendret.
+ * platform, saa "log ind igen efter genindlaes" er en accepteret konsekvens.
  */
-let webCredentials: XtreamCredentials | null = null;
+const webStore = new Map<string, string>();
+
+async function readItem(key: string): Promise<string | null> {
+  if (Platform.OS === 'web') return webStore.get(key) ?? null;
+  return SecureStore.getItemAsync(key);
+}
+
+async function writeItem(key: string, value: string): Promise<void> {
+  if (Platform.OS === 'web') {
+    webStore.set(key, value);
+    return;
+  }
+  await SecureStore.setItemAsync(key, value);
+}
+
+async function deleteItem(key: string): Promise<void> {
+  if (Platform.OS === 'web') {
+    webStore.delete(key);
+    return;
+  }
+  await SecureStore.deleteItemAsync(key);
+}
 
 function isValidCredentials(value: unknown): value is XtreamCredentials {
   return (
@@ -28,43 +52,44 @@ function isValidCredentials(value: unknown): value is XtreamCredentials {
   );
 }
 
-/**
- * Credentials ligger i iOS Keychain og Android Keystore via expo-secure-store,
- * aldrig i SQLite og aldrig i en log. Spec sec.7 kraever krypteret opbevaring;
- * SQLite-filen er ikke krypteret. Paa web bruges en in-memory fallback, se
- * kommentaren ved webCredentials ovenfor.
- */
-export async function saveCredentials(creds: XtreamCredentials): Promise<void> {
-  if (Platform.OS === 'web') {
-    webCredentials = creds;
-    return;
-  }
-  await SecureStore.setItemAsync(KEY, JSON.stringify(creds));
-}
-
-export async function loadCredentials(): Promise<XtreamCredentials | null> {
-  if (Platform.OS === 'web') {
-    return webCredentials;
-  }
-
-  const raw = await SecureStore.getItemAsync(KEY);
+function parse(raw: string | null): XtreamCredentials | null {
   if (raw === null) return null;
   try {
     const parsed: unknown = JSON.parse(raw);
-    if (isValidCredentials(parsed)) {
-      return parsed;
-    }
-    return null;
+    return isValidCredentials(parsed) ? parsed : null;
   } catch {
-    // Beskadiget vaerdi behandles som ingen credentials: brugeren onboarder igen.
+    // Beskadiget vaerdi behandles som ingen credentials.
     return null;
   }
 }
 
-export async function clearCredentials(): Promise<void> {
-  if (Platform.OS === 'web') {
-    webCredentials = null;
-    return;
-  }
-  await SecureStore.deleteItemAsync(KEY);
+/**
+ * Adgangsoplysninger ligger i iOS Keychain og Android Keystore via
+ * expo-secure-store, aldrig i SQLite og aldrig i en log. SQLite-filen er ikke
+ * krypteret, og `sources`-tabellen har derfor ingen kolonne til kodeord.
+ */
+export async function saveSourceCredentials(
+  sourceId: string,
+  creds: XtreamCredentials,
+): Promise<void> {
+  await writeItem(keyFor(sourceId), JSON.stringify(creds));
+}
+
+export async function loadSourceCredentials(
+  sourceId: string,
+): Promise<XtreamCredentials | null> {
+  return parse(await readItem(keyFor(sourceId)));
+}
+
+export async function clearSourceCredentials(sourceId: string): Promise<void> {
+  await deleteItem(keyFor(sourceId));
+}
+
+/** Adgangsoplysningerne fra tiden med ét panel, hvis de stadig ligger der. */
+export async function loadLegacyCredentials(): Promise<XtreamCredentials | null> {
+  return parse(await readItem(LEGACY_KEY));
+}
+
+export async function clearLegacyCredentials(): Promise<void> {
+  await deleteItem(LEGACY_KEY);
 }
