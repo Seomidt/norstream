@@ -5,7 +5,7 @@ import { TV_CODEC_OPTIONS, videoFrameSummary } from './tvCodec.js';
 import type { VideoFrameSample } from './tvCodec.js';
 import { ArchiveWatchdog, ArchiveVideoClock, nativeFailureDetails, playbackClock, playbackFailureKind } from './archiveWatchdog.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import type { SubtitleTrack } from 'expo-video';
@@ -677,6 +677,10 @@ export function PlayerScreen({
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let stallTimer: ReturnType<typeof setTimeout> | null = null;
     const archiveWatchdog = new ArchiveWatchdog(STALL_TIMEOUT_MS);
+    const liveWatchdog = new ArchiveWatchdog(STALL_TIMEOUT_MS);
+    // Android stopper video i baggrunden uden at aendre brugerens play-intent.
+    const mayPlay = (): boolean => playIntent.current
+      && (isRadio || AppState.currentState === null || AppState.currentState === 'active');
     let lastBufferLog = 0;
 
     const cancelRetry = (): void => {
@@ -697,7 +701,7 @@ export function PlayerScreen({
     function handleFailure(): void {
       if (cancelled || gaveUp || retryTimer !== null || preparingArchive.current || changingSource.current) return;
       clearStallTimer();
-      if (!playIntent.current) return;
+      if (!mayPlay()) return;
 
       // Under buffering kan sidste READY-timeUpdate ligge bag native uret.
       // Et bekraeftet stykke har stadig et gyldigt ur, selv om active er
@@ -718,7 +722,7 @@ export function PlayerScreen({
       if (retry) {
         const reconnect = (): void => {
           retryTimer = null;
-          if (cancelled || source === null) return;
+          if (cancelled || source === null || !mayPlay()) return;
           // Start-forfra: genforbind fra det punkt man naaede, ikke fra
           // udsendelsens begyndelse (samme URL ville starte forfra).
           const segment = archiveRef.current;
@@ -812,6 +816,11 @@ export function PlayerScreen({
         return;
       }
 
+      if (status === 'idle' && isTV && archiveRef.current === null && connection.prepared && !changingSource.current) {
+        logEvent('afspiller', 'live stoppet v396: idle uden kildeskift');
+        handleFailure();
+        return;
+      }
       if (status === 'error') {
         logEvent('afspiller', `status: error ved ${Math.round(positionRef.current)} s`);
         setAudioState('Streamen svarede med en fejl');
@@ -837,7 +846,7 @@ export function PlayerScreen({
       // ignoreret og staa som en doed timer, saa intet senere blev opdaget.
       // Arkivets stopvagt nedenfor overlever READY/loading-oscillation.
       // En READY-haendelse alene maa ikke give en ny ventetid uden billeder.
-      if (status === 'loading' && archiveRef.current === null && !changingSource.current && stallTimer === null) {
+      if (status === 'loading' && mayPlay() && archiveRef.current === null && !changingSource.current && stallTimer === null) {
         stallTimer = setTimeout(handleFailure, everReady.current ? STALL_TIMEOUT_MS : restarted ? ARCHIVE_INITIAL_TIMEOUT_MS : INITIAL_STALL_TIMEOUT_MS);
       }
     };
@@ -845,6 +854,23 @@ export function PlayerScreen({
     const subscription = player.addListener('statusChange', ({ status, error }) => {
       if (status === 'error') logEvent('afspiller', `native fejltype: ${playbackFailureKind(error?.message)} (${nativeFailureDetails(error)})`);
       handleStatus(status);
+    });
+
+    // En live TS-forbindelse kan slutte med EOF uden nogen native fejl.
+    // Samme retry-budget og serialiserede forbindelse som ved netvaerksfejl.
+    const liveEnd = player.addListener('playToEnd', () => {
+      if (archiveRef.current !== null || !connection.committed || changingSource.current) return;
+      logEvent('afspiller', 'live stoppet v396: EOF; genforbinder');
+      handleFailure();
+    });
+    const appState = AppState.addEventListener('change', state => {
+      liveWatchdog.reset();
+      if (state !== 'active' && !isRadio) {
+        cancelRetry();
+        clearStallTimer();
+      } else if (state === 'active' && archiveRef.current === null) {
+        handleStatus(player.status);
+      }
     });
 
     // Frosset billede (v353): afspilleren melder 'readyToPlay' og 'playing',
@@ -858,6 +884,7 @@ export function PlayerScreen({
     const frozenTimer = setInterval(() => {
       if (cancelled || changingSource.current || preparingArchive.current) {
         archiveWatchdog.reset();
+        liveWatchdog.reset();
         return;
       }
       if (archiveRef.current !== null) {
@@ -877,6 +904,20 @@ export function PlayerScreen({
         } catch {
           // Afspilleren er vaek. Ingen ekstra forbindelse aabnes her.
         }
+        return;
+      }
+      if (isTV) {
+        // playing er falsk ved baade EOF og buffering. Det er brugerens
+        // afspilningsvalg og native fremdrift der afgoer om live er haengt.
+        // READY/loading maa ikke blive ved med at nulstille ventetiden.
+        try {
+          const position = playbackClock(positionRef.current, player.currentTime, connection.prepared);
+          if (connection.prepared) positionRef.current = position;
+          if (liveWatchdog.stalled(position, Date.now(), mayPlay() && connection.prepared)) {
+            logEvent('afspiller', `live uden fremdrift v396: ${position.toFixed(3)} s, ${player.status}: genforbinder`);
+            handleFailure();
+          }
+        } catch { /* Afspilleren er vaek. */ }
         return;
       }
       let shouldAdvance = false;
@@ -927,11 +968,13 @@ export function PlayerScreen({
       clearInterval(frozenTimer);
       if (retryTimer !== null) clearTimeout(retryTimer);
       subscription.remove();
+      liveEnd.remove();
+      appState.remove();
       if (cancelPendingRetry.current === cancelRetry) cancelPendingRetry.current = () => undefined;
       if (nativeFailure.current === handleFailure) nativeFailure.current = () => undefined;
       if (playbackStatus.current === handleStatus) playbackStatus.current = () => undefined;
     };
-  }, [player, connection, source, sourceRevision, triedFallback, restarted, access, channel, autoSelectSubtitle, requestSource, finishArchive]);
+  }, [player, connection, source, sourceRevision, triedFallback, restarted, access, channel, autoSelectSubtitle, requestSource, finishArchive, isRadio]);
 
   const playFromStart = useCallback(
     async (programme: Programme, from: Date = programme.start, seekSeconds = 0, reconnect = false, untilMs?: number): Promise<void> => {

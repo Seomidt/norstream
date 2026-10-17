@@ -11,6 +11,11 @@ const f = vi.hoisted(() => ({
   requests: [] as Array<{ from: Date; minutes: number }>,
   loads: [] as Array<{ source: unknown; seek: number }>,
   back: vi.fn(),
+  appState: { currentState: 'active', addEventListener: (_event: string, fn: (state: string) => void) => {
+    let entries = f.listeners.get('appState');
+    if (entries === undefined) { entries = new Set(); f.listeners.set('appState', entries); }
+    entries.add(fn); return { remove: () => entries!.delete(fn) };
+  } },
   setting: vi.fn(async () => 'php'),
   player: {
     currentTime: 0, bufferedPosition: 90, duration: 1020, playing: true,
@@ -29,6 +34,7 @@ const f = vi.hoisted(() => ({
   },
 }));
 vi.mock('react-native', () => ({
+  AppState: f.appState,
   Platform: { isTV: true, OS: 'android' }, StyleSheet: { create: (v: unknown) => v, absoluteFill: {} },
   View: 'View', Text: 'Text', Pressable: 'Pressable', ActivityIndicator: 'ActivityIndicator',
   useWindowDimensions: () => ({ width: 864, height: 486 }), useTVEventHandler: () => {},
@@ -91,7 +97,7 @@ beforeEach(() => {
   f.requests.length = 0; f.loads.length = 0; f.listeners.clear();
   f.player.currentTime = 0; f.player.status = 'readyToPlay'; f.player.playing = true;
   f.setting.mockReset().mockResolvedValue('php');
-  f.back.mockReset();
+  f.back.mockReset(); f.appState.currentState = 'active';
   tree = null;
 });
 afterEach(async () => {
@@ -159,5 +165,103 @@ describe('TV2: igangvaerende udsendelse slutter under forsinket afspilning', () 
     await act(async () => resolve('php'));
     expect(f.requests).toHaveLength(1);
     expect(f.loads).toHaveLength(1);
+  });
+});
+
+const mountLive = async () => act(async () => {
+  tree = create(createElement(PlayerScreen, { session, channel, onBack: f.back }));
+});
+async function status(value: string) {
+  await act(async () => {
+    f.player.status = value;
+    for (const fn of [...f.listeners.get('statusChange') ?? []]) fn({ status: value });
+  });
+}
+async function background(value: string) {
+  await act(async () => {
+    f.appState.currentState = value;
+    for (const fn of [...f.listeners.get('appState') ?? []]) fn(value);
+  });
+}
+const advance = async (ms: number) => act(async () => { vi.advanceTimersByTime(ms); });
+
+describe('Live: baade lyd og billede stopper uden native fejl', () => {
+  it('genforbinder efter EOF og idle, men aabner kun en forbindelse', async () => {
+    await mountLive();
+    await end(60, '18:20:08.546');
+    await status('idle');
+    await advance(1499);
+    expect(f.loads).toHaveLength(1);
+    await advance(1);
+    expect(f.loads).toHaveLength(2);
+    expect(f.loads[1]!.source).toEqual(f.loads[0]!.source);
+    expect(f.back).not.toHaveBeenCalled();
+  });
+
+  it('opdager en stoppet live-afspiller selv om playing er falsk og READY gentages', async () => {
+    await mountLive();
+    f.player.playing = false;
+    for (let i = 0; i < 7; i++) {
+      await status('loading'); await advance(1500);
+      await status('readyToPlay'); await advance(1500);
+    }
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('bevarer forbindelsen naar native uret gaar frem uden JS-timeUpdate', async () => {
+    await mountLive();
+    for (let i = 0; i < 12; i++) {
+      f.player.currentTime += 3;
+      await advance(3000);
+    }
+    expect(f.loads).toHaveLength(1);
+  });
+
+  it('opdager idle uden nogen EOF- eller status-haendelse', async () => {
+    await mountLive();
+    f.player.status = 'idle'; f.player.playing = false;
+    await advance(19_500);
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('respekterer pause og genforbinder foerst naar brugeren trykker afspil igen', async () => {
+    await mountLive();
+    await act(async () => tree!.root.findByType(LandscapePlayer).props.onPlayerKey('playPause'));
+    await end(60, '18:20:08.546'); await status('idle');
+    await advance(30_000);
+    expect(f.loads).toHaveLength(1);
+    await act(async () => tree!.root.findByType(LandscapePlayer).props.onPlayerKey('playPause'));
+    await advance(1500);
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('annullerer genforsoeg i baggrunden og opdager idle igen i forgrunden', async () => {
+    await mountLive();
+    await end(60, '18:20:08.546');
+    await background('background');
+    await advance(30_000);
+    expect(f.loads).toHaveLength(1);
+    await background('active');
+    await advance(3000);
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('annullerer et planlagt live-genforsoeg naar skaermen lukkes', async () => {
+    await mountLive(); await end(60, '18:20:08.546');
+    await act(async () => tree!.unmount()); tree = null;
+    await advance(30_000);
+    expect(f.loads).toHaveLength(1);
+  });
+
+  it('afslutter efter to tomme genforsoeg pr format uden at READY giver nyt budget', async () => {
+    await mountLive();
+    for (let i = 0; i < 6; i++) {
+      await end(0, '18:20:08.546');
+      await advance(((i % 3) + 1) * 1500);
+      await status('readyToPlay');
+    }
+    expect(f.loads).toHaveLength(6);
+    const texts = tree!.root.findAllByType('Text' as any).map(n => n.children.join('')).join(' ');
+    expect(texts).toContain('Streamen kunne ikke afspilles. Prøv igen.');
   });
 });
