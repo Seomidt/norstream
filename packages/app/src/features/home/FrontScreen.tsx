@@ -50,6 +50,8 @@ import { whenLabel } from '../sport/sportSearch.js';
 import { clockRange, eveningWindow, pickTonight } from './tonight.js';
 import { addReminder, listReminders, removeReminder } from '../../storage/reminders.js';
 import { getSportTeams } from '../../storage/sport.js';
+import { clearContinueList, continueChannelVisible, dismissContinueItem } from '../../storage/continueList.js';
+import { ContinueMenu } from './ContinueMenu.js';
 
 interface Props {
   session: AppSession;
@@ -206,11 +208,26 @@ export function FrontScreen({
   /** Sidste fejl fra TMDB, uden adresser, til raekken. */
   const [shelfError, setShelfError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  const [continueTarget, setContinueTarget] = useState<{ key: string; title: string } | null>(null);
+  const [continueBusy, setContinueBusy] = useState(false);
+  const [continueError, setContinueError] = useState<string | null>(null);
+  const continueOpen = useRef(false);
+  const continueSaving = useRef(false);
+  const continueRevision = useRef(0);
+  const openContinue = useCallback((key: string, title: string): void => {
+    continueOpen.current = true;
+    setContinueError(null);
+    setContinueTarget({ key, title });
+  }, []);
+  const closeContinue = useCallback((): void => {
+    continueOpen.current = false;
+    setContinueTarget(null);
+  }, []);
   // Naar arket lukker, tilbage til det der aabnede det: ellers gav Android
   // fokus til det foerste trykpunkt paa skaermen.
   const sheetWasOpen = useRef(false);
   useEffect(() => {
-    if (sheet !== null) {
+    if (sheet !== null || continueTarget !== null) {
       sheetWasOpen.current = true;
       return;
     }
@@ -218,7 +235,7 @@ export function FrontScreen({
     sheetWasOpen.current = false;
     const timer = setTimeout(() => refocusLastPressed(), 80);
     return () => clearTimeout(timer);
-  }, [sheet]);
+  }, [sheet, continueTarget]);
   // Tilbage lukker bladet (Google: ingen Luk-knap paa tv, fjernbetjeningens Tilbage er vejen).
   useEffect(() => {
     if (sheet === null) return;
@@ -230,13 +247,14 @@ export function FrontScreen({
   }, [sheet]);
 
   const loadLocal = useCallback(async (): Promise<void> => {
+    const ownContinueRevision = continueRevision.current;
     const startedAt = Date.now();
     const now = new Date();
     const [lastId, favouriteChannels] = await Promise.all([
       getLastChannelId(session.db),
       listChannels(session.db, { favouritesOnly: true, limit: FAVOURITES_LIMIT }),
     ]);
-    const last = lastId === null ? null : await getChannel(session.db, lastId);
+    const last = lastId === null || !(await continueChannelVisible(session.db, lastId)) ? null : await getChannel(session.db, lastId);
     // Opslaget sker paa kanalens eget id, som i kanallisten og guiden: det
     // er det programtabellen er skrevet under. Foer blev der slaaet op paa
     // epg_channel_id, som 87 % af kanalerne ikke har, saa kortene stod tomme.
@@ -246,8 +264,10 @@ export function FrontScreen({
     };
     const showPrimary = async (): Promise<void> => {
       const programmes = await nowProgrammesFor(session.db, (last === null ? [] : [last]).concat(favouriteChannels).map((channel) => channel.id), now).catch(() => new Map<string, Programme>());
-      setLastChannel(last);
-      setLastNow(last === null ? null : programmes.get(last.id) ?? null);
+      if (ownContinueRevision === continueRevision.current) {
+        setLastChannel(last);
+        setLastNow(last === null ? null : programmes.get(last.id) ?? null);
+      }
       setFavourites(favouriteChannels.map((channel) => ({ channel, now: programmes.get(channel.id) ?? null })));
     };
     await showPrimary();
@@ -255,12 +275,12 @@ export function FrontScreen({
     // Foerst efter hovedraekken: paa én SQLite-forbindelse kan selv async
     // VOD-opslag staa foran kanalerne i koeen. Resten udfyldes uafhaengigt.
     void Promise.all([
-      listVodItems(session.db, { inProgressOnly: true, limit: IN_PROGRESS_LIMIT }),
+      listVodItems(session.db, { inProgressOnly: true, homeContinueOnly: true, limit: IN_PROGRESS_LIMIT }),
       listVodItems(session.db, { newestFirst: true, limit: NEWEST_LIMIT }),
       getTmdbApiKey(session.db),
       getHomeProviders(session.db),
     ]).then(([progress, added, key, chosen]) => {
-      setInProgress(progress);
+      if (ownContinueRevision === continueRevision.current) setInProgress(progress);
       setNewest(added);
       setTmdbKey(key);
       setProviders(chosen);
@@ -351,6 +371,31 @@ export function FrontScreen({
       if (await refreshFavouritesEpg(session, favs)) await loadTonight();
     })();
   }, [session]);
+
+  const removeContinue = useCallback(async (all: boolean): Promise<void> => {
+    if (continueTarget === null || continueSaving.current) return;
+    continueSaving.current = true;
+    continueRevision.current += 1; // Afvis lokale opslag startet foer oprydningen.
+    setContinueBusy(true);
+    setContinueError(null);
+    try {
+      if (all) await clearContinueList(session.db);
+      else await dismissContinueItem(session.db, continueTarget.key);
+      if (all || continueTarget.key.startsWith('channel:')) {
+        setLastChannel(null);
+        setLastNow(null);
+      }
+      if (all) setInProgress([]);
+      else setInProgress(items => items.filter(item => `vod:${item.key}` !== continueTarget.key));
+      closeContinue();
+      void loadLocal().catch(() => undefined);
+    } catch {
+      setContinueError('Listen kunne ikke ryddes. Prøv igen.');
+    } finally {
+      continueSaving.current = false;
+      setContinueBusy(false);
+    }
+  }, [continueTarget, session.db, closeContinue, loadLocal]);
 
   useEffect(() => {
     void loadLocal();
@@ -507,9 +552,13 @@ export function FrontScreen({
               width={POSTER_WIDTH}
               renderItem={(entry) =>
                 'channel' in entry ? (
-                  <ChannelCard channel={entry.channel} now={lastNow} wide onPress={() => onSelect(entry.channel, favouriteChannels)} />
+                  <ChannelCard channel={entry.channel} now={lastNow} wide
+                    onPress={() => { if (!continueOpen.current) onSelect(entry.channel, favouriteChannels); }}
+                    onLongPress={() => openContinue(`channel:${entry.channel.id}`, entry.channel.name)} />
                 ) : (
-                  <Poster item={entry.vod} width={POSTER_WIDTH} onOpen={onOpenVod} />
+                  <Poster item={entry.vod} width={POSTER_WIDTH}
+                    onOpen={vod => { if (!continueOpen.current) onOpenVod(vod); }}
+                    onLongPress={() => openContinue(`vod:${entry.vod.key}`, entry.vod.name)} />
                 )
               }
             />
@@ -832,6 +881,8 @@ export function FrontScreen({
           </View>
         </View>
       )}
+      {continueTarget !== null && <ContinueMenu title={continueTarget.title} busy={continueBusy} error={continueError}
+        onRemove={() => { void removeContinue(false); }} onClear={() => { void removeContinue(true); }} onClose={closeContinue} />}
     </View>
   );
 }
@@ -936,6 +987,7 @@ const ChannelCard = memo(function ChannelCard({
   wide,
   minutesLeft,
   onPress,
+  onLongPress,
 }: {
   channel: StoredChannel;
   now: Programme | null;
@@ -943,10 +995,11 @@ const ChannelCard = memo(function ChannelCard({
   /** Grupperaekkerne: hvor laenge det der sender nu varer endnu. */
   minutesLeft?: number | null;
   onPress: () => void;
+  onLongPress?: () => void;
 }) {
   const styles = useStyles(makeStyles);
   return (
-    <TvPressable style={[styles.channel, wide === true && styles.channelWide]} onPress={onPress}>
+    <TvPressable style={[styles.channel, wide === true && styles.channelWide]} onPress={onPress} onLongPress={onLongPress}>
       <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={40} />
       <Text style={styles.channelName} numberOfLines={1}>
         {channel.name}

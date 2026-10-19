@@ -531,12 +531,14 @@ export function Poster({
   width,
   onOpen,
   preferFocus = false,
+  onLongPress,
 }: {
   item: StoredVodItem;
   width?: number;
   onOpen: (item: StoredVodItem) => void;
   /** Paa tv: faar fokus naar gitteret kommer frem, saa fjernbetjeningen ikke lander i menuen. */
   preferFocus?: boolean;
+  onLongPress?: () => void;
 }) {
   const styles = useStyles(makeStyles);
   const [failed, setFailed] = useState(false);
@@ -557,7 +559,7 @@ export function Poster({
       ? Math.min(1, item.positionSeconds / item.durationSeconds)
       : null;
   return (
-    <TvPressable style={[styles.poster, sizing]} hasTVPreferredFocus={preferFocus} onPress={() => onOpen(item)}>
+    <TvPressable style={[styles.poster, sizing]} hasTVPreferredFocus={preferFocus} onPress={() => onOpen(item)} onLongPress={onLongPress}>
       <View style={styles.posterFrame}>
         {posterUrl !== null ? (
           <Image

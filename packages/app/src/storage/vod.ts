@@ -10,6 +10,7 @@ import type { GenreKey } from './genres.js';
 import { cachedQuery, invalidateQueryCache } from './queryCache.js';
 import { withTransaction } from './transaction.js';
 import type { SqlDatabase, SqlValue } from './types.js';
+import { CONTINUE_CLEAR_KEY, CONTINUE_HIDE_PREFIX } from './continueList.js';
 
 /**
  * Film og serier i databasen.
@@ -269,6 +270,8 @@ export async function listVodItems(
     watchlistOnly?: boolean;
     /** Kun titler man er begyndt paa og ikke har set faerdig. */
     inProgressOnly?: boolean;
+    /** Forsidens lokale oprydning; afspilningspositioner bevares. */
+    homeContinueOnly?: boolean;
     /** Nyeste foerst, efter hvornaar panelet lagde dem op. */
     newestFirst?: boolean;
     limit?: number;
@@ -295,6 +298,12 @@ export async function listVodItems(
     where.push('p.position_s IS NOT NULL AND p.position_s > 60');
     where.push('(p.duration_s IS NULL OR p.position_s < p.duration_s * 0.95)');
     where.push('wt.item_key IS NULL');
+    if (opts.homeContinueOnly === true) {
+      where.push(`p.updated_ms > MAX(
+        COALESCE(CAST((SELECT value FROM settings WHERE key = '${CONTINUE_CLEAR_KEY}') AS INTEGER), 0),
+        COALESCE(CAST((SELECT value FROM settings WHERE key = '${CONTINUE_HIDE_PREFIX}vod:' || i.key) AS INTEGER), 0)
+      )`);
+    }
   }
   const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
   const order = opts.newestFirst === true
