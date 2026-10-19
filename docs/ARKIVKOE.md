@@ -1,5 +1,12 @@
 # Start forfra fra v395
 
+**Fra v397 er den native kø nedenfor rullet tilbage.** Efter en melding om
+forværret Start forfra på TV 2 DK den 18. oktober bruges igen ét
+arkivstykke ad gangen med den eksisterende serialiserede forbindelse.
+15 minutters slutmargen og live-genforbindelsen fra v396 er bevaret.
+Se `TV-v397.md` for afgrænsning og kontrol. Resten af denne fil beskriver
+den tidligere implementering i v395–v396.
+
 Udsendelsen får automatisk 15 minutter efter EPG-sluttiden. Der er intet
 slutvalg. Når udsendelse og margen er afspillet, går appen til oversigten.
 EPG-tider og programmets identitet ændres ikke. Fremtidige arkivminutter

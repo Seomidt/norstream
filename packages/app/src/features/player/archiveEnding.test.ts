@@ -141,19 +141,25 @@ describe('TV2: igangvaerende udsendelse slutter under forsinket afspilning', () 
     expect(f.requests).toHaveLength(4);
   });
 
-  it('bevarer hele udsendelsens position naar native koe skifter uden JS-kildeskift', async () => {
+  it('genforbinder fra det seneste viste sekund efter flere arkivskift uden at aabne live', async () => {
     await mount();
-    // Media3 holder et sammenhaengende ur, selv om foerste stykke var 17 min.
+    await end(1020.379, '18:36:10.171');
+    await end(179.340, '18:39:08.451');
+    // Tiden er lokal for det tredje stykke, som begynder kl. 18.19.
+    // En fejl efter yderligere ti sekunder maa ikke starte udsendelsen om.
     await act(async () => {
-      f.player.currentTime = 1201;
-      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 1201, bufferedPosition: 1291 });
+      f.player.currentTime = 69.34;
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 69.34, videoRenderedFrames: 2000, bufferedPosition: 159.34 });
     });
-    expect(f.requests).toHaveLength(1);
-    expect(f.loads).toHaveLength(1);
+    await status('error');
+    await advance(1500);
+    expect(f.requests[3]).toEqual({ from: at('18:20:00'), minutes: 15 });
+    expect(f.loads[3]!.seek).toBeCloseTo(9.34);
+    expect(f.loads.map(load => load.source)).toEqual([
+      'https://example.invalid/archive/1.ts', 'https://example.invalid/archive/2.ts',
+      'https://example.invalid/archive/3.ts', 'https://example.invalid/archive/4.ts',
+    ]);
     expect(f.back).not.toHaveBeenCalled();
-    await end(2099.34, '18:54:08.451');
-    expect(f.back).toHaveBeenCalledTimes(1);
-    expect(f.requests).toHaveLength(1);
   });
 
   it('aabner ikke en sen arkivfortsaettelse efter brugeren er gaaet tilbage', async () => {

@@ -28,6 +28,8 @@ import { SeekButtons } from '../player/SeekButtons.js';
 import { surfaceTypeForPlatform } from '../player/format.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
+import { ArchiveProgress } from '../player/ArchiveProgress.js';
+import { vodProgressTime } from './vodProgress.js';
 
 interface Props {
   session: AppSession;
@@ -126,6 +128,11 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
     position: current.resumeAtSeconds ?? 0,
     duration: null,
   });
+
+  const readProgress = useCallback(() => {
+    try { return vodProgressTime(player.currentTime, player.duration); }
+    catch { return null; /* Afspilleren kan vaere frigivet ved afgang. */ }
+  }, [player]);
 
   /** Laeser sporene af afspilleren. Kaldes naar filen er aabnet — foer det er de tomme. */
   const readTracks = useCallback((): void => {
@@ -484,6 +491,7 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
 
   const actions = (
     <>
+      {isTV && <ArchiveProgress key={current.progressKey} read={readProgress} />}
       {!isTV && (
         <TvPressable style={styles.button} onPress={onBack}>
           <Text style={styles.buttonText}>Tilbage</Text>
@@ -592,6 +600,7 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
         // Paa tv: bjaelken skjult fra start, saa pil venstre/hoejre spoler i
         // filmen med det samme. Pil op henter knapperne (Undertekster, Lyd).
         initialBarShown={!isTV}
+        selectShowsControls={isTV}
         onPlayerKey={(key) => {
           try {
             if (key === 'select' || key === 'playPause') {

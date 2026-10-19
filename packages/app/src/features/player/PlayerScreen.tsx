@@ -51,7 +51,6 @@ import { pickPreferredSubtitle, sameTrack, trackName } from './tracks.js';
 import type { RestartBlock } from './restart.js';
 import { SeekButtons } from './SeekButtons.js';
 import { ArchiveProgress } from './ArchiveProgress.js';
-import { archiveQueueSource, archiveQueueSummary } from './archiveQueue.js';
 import { archiveProgressTime } from './archiveProgress.js';
 
 interface Props {
@@ -302,15 +301,6 @@ export function PlayerScreen({
     p.timeUpdateEventInterval = 1;
   }, isTV ? TV_CODEC_OPTIONS : undefined);
   const connection = useMemo(() => new PlaybackConnection(player), [player]);
-  useEffect(() => {
-    if (Platform.OS !== 'android') return;
-    const events = player as unknown as { addListener(name: string, fn: (event: Parameters<typeof archiveQueueSummary>[0]) => void): { remove(): void } };
-    const subscription = events.addListener('norstreamArchive', event => {
-      const summary = archiveQueueSummary(event);
-      if (summary !== null) logEvent('arkiv', summary);
-    });
-    return () => subscription.remove();
-  }, [player]);
   const finishArchive = useCallback((): void => {
     // Efter 15 min slutmargen afsluttes automatisk til oversigten.
     // Intet slutvalg og ingen genstart af den samme faerdige udsendelse.
@@ -633,7 +623,9 @@ export function PlayerScreen({
     setRadioState('connecting');
     if (linear) logEvent('arkiv', `sekventiel TS v384: overlap ${seek.toFixed(3)} s, ingen PCR-byte-seek`);
     const stopObserving = segment === null ? null : watchArchivePreparation(player, connection, seek, line => logEvent('arkiv', line));
-    void connection.load(archiveQueueSource(streamSource(source), segment, sourceRevision, isTV && Platform.OS === 'android'), segment !== null, seek, playIntent.current, linear)
+    // v397: et arkivstykke ad gangen gennem den serialiserede forbindelse.
+    // Ingen native playlist, preload eller ekstra dekoder ved arkivskift.
+    void connection.load(streamSource(source), segment !== null, seek, playIntent.current, linear)
       .then(() => {
         if (cancelled) return;
         stopObserving?.('klar');
