@@ -31,7 +31,7 @@ interface Props {
 
 const SEARCH_DEBOUNCE_MS = 350;
 /** Forslag naar man ingen hold har endnu. */
-const SUGGESTIONS = ['Superliga', 'Premier League', 'Champions League', 'Formel 1', 'Håndbold', 'Tennis'];
+const SUGGESTIONS = ['Superliga', 'Premier League', 'Champions League', 'Formel 1', 'Håndbold', 'Tennis', 'Badminton', 'Cykling'];
 
 /**
  * "Find kampen" (v339): soeg efter et hold, en liga eller en sport i
