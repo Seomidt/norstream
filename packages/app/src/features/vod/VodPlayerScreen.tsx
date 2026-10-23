@@ -30,6 +30,7 @@ import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
 import { ArchiveProgress } from '../player/ArchiveProgress.js';
 import { vodProgressTime } from './vodProgress.js';
+import { safeVodResume, vodResumeAt } from './vodResume.js';
 
 interface Props {
   session: AppSession;
@@ -277,9 +278,13 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
           }, EXTERNAL_DELAY_MS);
         }
         // Foerst her: et hop foer filen er aabnet, bliver ignoreret.
-        if (!resumed.current && current.resumeAtSeconds !== null && current.resumeAtSeconds > 0) {
+        if (!resumed.current) {
           resumed.current = true;
-          player.currentTime = current.resumeAtSeconds;
+          const resume = safeVodResume(current.resumeAtSeconds, player.duration);
+          // Gem kun den position der faktisk spilles, aldrig den afviste
+          // gamle slutposition, heller ikke hvis man straks gaar tilbage.
+          lastKnown.current = { position: resume ?? 0, duration: null };
+          if (resume !== null) player.currentTime = resume;
         }
       }
       if (status === 'error') {
@@ -323,7 +328,20 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
    * forbindelse slippes og tages ét sted.
    */
   useEffect(() => {
+    let cancelled = false;
+    let ended = false;
     const subscription = player.addListener('playToEnd', () => {
+      if (ended) return;
+      // En tom eller afbrudt fil maa ikke saette afsnittet som set og
+      // starte en kaede af naeste afsnit. Brug den aktuelle native filtid.
+      const position = player.currentTime;
+      const duration = player.duration;
+      if (!Number.isFinite(position) || position <= 0 ||
+        (Number.isFinite(duration) && duration > 0 && position < duration - 2)) {
+        setError('Afspilningen stoppede før slutningen. Prøv at åbne titlen igen.');
+        return;
+      }
+      ended = true;
       void setWatched(session.db, current.progressKey, true).catch(() => undefined);
       // Set til ende: ud af Google TV's "Fortsaet med at se". For en serie
       // kommer den igen, naar man er i gang med naeste afsnit.
@@ -332,13 +350,14 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
       const seriesKey = current.seriesKey;
       const episodeKey = current.episodeKey;
       void listEpisodes(session.db, seriesKey).then((episodes) => {
+        if (cancelled) return;
         const next = nextEpisode(episodes, episodeKey);
         if (next === null) return;
         setCountdown(NEXT_COUNTDOWN_S);
         setUpcoming(next);
-      });
+      }).catch(() => undefined);
     });
-    return () => subscription.remove();
+    return () => { cancelled = true; subscription.remove(); };
   }, [player, session.db, current]);
 
   const playNext = useCallback(
@@ -351,7 +370,7 @@ export function VodPlayerScreen({ session, playback, onBack }: Props) {
         title: current.title,
         subtitle: `S${episode.season} · E${episode.episode} · ${episode.title}`,
         progressKey: episode.key,
-        resumeAtSeconds: episode.positionSeconds,
+        resumeAtSeconds: vodResumeAt(episode),
         sourceId: current.sourceId,
         seriesKey: current.seriesKey,
         episodeKey: episode.key,

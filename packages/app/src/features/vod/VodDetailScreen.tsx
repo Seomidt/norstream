@@ -13,6 +13,7 @@ import type { VodDetails, XtreamCredentials } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { getVodItem, listEpisodes, setInWatchlist, setWatched } from '../../storage/vod.js';
 import { continueEpisodeFor, latestEpisode } from './episodes.js';
+import { vodResumeAt } from './vodResume.js';
 import type { StoredEpisode, StoredVodItem } from '../../storage/vod.js';
 import { ensureVodDetails } from '../../sync/vodDetails.js';
 import { followSeries, isFollowed, markSeriesSeen, unfollowSeries } from '../../storage/followedSeries.js';
@@ -68,7 +69,7 @@ function moviePlayback(item: StoredVodItem, creds: Creds): Playback {
     title: item.name,
     subtitle: null,
     progressKey: item.key,
-    resumeAtSeconds: item.positionSeconds,
+    resumeAtSeconds: vodResumeAt(item),
     sourceId: item.sourceId,
     seriesKey: null,
     episodeKey: null,
@@ -81,7 +82,7 @@ function episodePlayback(item: StoredVodItem, episode: StoredEpisode, creds: Cre
     title: item.name,
     subtitle: `S${episode.season} · E${episode.episode} · ${episode.title}`,
     progressKey: episode.key,
-    resumeAtSeconds: episode.positionSeconds,
+    resumeAtSeconds: vodResumeAt(episode),
     sourceId: item.sourceId,
     seriesKey: item.key,
     episodeKey: episode.key,
