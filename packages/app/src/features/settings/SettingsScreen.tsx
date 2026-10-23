@@ -1,3 +1,4 @@
+import { loadUniformAudio, saveUniformAudio, useUniformAudio, UNIFORM_AUDIO_SUPPORTED } from '../player/uniformAudio.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { deriveCountry } from '@norstream/core';
@@ -168,6 +169,7 @@ export function SettingsScreen({
   // Bekraeftelsen ligger i skaermen, ikke i en Alert: react-native-web
   // implementerer ikke Alert, saa udlogning ville doe stille paa web.
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+  const uniformAudio = useUniformAudio(session.db);
   const [streamFormat, setStreamFormat] = useState<StreamFormatSetting>('auto');
   const [vod, setVod] = useState<{ movies: number; series: number } | null>(null);
   /** Hvad der gik galt sidst film og serier blev hentet, per kilde. Tom naar det gik godt. */
@@ -237,6 +239,7 @@ export function SettingsScreen({
     setGoogleKey(google.key);
     setGoogleCx(google.cx);
     setChosenProviders(await getHomeProviders(session.db));
+    await loadUniformAudio(session.db);
     setHidden(hiddenCountries);
     setStreamFormat(format);
     setYoutubeKey(key ?? '');
@@ -444,6 +447,22 @@ export function SettingsScreen({
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {UNIFORM_AUDIO_SUPPORTED && (
+        <>
+          <Text style={styles.sectionTitle}>Lyd</Text>
+          <TvPressable style={styles.row} accessibilityRole="switch"
+            accessibilityState={{ checked: uniformAudio }}
+            onPress={() => { void saveUniformAudio(session.db, !uniformAudio).catch(() => undefined); }}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Ensartet lyd</Text>
+              <Text style={styles.rowHint}>Udjævner lave og høje kanaler og dæmper lydspidser.
+                Gælder TV-kanaler og forhåndsvisning. Lyden behandles i appen i stedet for direkte surround-passthrough.</Text>
+            </View>
+            <Text style={styles.actionText}>{uniformAudio ? 'Til' : 'Fra'}</Text>
+          </TvPressable>
+        </>
+      )}
+
       <Text style={styles.sectionTitle}>Forhåndsvisning</Text>
       {/* Hele raekken kan trykkes: paa tv kan fjernbetjeningen ikke lande
           paa en Switch, og saa kunne den hverken naas eller rulles til. */}

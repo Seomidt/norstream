@@ -1,3 +1,5 @@
+import { useUniformAudio } from '../player/uniformAudio.js';
+import { PREVIEW_UNIFORM_AUDIO_OPTIONS } from '../player/tvCodec.js';
 import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { isTV } from '../../ui/tv.js';
@@ -78,12 +80,13 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
   const [muted, setMuted] = useState(!isTV);
   const [error, setError] = useState<string | null>(null);
 
+  const uniformAudio = useUniformAudio(session.db);
   const player = useVideoPlayer(null, (p) => {
     p.loop = false;
     // Spec sec.7: lyd fra som standard. Et preview der buldrer los mens man
     // ruller gennem 22.142 kanaler er ikke en funktion.
     p.muted = !isTV;
-  });
+  }, uniformAudio ? PREVIEW_UNIFORM_AUDIO_OPTIONS : undefined);
 
   // Skifter previewet foerst naar listen har staaet stille. Slaas det fra,
   // slippes maalet med det samme frem for efter 800 ms.

@@ -3,33 +3,45 @@ import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const replacements = {
-  'records/PlayerBuilderOptions.kt': {
-    hash: '96d1f644839240ccd3d2e77ab1556d54a0fb9d2a71d76b8e25a0d041b20f8056',
-    edits: [[
-      '  @Field var seekForwardIncrement: Duration? = null',
-      '  @Field var seekForwardIncrement: Duration? = null,\n  @Field var norstreamSynchronousCodec: Boolean = false',
-    ]],
+  "records/PlayerBuilderOptions.kt": {
+    "hash": "96d1f644839240ccd3d2e77ab1556d54a0fb9d2a71d76b8e25a0d041b20f8056",
+    "edits": [
+      [
+        "  @Field var seekForwardIncrement: Duration? = null",
+        "  @Field var seekForwardIncrement: Duration? = null,\n  @Field var norstreamSynchronousCodec: Boolean = false,\n  @Field var norstreamUniformAudio: Boolean = false"
+      ]
+    ]
   },
-  'records/VideoEventPayloads.kt': {
-    hash: '694cd0535a758823166b07fb1434bce6b4ff01b98d214966d3b41f701affa7f6',
-    edits: [[
-      '  @Field var bufferedPosition: Double = .0\n) : VideoEventPayload',
-      '  @Field var bufferedPosition: Double = .0,\n  @Field var videoQueuedFrames: Int? = null,\n  @Field var videoRenderedFrames: Int? = null,\n  @Field var videoDroppedFrames: Int? = null\n) : VideoEventPayload',
-    ]],
+  "records/VideoEventPayloads.kt": {
+    "hash": "694cd0535a758823166b07fb1434bce6b4ff01b98d214966d3b41f701affa7f6",
+    "edits": [
+      [
+        "  @Field var bufferedPosition: Double = .0\n) : VideoEventPayload",
+        "  @Field var bufferedPosition: Double = .0,\n  @Field var videoQueuedFrames: Int? = null,\n  @Field var videoRenderedFrames: Int? = null,\n  @Field var videoDroppedFrames: Int? = null\n) : VideoEventPayload"
+      ]
+    ]
   },
-  'player/VideoPlayer.kt': {
-    hash: '9566638fc2d638843bbfae7d4b3a7cd1826578d5019491b221cc9c0d3f3d7b8a',
-    edits: [[
-      '    .forceEnableMediaCodecAsynchronousQueueing()',
-      '    .apply {\n      if (playerBuilderOptions?.norstreamSynchronousCodec == true) {\n        forceDisableMediaCodecAsynchronousQueueing()\n      } else {\n        forceEnableMediaCodecAsynchronousQueueing()\n      }\n    }',
-    ], [
-      '      sendEvent(PlayerEvent.TimeUpdated(updatePayload))',
-      '      if (norstreamCodecOptions?.norstreamSynchronousCodec == true) {\n        player.videoDecoderCounters?.let { counters ->\n          counters.ensureUpdated()\n          updatePayload.videoQueuedFrames = counters.queuedInputBufferCount\n          updatePayload.videoRenderedFrames = counters.renderedOutputBufferCount\n          updatePayload.videoDroppedFrames = counters.droppedBufferCount\n        }\n      }\n      sendEvent(PlayerEvent.TimeUpdated(updatePayload))',
-    ], [
-      '  private val listeners: MutableList<WeakReference<VideoPlayerListener>>',
-      '  private val norstreamCodecOptions = playerBuilderOptions\n  private val listeners: MutableList<WeakReference<VideoPlayerListener>>',
-    ]],
-  },
+  "player/VideoPlayer.kt": {
+    "hash": "9566638fc2d638843bbfae7d4b3a7cd1826578d5019491b221cc9c0d3f3d7b8a",
+    "edits": [
+      [
+        "    .forceEnableMediaCodecAsynchronousQueueing()",
+        "    .apply {\n      if (playerBuilderOptions?.norstreamSynchronousCodec == true) {\n        forceDisableMediaCodecAsynchronousQueueing()\n      } else {\n        forceEnableMediaCodecAsynchronousQueueing()\n      }\n    }"
+      ],
+      [
+        "      sendEvent(PlayerEvent.TimeUpdated(updatePayload))",
+        "      if (norstreamCodecOptions?.norstreamSynchronousCodec == true) {\n        player.videoDecoderCounters?.let { counters ->\n          counters.ensureUpdated()\n          updatePayload.videoQueuedFrames = counters.queuedInputBufferCount\n          updatePayload.videoRenderedFrames = counters.renderedOutputBufferCount\n          updatePayload.videoDroppedFrames = counters.droppedBufferCount\n        }\n      }\n      sendEvent(PlayerEvent.TimeUpdated(updatePayload))"
+      ],
+      [
+        "  private val listeners: MutableList<WeakReference<VideoPlayerListener>>",
+        "  private val norstreamCodecOptions = playerBuilderOptions\n  private val listeners: MutableList<WeakReference<VideoPlayerListener>>"
+      ],
+      [
+        "  private var renderersFactory = DefaultRenderersFactory(context)",
+        "  private var renderersFactory = (if (playerBuilderOptions?.norstreamUniformAudio == true)\n    NorstreamRenderersFactory(context) else DefaultRenderersFactory(context))"
+      ]
+    ]
+  }
 };
 export function patchTvCodec(path, source) {
   const spec = replacements[path];

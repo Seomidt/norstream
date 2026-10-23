@@ -6,7 +6,7 @@ import { TV_CODEC_OPTIONS, videoFrameSummary } from './tvCodec.js';
 it('bevarer samme TV-builderprofil gennem arkivskift', () => {
   expect(Object.isFrozen(TV_CODEC_OPTIONS)).toBe(true);
   const screen = readFileSync(new URL('./PlayerScreen.tsx', import.meta.url), 'utf8');
-  expect(screen).toContain('}, isTV ? TV_CODEC_OPTIONS : undefined);');
+  expect(screen).toContain('}, isTV ? (uniformAudio ? TV_UNIFORM_AUDIO_OPTIONS : TV_CODEC_OPTIONS) : undefined);');
   expect(screen.match(/useVideoPlayer\(/g)).toHaveLength(1);
   expect(screen).toContain('useVideoPlayer(null,');
   const trailer = readFileSync(new URL('../vod/TrailerScreen.tsx', import.meta.url), 'utf8');

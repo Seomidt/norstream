@@ -6,6 +6,13 @@ export const TV_CODEC_OPTIONS: PlayerBuilderOptions & { norstreamSynchronousCode
   norstreamSynchronousCodec: true,
 });
 
+/** Faste profiler: aldrig en ny afspiller ved kanal- eller arkivskift. */
+export const TV_UNIFORM_AUDIO_OPTIONS = Object.freeze({
+  ...TV_CODEC_OPTIONS,
+  norstreamUniformAudio: true,
+});
+export const PREVIEW_UNIFORM_AUDIO_OPTIONS: PlayerBuilderOptions & { norstreamUniformAudio: true } = Object.freeze({ norstreamUniformAudio: true });
+
 export interface VideoFrameSample {
   videoQueuedFrames?: number | null;
   videoRenderedFrames?: number | null;

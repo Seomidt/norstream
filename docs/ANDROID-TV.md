@@ -553,3 +553,20 @@ gendannelseskode; brug den ved manuel flytning til en ny boks, som derefter
 igen gemmer separat. Gamle kopier kan fortsat hentes manuelt ved opsætning
 med det oprindelige kodeord. En allerede slettet gruppe genskabes ikke uden
 en bevaret kopi. Opdater alle bokse for at få den nye adskillelse.
+
+## Ensartet lyd fra v402
+
+Indstillinger → Lyd → Ensartet lyd (til som standard på TV). Gælder fuldskærms
+TV-kanaler, arkiv og MiniPreview; ikke VOD, trailere eller Apple TV. Et fast
+builder-flag vælger en Media3-renderer med en PCM16 AudioProcessor. Encoded
+passthrough og offload afvises i denne tilstand, så den dekodede lyd faktisk
+behandles. Fra bruger den oprindelige renderer. Formatet og sampleantallet
+bevares; ingen ekstra stream eller netværksforbindelse.
+
+Kanalforbundet RMS-regulering sigter mod -20 dBFS med op til 12 dB løft,
+noise gate under -50 dBFS og peak-limiter ved -2 dBFS. Det er niveauudjævning,
+ikke en måling efter EBU R128/LUFS. Gain ændres gradvist; lydspidser begrænses
+straks. Tilstanden nulstilles ved flush/kanalskift. Kunstige PCM-signaler tester
+svage/høje kanaler, mono, stereo, 6 kanaler, stilhed, limiter og framegrænser.
+Lytning på et fysisk TV/soundbar er fortsat nødvendig for at vurdere klang,
+programdynamik og enhedens surround-understøttelse.

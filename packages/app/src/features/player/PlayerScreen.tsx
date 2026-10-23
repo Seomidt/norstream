@@ -1,7 +1,8 @@
+import { useUniformAudio } from './uniformAudio.js';
 import { watchArchivePreparation } from './archivePreparation.js';
 import { setPlaybackSnapshot, closePlaybackSnapshot } from '../../diagnostics/reporter.js';
 import { channelEpgSummary } from '../../diagnostics/channelEpg.js';
-import { TV_CODEC_OPTIONS, videoFrameSummary } from './tvCodec.js';
+import { TV_CODEC_OPTIONS, TV_UNIFORM_AUDIO_OPTIONS, videoFrameSummary } from './tvCodec.js';
 import type { VideoFrameSample } from './tvCodec.js';
 import { ArchiveWatchdog, ArchiveVideoClock, nativeFailureDetails, playbackClock, playbackFailureKind } from './archiveWatchdog.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -293,13 +294,14 @@ export function PlayerScreen({
   // En vedvarende native afspiller. En dynamisk source her oprettede en NY
   // afspiller ved hvert URL-skift; replace-effekten aabnede derefter kilden
   // endnu en gang og smed dens buffer vaek. Panelet har kun én forbindelse.
+  const uniformAudio = useUniformAudio(session.db);
   const player = useVideoPlayer(null, (p) => {
     p.loop = false;
     p.staysActiveInBackground = isRadio;
     p.showNowPlayingNotification = isRadio;
     // Hvert sekund: hvor langt arkivstreamen er naaet, til "Fortsaet".
     p.timeUpdateEventInterval = 1;
-  }, isTV ? TV_CODEC_OPTIONS : undefined);
+  }, isTV ? (uniformAudio ? TV_UNIFORM_AUDIO_OPTIONS : TV_CODEC_OPTIONS) : undefined);
   const connection = useMemo(() => new PlaybackConnection(player), [player]);
   const finishArchive = useCallback((): void => {
     // Efter 15 min slutmargen afsluttes automatisk til oversigten.
