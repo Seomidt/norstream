@@ -1,3 +1,5 @@
+import { liveFailureSnapshot } from './liveDiagnostics.js';
+import type { LiveFailureReason } from './liveDiagnostics.js';
 import { useUniformAudio } from './uniformAudio.js';
 import { watchArchivePreparation } from './archivePreparation.js';
 import { setPlaybackSnapshot, closePlaybackSnapshot } from '../../diagnostics/reporter.js';
@@ -692,7 +694,7 @@ export function PlayerScreen({
     }
 
     // Faelles vej for baade haarde fejl og stall.
-    function handleFailure(): void {
+    function handleFailure(reason: LiveFailureReason = 'native'): void {
       if (cancelled || gaveUp || retryTimer !== null || preparingArchive.current || changingSource.current) return;
       clearStallTimer();
       if (!mayPlay()) return;
@@ -712,6 +714,7 @@ export function PlayerScreen({
         archiveFormat.current = 'm3u8';
         logEvent('arkiv', 'TS naaede ikke spoletiden: proever HLS fra samme position');
       }
+      if (archiveRef.current === null) logEvent('afspiller', liveFailureSnapshot(player, reason, /\.m3u8(\?|$)/.test(source ?? '') ? 'hls' : 'ts'));
       logEvent('afspiller', `fejl/haengt ved ${Math.round(positionRef.current)} s, forsoeg ${attempt} af ${MAX_RETRIES}${restarted ? ' (arkiv)' : ''}`);
       if (retry) {
         const reconnect = (): void => {
@@ -765,7 +768,8 @@ export function PlayerScreen({
       setStreamError('Streamen kunne ikke afspilles. Prøv igen.');
     }
 
-    nativeFailure.current = handleFailure;
+    const failPreparation = (): void => handleFailure('klargoering');
+    nativeFailure.current = failPreparation;
     const handleStatus = (status: string): void => {
       if (cancelled) return;
 
@@ -812,14 +816,14 @@ export function PlayerScreen({
 
       if (status === 'idle' && isTV && archiveRef.current === null && connection.prepared && !changingSource.current) {
         logEvent('afspiller', 'live stoppet v396: idle uden kildeskift');
-        handleFailure();
+        handleFailure('idle');
         return;
       }
       if (status === 'error') {
         logEvent('afspiller', `status: error ved ${Math.round(positionRef.current)} s`);
         setAudioState('Streamen svarede med en fejl');
         setRadioState('error');
-        handleFailure();
+        handleFailure('native');
         return;
       }
       if (status === 'loading') {
@@ -841,7 +845,7 @@ export function PlayerScreen({
       // Arkivets stopvagt nedenfor overlever READY/loading-oscillation.
       // En READY-haendelse alene maa ikke give en ny ventetid uden billeder.
       if (status === 'loading' && mayPlay() && archiveRef.current === null && !changingSource.current && stallTimer === null) {
-        stallTimer = setTimeout(handleFailure, everReady.current ? STALL_TIMEOUT_MS : restarted ? ARCHIVE_INITIAL_TIMEOUT_MS : INITIAL_STALL_TIMEOUT_MS);
+        stallTimer = setTimeout(() => handleFailure('buffer-timeout'), everReady.current ? STALL_TIMEOUT_MS : restarted ? ARCHIVE_INITIAL_TIMEOUT_MS : INITIAL_STALL_TIMEOUT_MS);
       }
     };
     playbackStatus.current = handleStatus;
@@ -855,7 +859,7 @@ export function PlayerScreen({
     const liveEnd = player.addListener('playToEnd', () => {
       if (archiveRef.current !== null || !connection.committed || changingSource.current) return;
       logEvent('afspiller', 'live stoppet v396: EOF; genforbinder');
-      handleFailure();
+      handleFailure('eof');
     });
     const appState = AppState.addEventListener('change', state => {
       liveWatchdog.reset();
@@ -909,7 +913,7 @@ export function PlayerScreen({
           if (connection.prepared) positionRef.current = position;
           if (liveWatchdog.stalled(position, Date.now(), mayPlay() && connection.prepared)) {
             logEvent('afspiller', `live uden fremdrift v396: ${position.toFixed(3)} s, ${player.status}: genforbinder`);
-            handleFailure();
+            handleFailure('ur-stoppet');
           }
         } catch { /* Afspilleren er vaek. */ }
         return;
@@ -965,7 +969,7 @@ export function PlayerScreen({
       liveEnd.remove();
       appState.remove();
       if (cancelPendingRetry.current === cancelRetry) cancelPendingRetry.current = () => undefined;
-      if (nativeFailure.current === handleFailure) nativeFailure.current = () => undefined;
+      if (nativeFailure.current === failPreparation) nativeFailure.current = () => undefined;
       if (playbackStatus.current === handleStatus) playbackStatus.current = () => undefined;
     };
   }, [player, connection, source, sourceRevision, triedFallback, restarted, access, channel, autoSelectSubtitle, requestSource, finishArchive, isRadio]);

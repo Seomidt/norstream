@@ -17,6 +17,8 @@ export const LIVE_BUFFER: BufferOptions = {
   minBufferForPlayback: 1,
   prioritizeTimeOverSizeThreshold: true,
 };
+/** Efter et udfald skal bufferen kunne absorbere mere end ét sekunders jitter. */
+export const LIVE_REBUFFER: BufferOptions = { ...LIVE_BUFFER, minBufferForPlayback: 4 };
 export const ARCHIVE_BUFFER: BufferOptions = {
   preferredForwardBufferDuration: 90,
   minBufferForPlayback: 5,
@@ -40,6 +42,7 @@ export class PlaybackConnection {
   private expectedUri: string | null = null;
   private seekSeconds = 0;
   private archive = false;
+  private liveRebuffered = false;
   private linear = false;
   private preroll: { muted: boolean; rate: number; timer: ReturnType<typeof setInterval> } | null = null;
   private wantsPlay = true;
@@ -100,7 +103,9 @@ export class PlaybackConnection {
     this.failed = false;
     this.timedOut = false;
     this.started = false;
-    this.expectedUri = uriOf(source);
+    const nextUri = uriOf(source);
+    if (archive || nextUri !== this.expectedUri) this.liveRebuffered = false;
+    this.expectedUri = nextUri;
     this.seekSeconds = Math.max(0, Number.isFinite(seekSeconds) ? seekSeconds : 0);
     this.archive = archive;
     this.linear = archive && linear;
@@ -128,7 +133,7 @@ export class PlaybackConnection {
       // 64 MiB loft; efter bekraeftelse bruges normal genbuffring igen.
       this.player.bufferOptions = archive
         ? { ...ARCHIVE_BUFFER, minBufferForPlayback: this.linear ? 5 : Math.min(90, this.seekSeconds + 5) }
-        : LIVE_BUFFER;
+        : this.liveRebuffered ? LIVE_REBUFFER : LIVE_BUFFER;
       // Android frigiver den gamle MediaSource foer den nye forberedes.
       // iOS' asynkrone forberedelse afsluttes foer naeste replace starter.
       await this.player.replaceAsync(source);
@@ -157,6 +162,12 @@ export class PlaybackConnection {
   }
 
   status(status: string): void {
+    // Kun en allerede startet live-stream: foerste opstart og arkiv bevares.
+    // Ingen replace(), ekstra forbindelse eller gentagne buffer-omstillinger.
+    if (status === 'loading' && !this.archive && this.prepared && this.started && !this.liveRebuffered) {
+      this.liveRebuffered = true;
+      this.player.bufferOptions = LIVE_REBUFFER;
+    }
     this.ready = status === 'readyToPlay';
     if (status === 'error') {
       this.failed = true;

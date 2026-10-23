@@ -572,3 +572,28 @@ it.each(['cancel', 'error', 'timeout'])('genopretter lyd/hastighed ved afbrudt s
   expect(f.connection.prepared).toBe(false);
   vi.useRealTimers();
 });
+
+it('opbygger fire sekunders buffer efter live-udfald uden nye forbindelser og bevarer det ved retry', async () => {
+  const f = fixture();
+  const loaded = f.connection.load('live.ts', false);
+  await Promise.resolve(); f.pending[0]!.resolve();
+  f.connection.sourceLoaded('live.ts'); f.connection.status('readyToPlay');
+  await loaded;
+  expect(f.player.bufferOptions.minBufferForPlayback).toBe(1);
+  f.connection.status('loading');
+  expect(f.player.bufferOptions.minBufferForPlayback).toBe(4);
+  const profile = f.player.bufferOptions;
+  f.connection.status('readyToPlay'); f.connection.status('loading');
+  expect(f.player.bufferOptions).toBe(profile);
+  expect(f.pending).toHaveLength(1);
+  const retry = f.connection.load('live.ts', false);
+  await Promise.resolve(); await Promise.resolve();
+  expect(f.player.bufferOptions.minBufferForPlayback).toBe(4);
+  f.pending[1]!.resolve(); f.connection.sourceLoaded('live.ts'); f.connection.status('readyToPlay');
+  await retry;
+  const zap = f.connection.load('other.ts', false);
+  await Promise.resolve(); await Promise.resolve();
+  expect(f.player.bufferOptions.minBufferForPlayback).toBe(1);
+  f.pending[2]!.resolve(); f.connection.sourceLoaded('other.ts'); f.connection.status('readyToPlay');
+  await zap;
+});

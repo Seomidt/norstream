@@ -570,3 +570,17 @@ straks. Tilstanden nulstilles ved flush/kanalskift. Kunstige PCM-signaler tester
 svage/høje kanaler, mono, stereo, 6 kanaler, stilhed, limiter og framegrænser.
 Lytning på et fysisk TV/soundbar er fortsat nødvendig for at vurdere klang,
 programdynamik og enhedens surround-understøttelse.
+
+## Live-genbuffring fra v403
+
+Første live-start bruger fortsat ét sekunds minimumsbuffer. Når en allerede
+spillende live-kanal går i loading, hæves genbuffring til fire sekunder én
+gang, uden kildeskift eller en ekstra forbindelse. Profilen bevares ved retry
+af samme URL og nulstilles ved ny kanal. Arkivprofilen er uændret. En genoptagelse
+kan derfor vente lidt længere og til gengæld have mere reserve mod korte udfald.
+
+Fejlloggen tilføjer live-diagnose v403 med udløser (EOF, native fejl, stoppet ur,
+buffer-timeout, idle eller klargøring), TS/HLS, native ur, bufferposition og
+sekunder foran. Der logges ingen kanaladresse, legitimationsoplysninger eller
+rå fejltekst. Disse målinger er nødvendige for at fastslå konkrete TV 2-udfald;
+bufferrettelsen alene beviser ikke, at udbyder/netværk er fejlfrit.
