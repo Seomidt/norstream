@@ -387,6 +387,29 @@ Lys, og stedet solen regnes for.
   mister rækken fokus et øjeblik, tager feltet det, og tastaturet kommer
   frem. Vis feltet først når man har bedt om det (Grupper → Omdøb).
 
+## Tekst-tv fra v400
+
+På Google TV ligger **Tekst-tv** i venstremenuen mellem Radio og Kanaler.
+Siden åbner DR's originale side 100 fra `https://www.dr.dk/cgi-bin/fttv1.exe/100`.
+Et taltastatur ved siden af billedet vælger sider 100–899 med tre tryk.
+Forrige/Næste følger DR's egne links, og 100/110/200 er genveje. Tilbage
+rydder først en delvis indtastning, derefter gælder menuens normale Tilbage.
+
+DR's sidebillede er en GIF med et skiftende filnavn. Først hentes en frisk
+HTML-side, derefter de originale GIF-bytes. En 404 på GIF'en udløser én ny
+HTML-hentning. HTTP 200 uden et tekst-tv-billede behandles som manglende side;
+en blok-/fejlside er en kildefejl. Intet indhold genereres eller omskrives.
+Billedet vises med sit originale format i en ufokuserbar WebView uden
+JavaScript og med en CSP der kun tillader det hentede data-billede. Der
+indlæses ingen scripts eller tredjepartsressourcer fra DR's HTML.
+
+Siden opdateres hvert minut, kun mens skærmen er synlig og appen aktiv.
+Sidevalg og baggrund afbryder gamle hentninger; et sent svar må ikke vise
+en forkert side. Ved genopfriskningsfejl bevares sidste billede med fejltekst.
+Der bruges ingen IPTV-videoforbindelse. Undersider, TV 2 og andre udbydere
+er ikke integreret i denne udgave. Den fysiske Google TV-fjernbetjening
+skal fortsat kontrollere fokus og læsbarhed fra sofaen.
+
 ## 7. Hvad der ikke er gjort
 
 - **Apple TV.** Kræver Apple Developer Program og en macOS-bygger (EAS).

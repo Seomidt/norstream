@@ -75,6 +75,9 @@ const LogoPickerScreen = deferredScreen(
 const SportScreen = deferredScreen(
   () => (require('../sport/SportScreen.js') as typeof import('../sport/SportScreen.js')).SportScreen,
 );
+const TeletextScreen = deferredScreen(
+  () => (require('../teletext/TeletextScreen.js') as typeof import('../teletext/TeletextScreen.js')).TeletextScreen,
+);
 
 /**
  * Hvor brugeren staar i Hjem.
@@ -111,7 +114,7 @@ interface Props {
   covered?: boolean;
 }
 
-export type Tab = 'home' | 'favorites' | 'browse' | 'guide' | 'sport' | 'vod' | 'radio' | 'settings';
+export type Tab = 'home' | 'favorites' | 'browse' | 'guide' | 'sport' | 'vod' | 'radio' | 'teletext' | 'settings';
 
 /** Tryk paa fjernbetjeningen der kan have flyttet fokus ind i eller langs menusoejlen. */
 const RAIL_KEYS = new Set(['left', 'longLeft', 'up', 'longUp', 'down', 'longDown']);
@@ -133,6 +136,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'sport', label: 'Sport', icon: '⚽\uFE0E' },
   { id: 'vod', label: 'Film', icon: '▶' },
   { id: 'radio', label: 'Radio', icon: '♪' },
+  ...(isTV ? [{ id: 'teletext' as const, label: 'Tekst-tv', icon: '▤' }] : []),
   { id: 'browse', label: 'Kanaler', icon: '☰' },
   { id: 'settings', label: 'Indstil.', icon: '⚙' },
 ];
@@ -200,6 +204,7 @@ export function HomeScreen({
   /** Guidens egen tilbage-vej (dagssiden), foer fanens. */
   const guideBack = useRef<() => boolean>(() => false);
   const sportBack = useRef<() => boolean>(() => false);
+  const teletextBack = useRef<() => boolean>(() => false);
   /** Radioens egen tilbage-vej (internetradioens land og soegning), foer fanens. */
   const radioBack = useRef<() => boolean>(() => false);
   const vodBack = useRef<() => boolean>(() => false);
@@ -218,7 +223,7 @@ export function HomeScreen({
   // land -> kategori -> kanaler i Kanaler, og forsiden -> land -> kategori ->
   // titler i Film. Paa forsiden af en fane: intet at gaa op i.
   backRef.current = (): boolean => {
-    if ((tab === 'guide' && guideBack.current()) || (tab === 'sport' && sportBack.current())) {
+    if ((tab === 'guide' && guideBack.current()) || (tab === 'sport' && sportBack.current()) || (tab === 'teletext' && teletextBack.current())) {
       // Et gammelt piltryk maa ikke skifte fane, mens undersiden lukkes og
       // Android kortvarigt leder efter fokus paa baggrunden.
       if (pendingTab.current !== null) clearTimeout(pendingTab.current);
@@ -784,6 +789,7 @@ export function HomeScreen({
             focusFirstSignal={enterSignal}
           />
         )}
+        {tab === 'teletext' && <TeletextScreen backRef={teletextBack} active={!covered} focusFirstSignal={enterSignal} />}
         {visited.current.has('vod') && (
           <View style={[styles.body, tab !== 'vod' && styles.hiddenTab]}>
           <VodScreen
@@ -897,8 +903,8 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.surface,
   },
   railFolded: { width: 44 },
-  // Otte faner skal kunne staa udfoldet i laerredets 486 punkter (v339: Sport).
-  railTab: { alignItems: 'center', paddingVertical: theme.spacing.xs + 2, marginHorizontal: theme.spacing.xs, marginBottom: 2 },
+  // Ni faner inklusive Tekst-tv skal kunne staa i laerredets 486 punkter.
+  railTab: { alignItems: 'center', paddingVertical: theme.spacing.xs, marginHorizontal: theme.spacing.xs, marginBottom: 2 },
   railSettings: { marginTop: 'auto', marginBottom: theme.spacing.md, borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: theme.spacing.md },
   tabBar: {
     flexDirection: 'row',
