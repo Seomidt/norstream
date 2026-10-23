@@ -24,6 +24,9 @@ const KEY_BACKUP_LINK = 'backup_link';
 // er selve krypteringsnoeglen og maa aldrig ende inde i den kopi der lgges i
 // skyen.
 const KEY_SKY_CODE = 'sky_code';
+// Kun lokal: maa aldrig flyttes med en backup til en anden installation.
+const KEY_SKY_DEVICE = 'sky_device_v1';
+const KEY_SKY_SCOPE = 'sky_scope_v1';
 const KEY_SKY_ENABLED = 'sky_enabled';
 const KEY_SKY_LAST = 'sky_last_ms';
 // Loebende sky-synk mellem enheder (v340): til/fra, fingeraftrykket af det
@@ -613,8 +616,38 @@ export async function getSkyConfig(db: SqlDatabase): Promise<SkyBackupConfig> {
   return { code: (code ?? '').trim(), enabled: enabled === '1' };
 }
 
+/** Egen lageradresse per installation, ogsaa naar kodeordet genbruges. */
+export async function getSkyStorageCode(db: SqlDatabase): Promise<string> {
+  const { code } = await getSkyConfig(db);
+  if (code === '') return '';
+  // Id'et er kun et namespace, ikke en adgangsnoegle. INSERT OR IGNORE sikrer
+  // at samtidige kald ender med samme vedvarende id.
+  const candidate = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+  await db.runAsync('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', [KEY_SKY_DEVICE, candidate]);
+  const device = await getSetting(db, KEY_SKY_DEVICE);
+  if (!device) throw new Error('sky-device');
+  return `${code}|norstream-box-v1|${device}`;
+}
+
+/** Sync-status fra en anden sky eller fra foer v401 maa ikke genbruges. */
+export async function getSkyStorageState(db: SqlDatabase, storageCode: string): Promise<SkySyncState> {
+  if (await getSetting(db, KEY_SKY_SCOPE) !== storageCode) {
+    return { fingerprint: '', seenMs: 0, dirtySinceMs: 0 };
+  }
+  return getSkySyncState(db);
+}
+
+export async function setSkyStorageState(db: SqlDatabase, storageCode: string, state: SkySyncState): Promise<void> {
+  await setSkySyncState(db, state);
+  await setSetting(db, KEY_SKY_SCOPE, storageCode);
+}
+
 /** Vaelger (eller aendrer) kodeordet og slaar den ugentlige kopi til. */
 export async function setSkyCode(db: SqlDatabase, code: string): Promise<void> {
+  if ((await getSkyConfig(db)).code !== code.trim()) {
+    await setSetting(db, KEY_SKY_LAST, '');
+    await setSetting(db, KEY_SKY_SCOPE, '');
+  }
   await setSetting(db, KEY_SKY_CODE, code.trim());
   await setSetting(db, KEY_SKY_ENABLED, '1');
 }

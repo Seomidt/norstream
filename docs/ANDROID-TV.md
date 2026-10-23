@@ -541,3 +541,15 @@ Hvis TS er klar men efter 8 s stadig ikke har nået spoletiden, prøves HLS ved
 samme absolutte position (kun path-dialekten; php-arkiv kan ignorere formatvalget).
 Det retter tilfælde hvor TS mangler længde/seek-map og ignorerer seek. En negativ
 regression med et ignoreret seek bekræfter, at gamle sekunder ikke afspilles.
+
+## Skybackup fra v401
+
+Hver installation har sit eget vedvarende lager-id, som ikke eksporteres med
+backup. Også bokse med samme kodeord gemmer i separate namespaces. Løbende og
+ugentlig backup samt Gem nu bruger samme lokale namespace. Baggrundsarbejde
+henter aldrig den gamle fælles kopi ind og erstatter ikke grupper på boksen.
+Den gamle fælles kopi bevares urørt. Indstillinger viser den fulde private
+gendannelseskode; brug den ved manuel flytning til en ny boks, som derefter
+igen gemmer separat. Gamle kopier kan fortsat hentes manuelt ved opsætning
+med det oprindelige kodeord. En allerede slettet gruppe genskabes ikke uden
+en bevaret kopi. Opdater alle bokse for at få den nye adskillelse.

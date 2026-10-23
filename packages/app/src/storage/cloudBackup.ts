@@ -1,6 +1,6 @@
 import { backupHasUserData, createBackup, serialiseBackup } from './backup.js';
 import type { CredentialLoader } from './backup.js';
-import { getSkyConfig, getSkyLastMs, setSkyLastMs } from './settings.js';
+import { getSkyConfig, getSkyLastMs, getSkyStorageCode, getSkyStorageState, setSkyStorageState, setSkyLastMs } from './settings.js';
 import { WEEKLY_BACKUP_MS } from './autoBackup.js';
 import type { SqlDatabase } from './types.js';
 
@@ -35,16 +35,21 @@ export async function runWeeklyCloudBackup(
 ): Promise<CloudBackupResult> {
   const config = await getSkyConfig(db);
   if (!config.enabled || config.code === '') return 'off';
-  const lastMs = await getSkyLastMs(db);
+  const storageCode = await getSkyStorageCode(db);
+  const state = await getSkyStorageState(db, storageCode);
+  const lastMs = state.seenMs === 0 ? null : await getSkyLastMs(db);
   if (!force && lastMs !== null && now - lastMs < WEEKLY_BACKUP_MS) return 'not-due';
   try {
     const backup = await createBackup(db, now, loadCreds);
     // Aldrig laegge en tom kopi op oven paa en der har noget i sig.
     if (!backupHasUserData(backup)) return 'empty';
-    await upload(config.code, serialiseBackup(backup));
+    await upload(storageCode, serialiseBackup(backup));
   } catch {
     return 'failed';
   }
-  await setSkyLastMs(db, now);
+  if ((await getSkyStorageCode(db)) === storageCode) {
+    await setSkyStorageState(db, storageCode, { ...state, seenMs: now });
+    await setSkyLastMs(db, now);
+  }
   return 'written';
 }

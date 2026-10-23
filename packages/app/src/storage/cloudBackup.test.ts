@@ -5,7 +5,7 @@ import { backupHasUserData, createBackup } from './backup.js';
 import { replaceChannels, setFavorite } from './channels.js';
 import { addSource } from './sources.js';
 import { migrate } from './schema.js';
-import { setSkyCode } from './settings.js';
+import { getSkyStorageCode, setSkyCode, setSkyLastMs } from './settings.js';
 import { createTestDatabase } from './testDb.js';
 import type { SqlDatabase } from './types.js';
 
@@ -43,13 +43,24 @@ describe('sky-backup: overskriv aldrig en god kopi med en tom', () => {
     const result = await runWeeklyCloudBackup(db, upload, 1000, true);
     expect(result).toBe('written');
     expect(uploads).toHaveLength(1);
-    expect(uploads[0]?.code).toBe('mit-kodeord');
+    expect(uploads[0]?.code).toBe(await getSkyStorageCode(db));
   });
 
   it("'off' naar der ikke er valgt et kodeord", async () => {
     expect(await runWeeklyCloudBackup(db, upload, 1000, true)).toBe('off');
     expect(uploads).toHaveLength(0);
   });
+  it('gemmer straks i eget namespace selv med gammel ugentlig status', async () => {
+    await setSkyCode(db, 'samme-kode');
+    await setSkyLastMs(db, 999);
+    const s = await addSource(db, { kind: 'xtream', name: 'Panel', url: 'http://p' });
+    await replaceChannels(db, s.id, [ch('1', 'CNN')]);
+    await setFavorite(db, `${s.id}:1`, true);
+    expect(await runWeeklyCloudBackup(db, upload, 1000)).toBe('written');
+    expect(await runWeeklyCloudBackup(db, upload, 2000)).toBe('not-due');
+    expect(uploads[0]?.code).not.toBe('samme-kode');
+  });
+
 });
 
 describe('backupHasUserData', () => {

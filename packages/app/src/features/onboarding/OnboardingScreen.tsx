@@ -117,9 +117,8 @@ export function OnboardingScreen({ onDone, notice }: Props) {
         }
       }
       await restoreBackup(db, backup, { matchByName: true });
-      await setSkyCode(db, code.trim());
-      // En boks sat op fra skyen holdes ens med de andre (v340); det der
-      // ligger her nu ER skyens kopi.
+      await setSkyCode(db, code.trim().split('|norstream-box-v1|')[0]!);
+      // Manuel overfoersel: den nye boks gemmer derefter i sin egen sky.
       await setSkySync(db, true);
       await markCloudApplied(db, json);
       if (!connected) {

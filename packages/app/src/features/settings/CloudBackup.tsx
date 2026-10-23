@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import type { AppSession } from '../../session.js';
-import { clearSky, getSkyConfig, getSkyLastMs, getSkySync, setSkyCode, setSkyEnabled, setSkySync } from '../../storage/settings.js';
+import { clearSky, getSkyConfig, getSkyLastMs, getSkyStorageCode, getSkySync, setSkyCode, setSkyEnabled, setSkySync } from '../../storage/settings.js';
 import { markCloudApplied } from '../../storage/cloudAutoSync.js';
 import type { CloudSyncOutcome } from '../../storage/cloudAutoSync.js';
 import type { SkyBackupConfig } from '../../storage/settings.js';
@@ -26,13 +26,13 @@ interface Props {
 function syncText(outcome: CloudSyncOutcome): string {
   switch (outcome) {
     case 'uploaded':
-      return 'Lagt op i skyen. Slå det til på dine andre enheder — de retter sig efter denne.';
+      return 'Denne boks er gemt i sin egen sky. Andre bokse ændres ikke.';
     case 'applied':
       return 'Hentet fra skyen: denne boks er nu som de andre.';
     case 'unchanged':
-      return 'Alt er allerede ens.';
+      return 'Denne boks er allerede sikkerhedskopieret.';
     case 'empty':
-      return 'Der er intet at lægge op endnu (ingen favoritter). Slå det til på den boks der har dine favoritter først.';
+      return 'Der er intet at gemme endnu (ingen favoritter).';
     case 'failed':
       return 'Kunne ikke nå skyen lige nu. Appen prøver igen af sig selv.';
     default:
@@ -61,6 +61,7 @@ export function CloudBackup({ session, onRestore, onSync }: Props) {
   const { colors } = useTheme();
   const db = session.db;
   const [config, setConfig] = useState<SkyBackupConfig | null>(null);
+  const [restoreCode, setRestoreCode] = useState('');
   const [lastMs, setLastMs] = useState<number | null>(null);
   const [sync, setSync] = useState(false);
   const [code, setCode] = useState('');
@@ -70,6 +71,7 @@ export function CloudBackup({ session, onRestore, onSync }: Props) {
   const reload = useCallback(async (): Promise<void> => {
     const [cfg, last, syncOn] = await Promise.all([getSkyConfig(db), getSkyLastMs(db), getSkySync(db)]);
     setConfig(cfg);
+    setRestoreCode(cfg.code === '' ? '' : await getSkyStorageCode(db));
     setLastMs(last);
     setSync(syncOn);
     setCode((current) => (current.length === 0 ? cfg.code : current));
@@ -106,7 +108,7 @@ export function CloudBackup({ session, onRestore, onSync }: Props) {
     setBusy(false);
     setMessage(
       result === 'written'
-        ? 'Gemt i skyen. Skriv det samme kodeord på en ny boks for at hente alt ned.'
+        ? 'Gemt i denne boks’ egen sky. Brug gendannelseskoden nedenfor ved flytning til en ny boks.'
         : result === 'empty'
           ? 'Kodeordet er gemt — men der er ikke noget at gemme i skyen endnu (ingen favoritter). ' +
             'På en ny boks: tryk "Hent" for at få din kopi ned. Der bliver ikke lagt en tom kopi op, så din gode kopi i skyen er urørt.'
@@ -121,9 +123,9 @@ export function CloudBackup({ session, onRestore, onSync }: Props) {
     setBusy(true);
     setMessage('Henter fra skyen …');
     try {
-      const json = await loadFromCloud(trimmed);
+      const json = await loadFromCloud(trimmed === config?.code ? restoreCode : trimmed);
       await onRestore(json);
-      await setSkyCode(db, trimmed);
+      await setSkyCode(db, trimmed.split('|norstream-box-v1|')[0]!);
       // Det der ligger her nu ER skyens kopi: synkroniseringen skal hverken
       // hente den igen eller laegge den op igen.
       await markCloudApplied(db, json);
@@ -149,7 +151,7 @@ export function CloudBackup({ session, onRestore, onSync }: Props) {
     await setSkySync(db, next);
     setSync(next);
     if (!next) {
-      setMessage('Enhederne holdes ikke længere ens. Den ugentlige kopi kører som før.');
+      setMessage('Løbende backup er slået fra. Den ugentlige kopi gemmes stadig separat for denne boks.');
       return;
     }
     if (onSync === undefined) return;
@@ -186,14 +188,14 @@ export function CloudBackup({ session, onRestore, onSync }: Props) {
 
       {connected ? (
         <>
-          <Text style={styles.hint}>Kopien gemmes i skyen med dit kodeord. {whenText(lastMs)}</Text>
+          <Text style={styles.hint}>Denne boks har sin egen skybackup. {whenText(lastMs)}</Text>
+          <Text style={styles.hint} selectable>Gendannelseskode (gem privat): {restoreCode}</Text>
           <TvPressable style={styles.row} onPress={() => void toggleSync()}>
             <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>Hold dine enheder ens</Text>
+              <Text style={styles.rowTitle}>Gem ændringer automatisk</Text>
               <Text style={styles.rowHint}>
-                Favoritter, grupper, "se videre" og hvor langt du er i film følger med mellem tv'erne og telefonen
-                gennem skyen — hver gang noget ændrer sig, og når appen åbnes. Slå det til på den boks der har det
-                rigtige først; de næste retter sig efter den.
+                Gemmer denne boks’ favoritter, grupper og afspilningspositioner i dens egen sky.
+                Andre bokse kan ikke automatisk ændre denne boks, selv med samme kodeord.
               </Text>
             </View>
             <Text style={[styles.actionText, sync && styles.on]}>{sync ? 'Til' : 'Fra'}</Text>
@@ -213,6 +215,9 @@ export function CloudBackup({ session, onRestore, onSync }: Props) {
             </View>
             <Text style={styles.actionText}>Gem</Text>
           </TvPressable>
+          <TvTextInput style={styles.input} value={code} onChangeText={setCode}
+            placeholder="Kodeord eller gendannelseskode" placeholderTextColor={colors.textMuted}
+            autoCorrect={false} autoCapitalize="none" />
           <TvPressable style={styles.row} onPress={() => void restore()}>
             <View style={styles.rowText}>
               <Text style={styles.rowTitle}>Hent fra skyen</Text>
@@ -228,8 +233,7 @@ export function CloudBackup({ session, onRestore, onSync }: Props) {
         <>
           <Text style={styles.hint}>
             Vælg et kodeord, du kan huske. Så gemmes en kopi af grupper, favoritter og indstillinger krypteret i
-            skyen — også fra tv'et, uden login. Skriv det <Text style={styles.bold}>samme kodeord</Text> på en ny boks
-            og tryk "Hent" for at få det hele ned igen.
+            skyen — også fra tv'et, uden login. Hver boks gemmer separat. På en ny boks bruger du den gamle boks’ gendannelseskode og trykker "Hent".
           </Text>
           <TvTextInput
             style={styles.input}
@@ -249,7 +253,7 @@ export function CloudBackup({ session, onRestore, onSync }: Props) {
           <TvPressable style={styles.row} onPress={() => void restore()}>
             <View style={styles.rowText}>
               <Text style={styles.rowTitle}>Hent fra skyen</Text>
-              <Text style={styles.rowHint}>Ny boks? Skriv kodeordet ovenfor og hent alt ned.</Text>
+              <Text style={styles.rowHint}>Ny boks? Skriv gendannelseskoden fra den gamle boks. Ældre kopier kan hentes med det gamle kodeord.</Text>
             </View>
             <Text style={styles.actionText}>Hent</Text>
           </TvPressable>
