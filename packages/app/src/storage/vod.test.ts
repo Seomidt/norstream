@@ -12,6 +12,7 @@ import {
   listVodCategoriesInCountry,
   listVodCountryGroups,
   listVodItems,
+  listVodItemsFiltered,
   recentlyWatchedTitles,
   replaceEpisodes,
   replaceVodCategories,
@@ -244,4 +245,16 @@ it.each(['movie', 'series'] as const)('%s bevarer USA og UK som separate lande m
   const groups = await listVodCountryGroups(db, kind);
   expect(groups.find(g => g.key === 'US')?.channelCount).toBe(1);
   expect(groups.find(g => g.key === 'GB')?.channelCount).toBe(1);
+});
+
+it.each(['movie', 'series'] as const)('%s viser og aabner samme delte US/UK-kategori i begge lande uden dublerede titler', async kind => {
+  await replaceVodCategories(db, sourceId, kind, [{ id: 'shared', name: 'VOD | US/UK' }]);
+  await replaceVodItems(db, sourceId, kind, [movie('shared-1', 'Titel', 'shared', { kind })]);
+  const groups = await listVodCountryGroups(db, kind);
+  expect(groups.find(g => g.key === 'US')?.channelCount).toBe(1);
+  expect(groups.find(g => g.key === 'GB')?.channelCount).toBe(1);
+  expect((await listVodCategoriesInCountry(db, kind, 'US')).map(c => c.id)).toEqual((await listVodCategoriesInCountry(db, kind, 'GB')).map(c => c.id));
+  for (const countries of [['US'], ['GB'], ['US', 'GB']]) {
+    expect(await listVodItemsFiltered(db, { kind, countries, genres: [], yearFrom: null, yearTo: null, sort: 'title' }, 20)).toHaveLength(1);
+  }
 });

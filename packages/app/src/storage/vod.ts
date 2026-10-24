@@ -1,4 +1,4 @@
-import { deriveCountryLoose } from '@norstream/core';
+import { vodCountries } from './vodCountries.js';
 import type { Category, Country, Episode, VodDetails, VodItem, VodKind } from '@norstream/core';
 import { channelKey } from '@norstream/core';
 import { originOf } from '@norstream/core';
@@ -212,7 +212,7 @@ export async function listVodCategorySummaries(
     // Kun kategorinavnet. Kanalerne kan ogsaa spoerge kanalnavnene — `DNK|
     // DR1` — men en filmtitel siger ikke hvilket land panelet har lagt den
     // under.
-    const country = deriveCountryLoose(row.name);
+    const country = vodCountries(row.name)[0] ?? null;
     return {
       id: row.id,
       name: row.name,
@@ -230,19 +230,23 @@ export async function listVodCountryGroups(db: SqlDatabase, kind: VodKind): Prom
   const summaries = await listVodCategorySummaries(db, kind);
   const groups = new Map<string, CountryGroup>();
   for (const summary of summaries) {
-    let group = groups.get(summary.countryKey);
-    if (group === undefined) {
-      group = {
-        key: summary.countryKey,
-        name: summary.country?.name ?? 'Øvrige',
-        flag: summary.country?.flag ?? OTHER_COUNTRY_FLAG,
-        categoryCount: 0,
-        channelCount: 0,
-      };
-      groups.set(summary.countryKey, group);
+    const countries = vodCountries(summary.name);
+    for (const country of countries.length > 0 ? countries : [null]) {
+      const key = country?.code ?? OTHER_COUNTRY_KEY;
+      let group = groups.get(key);
+      if (group === undefined) {
+        group = {
+          key,
+          name: country?.code === 'GB' ? 'UK · Storbritannien' : country?.name ?? 'Øvrige',
+          flag: country?.flag ?? OTHER_COUNTRY_FLAG,
+          categoryCount: 0,
+          channelCount: 0,
+        };
+        groups.set(key, group);
+      }
+      group.categoryCount += 1;
+      group.channelCount += summary.itemCount;
     }
-    group.categoryCount += 1;
-    group.channelCount += summary.itemCount;
   }
   return [...groups.values()].sort((a, b) => {
     if (a.key === OTHER_COUNTRY_KEY) return 1;
@@ -257,7 +261,7 @@ export async function listVodCategoriesInCountry(
   countryKey: string,
 ): Promise<VodCategorySummary[]> {
   return (await listVodCategorySummaries(db, kind)).filter(
-    (summary) => summary.countryKey === countryKey,
+    (summary) => countryKey === '__all__' || summary.countryKey === countryKey || vodCountries(summary.name).some(c => c.code === countryKey),
   );
 }
 
@@ -413,7 +417,7 @@ async function filterClause(db: SqlDatabase, filter: VodFilter): Promise<{ where
   const summaries = await listVodCategorySummaries(db, filter.kind);
   if (filter.countries.length > 0) {
     const wanted = new Set(filter.countries);
-    const ids = summaries.filter((c) => wanted.has(c.countryKey)).map((c) => c.id);
+    const ids = summaries.filter((c) => wanted.has(c.countryKey) || vodCountries(c.name).some(country => wanted.has(country.code))).map((c) => c.id);
     where.push('i.category_id IN (SELECT value FROM json_each(?))');
     params.push(JSON.stringify(ids));
   }

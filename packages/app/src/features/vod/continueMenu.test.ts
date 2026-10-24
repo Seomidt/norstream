@@ -116,3 +116,13 @@ it.each(['movie', 'series'] as const)('%s: USA og UK er tilgaengelige og det sid
   await act(async () => last.props.onPress({}));
   expect(props.onLevelChange).toHaveBeenCalledWith(expect.objectContaining({ name: 'categories', kind, country: expect.objectContaining({ key: 'GB' }) }));
 });
+
+it.each(['movie', 'series'] as const)('%s: sidste land rulles straks ind i synsfeltet ved fokus', async kind => {
+  await act(async () => { tree = create(createElement(VodScreen, { ...props, level: { name: 'countries', kind } })); });
+  const last = tree!.root.findAllByType('Pressable' as ElementType).filter(node => node.props.onPress !== undefined).at(-1)!;
+  await act(async () => last.props.onFocus({}));
+  expect(f.scroll).toHaveBeenCalledWith({ index: 1, viewPosition: 0.5, animated: false });
+  f.scroll.mockClear();
+  await act(async () => last.props.onFocus({}));
+  expect(f.scroll).not.toHaveBeenCalled();
+});

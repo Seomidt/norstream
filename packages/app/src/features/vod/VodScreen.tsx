@@ -1,3 +1,4 @@
+import { useVodListFocus } from './useVodListFocus.js';
 import { posterImageUri } from './posterImage.js';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type React from 'react';
@@ -419,6 +420,7 @@ function Countries({
   const focusFirstAtMount = useRef(isTV && cameBySelect()).current;
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
+  const scroll = useVodListFocus<CountryGroup>();
   const [groups, setGroups] = useState<CountryGroup[] | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -433,6 +435,9 @@ function Countries({
   if (groups === null) return <ActivityIndicator color={colors.accent} style={styles.spinner} />;
   return (
     <FlatList
+      ref={scroll.list}
+      contentContainerStyle={scroll.tail}
+      onScrollToIndexFailed={scroll.failed}
       data={groups}
       keyExtractor={(item) => item.key}
       ListEmptyComponent={<Text style={styles.empty}>Ingen {kindLabel(kind).toLowerCase()} fundet.</Text>}
@@ -448,8 +453,8 @@ function Countries({
           </TvPressable>
         ) : null
       }
-      renderItem={({ item }) => (
-        <TvPressable style={styles.row} onPress={() => onPick(item)}>
+      renderItem={({ item, index }) => (
+        <TvPressable style={styles.row} onFocus={() => scroll.focus(index)} onPress={() => onPick(item)}>
           <Text style={styles.flag}>{item.flag}</Text>
           <View style={styles.rowMain}>
             <Text style={styles.rowTitle}>{item.name}</Text>
@@ -479,6 +484,7 @@ function Categories({
   const focusFirstAtMount = useRef(isTV && cameBySelect()).current;
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
+  const scroll = useVodListFocus<VodCategorySummary>();
   const [categories, setCategories] = useState<VodCategorySummary[] | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -495,10 +501,13 @@ function Categories({
   }
   return (
     <FlatList
+      ref={scroll.list}
+      contentContainerStyle={scroll.tail}
+      onScrollToIndexFailed={scroll.failed}
       data={categories}
       keyExtractor={(item) => item.id}
       renderItem={({ item, index }) => (
-        <TvPressable style={styles.row} hasTVPreferredFocus={index === 0 && focusFirstAtMount} onPress={() => onPick(item)}>
+        <TvPressable style={styles.row} onFocus={() => scroll.focus(index)} hasTVPreferredFocus={index === 0 && focusFirstAtMount} onPress={() => onPick(item)}>
           <Text style={styles.flag}>{item.country?.flag ?? OTHER_COUNTRY_FLAG}</Text>
           <View style={styles.rowMain}>
             <Text style={styles.rowTitle} numberOfLines={1}>
@@ -556,8 +565,11 @@ export function PosterGrid({
   // Én gang naar listen kommer frem, ikke ved hver tegning: ellers sprang fokus til toppen efter ethvert OK-tryk.
   const focusFirstAtMount = useRef(isTV && cameBySelect()).current;
   const styles = useStyles(makeStyles);
+  const scroll = useVodListFocus<StoredVodItem>();
   return (
     <FlatList
+      ref={scroll.list}
+      onScrollToIndexFailed={scroll.failed}
       data={items}
       keyExtractor={(item) => item.key}
       numColumns={COLUMNS}
@@ -565,12 +577,12 @@ export function PosterGrid({
       initialNumToRender={COLUMNS * 3}
       maxToRenderPerBatch={COLUMNS * 2}
       removeClippedSubviews={!isTV}
-      contentContainerStyle={styles.grid}
+      contentContainerStyle={[styles.grid, scroll.tail]}
       columnWrapperStyle={styles.gridRow}
       ListHeaderComponent={header ?? null}
       ListFooterComponent={footer ?? null}
       ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
-      renderItem={({ item, index }) => <Poster item={item} onOpen={onOpen} preferFocus={index === 0 && focusFirstAtMount && header === undefined} />}
+      renderItem={({ item, index }) => <Poster item={item} onOpen={onOpen} onFocus={() => scroll.focus(Math.floor(index / COLUMNS))} preferFocus={index === 0 && focusFirstAtMount && header === undefined} />}
     />
   );
 }
@@ -587,6 +599,7 @@ export function Poster({
   onOpen,
   preferFocus = false,
   onLongPress,
+  onFocus,
 }: {
   item: StoredVodItem;
   width?: number;
@@ -594,6 +607,7 @@ export function Poster({
   /** Paa tv: faar fokus naar gitteret kommer frem, saa fjernbetjeningen ikke lander i menuen. */
   preferFocus?: boolean;
   onLongPress?: () => void;
+  onFocus?: () => void;
 }) {
   const styles = useStyles(makeStyles);
   const [failed, setFailed] = useState(false);
@@ -615,7 +629,7 @@ export function Poster({
       ? Math.min(1, item.positionSeconds / item.durationSeconds)
       : null;
   return (
-    <TvPressable style={[styles.poster, sizing]} hasTVPreferredFocus={preferFocus} onPress={() => onOpen(item)} onLongPress={onLongPress}>
+    <TvPressable style={[styles.poster, sizing]} hasTVPreferredFocus={preferFocus} onPress={() => onOpen(item)} onLongPress={onLongPress} onFocus={onFocus}>
       <View style={styles.posterFrame}>
         {posterUrl !== null ? (
           <Image
