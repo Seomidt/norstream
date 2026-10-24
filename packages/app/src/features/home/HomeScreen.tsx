@@ -22,6 +22,7 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
+import { createRailSelection } from './railSelection.js';
 import { forgetPosterMisses } from '../../ui/posterFill.js';
 import type { Level } from '../browse/BrowseScreen.js';
 import { parentVodLevel } from '../vod/vodNavigation.js';
@@ -117,7 +118,6 @@ interface Props {
 export type Tab = 'home' | 'favorites' | 'browse' | 'guide' | 'sport' | 'vod' | 'radio' | 'teletext' | 'settings';
 
 /** Tryk paa fjernbetjeningen der kan have flyttet fokus ind i eller langs menusoejlen. */
-const RAIL_KEYS = new Set(['left', 'longLeft', 'up', 'longUp', 'down', 'longDown']);
 
 // Stabile standard-niveauer. Foer var de inline-objekter (`{ name: 'countries' }`),
 // altsaa en ny reference ved HVER HomeScreen-render — og saa genindlaeste Browse
@@ -226,8 +226,7 @@ export function HomeScreen({
     if ((tab === 'guide' && guideBack.current()) || (tab === 'sport' && sportBack.current()) || (tab === 'teletext' && teletextBack.current())) {
       // Et gammelt piltryk maa ikke skifte fane, mens undersiden lukkes og
       // Android kortvarigt leder efter fokus paa baggrunden.
-      if (pendingTab.current !== null) clearTimeout(pendingTab.current);
-      pendingTab.current = null;
+      railSelection.cancel();
       lastKey.current = { type: 'back', at: Date.now() };
       return true;
     }
@@ -593,29 +592,16 @@ export function HomeScreen({
       // Vinduet efter blur bruges én gang: et andet tryk paa pil hoejre
       // lige efter maa ikke sende fokus tilbage til den foerste raekke.
       railBlurredAt.current = 0;
+      railSelection.enter();
       setEnterSignal((value) => value + 1);
     }
   });
-  /** Fanen skifter foerst naar fjernbetjeningen har staaet stille et oejeblik: at koere hen over fire faner skal ikke montere fire skaerme. */
-  const pendingTab = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const focusTab = (id: Tab) => {
-    // Kun pil-venstre (ind i soejlen) og op/ned (langs den) taeller. Et
-    // tryk paa OK i indholdet der skifter liste (land under Film) mistede
-    // ogsaa fokus, og saa roeg man til Hjem selv om man lige havde trykket.
-    const { type, at } = lastKey.current;
-    if (Date.now() - at > 600 || !RAIL_KEYS.has(type)) return;
-    if (pendingTab.current !== null) clearTimeout(pendingTab.current);
-    pendingTab.current = setTimeout(() => {
-      pendingTab.current = null;
-      selectTab(id);
-    }, 250);
-  };
-  useEffect(
-    () => () => {
-      if (pendingTab.current !== null) clearTimeout(pendingTab.current);
-    },
-    [],
-  );
+  const selectTabLatest = useRef(selectTab);
+  selectTabLatest.current = selectTab;
+  const [railSelection] = useState(() => createRailSelection<Tab>(
+    id => selectTabLatest.current(id), () => lastKey.current,
+  ));
+  useEffect(() => () => railSelection.cancel(), [railSelection]);
 
   /**
    * Tv: soejlen folder sig sammen til ikoner et par sekunder efter at
@@ -631,8 +617,7 @@ export function HomeScreen({
     setRailOpen(true);
   };
   const onRailBlur = () => {
-    if (pendingTab.current !== null) clearTimeout(pendingTab.current);
-    pendingTab.current = null;
+    railSelection.leave();
     railFocused.current = false;
     railBlurredAt.current = Date.now();
     if (railTimer.current !== null) clearTimeout(railTimer.current);
@@ -654,8 +639,7 @@ export function HomeScreen({
           style={[isTV ? styles.railTab : styles.tab, isTV && item.id === 'settings' && styles.railSettings]}
           hasTVPreferredFocus={isTV && railWantsFocus && tab === item.id}
           onPress={() => {
-            if (pendingTab.current !== null) clearTimeout(pendingTab.current);
-            selectTab(item.id);
+            railSelection.press(item.id);
           }}
           // Paa tv skifter fanen naar fjernbetjeningen lander paa den,
           // uden et tryk paa OK: saadan goer de andre tv-apps, og at
@@ -665,7 +649,7 @@ export function HomeScreen({
             isTV
               ? () => {
                   onRailFocus();
-                  focusTab(item.id);
+                  railSelection.focus(item.id);
                 }
               : undefined
           }

@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import type { ReactNode } from 'react';
 import type { PressableProps, StyleProp, View as ViewType, ViewStyle } from 'react-native';
@@ -45,20 +45,20 @@ export const TvPressable = forwardRef<ViewType, Props>(function TvPressable({ st
   // Paa tv huskes trykket, saa skaermen kan bede om fokus tilbage hertil
   // naar det der aabnede oven paa (afspiller, ark) lukker igen. Se refocus.ts.
   const [forced, setForced] = useState(false);
-  const entry = useRef(isTV ? registerPressable(() => setForced(true)) : null);
+  const [entry] = useState(() => isTV ? registerPressable(() => setForced(true)) : null);
   useEffect(() => {
-    const own = entry.current;
+    const own = entry;
     return () => {
       if (own !== null) forgetPressable(own);
     };
-  }, []);
+  }, [entry]);
   useEffect(() => {
     if (!forced) return;
     const frame = requestAnimationFrame(() => setForced(false));
     return () => cancelAnimationFrame(frame);
   }, [forced]);
   const note = (): void => {
-    if (entry.current !== null) notePressed(entry.current);
+    if (entry !== null) notePressed(entry);
   };
   return (
     <Pressable
@@ -87,7 +87,7 @@ export const TvPressable = forwardRef<ViewType, Props>(function TvPressable({ st
               onLongPress?.(event);
             }
       }
-      style={[style, blocked && styles.blocked, isTV && focused && (flat === true ? styles.focusedFlat : styles.focused)]}
+      style={({ pressed }) => [style, blocked && styles.blocked, isTV && focused && (flat === true ? styles.focusedFlat : styles.focused), !blocked && pressed && styles.pressed]}
       onFocus={(event) => {
         setFocused(true);
         onFocus?.(event);
@@ -107,6 +107,7 @@ export const TvPressable = forwardRef<ViewType, Props>(function TvPressable({ st
 });
 
 const makeStyles = (colors: ThemeColors) => StyleSheet.create({
+  pressed: { opacity: 0.72 },
   // Tv: en spaerret knap er stadig fokuserbar (ellers ryger fokus ud i
   // menuen), men tonet ned saa man kan se den er inaktiv lige nu.
   blocked: { opacity: 0.4 },
