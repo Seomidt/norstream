@@ -10,7 +10,7 @@ import type { TmdbFetch } from '../sync/tmdb.js';
  *
  * Samme moenster som logoerne: en plakat slaas op naar titlen vises uden
  * en, hoejst nogle faa ad gangen, og svaret gemmes — ogsaa et nej, saa den
- * samme titel ikke spoerges om igen foer der er gaaet en maaned. Opslaget
+ * samme titel ikke spoerges om igen foer der er gaaet et doegn. Opslaget
  * gaar til TMDB og kraever brugerens egen noegle; uden den goeres intet.
  *
  * Det der findes, laeses ind i `vod_posters` og foelger med i alle lister
@@ -18,14 +18,16 @@ import type { TmdbFetch } from '../sync/tmdb.js';
  * at tegne med det samme: hvad der er fundet siden listen blev hentet.
  */
 export const MAX_PARALLEL = 2;
-export const MISS_TTL_MS = 30 * 24 * 60 * 60_000;
+export const MISS_TTL_MS = 24 * 60 * 60_000;
 /** Efter en fejl fra TMDB (forkert noegle, nede) ventes der saa laenge foer der spoerges igen. */
 export const ERROR_PAUSE_MS = 30_000;
 
 const found = new Map<string, string>();
 const inFlight = new Set<string>();
 const listeners = new Map<string, Set<() => void>>();
-const queue: Array<{ key: string; kind: 'movie' | 'series'; name: string }> = [];
+type PosterJob = { key: string; kind: 'movie' | 'series'; name: string; year?: number | null; failedUrl?: string | null };
+const queue: PosterJob[] = [];
+const missed = new Map<string, number>();
 let running = 0;
 let database: SqlDatabase | null = null;
 let fetcher: TmdbFetch | null = null;
@@ -38,6 +40,7 @@ export async function initPosterFill(db: SqlDatabase, fetchImpl: TmdbFetch = tmd
   database = db;
   fetcher = fetchImpl;
   found.clear();
+  missed.clear();
   apiKey = await getTmdbApiKey(db);
 }
 
@@ -50,6 +53,7 @@ export function setPosterApiKey(key: string | null): void {
   // En ny noegle: alt der blev husket som "findes ikke" med den gamle
   // (maaske forkerte) noegle skal proeves igen.
   if (changed && next !== null) void forgetPosterMisses();
+  if (changed) missed.clear();
 }
 
 /**
@@ -58,6 +62,7 @@ export function setPosterApiKey(key: string | null): void {
  * forfra under Indstillinger.
  */
 export async function forgetPosterMisses(): Promise<void> {
+  missed.clear();
   if (database === null) return;
   await database.runAsync('DELETE FROM vod_posters WHERE url IS NULL').catch(() => undefined);
 }
@@ -72,12 +77,14 @@ export function foundPoster(key: string): string | null {
 }
 
 /** Beder om en plakat til en titel uden. Koster intet naar den er slaaet op for nylig. */
-export function ensurePoster(item: { key: string; kind: 'movie' | 'series'; name: string }): void {
+export function ensurePoster(item: PosterJob, failedUrl: string | null = null): void {
   if (apiKey === null || database === null || fetcher === null) return;
+  if (failedUrl !== null && found.get(item.key) === failedUrl) found.delete(item.key);
+  if (Date.now() - (missed.get(item.key) ?? -Infinity) < MISS_TTL_MS) return;
   if (found.has(item.key) || inFlight.has(item.key)) return;
   if (Date.now() < pausedUntil) return;
   inFlight.add(item.key);
-  queue.push({ key: item.key, kind: item.kind, name: item.name });
+  queue.push({ key: item.key, kind: item.kind, name: item.name, year: item.year, failedUrl });
   pump();
 }
 
@@ -90,7 +97,12 @@ export function subscribePoster(key: string, listener: () => void): () => void {
   set.add(listener);
   return () => {
     set.delete(listener);
-    if (set.size === 0) listeners.delete(key);
+    if (set.size === 0) {
+      listeners.delete(key);
+      // Kort der er rullet vaek skal ikke blokere de synlige plakater.
+      const pending = queue.findIndex(job => job.key === key);
+      if (pending >= 0) { queue.splice(pending, 1); inFlight.delete(key); }
+    }
   };
 }
 
@@ -104,6 +116,7 @@ export function whenPosterQueueIdle(): Promise<void> {
 
 export function resetPosterFillForTests(): void {
   found.clear();
+  missed.clear();
   inFlight.clear();
   listeners.clear();
   queue.length = 0;
@@ -116,11 +129,14 @@ export function resetPosterFillForTests(): void {
 }
 
 function pump(): void {
+  if (Date.now() < pausedUntil) {
+    for (const job of queue.splice(0)) inFlight.delete(job.key);
+  }
   while (running < MAX_PARALLEL && queue.length > 0) {
     const job = queue.shift();
     if (job === undefined) break;
     running += 1;
-    void lookUp(job).finally(() => {
+    void lookUp(job).catch(() => undefined).finally(() => {
       running -= 1;
       inFlight.delete(job.key);
       if (running === 0 && queue.length === 0) {
@@ -134,23 +150,26 @@ function pump(): void {
   }
 }
 
-async function lookUp(job: { key: string; kind: 'movie' | 'series'; name: string }): Promise<void> {
+async function lookUp(job: PosterJob): Promise<void> {
   if (database === null || fetcher === null || apiKey === null) return;
   const earlier = await database.getFirstAsync<{ url: string | null; tried_ms: number; metadata_version: number }>(
     'SELECT url, tried_ms, metadata_version FROM vod_posters WHERE item_key = ?',
     [job.key],
   );
   if (earlier !== null && earlier.metadata_version === 1) {
-    if (earlier.url !== null) {
+    if (earlier.url !== null && earlier.url !== job.failedUrl) {
       found.set(job.key, earlier.url);
       notify(job.key);
       return;
     }
-    if (Date.now() - earlier.tried_ms < MISS_TTL_MS) return;
+    if (earlier.url === null && Date.now() - earlier.tried_ms < MISS_TTL_MS) {
+      missed.set(job.key, earlier.tried_ms);
+      return;
+    }
   }
   let hit: Awaited<ReturnType<typeof searchTmdb>>;
   try {
-    hit = await searchTmdb(fetcher, apiKey, job.kind, job.name);
+    hit = await searchTmdb(fetcher, apiKey, job.kind, job.name, job.year ?? null);
   } catch (error) {
     // Intet svar er ikke et nej: gemmes ikke, og der holdes en pause saa
     // en forkert noegle ikke giver et opslag per plakat paa skaermen.
@@ -158,6 +177,7 @@ async function lookUp(job: { key: string; kind: 'movie' | 'series'; name: string
     return;
   }
   const url = hit?.posterUrl ?? null;
+  if (url === null) missed.set(job.key, Date.now());
   // Genre og aar foelger med i samme opslag (v367), til filteret under Film.
   await database
     .runAsync(

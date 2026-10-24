@@ -57,6 +57,16 @@ it('gemt favorithold skjuler aldrig Tennis eller Formel 1', async () => {
   expect(button('★ Brøndby')).toBeDefined();
   expect(button('Tennis')).toBeDefined(); expect(button('Formel 1')).toBeDefined();
 });
+
+it('Fodbold er foerste sportsgenvej og soeger ved tryk', async () => {
+  await mount();
+  const buttons = tree!.root.findAllByType(TvPressable);
+  const football = button('Fodbold');
+  expect(football).toBeDefined();
+  expect(buttons.indexOf(football)).toBeLessThan(buttons.indexOf(button('★ Brøndby')));
+  await act(async () => football.props.onPress());
+  expect(mocks.find).toHaveBeenCalledWith(session.db, 'Fodbold', expect.anything());
+});
 it('Tilbage fra et hold rydder filteret og bevarer holdet og sportsgenvejene', async () => {
   const back = await mount();
   await act(async () => button('★ Brøndby').props.onPress());

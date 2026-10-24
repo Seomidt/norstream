@@ -312,18 +312,15 @@ function Home({
     const revision = ++continueRevision.current;
     // Tjenesterne til plakatmaerkerne (v369), samme valg som forsiden.
     void getHomeProviders(session.db).then(setKnownServices).catch(() => undefined);
-    const [c, p, w, m, s] = await Promise.all([
-      vodCounts(session.db),
-      listVodItems(session.db, { inProgressOnly: true, homeContinueOnly: true, limit: SHELF_LIMIT }),
-      listVodItems(session.db, { watchlistOnly: true, limit: SHELF_LIMIT }),
-      listVodItems(session.db, { kind: 'movie', newestFirst: true, limit: SHELF_LIMIT }),
-      listVodItems(session.db, { kind: 'series', newestFirst: true, limit: SHELF_LIMIT }),
+    // Tegn hver hylde saa snart dens eget opslag er klart.
+    await Promise.allSettled([
+      vodCounts(session.db).then(setCounts),
+      listVodItems(session.db, { inProgressOnly: true, homeContinueOnly: true, limit: SHELF_LIMIT })
+        .then(items => { if (revision === continueRevision.current) setInProgress(items); }),
+      listVodItems(session.db, { watchlistOnly: true, limit: SHELF_LIMIT }).then(setWatchlist),
+      listVodItems(session.db, { kind: 'movie', newestFirst: true, limit: SHELF_LIMIT }).then(setNewMovies),
+      listVodItems(session.db, { kind: 'series', newestFirst: true, limit: SHELF_LIMIT }).then(setNewSeries),
     ]);
-    setCounts(c);
-    if (revision === continueRevision.current) setInProgress(p);
-    setWatchlist(w);
-    setNewMovies(m);
-    setNewSeries(s);
   }, [session.db]);
 
   useVodShelfRefresh(load, active, reloadToken);
@@ -603,10 +600,11 @@ export function Poster({
   // Uden plakat: bed om en fra TMDB, og tegn den naar den kommer.
   const [, redraw] = useReducer((count: number) => count + 1, 0);
   useEffect(() => {
-    // Mangler plakaten eller karakteren, hentes begge i samme opslag.
-    if (item.posterUrl !== null && !failed && item.rating !== null) return;
-    ensurePoster(item);
-    return subscribePoster(item.key, redraw);
+    // Manglende karakter maa ikke forsinke plakaterne til de tomme kort.
+    if (item.posterUrl !== null && !failed) return;
+    const unsubscribe = subscribePoster(item.key, redraw);
+    ensurePoster(item, failed ? item.posterUrl : null);
+    return unsubscribe;
   }, [item, failed]);
   const posterUrl = item.posterUrl !== null && !failed ? item.posterUrl : foundPoster(item.key);
   // "Netflix" i hjoernet naar TMDB siger titlen ligger dér (v369).

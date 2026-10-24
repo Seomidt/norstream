@@ -274,17 +274,13 @@ export function FrontScreen({
     logEvent('opstart', `forsidens lokale hovedraekker klar: ${Date.now() - startedAt} ms`);
     // Foerst efter hovedraekken: paa én SQLite-forbindelse kan selv async
     // VOD-opslag staa foran kanalerne i koeen. Resten udfyldes uafhaengigt.
-    void Promise.all([
-      listVodItems(session.db, { inProgressOnly: true, homeContinueOnly: true, limit: IN_PROGRESS_LIMIT }),
-      listVodItems(session.db, { newestFirst: true, limit: NEWEST_LIMIT }),
-      getTmdbApiKey(session.db),
-      getHomeProviders(session.db),
-    ]).then(([progress, added, key, chosen]) => {
-      if (ownContinueRevision === continueRevision.current) setInProgress(progress);
-      setNewest(added);
-      setTmdbKey(key);
-      setProviders(chosen);
-    }).catch(() => logEvent('opstart', 'filmhylder kunne ikke laeses'));
+    void Promise.allSettled([
+      listVodItems(session.db, { inProgressOnly: true, homeContinueOnly: true, limit: IN_PROGRESS_LIMIT })
+        .then(progress => { if (ownContinueRevision === continueRevision.current) setInProgress(progress); }),
+      listVodItems(session.db, { newestFirst: true, limit: NEWEST_LIMIT }).then(setNewest),
+      getTmdbApiKey(session.db).then(setTmdbKey),
+      getHomeProviders(session.db).then(setProviders),
+    ]);
     // De nye raekker. Hver for sig og fejltolerant: en tom raekke er bare vaek.
     const [recentChannels, started, groups, series] = await Promise.all([
       listRecentChannels(session.db, RECENT_LIMIT).catch(() => []),

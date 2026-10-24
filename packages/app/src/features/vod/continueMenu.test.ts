@@ -89,3 +89,15 @@ it('Annuller bevarer listen og en skrivefejl bliver i menuen', async () => {
   expect(text()).toContain('Listen kunne ikke ryddes. Prøv igen.');
   expect(posters()).toHaveLength(2);
 });
+
+it('viser Fortsaet selv om nyeste film stadig venter eller fejler', async () => {
+  let reject!: (error: Error) => void;
+  f.list.mockImplementation(async (_db, opts) => {
+    if (opts.newestFirst && opts.kind === 'movie') return new Promise((_resolve, fail) => { reject = fail; });
+    return opts.inProgressOnly ? f.progress : [];
+  });
+  await mount();
+  expect(posters()).toHaveLength(2);
+  await act(async () => reject(new Error('langsom hylde')));
+  expect(posters()).toHaveLength(2);
+});
