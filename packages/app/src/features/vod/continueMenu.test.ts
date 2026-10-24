@@ -3,17 +3,17 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { AppSession } from '../../session.js';
 import type { StoredVodItem } from '../../storage/vod.js';
-const f = vi.hoisted(() => ({ progress: [] as StoredVodItem[], readOnce: null as null | (() => Promise<StoredVodItem[]>), remove: vi.fn(), clear: vi.fn(), open: vi.fn(), list: vi.fn() }));
+const f = vi.hoisted(() => ({ progress: [] as StoredVodItem[], readOnce: null as null | (() => Promise<StoredVodItem[]>), remove: vi.fn(), clear: vi.fn(), open: vi.fn(), scroll: vi.fn(), list: vi.fn() }));
 vi.mock('react-native', async () => {
-  const { createElement: el } = await import('react');
+  const { createElement: el, forwardRef, useImperativeHandle } = await import('react');
   return {
-    Platform: { isTV: true, OS: 'android' }, StyleSheet: { create: (s: unknown) => s },
+    useWindowDimensions: () => ({ width: 960, height: 540 }), Platform: { isTV: true, OS: 'android' }, StyleSheet: { create: (s: unknown) => s },
     Text: 'Text', View: 'View', Image: 'Image', Pressable: 'Pressable', Modal: 'Modal', ScrollView: 'ScrollView', TextInput: 'Input', ActivityIndicator: 'ActivityIndicator',
     AppState: { addEventListener: () => ({ remove() {} }) },
-    FlatList: ({ data, renderItem }: any) => el('FlatList', {}, ...data.map((item: StoredVodItem, index: number) => el('Row', { key: item.key }, renderItem({ item, index })))),
+    FlatList: forwardRef(function List({ data, renderItem }: any, ref) { useImperativeHandle(ref, () => ({ scrollToIndex: f.scroll, scrollToOffset: vi.fn() })); return el('FlatList', {}, ...data.map((item: StoredVodItem, index: number) => el('Row', { key: item.key }, renderItem({ item, index })))); }),
   };
 });
-vi.mock('../../storage/vod.js', () => ({ listVodItems: f.list, vodCounts: async () => ({ movies: 1, series: 1 }) }));
+vi.mock('../../storage/vod.js', () => ({ listVodItems: f.list, vodCounts: async () => ({ movies: 1, series: 1 }), listVodCountryGroups: async () => [{ key: 'US', name: 'USA', flag: '🇺🇸', categoryCount: 1, channelCount: 50 }, { key: 'GB', name: 'Storbritannien', flag: '🇬🇧', categoryCount: 1, channelCount: 50 }] }));
 vi.mock('../../storage/continueList.js', () => ({ dismissContinueItem: f.remove, clearVodContinueList: f.clear }));
 vi.mock('../../storage/settings.js', () => ({ getHomeProviders: async () => [] }));
 vi.mock('../../ui/posterFill.js', () => ({ ensurePoster: () => {}, foundPoster: () => null, subscribePoster: () => () => {} }));
@@ -107,4 +107,12 @@ it('viser gemt alternativt cover straks naar udbyderens billede fejler', async (
   const image = () => tree!.root.findByType('Image' as ElementType);
   await act(async () => image().props.onError());
   expect(image().props.source.uri).toBe('https://image.tmdb.org/t/p/w342/bond.jpg');
+});
+
+it.each(['movie', 'series'] as const)('%s: USA og UK er tilgaengelige og sidste land rulles op ved fokus', async (kind) => {
+  await act(async () => { tree = create(createElement(VodScreen, { ...props, level: { name: 'countries', kind } })); });
+  expect(text()).toContain('USA'); expect(text()).toContain('Storbritannien');
+  const last = tree!.root.findAllByType('Pressable' as ElementType).filter(node => node.props.onFocus !== undefined).at(-1)!;
+  await act(async () => last.props.onFocus({}));
+  expect(f.scroll).toHaveBeenCalledWith({ index: 1, viewPosition: 0.5, animated: true });
 });

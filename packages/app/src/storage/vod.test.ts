@@ -237,3 +237,11 @@ describe('recentlyWatchedTitles (v340)', () => {
     expect((await recentlyWatchedTitles(db, 1)).map((t) => t.name)).toEqual(['Severance']);
   });
 });
+
+it.each(['movie', 'series'] as const)('%s bevarer USA og UK som separate lande med deres titler', async kind => {
+  await replaceVodCategories(db, sourceId, kind, [{ id: 'us', name: 'USA' }, { id: 'uk', name: 'UK' }]);
+  await replaceVodItems(db, sourceId, kind, [movie('us-film', 'Amerikansk titel', 'us', { kind }), movie('uk-film', 'Britisk titel', 'uk', { kind })]);
+  const groups = await listVodCountryGroups(db, kind);
+  expect(groups.find(g => g.key === 'US')?.channelCount).toBe(1);
+  expect(groups.find(g => g.key === 'GB')?.channelCount).toBe(1);
+});
