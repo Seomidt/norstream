@@ -1,6 +1,5 @@
-import { keepInMiddle, useTvListTail } from '../../ui/tvScroll.js';
 import { posterImageUri } from './posterImage.js';
-import { memo, useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type React from 'react';
 import {
   ActivityIndicator,
@@ -420,8 +419,6 @@ function Countries({
   const focusFirstAtMount = useRef(isTV && cameBySelect()).current;
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
-  const listRef = useRef<FlatList<CountryGroup>>(null);
-  const tail = useTvListTail();
   const [groups, setGroups] = useState<CountryGroup[] | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -436,10 +433,6 @@ function Countries({
   if (groups === null) return <ActivityIndicator color={colors.accent} style={styles.spinner} />;
   return (
     <FlatList
-      ref={listRef}
-      style={styles.list}
-      contentContainerStyle={tail}
-      onScrollToIndexFailed={({ index, averageItemLength }) => listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: false })}
       data={groups}
       keyExtractor={(item) => item.key}
       ListEmptyComponent={<Text style={styles.empty}>Ingen {kindLabel(kind).toLowerCase()} fundet.</Text>}
@@ -455,11 +448,11 @@ function Countries({
           </TvPressable>
         ) : null
       }
-      renderItem={({ item, index }) => (
-        <TvPressable style={styles.row} onFocus={() => keepInMiddle(listRef.current, index)} onPress={() => onPick(item)}>
+      renderItem={({ item }) => (
+        <TvPressable style={styles.row} onPress={() => onPick(item)}>
           <Text style={styles.flag}>{item.flag}</Text>
           <View style={styles.rowMain}>
-            <Text style={styles.rowTitle}>{item.key === 'GB' ? `UK · ${item.name}` : item.name}</Text>
+            <Text style={styles.rowTitle}>{item.name}</Text>
             <Text style={styles.rowCount}>
               {item.categoryCount} kategorier · {item.channelCount} titler
             </Text>
@@ -486,8 +479,6 @@ function Categories({
   const focusFirstAtMount = useRef(isTV && cameBySelect()).current;
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
-  const listRef = useRef<FlatList<VodCategorySummary>>(null);
-  const tail = useTvListTail();
   const [categories, setCategories] = useState<VodCategorySummary[] | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -504,14 +495,10 @@ function Categories({
   }
   return (
     <FlatList
-      ref={listRef}
-      style={styles.list}
-      contentContainerStyle={tail}
-      onScrollToIndexFailed={({ index, averageItemLength }) => listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: false })}
       data={categories}
       keyExtractor={(item) => item.id}
       renderItem={({ item, index }) => (
-        <TvPressable style={styles.row} onFocus={() => keepInMiddle(listRef.current, index)} hasTVPreferredFocus={index === 0 && focusFirstAtMount} onPress={() => onPick(item)}>
+        <TvPressable style={styles.row} hasTVPreferredFocus={index === 0 && focusFirstAtMount} onPress={() => onPick(item)}>
           <Text style={styles.flag}>{item.country?.flag ?? OTHER_COUNTRY_FLAG}</Text>
           <View style={styles.rowMain}>
             <Text style={styles.rowTitle} numberOfLines={1}>
@@ -569,27 +556,21 @@ export function PosterGrid({
   // Én gang naar listen kommer frem, ikke ved hver tegning: ellers sprang fokus til toppen efter ethvert OK-tryk.
   const focusFirstAtMount = useRef(isTV && cameBySelect()).current;
   const styles = useStyles(makeStyles);
-  const listRef = useRef<FlatList<StoredVodItem>>(null);
-  const tail = useTvListTail();
   return (
     <FlatList
-      ref={listRef}
-      style={styles.list}
-      onScrollToIndexFailed={({ index, averageItemLength }) => listRef.current?.scrollToOffset({ offset: index * averageItemLength, animated: false })}
       data={items}
       keyExtractor={(item) => item.key}
       numColumns={COLUMNS}
       windowSize={5}
       initialNumToRender={COLUMNS * 3}
-      maxToRenderPerBatch={COLUMNS}
-      updateCellsBatchingPeriod={16}
+      maxToRenderPerBatch={COLUMNS * 2}
       removeClippedSubviews={!isTV}
-      contentContainerStyle={[styles.grid, tail]}
+      contentContainerStyle={styles.grid}
       columnWrapperStyle={styles.gridRow}
       ListHeaderComponent={header ?? null}
       ListFooterComponent={footer ?? null}
       ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
-      renderItem={({ item, index }) => <Poster item={item} onOpen={onOpen} onFocus={() => keepInMiddle(listRef.current, Math.floor(index / COLUMNS))} preferFocus={index === 0 && focusFirstAtMount && header === undefined} />}
+      renderItem={({ item, index }) => <Poster item={item} onOpen={onOpen} preferFocus={index === 0 && focusFirstAtMount && header === undefined} />}
     />
   );
 }
@@ -600,13 +581,12 @@ export function PosterGrid({
  * Plakaten er 2:3 som en biografplakat. Mangler den, staar titlen i feltet i
  * stedet for en tom firkant — samme regel som kanallogoerne.
  */
-export const Poster = memo(function Poster({
+export function Poster({
   item,
   width,
   onOpen,
   preferFocus = false,
   onLongPress,
-  onFocus,
 }: {
   item: StoredVodItem;
   width?: number;
@@ -614,7 +594,6 @@ export const Poster = memo(function Poster({
   /** Paa tv: faar fokus naar gitteret kommer frem, saa fjernbetjeningen ikke lander i menuen. */
   preferFocus?: boolean;
   onLongPress?: () => void;
-  onFocus?: () => void;
 }) {
   const styles = useStyles(makeStyles);
   const [failed, setFailed] = useState(false);
@@ -624,7 +603,6 @@ export const Poster = memo(function Poster({
   useEffect(() => {
     // Manglende karakter maa ikke forsinke plakaterne til de tomme kort.
     if (item.posterUrl !== null && !failed) return;
-    if (failed && item.foundPosterUrl != null && item.foundPosterUrl !== item.posterUrl) return;
     const unsubscribe = subscribePoster(item.key, redraw);
     ensurePoster(item, failed ? item.posterUrl : null);
     return unsubscribe;
@@ -637,7 +615,7 @@ export const Poster = memo(function Poster({
       ? Math.min(1, item.positionSeconds / item.durationSeconds)
       : null;
   return (
-    <TvPressable style={[styles.poster, sizing]} hasTVPreferredFocus={preferFocus} onPress={() => onOpen(item)} onLongPress={onLongPress} onFocus={onFocus}>
+    <TvPressable style={[styles.poster, sizing]} hasTVPreferredFocus={preferFocus} onPress={() => onOpen(item)} onLongPress={onLongPress}>
       <View style={styles.posterFrame}>
         {posterUrl !== null ? (
           <Image
@@ -683,7 +661,7 @@ export const Poster = memo(function Poster({
       {item.year !== null && <Text style={styles.posterYear}>{item.year}</Text>}
     </TvPressable>
   );
-});
+}
 
 function Crumb({ label, onBack }: { label: string; onBack: () => void }) {
   const styles = useStyles(makeStyles);
@@ -698,8 +676,7 @@ function Crumb({ label, onBack }: { label: string; onBack: () => void }) {
 }
 
 const makeStyles = (colors: ThemeColors) => StyleSheet.create({
-  list: { flex: 1, minHeight: 0 },
-  container: { flex: 1, minHeight: 0, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.background },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.lg },
   spinner: { marginTop: theme.spacing.xl },
   search: {

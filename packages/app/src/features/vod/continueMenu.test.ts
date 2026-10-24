@@ -27,7 +27,7 @@ const props = { session: { db: {} } as AppSession, active: true, reloadToken: 0,
   onLevelChange: vi.fn(), onOpen: f.open, onTrailer: vi.fn(), onOpenSettings: vi.fn() };
 let tree: ReactTestRenderer | null = null;
 const mount = () => act(async () => { tree = create(createElement(VodScreen, props)); });
-const posters = () => tree!.root.findAllByType((Poster as unknown as { type: ElementType }).type).filter(node => node.props.onLongPress !== undefined);
+const posters = () => tree!.root.findAllByType(Poster).filter(node => node.props.onLongPress !== undefined);
 const text = () => tree!.root.findAllByType('Text' as ElementType).map(node => node.children.join('')).join(' ');
 beforeEach(() => {
   vi.useFakeTimers(); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.clearAllMocks();
@@ -109,10 +109,10 @@ it('viser gemt alternativt cover straks naar udbyderens billede fejler', async (
   expect(image().props.source.uri).toBe('https://image.tmdb.org/t/p/w342/bond.jpg');
 });
 
-it.each(['movie', 'series'] as const)('%s: USA og UK er tilgaengelige og sidste land rulles op ved fokus', async (kind) => {
+it.each(['movie', 'series'] as const)('%s: USA og UK er tilgaengelige og det sidste land kan aabnes', async (kind) => {
   await act(async () => { tree = create(createElement(VodScreen, { ...props, level: { name: 'countries', kind } })); });
   expect(text()).toContain('USA'); expect(text()).toContain('Storbritannien');
-  const last = tree!.root.findAllByType('Pressable' as ElementType).filter(node => node.props.onFocus !== undefined).at(-1)!;
-  await act(async () => last.props.onFocus({}));
-  expect(f.scroll).toHaveBeenCalledWith({ index: 1, viewPosition: 0.5, animated: true });
+  const last = tree!.root.findAllByType('Pressable' as ElementType).filter(node => node.props.onPress !== undefined).at(-1)!;
+  await act(async () => last.props.onPress({}));
+  expect(props.onLevelChange).toHaveBeenCalledWith(expect.objectContaining({ name: 'categories', kind, country: expect.objectContaining({ key: 'GB' }) }));
 });
