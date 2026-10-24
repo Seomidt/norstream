@@ -177,7 +177,8 @@ describe('min liste og fortsaet', () => {
     expect(rows[0]?.key).toBe(series!.key);
     expect((await listVodItems(db, { kind: 'series', inProgressOnly: true, limit: 1 })).map(i => i.name)).toEqual(['Jane']);
     await saveProgress(db, `${series!.key}:b`, 2400, 2400, new Date(3000));
-    expect((await listVodItems(db, { inProgressOnly: true })).map(i => i.name)).toEqual(['Heat']);
+    // Afsnitslisten kan foerst hentes naar titlen aabnes paa den nye boks.
+    expect((await listVodItems(db, { inProgressOnly: true })).map(i => i.name)).toEqual(['Jane', 'Heat']);
   });
 
   // Et tryk paa den forkerte film skal ikke lande i "Fortsaet".

@@ -3,6 +3,7 @@ import { getSetting } from './settings.js';
 
 /** Lokale visningsvalg. Sky-kopier maa ikke overskrive boksens oprydning. */
 export const CONTINUE_CLEAR_KEY = 'home_continue_cleared_ms';
+export const VOD_CONTINUE_CLEAR_KEY = 'home_continue_vod_cleared_ms';
 export const CONTINUE_HIDE_PREFIX = 'home_continue_hide:';
 
 export async function continueCutoff(db: SqlDatabase, itemKey: string): Promise<number> {
@@ -24,6 +25,10 @@ export const dismissContinueItem = (db: SqlDatabase, itemKey: string, now = Date
 
 export const clearContinueList = (db: SqlDatabase, now = Date.now()): Promise<void> =>
   saveCutoff(db, CONTINUE_CLEAR_KEY, now);
+
+/** Film-menuens rydning omfatter film og serier paa begge hylder. */
+export const clearVodContinueList = (db: SqlDatabase, now = Date.now()): Promise<void> =>
+  saveCutoff(db, VOD_CONTINUE_CLEAR_KEY, now);
 
 export async function continueChannelVisible(db: SqlDatabase, channelId: string): Promise<boolean> {
   const cutoff = await continueCutoff(db, `channel:${channelId}`);

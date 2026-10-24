@@ -4,8 +4,9 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
 
-export function ContinueMenu({ title, busy, error, onRemove, onClear, onClose }: {
+export function ContinueMenu({ title, busy, error, onRemove, onClear, onClose, listName = 'Se videre' }: {
   title: string; busy: boolean; error: string | null;
+  listName?: 'Se videre' | 'Fortsæt';
   onRemove: () => void; onClear: () => void; onClose: () => void;
 }) {
   const styles = useStyles(makeStyles);
@@ -13,14 +14,14 @@ export function ContinueMenu({ title, busy, error, onRemove, onClear, onClose }:
     <Modal transparent visible animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.panel} accessibilityViewIsModal>
-          <Text style={styles.title}>Se videre</Text>
+          <Text style={styles.title}>{listName}</Text>
           <Text style={styles.name} numberOfLines={2}>{title}</Text>
           <Text style={styles.hint}>Ryd visningen på denne boks. Gemte afspilningspositioner bevares.</Text>
           <TvPressable style={styles.button} hasTVPreferredFocus={isTV} disabled={busy} onPress={onRemove}>
-            <Text style={styles.label}>Fjern denne fra Se videre</Text>
+            <Text style={styles.label}>Fjern denne fra {listName}</Text>
           </TvPressable>
           <TvPressable style={styles.button} disabled={busy} onPress={onClear}>
-            <Text style={styles.label}>Ryd hele Se videre</Text>
+            <Text style={styles.label}>Ryd hele {listName}</Text>
           </TvPressable>
           <TvPressable style={styles.button} disabled={busy} onPress={onClose}>
             <Text style={styles.label}>Annuller</Text>

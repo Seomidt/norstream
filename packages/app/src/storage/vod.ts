@@ -10,7 +10,7 @@ import type { GenreKey } from './genres.js';
 import { cachedQuery, invalidateQueryCache } from './queryCache.js';
 import { withTransaction } from './transaction.js';
 import type { SqlDatabase, SqlValue } from './types.js';
-import { CONTINUE_CLEAR_KEY, CONTINUE_HIDE_PREFIX } from './continueList.js';
+import { CONTINUE_CLEAR_KEY, CONTINUE_HIDE_PREFIX, VOD_CONTINUE_CLEAR_KEY } from './continueList.js';
 
 /**
  * Film og serier i databasen.
@@ -294,13 +294,28 @@ export async function listVodItems(
   }
   if (opts.watchlistOnly === true) where.push('w.item_key IS NOT NULL');
   if (opts.inProgressOnly === true) {
-    // Set faerdig = de sidste par procent. Rulleteksterne taeller ikke.
-    where.push('p.position_s IS NOT NULL AND p.position_s > 60');
-    where.push('(p.duration_s IS NULL OR p.position_s < p.duration_s * 0.95)');
+    where.push('p.position_s IS NOT NULL AND p.position_s >= 60');
+    // En faerdig film forsvinder. En serie bliver staaende til naeste
+    // usete afsnit, ogsaa naar afsnitslisten foerst hentes efter sky-restore.
+    where.push(`(
+      (progress_watched.item_key IS NULL AND (p.duration_s IS NULL OR p.duration_s <= 0 OR p.position_s < p.duration_s * 0.95))
+      OR (i.kind = 'series' AND (
+        NOT EXISTS (SELECT 1 FROM episodes known WHERE known.series_key = i.key)
+        OR EXISTS (SELECT 1 FROM episodes following
+          LEFT JOIN vod_watched following_watched ON following_watched.item_key = following.key
+          LEFT JOIN vod_progress following_progress ON following_progress.item_key = following.key
+          WHERE following.series_key = i.key AND following_watched.item_key IS NULL
+          AND (following_progress.duration_s IS NULL OR following_progress.duration_s <= 0
+            OR following_progress.position_s < following_progress.duration_s * 0.95)
+          AND (current_episode.key IS NULL OR following.season > current_episode.season
+            OR (following.season = current_episode.season AND following.episode > current_episode.episode)))
+      ))
+    )`);
     where.push('wt.item_key IS NULL');
     if (opts.homeContinueOnly === true) {
       where.push(`p.updated_ms > MAX(
         COALESCE(CAST((SELECT value FROM settings WHERE key = '${CONTINUE_CLEAR_KEY}') AS INTEGER), 0),
+        COALESCE(CAST((SELECT value FROM settings WHERE key = '${VOD_CONTINUE_CLEAR_KEY}') AS INTEGER), 0),
         COALESCE(CAST((SELECT value FROM settings WHERE key = '${CONTINUE_HIDE_PREFIX}vod:' || i.key) AS INTEGER), 0)
       )`);
     }
@@ -333,7 +348,9 @@ export async function listVodItems(
           THEN substr(item_key, 1, source_end + episode_start - 1) ELSE item_key END AS title_key
         FROM progress_keys
       ) ${SELECT_ITEM.replace('LEFT JOIN vod_progress p ON p.item_key = i.key',
-        'LEFT JOIN ranked_progress p ON p.title_key = i.key AND p.recency = 1')}`
+        `LEFT JOIN ranked_progress p ON p.title_key = i.key AND p.recency = 1
+         LEFT JOIN episodes current_episode ON current_episode.key = p.item_key
+         LEFT JOIN vod_watched progress_watched ON progress_watched.item_key = p.item_key`)}`
     : SELECT_ITEM;
   const rows = await db.getAllAsync<ItemRow>(`${select} ${clause} ${order} ${limit}`, params);
   const dead = await deadLogoOrigins(db);
@@ -752,6 +769,14 @@ export async function saveProgress(
   now: Date = new Date(),
 ): Promise<void> {
   if (positionSeconds < 60) return;
+  const completed = durationSeconds !== null && durationSeconds > 0 && positionSeconds >= durationSeconds * WATCHED_RATIO;
+  if (!completed) {
+    // Ny fremdrift fra foer den gamle position betyder genafspilning.
+    // En gentaget slutposition med ukendt varighed maa ikke ophaeve set.
+    await db.runAsync(`DELETE FROM vod_watched WHERE item_key = ? AND watched_ms <= ?
+      AND NOT EXISTS (SELECT 1 FROM vod_progress WHERE item_key = ? AND position_s <= ?)`,
+    [key, now.getTime(), key, Math.trunc(positionSeconds)]);
+  }
   await db.runAsync(
     `INSERT INTO vod_progress (item_key, position_s, duration_s, updated_ms)
      VALUES (?, ?, ?, ?)
@@ -762,7 +787,7 @@ export async function saveProgress(
     [key, Math.trunc(positionSeconds), durationSeconds === null ? null : Math.trunc(durationSeconds), now.getTime()],
   );
   // Naaet rulleteksterne: set faerdig, uden at nogen skal trykke.
-  if (durationSeconds !== null && durationSeconds > 0 && positionSeconds >= durationSeconds * WATCHED_RATIO) {
+  if (completed) {
     await setWatched(db, key, true, now);
   }
 }

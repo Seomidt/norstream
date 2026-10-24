@@ -36,6 +36,9 @@ import { serviceBadgeFor, setKnownServices } from '../../ui/serviceBadges.js';
 import { getHomeProviders } from '../../storage/settings.js';
 import { parentVodLevel } from './vodNavigation.js';
 import { useVodShelfRefresh } from './useVodShelfRefresh.js';
+import { clearVodContinueList, dismissContinueItem } from '../../storage/continueList.js';
+import { ContinueMenu } from '../home/ContinueMenu.js';
+import { refocusLastPressed } from '../../ui/refocus.js';
 
 /**
  * Hvor langt man er naaet: forsiden, land -> kategori -> titler.
@@ -264,19 +267,60 @@ function Home({
   const [watchlist, setWatchlist] = useState<StoredVodItem[]>([]);
   const [newMovies, setNewMovies] = useState<StoredVodItem[]>([]);
   const [newSeries, setNewSeries] = useState<StoredVodItem[]>([]);
+  const [continueTarget, setContinueTarget] = useState<StoredVodItem | null>(null);
+  const [continueBusy, setContinueBusy] = useState(false);
+  const [continueError, setContinueError] = useState<string | null>(null);
+  const continueOpen = useRef(false);
+  const continueSaving = useRef(false);
+  const continueRevision = useRef(0);
+  const menuWasOpen = useRef(false);
+  useEffect(() => {
+    if (continueTarget !== null) { menuWasOpen.current = true; return; }
+    if (!menuWasOpen.current || !isTV) return;
+    menuWasOpen.current = false;
+    const timer = setTimeout(() => refocusLastPressed(), 80);
+    return () => clearTimeout(timer);
+  }, [continueTarget]);
+
+  const closeContinue = (): void => {
+    if (continueSaving.current) return;
+    continueOpen.current = false;
+    setContinueTarget(null);
+  };
+  const removeContinue = async (all: boolean): Promise<void> => {
+    if (continueTarget === null || continueSaving.current) return;
+    continueSaving.current = true;
+    continueRevision.current += 1;
+    setContinueBusy(true);
+    setContinueError(null);
+    try {
+      if (all) await clearVodContinueList(session.db);
+      else await dismissContinueItem(session.db, `vod:${continueTarget.key}`);
+      continueRevision.current += 1;
+      setInProgress(items => all ? [] : items.filter(item => item.key !== continueTarget.key));
+      continueOpen.current = false;
+      setContinueTarget(null);
+    } catch {
+      setContinueError('Listen kunne ikke ryddes. Prøv igen.');
+    } finally {
+      continueSaving.current = false;
+      setContinueBusy(false);
+    }
+  };
 
   const load = useCallback(async (): Promise<void> => {
+    const revision = ++continueRevision.current;
     // Tjenesterne til plakatmaerkerne (v369), samme valg som forsiden.
     void getHomeProviders(session.db).then(setKnownServices).catch(() => undefined);
     const [c, p, w, m, s] = await Promise.all([
       vodCounts(session.db),
-      listVodItems(session.db, { inProgressOnly: true, limit: SHELF_LIMIT }),
+      listVodItems(session.db, { inProgressOnly: true, homeContinueOnly: true, limit: SHELF_LIMIT }),
       listVodItems(session.db, { watchlistOnly: true, limit: SHELF_LIMIT }),
       listVodItems(session.db, { kind: 'movie', newestFirst: true, limit: SHELF_LIMIT }),
       listVodItems(session.db, { kind: 'series', newestFirst: true, limit: SHELF_LIMIT }),
     ]);
     setCounts(c);
-    setInProgress(p);
+    if (revision === continueRevision.current) setInProgress(p);
     setWatchlist(w);
     setNewMovies(m);
     setNewSeries(s);
@@ -301,26 +345,36 @@ function Home({
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.home}>
-      <View style={styles.browseRow}>
-        <TvPressable style={styles.browseButton} onPress={() => onBrowse('movie')}>
-          <Text style={styles.browseTitle}>Film</Text>
-          <Text style={styles.browseCount}>{counts.movies} · efter land</Text>
-        </TvPressable>
-        <TvPressable style={styles.browseButton} onPress={() => onBrowse('series')}>
-          <Text style={styles.browseTitle}>Serier</Text>
-          <Text style={styles.browseCount}>{counts.series} · efter land</Text>
-        </TvPressable>
-        <TvPressable style={styles.browseButton} onPress={onCinema}>
-          <Text style={styles.browseTitle}>Biograf</Text>
-          <Text style={styles.browseCount}>i biografen nu · kommer snart</Text>
-        </TvPressable>
-      </View>
-      {inProgress.length > 0 && <Shelf title="Fortsæt" items={inProgress} onOpen={onOpen} />}
-      {watchlist.length > 0 && <Shelf title="Min liste" items={watchlist} onOpen={onOpen} />}
-      {newMovies.length > 0 && <Shelf title="Nyeste film" items={newMovies} onOpen={onOpen} />}
-      {newSeries.length > 0 && <Shelf title="Nyeste serier" items={newSeries} onOpen={onOpen} />}
-    </ScrollView>
+    <>
+      <ScrollView contentContainerStyle={styles.home}>
+        <View style={styles.browseRow}>
+          <TvPressable style={styles.browseButton} onPress={() => onBrowse('movie')}>
+            <Text style={styles.browseTitle}>Film</Text>
+            <Text style={styles.browseCount}>{counts.movies} · efter land</Text>
+          </TvPressable>
+          <TvPressable style={styles.browseButton} onPress={() => onBrowse('series')}>
+            <Text style={styles.browseTitle}>Serier</Text>
+            <Text style={styles.browseCount}>{counts.series} · efter land</Text>
+          </TvPressable>
+          <TvPressable style={styles.browseButton} onPress={onCinema}>
+            <Text style={styles.browseTitle}>Biograf</Text>
+            <Text style={styles.browseCount}>i biografen nu · kommer snart</Text>
+          </TvPressable>
+        </View>
+        {inProgress.length > 0 && <Shelf title="Fortsæt" items={inProgress}
+          onOpen={item => { if (!continueOpen.current) onOpen(item); }}
+          onLongPress={item => {
+            continueOpen.current = true;
+            setContinueError(null);
+            setContinueTarget(item);
+          }} />}
+        {watchlist.length > 0 && <Shelf title="Min liste" items={watchlist} onOpen={onOpen} />}
+        {newMovies.length > 0 && <Shelf title="Nyeste film" items={newMovies} onOpen={onOpen} />}
+        {newSeries.length > 0 && <Shelf title="Nyeste serier" items={newSeries} onOpen={onOpen} />}
+      </ScrollView>
+      {continueTarget !== null && <ContinueMenu listName="Fortsæt" title={continueTarget.name} busy={continueBusy} error={continueError}
+        onRemove={() => { void removeContinue(false); }} onClear={() => { void removeContinue(true); }} onClose={closeContinue} />}
+    </>
   );
 }
 
@@ -328,10 +382,12 @@ function Shelf({
   title,
   items,
   onOpen,
+  onLongPress,
 }: {
   title: string;
   items: StoredVodItem[];
   onOpen: (item: StoredVodItem) => void;
+  onLongPress?: (item: StoredVodItem) => void;
 }) {
   const styles = useStyles(makeStyles);
   return (
@@ -343,7 +399,8 @@ function Shelf({
         keyExtractor={(item) => item.key}
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.shelfContent}
-        renderItem={({ item }) => <Poster item={item} width={104} onOpen={onOpen} />}
+        renderItem={({ item }) => <Poster item={item} width={104} onOpen={onOpen}
+          onLongPress={onLongPress === undefined ? undefined : () => onLongPress(item)} />}
       />
     </View>
   );

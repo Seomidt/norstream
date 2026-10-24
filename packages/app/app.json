@@ -20,7 +20,7 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "dk.seomidt.norstream",
-      "versionCode": 404,
+      "versionCode": 405,
       "permissions": [
         "android.permission.REQUEST_INSTALL_PACKAGES"
       ]
