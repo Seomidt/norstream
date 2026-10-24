@@ -27,7 +27,7 @@ const props = { session: { db: {} } as AppSession, active: true, reloadToken: 0,
   onLevelChange: vi.fn(), onOpen: f.open, onTrailer: vi.fn(), onOpenSettings: vi.fn() };
 let tree: ReactTestRenderer | null = null;
 const mount = () => act(async () => { tree = create(createElement(VodScreen, props)); });
-const posters = () => tree!.root.findAllByType(Poster).filter(node => node.props.onLongPress !== undefined);
+const posters = () => tree!.root.findAllByType((Poster as unknown as { type: ElementType }).type).filter(node => node.props.onLongPress !== undefined);
 const text = () => tree!.root.findAllByType('Text' as ElementType).map(node => node.children.join('')).join(' ');
 beforeEach(() => {
   vi.useFakeTimers(); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.clearAllMocks();
@@ -100,4 +100,11 @@ it('viser Fortsaet selv om nyeste film stadig venter eller fejler', async () => 
   expect(posters()).toHaveLength(2);
   await act(async () => reject(new Error('langsom hylde')));
   expect(posters()).toHaveLength(2);
+});
+
+it('viser gemt alternativt cover straks naar udbyderens billede fejler', async () => {
+  await act(async () => { tree = create(createElement(Poster, { item: { ...movie, posterUrl: 'https://provider.invalid/broken.jpg', foundPosterUrl: 'https://image.tmdb.org/t/p/original/bond.jpg' }, onOpen: f.open })); });
+  const image = () => tree!.root.findByType('Image' as ElementType);
+  await act(async () => image().props.onError());
+  expect(image().props.source.uri).toBe('https://image.tmdb.org/t/p/w342/bond.jpg');
 });

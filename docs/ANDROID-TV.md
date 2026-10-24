@@ -160,7 +160,7 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
   på fokus (`onFocus` når `isTV`), ikke på OK. Sådan gør de andre tv-apps,
   og "tryk OK for at se Film" føltes som om intet skete.
 - **Fanerne skifter på fokus kun efter et rigtigt tryk, og først efter
-  100 ms.** Forsvinder den række der havde fokus (en favorit fjernet),
+  25 ms.** Forsvinder den række der havde fokus (en favorit fjernet),
   flytter Android selv fokus til det første trykpunkt, som er Hjem i
   søjlen; derfor tæller kun fokus der kom inden for 600 ms efter et tryk
   på fjernbetjeningen (`useTVEventHandler`). Ventetiden gør at man kan

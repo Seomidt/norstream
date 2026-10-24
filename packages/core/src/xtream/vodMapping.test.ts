@@ -4,6 +4,7 @@ import {
   mapEpisodes,
   mapVodDetails,
   mapVodItems,
+  mapVodItem,
   youtubeId,
 } from './vodMapping.js';
 
@@ -202,4 +203,11 @@ describe('mapEpisodes', () => {
     expect(mapEpisodes({}, '7')).toEqual([]);
     expect(mapEpisodes(null, '7')).toEqual([]);
   });
+});
+
+it('bruger alternative cover-felter naar stream_icon er en ugyldig placeholder', () => {
+  const base = { stream_id: '007', name: 'James Bond' };
+  expect(mapVodItem({ ...base, stream_icon: 'null', cover: '//images.example/bond.jpg' }, 'movie')?.posterUrl).toBe('https://images.example/bond.jpg');
+  expect(mapVodItem({ ...base, stream_icon: 'N/A', cover_big: 'https://images.example/bond.jpg' }, 'movie')?.posterUrl).toBe('https://images.example/bond.jpg');
+  expect(mapVodItem({ ...base, movie_image: 'https://images.example/bond.jpg?a=1&amp;b=2' }, 'movie')?.posterUrl).toBe('https://images.example/bond.jpg?a=1&b=2');
 });

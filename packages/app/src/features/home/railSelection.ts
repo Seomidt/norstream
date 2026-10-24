@@ -1,5 +1,5 @@
 /** Kort ophold ved pil-navigation; OK og indgang i indholdet sker straks. */
-export const RAIL_SETTLE_MS = 100;
+export const RAIL_SETTLE_MS = 25;
 const ARROWS = new Set(['left', 'longLeft', 'up', 'longUp', 'down', 'longDown']);
 
 export function createRailSelection<T>(select: (id: T) => void, lastKey: () => { type: string; at: number }) {

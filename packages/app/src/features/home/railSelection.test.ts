@@ -10,9 +10,9 @@ it('hurtigt pil-hoejre efter fokus og blur aabner den valgte side med det samme'
   vi.advanceTimersByTime(1000);
   expect(select).toHaveBeenCalledTimes(1);
 });
-it('hurtig rulning monterer kun den sidste fane efter 100 ms', () => {
+it('hurtig rulning monterer kun den sidste fane efter 25 ms', () => {
   const select = vi.fn(); const rail = createRailSelection(select, key);
-  for (const id of ['hjem', 'film', 'sport']) { rail.focus(id); vi.advanceTimersByTime(40); rail.leave(); }
+  for (const id of ['hjem', 'film', 'sport']) { rail.focus(id); vi.advanceTimersByTime(10); rail.leave(); }
   rail.focus('radio');
   vi.advanceTimersByTime(RAIL_SETTLE_MS - 1); expect(select).not.toHaveBeenCalled();
   vi.advanceTimersByTime(1); expect(select.mock.calls).toEqual([['radio']]);

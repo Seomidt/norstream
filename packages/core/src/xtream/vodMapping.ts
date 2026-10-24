@@ -15,6 +15,8 @@ export interface RawVodStream {
   name?: string;
   stream_icon?: string | null;
   cover?: string | null;
+  cover_big?: string | null;
+  movie_image?: string | null;
   category_id?: string | number | null;
   rating?: string | number | null;
   added?: string | number | null;
@@ -124,7 +126,10 @@ export function mapVodItem(raw: RawVodStream, kind: VodKind): VodItem | null {
     id,
     kind,
     name,
-    posterUrl: text(raw.stream_icon) ?? text(raw.cover),
+    posterUrl: [raw.stream_icon, raw.cover, raw.cover_big, raw.movie_image]
+      .map(value => text(value)?.replace(/&amp;/g, '&'))
+      .map(value => value?.startsWith('//') ? `https:${value}` : value)
+      .find(value => value != null && /^https?:\/\//i.test(value)) ?? null,
     categoryId: text(raw.category_id),
     rating: rating(raw.rating),
     year: year(raw.releasedate, raw.releaseDate, raw.year),

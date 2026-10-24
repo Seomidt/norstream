@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { posterImageUri } from './posterImage.js';
+import { memo, useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type React from 'react';
 import {
   ActivityIndicator,
@@ -562,7 +563,8 @@ export function PosterGrid({
       numColumns={COLUMNS}
       windowSize={5}
       initialNumToRender={COLUMNS * 3}
-      maxToRenderPerBatch={COLUMNS * 2}
+      maxToRenderPerBatch={COLUMNS}
+      updateCellsBatchingPeriod={16}
       removeClippedSubviews={!isTV}
       contentContainerStyle={styles.grid}
       columnWrapperStyle={styles.gridRow}
@@ -580,7 +582,7 @@ export function PosterGrid({
  * Plakaten er 2:3 som en biografplakat. Mangler den, staar titlen i feltet i
  * stedet for en tom firkant — samme regel som kanallogoerne.
  */
-export function Poster({
+export const Poster = memo(function Poster({
   item,
   width,
   onOpen,
@@ -602,11 +604,12 @@ export function Poster({
   useEffect(() => {
     // Manglende karakter maa ikke forsinke plakaterne til de tomme kort.
     if (item.posterUrl !== null && !failed) return;
+    if (failed && item.foundPosterUrl != null && item.foundPosterUrl !== item.posterUrl) return;
     const unsubscribe = subscribePoster(item.key, redraw);
     ensurePoster(item, failed ? item.posterUrl : null);
     return unsubscribe;
   }, [item, failed]);
-  const posterUrl = item.posterUrl !== null && !failed ? item.posterUrl : foundPoster(item.key);
+  const posterUrl = item.posterUrl !== null && !failed ? item.posterUrl : item.foundPosterUrl ?? foundPoster(item.key);
   // "Netflix" i hjoernet naar TMDB siger titlen ligger dér (v369).
   const serviceBadge = serviceBadgeFor(item.providers);
   const progress =
@@ -618,7 +621,7 @@ export function Poster({
       <View style={styles.posterFrame}>
         {posterUrl !== null ? (
           <Image
-            source={{ uri: posterUrl }}
+            source={{ uri: posterImageUri(posterUrl) }}
             style={styles.posterImage}
             resizeMode="cover"
             onError={() => {
@@ -660,7 +663,7 @@ export function Poster({
       {item.year !== null && <Text style={styles.posterYear}>{item.year}</Text>}
     </TvPressable>
   );
-}
+});
 
 function Crumb({ label, onBack }: { label: string; onBack: () => void }) {
   const styles = useStyles(makeStyles);
