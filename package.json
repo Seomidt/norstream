@@ -10,5 +10,8 @@
   "scripts": {
     "test": "npm test --workspaces",
     "typecheck": "npm run typecheck --workspaces"
+  },
+  "overrides": {
+    "react-native": "npm:react-native-tvos@0.86.2-0"
   }
 }
