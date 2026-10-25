@@ -58,12 +58,13 @@ it('gemt favorithold skjuler aldrig Tennis eller Formel 1', async () => {
   expect(button('Tennis')).toBeDefined(); expect(button('Formel 1')).toBeDefined();
 });
 
-it('Fodbold er foerste sportsgenvej og soeger ved tryk', async () => {
+it('favoritter staar foerst, derefter Fodbold foer Superliga, og tryk soeger', async () => {
   await mount();
   const buttons = tree!.root.findAllByType(TvPressable);
   const football = button('Fodbold');
   expect(football).toBeDefined();
-  expect(buttons.indexOf(football)).toBeLessThan(buttons.indexOf(button('★ Brøndby')));
+  expect(buttons.indexOf(button('★ Brøndby'))).toBeLessThan(buttons.indexOf(football));
+  expect(buttons.indexOf(football)).toBeLessThan(buttons.indexOf(button('Superliga')));
   await act(async () => football.props.onPress());
   expect(mocks.find).toHaveBeenCalledWith(session.db, 'Fodbold', expect.anything());
 });

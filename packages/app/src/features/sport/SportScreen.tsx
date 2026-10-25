@@ -288,7 +288,7 @@ export function SportScreen({ session, onPlay, focusFirstSignal = 0, backRef }: 
             <Text style={styles.chipText}>Alle sportsgrene</Text>
           </TvPressable>
         )}
-        {['Fodbold', ...teams, ...SUGGESTIONS].filter((name, index, all) => all.findIndex(other => normalizeText(other) === normalizeText(name)) === index).map((name) => (
+        {[...teams, 'Fodbold', ...SUGGESTIONS].filter((name, index, all) => all.findIndex(other => normalizeText(other) === normalizeText(name)) === index).map((name) => (
           <TvPressable
             key={name}
             style={[styles.chip, normalizeText(name) === normalizedQuery && styles.chipActive]}
