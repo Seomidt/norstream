@@ -229,6 +229,7 @@ export const GuideScreen = memo(function GuideScreen({
   // af alle dagsknapperne, saa det kan ikke bruges til denne tilbage-vej.
   const dayOrigin = useRef<{ channelId: string; key: string; atMs: number | null } | null>(null);
   const [returnFocusChannelId, setReturnFocusChannelId] = useState<string | null>(null);
+  const sheetReturnFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeDay = useCallback(() => {
     const origin = dayOrigin.current;
     dayOrigin.current = null;
@@ -255,6 +256,14 @@ export const GuideScreen = memo(function GuideScreen({
       // som om foerste tryk ikke gjorde noget ("et par sekunder, i tvivl om man
       // har trykket"). Vinduet stilles i stedet paa nu, naar man kommer ind i
       // guiden fra menuen igen (se focusFirstSignal nedenfor).
+      // En hurtig Tilbage efter dagssiden/arket skal kunne naa menuen uden
+      // at en ventende native gendannelse bagefter stjaeler fokus tilbage.
+      setReturnFocusChannelId(null);
+      setFocusTarget(null);
+      if (sheetReturnFocusTimer.current !== null) {
+        clearTimeout(sheetReturnFocusTimer.current);
+        sheetReturnFocusTimer.current = null;
+      }
       return false;
     };
   }
@@ -358,8 +367,15 @@ export const GuideScreen = memo(function GuideScreen({
     sheetWasOpen.current = false;
     // Naar arket aabner hele dagen, skal fokus blive paa dagssiden.
     if (dayFor !== null) return;
-    const timer = setTimeout(() => refocusLastPressed(), 80);
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => {
+      sheetReturnFocusTimer.current = null;
+      refocusLastPressed();
+    }, 80);
+    sheetReturnFocusTimer.current = timer;
+    return () => {
+      clearTimeout(timer);
+      if (sheetReturnFocusTimer.current === timer) sheetReturnFocusTimer.current = null;
+    };
   }, [sheet, dayFor]);
   /** Om der er sat paamindelse paa bladets udsendelse; null mens det slaas op. */
   const [sheetReminder, setSheetReminder] = useState<boolean | null>(null);

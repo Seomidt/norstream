@@ -474,8 +474,12 @@ export function PlayerScreen({
   }, [restarted]);
   useEffect(() => {
     let waitTimer: ReturnType<typeof setTimeout> | null = null;
+    const observedPosition = (): number => isTV && archiveVideoClock.current.hasFrames
+      ? archiveVideoClock.current.position
+      : playbackClock(positionRef.current, player.currentTime, connection.prepared);
     const continueArchive = (): void => {
       if (isRadio || !restarted || caughtUpHandled.current || changingSource.current || preparingArchive.current || !connection.committed || !playIntent.current) return;
+      if (AppState.currentState !== null && AppState.currentState !== 'active') return;
       if (waitTimer !== null) return;
       const segment = archiveRef.current;
       // Intet arkiv-stykke endnu (v362): fra guiden skabes afspilleren uden
@@ -506,11 +510,15 @@ export function PlayerScreen({
         // Ingen nye data endnu. Genstart ikke det samme minut, og spring
         // heller ikke de sidste sekunder over naar programmet lige sluttede.
         const waitingAt = positionRef.current;
+        // Sidste billedhaendelse kan ligge foer native EOF. Sammenlign
+        // samme billedur for tilbagespoling, ikke med EOF's nyere lydtid.
+        const waitingObservedAt = observedPosition();
         waitTimer = setTimeout(() => {
           waitTimer = null;
           // Brugeren kan have spolet tilbage eller genoptaget i det gamle
           // stykke mens vi ventede. Afbryd aldrig sund afspilning for det.
-          if (player.playing || positionRef.current < waitingAt - 1) return;
+          const position = observedPosition();
+          if (position < waitingObservedAt - 1 || (player.playing && position > Math.max(waitingAt, waitingObservedAt) + 0.25)) return;
           continueArchive();
         }, 15_000);
         return;
@@ -814,6 +822,12 @@ export function PlayerScreen({
         return;
       }
 
+      if (status === 'idle' && archiveRef.current !== null && connection.prepared && !changingSource.current && mayPlay()) {
+        // STATE_ENDED kan naa JS uden playToEnd. Brug samme fortsaettelse,
+        // saa igangvaerende arkiv ikke fryser eller bruger retry-budgettet.
+        refreshArchiveEnd.current();
+        return;
+      }
       if (status === 'idle' && isTV && archiveRef.current === null && connection.prepared && !changingSource.current) {
         logEvent('afspiller', 'live stoppet v396: idle uden kildeskift');
         handleFailure('idle');
@@ -866,7 +880,7 @@ export function PlayerScreen({
       if (state !== 'active' && !isRadio) {
         cancelRetry();
         clearStallTimer();
-      } else if (state === 'active' && archiveRef.current === null) {
+      } else if (state === 'active') {
         handleStatus(player.status);
       }
     });
@@ -888,7 +902,11 @@ export function PlayerScreen({
       if (archiveRef.current !== null) {
         try {
           const status = player.status;
-          const expected = playIntent.current && connection.prepared
+          if (status === 'idle' && connection.prepared && mayPlay()) {
+            refreshArchiveEnd.current();
+            return;
+          }
+          const expected = mayPlay() && connection.prepared
             && (status === 'loading' || status === 'readyToPlay')
             && (isTV || player.playing || status === 'loading');
           const position = isTV && archiveVideoClock.current.hasFrames ? archiveVideoClock.current.position : playbackClock(positionRef.current, player.currentTime, connection.prepared);

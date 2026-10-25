@@ -116,6 +116,76 @@ async function end(position: number, now: string) {
 }
 
 describe('TV2: igangvaerende udsendelse slutter under forsinket afspilning', () => {
+  it('fortsaetter fra native slutposition ved idle uden en playToEnd-haendelse', async () => {
+    await mount();
+    vi.setSystemTime(at('18:36:10.171'));
+    f.player.currentTime = 1020.379;
+    f.player.status = 'idle'; f.player.playing = false;
+    await advance(3000);
+    expect(f.requests[1]).toEqual({ from: at('18:17:00'), minutes: 17 });
+    expect(f.loads[1]!.seek).toBeCloseTo(0.379);
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('venter paa nye arkivdata selv om native playing staar fast paa true ved EOF', async () => {
+    await mount();
+    await end(1020, '18:19:08.546');
+    f.player.playing = true;
+    // idle kan foelge uden en frisk playingChange. Uret gaar ikke frem.
+    await advance(30_000);
+    expect(f.requests[1]).toEqual({ from: at('18:17:00'), minutes: 1 });
+    expect(f.loads).toHaveLength(2);
+    expect(f.loads.map(load => load.source)).not.toContain('https://example.invalid/live.ts');
+  });
+
+  it('sidste billedhaendelse foer EOF maa ikke ligne tilbagespoling under ventning', async () => {
+    await mount();
+    f.player.currentTime = 1018;
+    await act(async () => {
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 1018, videoRenderedFrames: 100 });
+    });
+    await end(1020, '18:19:08.546');
+    f.player.playing = true;
+    await advance(30_000);
+    expect(f.requests[1]).toEqual({ from: at('18:17:00'), minutes: 1 });
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('en idle-rest fra arkivet genoptages foerst naar boksen kommer i forgrunden', async () => {
+    await mount();
+    await background('background');
+    vi.setSystemTime(at('18:36:10.171'));
+    f.player.currentTime = 1020.379; f.player.status = 'idle'; f.player.playing = false;
+    await advance(21_000);
+    expect(f.loads).toHaveLength(1);
+    await background('active');
+    expect(f.requests[1]).toEqual({ from: at('18:17:00'), minutes: 18 });
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('en pauset udsendelse maa ikke genindlaeses ved idle', async () => {
+    await mount();
+    await act(async () => tree!.root.findByType(LandscapePlayer).props.onPlayerKey('playPause'));
+    vi.setSystemTime(at('18:36:10.171'));
+    f.player.currentTime = 1020.379;
+    await status('idle');
+    await advance(21_000);
+    expect(f.loads).toHaveLength(1);
+    await act(async () => tree!.root.findByType(LandscapePlayer).props.onPlayerKey('playPause'));
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('en ventetimer afbryder ikke arkivet naar nye billeder og tiden faktisk gaar frem', async () => {
+    await mount();
+    await end(1020, '18:19:08.546');
+    f.player.playing = true; f.player.status = 'readyToPlay'; f.player.currentTime = 1025;
+    await act(async () => {
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 1025, videoRenderedFrames: 100 });
+    });
+    await advance(15_000);
+    expect(f.loads).toHaveLength(1);
+  });
+
   it('fortsaetter automatisk 15 min efter EPG-slut og gaar derefter til oversigten uden slutvalg', async () => {
     await mount();
     expect(f.requests[0]).toEqual({ from: news.start, minutes: 17 });

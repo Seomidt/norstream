@@ -184,9 +184,11 @@ På tv findes ingen fingre. Der findes fokus, pile, OK og Tilbage.
   flytter vinduet en time frem, pil-venstre på den første en time tilbage,
   og fokus bliver på samme udsendelse (`focusTarget` +
   `hasTVPreferredFocus`). Bladre- og dagsknapperne findes ikke på tv, og
-  gitteret holder også på fokus opad; **Tilbage** sætter vinduet til nu, og
-  næste Tilbage sender fokus op i menusøjlen (`railFocusSignal` i
-  HomeScreen: Tilbage i indhold på tv går altid først til søjlen). Søjlen til højre (`NowNextBox
+  gitteret holder også på fokus opad; **Tilbage** sender fokus direkte til
+  menusøjlen. Fra Hele dagen lukker første Tilbage dagssiden. Menuens
+  fokusforsøg gentages indtil native bekræftelse, højst 1,5 sekunder;
+  forsinket fokusgendannelse i guiden annulleres, når menuen vælges.
+  Søjlen til højre (`NowNextBox
   rich`) har ingen knapper: den kan ikke nås når gitteret holder på fokus,
   og OK på udsendelsen giver de samme valg (se kanalen, start forfra, hele
   dagen).

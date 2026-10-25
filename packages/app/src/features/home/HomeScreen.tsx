@@ -23,6 +23,7 @@ import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
 import { createRailSelection } from './railSelection.js';
+import { useRailFocus } from './useRailFocus.js';
 import { forgetPosterMisses } from '../../ui/posterFill.js';
 import type { Level } from '../browse/BrowseScreen.js';
 import { parentVodLevel } from '../vod/vodNavigation.js';
@@ -272,7 +273,10 @@ export function HomeScreen({
     // Paa tv: foerst op i menuen (soejlen), saa videre som paa telefonen.
     // Ellers var menuen ikke til at naa fra guiden, som holder paa fokus.
     if (isTV && !railFocused.current) {
-      setRailFocusSignal((value) => value + 1);
+      railSelection.cancel();
+      lastKey.current = { type: 'back', at: Date.now() };
+      setRailOpen(true);
+      railFocus.request();
       return true;
     }
     if (tab !== 'home') {
@@ -573,15 +577,9 @@ export function HomeScreen({
    * i listen som den foerste kanal.
    */
   const railFocused = useRef(false);
-  /** Taelles op naar Tilbage skal sende fokus op i soejlen; fanen der er valgt beder om fokus i én tegning. */
-  const [railFocusSignal, setRailFocusSignal] = useState(0);
-  const [railWantsFocus, setRailWantsFocus] = useState(false);
-  useEffect(() => {
-    if (railFocusSignal === 0) return;
-    setRailWantsFocus(true);
-    const frame = requestAnimationFrame(() => setRailWantsFocus(false));
-    return () => cancelAnimationFrame(frame);
-  }, [railFocusSignal]);
+  const focusedRailId = useRef<Tab | null>(null);
+  const railTabRef = useRef<View>(null);
+  const railFocus = useRailFocus(isTV && !covered, railTabRef);
   /** Hvornaar soejlen sidst mistede fokus: Android flytter fokus ved tryk ned, foer tryk op naar herind. */
   const railBlurredAt = useRef(0);
   const [enterSignal, setEnterSignal] = useState(0);
@@ -610,13 +608,18 @@ export function HomeScreen({
    */
   const [railOpen, setRailOpen] = useState(true);
   const railTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onRailFocus = () => {
+  const onRailFocus = (id: Tab) => {
+    focusedRailId.current = id;
     railFocused.current = true;
+    railFocus.confirm();
     if (railTimer.current !== null) clearTimeout(railTimer.current);
     railTimer.current = null;
     setRailOpen(true);
   };
-  const onRailBlur = () => {
+  const onRailBlur = (id: Tab) => {
+    // En sen blur fra den forrige fane maa ikke annullere den nye fanes fokus.
+    if (focusedRailId.current !== id) return;
+    focusedRailId.current = null;
     railSelection.leave();
     railFocused.current = false;
     railBlurredAt.current = Date.now();
@@ -636,8 +639,8 @@ export function HomeScreen({
       {TABS.map((item) => (
         <TvPressable
           key={item.id}
+          ref={tab === item.id ? railTabRef : undefined}
           style={[isTV ? styles.railTab : styles.tab, isTV && item.id === 'settings' && styles.railSettings]}
-          hasTVPreferredFocus={isTV && railWantsFocus && tab === item.id}
           onPress={() => {
             railSelection.press(item.id);
           }}
@@ -648,12 +651,12 @@ export function HomeScreen({
           onFocus={
             isTV
               ? () => {
-                  onRailFocus();
+                  onRailFocus(item.id);
                   railSelection.focus(item.id);
                 }
               : undefined
           }
-          onBlur={isTV ? onRailBlur : undefined}
+          onBlur={isTV ? () => onRailBlur(item.id) : undefined}
         >
           <Text style={[styles.tabIcon, tab === item.id && styles.tabActive]}>
             {item.icon}

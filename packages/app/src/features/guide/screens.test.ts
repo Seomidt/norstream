@@ -274,6 +274,18 @@ describe('Tilbage fra hele dagen bruger den rigtige TV-guide', () => {
     expect(tree.root.findByType(TimelineGrid).props.offsetMinutes).toBe(0);
   });
 
+  it('hurtig Tilbage til menuen annullerer guidens ventende native fokusmaal', async () => {
+    const focus = vi.fn();
+    const { tree, back } = await openDay(focus);
+    await act(async () => { expect(back.current()).toBe(true); });
+    expect(tree.root.findByType(TimelineGrid).props.returnFocusChannelId).toBe(second.id);
+    await act(async () => { expect(back.current()).toBe(false); });
+    expect(tree.root.findByType(TimelineGrid).props.returnFocusChannelId).toBe(null);
+    await act(async () => { vi.advanceTimersByTime(1600); });
+    expect(focus).not.toHaveBeenCalled();
+    expect(mocks.log).not.toHaveBeenCalledWith('guide', expect.stringContaining('ikke bekraeftet'));
+  });
+
   it('holder fokusmaalet ved langsom native tilbagevenden og rydder gentagelser efter fokus', async () => {
     const readyAt = Date.now() + 500;
     const focus = vi.fn((props) => { if (Date.now() >= readyAt) props.onFocus?.({}); });
