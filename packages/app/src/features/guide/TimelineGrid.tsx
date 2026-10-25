@@ -295,13 +295,13 @@ export function TimelineGrid({
         for (let start = 0; start < metadataChannels.length; start += EPG_BATCH_SIZE) {
           if (stopped()) return;
           const batch = metadataChannels.slice(start, start + EPG_BATCH_SIZE);
-          await ensureEpg(session.db, session.credsBySource, session.fetchImpl, batch.map((channel) => channel.id), new Date(), GUIDE_EPG_LIMIT);
+          await ensureEpg(session.db, session.credsBySource, session.fetchImpl, batch.map((channel) => channel.id), new Date(), GUIDE_EPG_LIMIT, { shouldContinue: () => !stopped() });
         }
         if (stopped()) return;
         setCacheRevision((revision) => revision + 1);
         for (let start = 0; start < metadataChannels.length; start += EPG_BATCH_SIZE) {
           if (stopped()) return;
-          await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, metadataChannels.slice(start, start + EPG_BATCH_SIZE));
+          await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, metadataChannels.slice(start, start + EPG_BATCH_SIZE), new Date(), { shouldContinue: () => !stopped() });
         }
         if (stopped()) return;
         setCacheRevision((revision) => revision + 1);

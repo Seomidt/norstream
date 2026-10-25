@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   EPG_MAX_AGE_MS,
   getEpgFreshness,
   markEpgFetched,
   needsEpgFetch,
+  needsArchiveFetch,
   needsShortEpg,
 } from './epgFetch.js';
 import { migrate } from './schema.js';
@@ -104,11 +105,14 @@ describe('needsShortEpg', () => {
 
   const gammel = { fetchedAt: null, latestStopMs: null };
 
-  it('springer den korte over naar den fulde tabel er frisk', () => {
-    // Den fulde tabel daekker dage frem og tilbage. De tolv naeste programmer
-    // tilfoejer intet, og et kald per kanal hver halve time er spild af
-    // panelets ene forbindelse.
-    expect(needsShortEpg(gammel, NOW.getTime() - HOUR, NOW)).toBe(false);
+  it('springer den korte over naar den fulde tabel er hentet for ti minutter siden', () => {
+    expect(needsShortEpg(gammel, NOW.getTime() - 10 * 60_000, NOW)).toBe(false);
+  });
+
+  it('henter nu/naeste efter 30 minutter selv om hele tabellens seks timer ikke er gaaet', () => {
+    expect(needsShortEpg(gammel, NOW.getTime() - EPG_MAX_AGE_MS + 1, NOW)).toBe(false);
+    expect(needsShortEpg(gammel, NOW.getTime() - EPG_MAX_AGE_MS, NOW)).toBe(true);
+    expect(needsShortEpg(gammel, NOW.getTime() - HOUR, NOW)).toBe(true);
   });
 
   it('henter den korte naar den fulde tabel er blevet gammel', () => {
@@ -123,5 +127,34 @@ describe('needsShortEpg', () => {
     const frisk = { fetchedAt: NOW.getTime() - 60_000, latestStopMs: NOW.getTime() + HOUR };
     // Fuld tabel gammel, kort oversigt frisk: der er intet at hente.
     expect(needsShortEpg(frisk, NOW.getTime() - 7 * HOUR, NOW)).toBe(false);
+  });
+
+  it('bruger den nyeste gyldige hentning og fornyer udloebet daekning straks', () => {
+    const oldShort = { fetchedAt: NOW.getTime() - HOUR, latestStopMs: NOW.getTime() + HOUR };
+    expect(needsShortEpg(oldShort, NOW.getTime() - 60_000, NOW)).toBe(false);
+    expect(needsShortEpg({ ...oldShort, latestStopMs: NOW.getTime() }, NOW.getTime() - 60_000, NOW)).toBe(true);
+  });
+
+  it('fremtidige eller ugyldige hentetider maa ikke fastholde en gammel oversigt', () => {
+    const future = NOW.getTime() + HOUR;
+    expect(needsShortEpg({ fetchedAt: future, latestStopMs: null }, future, NOW)).toBe(true);
+    expect(needsShortEpg({ fetchedAt: NaN, latestStopMs: null }, Infinity, NOW)).toBe(true);
+    expect(needsShortEpg({ fetchedAt: future, latestStopMs: null }, NOW.getTime() - 60_000, NOW)).toBe(false);
+    expect(needsArchiveFetch(future, NOW)).toBe(true);
+  });
+
+  it('fornyer kort og fuld cache én gang efter vintertid uden at flytte epoch-tider', () => {
+    const transition = Date.parse('2026-10-25T01:00:00Z');
+    const before = transition - 5 * 60_000;
+    const after = new Date(transition + 5 * 60_000);
+    const offset = vi.spyOn(Date.prototype, 'getTimezoneOffset').mockImplementation(function (this: Date) {
+      return this.getTime() < transition ? -120 : -60;
+    });
+    try {
+      expect(needsShortEpg({ fetchedAt: before, latestStopMs: after.getTime() + HOUR }, before, after)).toBe(true);
+      expect(needsArchiveFetch(before, after)).toBe(true);
+      expect(needsShortEpg({ fetchedAt: after.getTime(), latestStopMs: null }, before, after)).toBe(false);
+      expect(needsArchiveFetch(after.getTime(), after)).toBe(false);
+    } finally { offset.mockRestore(); }
   });
 });

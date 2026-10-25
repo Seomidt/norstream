@@ -189,9 +189,12 @@ it('Tilbage standser naeste metadatabatch synkront og indgangssignalet genoptage
   const options = props({ cancelFocusRef });
   await mount(options);
   expect(mocks.short).toHaveBeenCalledTimes(1);
+  const shouldContinue = mocks.short.mock.calls[0]![6].shouldContinue as () => boolean;
+  expect(shouldContinue()).toBe(true);
   const firstIds = new Set<string>(mocks.short.mock.calls[0]![3]);
   const reads = mocks.list.mock.calls.length;
   await act(async () => { cancelFocusRef.current!(); });
+  expect(shouldContinue()).toBe(false);
   await act(async () => { epg.resolve({ failed: 0 }); });
   expect(mocks.short).toHaveBeenCalledTimes(1);
   expect(mocks.full).not.toHaveBeenCalled();
@@ -352,4 +355,18 @@ it.each(['inactive', 'unmount'] as const)('starter ikke fuld EPG efter et sent k
   expect(mocks.list).toHaveBeenCalledTimes(reads);
   expect(mocks.short).toHaveBeenCalledTimes(requests);
   expect(mocks.full).not.toHaveBeenCalled();
+});
+
+it('annullerer ogsaa kanaler inde i den fulde EPG-batch naar afspilleren daekker guiden', async () => {
+  const pending = deferred<unknown>();
+  mocks.full.mockReturnValue(pending.promise);
+  const options = props({ channels: channels.slice(0, 12) });
+  await mount(options);
+  expect(mocks.full).toHaveBeenCalledTimes(1);
+  const shouldContinue = mocks.full.mock.calls[0]![5].shouldContinue as () => boolean;
+  expect(shouldContinue()).toBe(true);
+  await act(async () => tree!.update(createElement(TimelineGrid, { ...options, active: false })));
+  expect(shouldContinue()).toBe(false);
+  await act(async () => pending.resolve({ failed: 0 }));
+  expect(mocks.full).toHaveBeenCalledTimes(1);
 });

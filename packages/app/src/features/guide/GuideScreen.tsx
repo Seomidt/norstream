@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   FlatList,
   PanResponder,
   ScrollView,
@@ -401,8 +402,14 @@ export const GuideScreen = memo(function GuideScreen({
   // hopper mellem tilstande midt i et tryk. Det opdateres hvert minut.
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(timer);
+    const refresh = () => setNow(new Date());
+    const timer = setInterval(refresh, 60_000);
+    // JS-timere kan vaere sat paa pause mens boksen sover. Stil straks
+    // vindue og nu/naeste paa nutiden naar appen kommer frem igen.
+    const wake = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refresh();
+    });
+    return () => { clearInterval(timer); wake.remove(); };
   }, []);
 
   const window = shiftedWindow(now, offsetMinutes);

@@ -8,11 +8,16 @@ import type { StoredChannel } from '../../storage/channels.js';
 const mocks = vi.hoisted(() => ({
   list: vi.fn(), channels: vi.fn(), full: vi.fn(), short: vi.fn(), panel: vi.fn(),
   log: vi.fn(), scroll: vi.fn(), keys: new Set<(event: Record<string, unknown>) => void>(),
+  appStates: new Set<(state: string) => void>(),
 }));
 vi.mock('react-native', async () => {
   const React = await import('react');
   return {
     Platform: { isTV: true, OS: 'android' },
+    AppState: { addEventListener: (_event: string, listener: (state: string) => void) => {
+      mocks.appStates.add(listener);
+      return { remove: () => mocks.appStates.delete(listener) };
+    } },
     View: 'View', Text: 'Text', Pressable: 'Pressable', ScrollView: 'ScrollView',
     TVFocusGuideView: 'TVFocusGuideView', ActivityIndicator: 'ActivityIndicator', Modal: 'Modal',
     StyleSheet: { create: (s: unknown) => s, hairlineWidth: 0.5 },
@@ -64,6 +69,7 @@ import { ChannelDayScreen } from './ChannelDayScreen.js';
 import { GuideScreen } from './GuideScreen.js';
 import { TimelineGrid } from './TimelineGrid.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
+import { NowNextBox } from './NowNextBox.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { invalidateGuideSnapshot, peekGuideSnapshot } from '../../storage/guideSnapshot.js';
 
@@ -119,6 +125,7 @@ beforeEach(() => {
   vi.stubGlobal('cancelAnimationFrame', clearTimeout);
   vi.clearAllMocks();
   mocks.keys.clear();
+  mocks.appStates.clear();
   mocks.list.mockImplementation(async (_db, id) => programmes(id));
   mocks.channels.mockResolvedValue([channel, second]);
   mocks.full.mockResolvedValue({ failed: 0 });
@@ -129,6 +136,7 @@ afterEach(async () => {
   if (rendered !== null) await act(async () => rendered!.unmount());
   rendered = null;
   expect(mocks.keys.size).toBe(0);
+  expect(mocks.appStates.size).toBe(0);
   expect(vi.getTimerCount()).toBe(0);
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -224,6 +232,27 @@ describe('Tilbage fra hele dagen bruger den rigtige TV-guide', () => {
       previewEnabled: false, previewHandle: { current: null }, active: true, reloadToken,
     });
   }
+
+  it('opdaterer straks guide og nu/naeste efter soevn uden nye API-kald i samme tidsvindue', async () => {
+    const tree = await mount(guideElement());
+    await measureTimeline(tree);
+    const before = tree.root.findByType(TimelineGrid).props.now.getTime();
+    const selected = tree.root.findByType(NowNextBox).props.channel;
+    const shortCalls = mocks.short.mock.calls.length;
+    const fullCalls = mocks.full.mock.calls.length;
+    await act(async () => {
+      for (const listener of mocks.appStates) listener('background');
+      // Som paa en sovende boks flyttes vaeguret uden at koere JS-timeren.
+      vi.setSystemTime(new Date(2026, 9, 12, 18, 19, 12));
+    });
+    expect(tree.root.findByType(TimelineGrid).props.now.getTime()).toBe(before);
+    await act(async () => { for (const listener of mocks.appStates) listener('active'); });
+    expect(tree.root.findByType(TimelineGrid).props.now.getTime()).toBe(Date.now());
+    expect(tree.root.findByType(NowNextBox).props.now.getTime()).toBe(Date.now());
+    expect(tree.root.findByType(NowNextBox).props.channel).toBe(selected);
+    expect(mocks.short).toHaveBeenCalledTimes(shortCalls);
+    expect(mocks.full).toHaveBeenCalledTimes(fullCalls);
+  });
 
   it('tegner den varme kanalliste straks ved genbesoeg mens SQLite-opdateringen venter', async () => {
     await mount(guideElement());
