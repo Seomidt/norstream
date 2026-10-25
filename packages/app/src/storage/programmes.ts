@@ -1,5 +1,6 @@
 import type { Programme } from '@norstream/core';
 import { withTransaction } from './transaction.js';
+import { EPG_TIME_SHIFT_MINUTES_LIMIT } from './epgTiming.js';
 import type { SqlDatabase } from './types.js';
 
 interface ProgrammeRow {
@@ -136,7 +137,7 @@ export async function nowTitlesFor(
     const slice = channelIds.slice(i, i + CHUNK);
     const placeholders = slice.map(() => '?').join(', ');
     const rows = await db.getAllAsync<{ channel_id: string; title: string; start_ms: number }>(
-      `SELECT channel_id, title, start_ms FROM programmes
+      `SELECT channel_id, title, start_ms FROM programmes_effective
        WHERE channel_id IN (${placeholders}) AND start_ms <= ? AND stop_ms > ?`,
       [...slice, ms, ms],
     );
@@ -162,7 +163,7 @@ export async function listProgrammes(
   to: Date,
 ): Promise<Programme[]> {
   const rows = await db.getAllAsync<ProgrammeRow>(
-    `SELECT * FROM programmes
+    `SELECT * FROM programmes_effective
      WHERE channel_id = ? AND stop_ms > ? AND start_ms < ?
      ORDER BY start_ms`,
     [epgChannelId, from.getTime(), to.getTime()],
@@ -185,7 +186,7 @@ export async function getNowNext(
   const ms = now.getTime();
 
   const current = await db.getFirstAsync<ProgrammeRow>(
-    `SELECT * FROM programmes
+    `SELECT * FROM programmes_effective
      WHERE channel_id = ? AND start_ms <= ? AND stop_ms > ?
      ORDER BY start_ms DESC LIMIT 1`,
     [epgChannelId, ms, ms],
@@ -194,7 +195,7 @@ export async function getNowNext(
   if (current) {
     // Der sendes noget nu: naeste program er det foerste der starter ved eller efter sluttidspunktet
     const following = await db.getFirstAsync<ProgrammeRow>(
-      `SELECT * FROM programmes
+      `SELECT * FROM programmes_effective
        WHERE channel_id = ? AND start_ms >= ?
        ORDER BY start_ms LIMIT 1`,
       [epgChannelId, current.stop_ms],
@@ -208,7 +209,7 @@ export async function getNowNext(
 
   // Intet program nu: find det foerste program der starter i fremtiden
   const following = await db.getFirstAsync<ProgrammeRow>(
-    `SELECT * FROM programmes
+    `SELECT * FROM programmes_effective
      WHERE channel_id = ? AND start_ms > ?
      ORDER BY start_ms LIMIT 1`,
     [epgChannelId, ms],
@@ -239,7 +240,7 @@ export async function listProgrammesFor(
     const slice = unique.slice(i, i + CHUNK);
     const placeholders = slice.map(() => '?').join(', ');
     const rows = await db.getAllAsync<ProgrammeRow>(
-      `SELECT channel_id, start_ms, stop_ms, title, description FROM programmes
+      `SELECT channel_id, start_ms, stop_ms, title, description FROM programmes_effective
        WHERE channel_id IN (${placeholders}) AND stop_ms > ? AND start_ms < ?
        ORDER BY start_ms`,
       [...slice, from.getTime(), to.getTime()],
@@ -261,7 +262,7 @@ export async function nowProgrammesFor(
   for (let i = 0; i < ids.length; i += 400) {
     const chunk = ids.slice(i, i + 400);
     const rows = await db.getAllAsync<ProgrammeRow>(
-      `SELECT * FROM programmes WHERE channel_id IN (${chunk.map(() => '?').join(', ')})
+      `SELECT * FROM programmes_effective WHERE channel_id IN (${chunk.map(() => '?').join(', ')})
        AND start_ms <= ? AND stop_ms > ?`,
       [...chunk, ms, ms],
     );
@@ -319,5 +320,11 @@ export async function deleteProgrammesBefore(
   db: SqlDatabase,
   cutoff: Date,
 ): Promise<void> {
-  await db.runAsync('DELETE FROM programmes WHERE stop_ms <= ?', [cutoff.getTime()]);
+  const cutoffMs = cutoff.getTime();
+  // Den effektive tid kan hoejst flyttes tolv timer. Indekset indskraenker
+  // derfor raadata foer korrektionen kontrolleres paa de gamle kandidater.
+  await db.runAsync(`DELETE FROM programmes WHERE stop_ms <= ? AND EXISTS
+    (SELECT 1 FROM programmes_effective e
+     WHERE e.channel_id = programmes.channel_id AND e.source_start_ms = programmes.start_ms
+       AND e.stop_ms <= ?)`, [cutoffMs + EPG_TIME_SHIFT_MINUTES_LIMIT * 60_000, cutoffMs]);
 }

@@ -1,6 +1,8 @@
+import { parseChannelKey } from '@norstream/core';
 import type { Programme } from '@norstream/core';
 import { getChannelsByIds } from './channels.js';
 import type { StoredChannel } from './channels.js';
+import { EPG_TIME_SHIFT_MINUTES_LIMIT, epgTimeShiftSql } from './epgTiming.js';
 import type { SqlDatabase } from './types.js';
 
 /**
@@ -58,16 +60,42 @@ export const ARCHIVE_KEEP_MS = 7 * 24 * 60 * 60_000;
 /** Under dette gemmes intet: de foerste sekunder er ikke "i gang". */
 const MIN_POSITION_S = 30;
 
+// Gamle kanalnoegler kan mangle kilde-praefiks; de slaas op paa kanalen.
+async function channelTimeShift(db: SqlDatabase, channelId: string): Promise<number> {
+  const parsed = parseChannelKey(channelId);
+  const source = "COALESCE((SELECT NULLIF(c.source_id, '') FROM channels c WHERE c.id = ?), ?)";
+  const row = await db.getFirstAsync<{ minutes: number }>(
+    `SELECT ${epgTimeShiftSql(source)} AS minutes`,
+    [channelId, parsed?.sourceId ?? ''],
+  );
+  return row?.minutes ?? 0;
+}
+
+const ARCHIVE_SOURCE_SQL = `COALESCE(
+  (SELECT NULLIF(c.source_id, '') FROM channels c WHERE c.id = archive_progress.channel_id),
+  CASE WHEN INSTR(archive_progress.channel_id, ':') > 0
+       THEN SUBSTR(archive_progress.channel_id, 1, INSTR(archive_progress.channel_id, ':') - 1) ELSE '' END
+)`;
+const ARCHIVE_SHIFT_MS_SQL = `(${epgTimeShiftSql(ARCHIVE_SOURCE_SQL)} * 60000)`;
+
 export async function saveArchiveProgress(
   db: SqlDatabase,
   channelId: string,
   programme: Programme,
   positionSeconds: number,
   now = Date.now(),
+  epgShiftMinutesOverride?: number,
 ): Promise<void> {
   const durationS = (programme.stop.getTime() - programme.start.getTime()) / 1000;
-  const startMs = programme.start.getTime();
   if (positionSeconds < MIN_POSITION_S || durationS <= 0) return;
+  // Skaermen bruger korrigerede tider. Historikkens noegle forbliver raa,
+  // saa genoptagelse og en senere rettelse ikke laegger timen til igen.
+  if (epgShiftMinutesOverride !== undefined && (!Number.isInteger(epgShiftMinutesOverride)
+    || Math.abs(epgShiftMinutesOverride) > EPG_TIME_SHIFT_MINUTES_LIMIT)) {
+    throw new Error('Arkivets tidskorrektion er ugyldig.');
+  }
+  const shiftMs = (epgShiftMinutesOverride ?? await channelTimeShift(db, channelId)) * 60_000;
+  const startMs = programme.start.getTime() - shiftMs;
   if (positionSeconds >= durationS * ARCHIVE_DONE_RATIO) {
     await db.runAsync('DELETE FROM archive_progress WHERE channel_id = ? AND start_ms = ?', [channelId, startMs]);
     return;
@@ -76,19 +104,23 @@ export async function saveArchiveProgress(
     `INSERT INTO archive_progress (channel_id, start_ms, stop_ms, title, position_s, updated_ms)
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(channel_id, start_ms) DO UPDATE SET position_s = excluded.position_s, updated_ms = excluded.updated_ms`,
-    [channelId, startMs, programme.stop.getTime(), programme.title, Math.round(positionSeconds), now],
+    [channelId, startMs, programme.stop.getTime() - shiftMs, programme.title, Math.round(positionSeconds), now],
   );
 }
 
 export async function clearArchiveProgress(db: SqlDatabase, channelId: string, startMs: number): Promise<void> {
-  await db.runAsync('DELETE FROM archive_progress WHERE channel_id = ? AND start_ms = ?', [channelId, startMs]);
+  const shiftMs = (await channelTimeShift(db, channelId)) * 60_000;
+  await db.runAsync('DELETE FROM archive_progress WHERE channel_id = ? AND start_ms = ?', [channelId, startMs - shiftMs]);
 }
 
 /** Paabegyndte udsendelser, senest set foerst. Gamle ryddes undervejs. */
 export async function listArchiveProgress(db: SqlDatabase, now = Date.now(), limit = 10): Promise<ArchiveProgress[]> {
-  await db.runAsync('DELETE FROM archive_progress WHERE stop_ms < ?', [now - ARCHIVE_KEEP_MS]);
+  await db.runAsync(`DELETE FROM archive_progress WHERE stop_ms + ${ARCHIVE_SHIFT_MS_SQL} < ?`, [now - ARCHIVE_KEEP_MS]);
   const rows = await db.getAllAsync<{ channel_id: string; start_ms: number; stop_ms: number; title: string; position_s: number; updated_ms: number }>(
-    'SELECT channel_id, start_ms, stop_ms, title, position_s, updated_ms FROM archive_progress ORDER BY updated_ms DESC LIMIT ?',
+    `SELECT channel_id, start_ms + ${ARCHIVE_SHIFT_MS_SQL} AS start_ms,
+            stop_ms + ${ARCHIVE_SHIFT_MS_SQL} AS stop_ms,
+            title, position_s, updated_ms
+     FROM archive_progress ORDER BY updated_ms DESC LIMIT ?`,
     [limit],
   );
   const channels = await getChannelsByIds(db, rows.map((row) => row.channel_id));

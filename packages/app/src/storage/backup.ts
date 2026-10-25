@@ -1,7 +1,7 @@
 import { deriveCountryLoose, normaliseChannelName } from '@norstream/core';
 import type { SqlDatabase } from './types.js';
 import { withTransaction } from './transaction.js';
-import { invalidateGuideSnapshot } from './guideSnapshot.js';
+import { invalidateEpgTiming } from './epgTiming.js';
 
 /**
  * Sikkerhedskopi af det brugeren selv har lavet: favoritter i deres
@@ -100,7 +100,10 @@ const SETTING_KEYS = [
   'sport_auto_remind',
 ];
 /** Indstillinger per kilde: noeglen ender paa kildens id. */
-const SCOPED_SETTING_PREFIXES = ['timeshift_dialect:', 'panel_offset_minutes:'];
+const SCOPED_SETTING_PREFIXES = [
+  'timeshift_dialect:', 'panel_offset_minutes:',
+  'epg_shift_minutes:', 'archive_shift_minutes:',
+];
 
 /**
  * Henter panel-kodeordet for en kilde, saa en krypteret sky-kopi kan tage det
@@ -351,12 +354,12 @@ export async function restoreBackup(
   backup: Backup,
   options: RestoreOptions = {},
 ): Promise<RestoreResult> {
-  invalidateGuideSnapshot(db);
+  invalidateEpgTiming(db);
   try {
     return await restoreBackupData(db, backup, options);
   } finally {
     // Ogsaa en delvis eller fejlet gendannelse maa afvise aeldre svar.
-    invalidateGuideSnapshot(db);
+    invalidateEpgTiming(db);
   }
 }
 

@@ -5,6 +5,9 @@ import { migrate } from './schema.js';
 // Et historisk udsnit af v28/v29: ingen af de nye tabeller er til stede.
 const HISTORICAL = `
 CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE TABLE sources(id TEXT PRIMARY KEY,kind TEXT NOT NULL);
+CREATE TABLE channels(id TEXT PRIMARY KEY,source_id TEXT NOT NULL);
+CREATE TABLE programmes(channel_id TEXT NOT NULL,start_ms INTEGER NOT NULL,stop_ms INTEGER NOT NULL,title TEXT NOT NULL,description TEXT,PRIMARY KEY(channel_id,start_ms));
 CREATE TABLE favorites(channel_id TEXT PRIMARY KEY,position INTEGER);
 CREATE TABLE vod_progress(item_key TEXT PRIMARY KEY,position_s REAL,duration_s REAL,updated_ms INTEGER);
 CREATE TABLE followed_series(series_key TEXT PRIMARY KEY,followed_ms INTEGER NOT NULL,seen_episodes INTEGER NOT NULL);
@@ -18,7 +21,7 @@ for (const version of [28, 29]) {
     await db.execAsync(HISTORICAL + `PRAGMA user_version=${version};`);
     await migrate(db);
     await migrate(db);
-    expect(await db.getFirstAsync('PRAGMA user_version')).toEqual({ user_version: 30 });
+    expect(await db.getFirstAsync('PRAGMA user_version')).toEqual({ user_version: 31 });
     expect(await db.getFirstAsync('SELECT * FROM favorites')).toEqual({ channel_id: 'source:us-favourite', position: 3 });
     expect(await db.getFirstAsync('SELECT position_s FROM vod_progress')).toEqual({ position_s: 402 });
     expect(await db.getFirstAsync('SELECT * FROM followed_series')).toEqual({ series_key: 'source:series', followed_ms: 99, seen_episodes: 8 });

@@ -46,6 +46,7 @@ vi.mock('../../ui/ChannelLogo.js', () => ({ ChannelLogo: () => null }));
 
 import { TimelineGrid } from './TimelineGrid.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { invalidateQueryCache } from '../../storage/queryCache.js';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -117,6 +118,36 @@ afterEach(async () => {
   expect(mocks.keys.size).toBe(0);
   expect(vi.getTimerCount()).toBe(0);
   vi.unstubAllGlobals(); vi.useRealTimers();
+});
+
+it('en aendret EPG-korrektion viser ikke gamle varme programtider mens SQLite genlaeses', async () => {
+  mocks.list.mockImplementation(programmesFor);
+  const options = props();
+  await mount(options);
+  expect(cached(0)).toHaveLength(1);
+  await act(async () => { tree!.unmount(); tree = null; });
+  invalidateQueryCache();
+  const held = deferred<Programme[]>();
+  mocks.list.mockImplementation(() => held.promise);
+  await mount(options);
+  expect(cached(0)).toEqual([]);
+  const corrected = { ...programme(channels[0]!.id, '19 News'), start: new Date(Date.now() + 60 * 60_000) };
+  await act(async () => held.resolve([corrected]));
+  expect(cached(0)[0]?.title).toBe('19 News');
+  expect(cached(0)[0]?.start).toEqual(corrected.start);
+});
+
+it('et gammelt SQLite-svar maa ikke gemme tidligere EPG-tider efter en tidskorrektion', async () => {
+  const held = deferred<Programme[]>();
+  mocks.list.mockImplementation(() => held.promise);
+  const options = props();
+  await mount(options);
+  invalidateQueryCache();
+  mocks.list.mockImplementation(async (_db: unknown, ids: string[]) => ids.map(id => programme(id, '19 News')));
+  await act(async () => held.resolve([programme(channels[0]!.id, 'Gammel kl. 18')]));
+  expect(cached(0).some(item => item.title === 'Gammel kl. 18')).toBe(false);
+  await act(async () => tree!.update(createElement(TimelineGrid, options)));
+  expect(cached(0)[0]?.title).toBe('19 News');
 });
 
 it('tegner et begraenset TV-vindue for 1000 kanaler med fast layout til alle indeks', async () => {

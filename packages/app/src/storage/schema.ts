@@ -1,6 +1,7 @@
 import { MATCH_KEY_VERSION } from '@norstream/core';
 import type { SqlDatabase } from './types.js';
 import { DISCOVERY_SCHEMA } from './discoverySchema.js';
+import { EPG_TIMING_SCHEMA, seedUpgradedEpgTiming } from './epgTiming.js';
 
 /**
  * Alle tidsstempler gemmes som epoch-millisekunder i INTEGER-kolonner,
@@ -474,7 +475,8 @@ const TABLES = [
 // ",8,119," (v369): maerke paa plakaten og fuldt tjeneste-filter.
 // v29: lokal fejlfindingsjournal og enkelt outbox; ingen aendring i programdata.
 // v30: filmsamlinger og identitet for afsnit i fulgte serier.
-const SCHEMA_VERSION = 30;
+// v31: kildeopdelt EPG-/arkivkorrektion over uforandrede programraadata.
+const SCHEMA_VERSION = 31;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -789,9 +791,11 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     return;
   }
 
-  if (version === 28 || version === 29) {
+  if (version === 28 || version === 29 || version === 30) {
     await db.execAsync(DIAGNOSTIC_SCHEMA);
     await db.execAsync(DISCOVERY_SCHEMA);
+    await db.execAsync(EPG_TIMING_SCHEMA);
+    await seedUpgradedEpgTiming(db);
     await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     await refreshChannelsWhenMatchRulesChanged(db);
     return;
@@ -837,6 +841,8 @@ export async function migrate(db: SqlDatabase): Promise<void> {
   // CREATE TABLE IF NOT EXISTS opdaterer ikke deres kolonner, og et indeks
   // i SCHEMA ville stoppe opstarten foer opgraderingstrinnet kan koere.
   await db.execAsync('CREATE INDEX IF NOT EXISTS idx_vod_posters_tmdb ON vod_posters (tmdb_id)');
+  await db.execAsync(EPG_TIMING_SCHEMA);
+  if (version > 0 && version < 31) await seedUpgradedEpgTiming(db);
   await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   await refreshChannelsWhenMatchRulesChanged(db);
 }

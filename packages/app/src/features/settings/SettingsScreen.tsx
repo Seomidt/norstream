@@ -66,6 +66,8 @@ import { TvPressable } from '../../ui/TvPressable.js';
 import { TvTextInput } from '../../ui/TvTextInput.js';
 import { testOpenSubtitles } from '../vod/externalSubtitles.js';
 import { DiagnosticSettings } from './DiagnosticSettings.js';
+import { EpgTimingSettings } from './EpgTimingSettings.js';
+import { getArchiveTimeShift, getEpgTimeShift } from '../../storage/epgTiming.js';
 import { CloudBackup } from './CloudBackup.js';
 import { diagnosePanelEpg } from '../../sync/panelEpg.js';
 import { recentLog } from '../../diagnostics/log.js';
@@ -793,13 +795,19 @@ export function SettingsScreen({
                 setRestartReport(`${channel.name}: panelet har ingen kendt start-forfra-adresse endnu. Åbn kanalen og tryk start forfra én gang, så findes den.`);
                 return;
               }
-              const offset = await getPanelOffsetMinutes(session.db, channel.sourceId);
+              const [offset, epgShiftMinutes, archiveShiftMinutes] = await Promise.all([
+                getPanelOffsetMinutes(session.db, channel.sourceId),
+                getEpgTimeShift(session.db, channel.sourceId),
+                getArchiveTimeShift(session.db, channel.sourceId),
+              ]);
               const programme = (await getNowNext(session.db, channel.id, new Date())).now;
               if (programme === null) {
                 setRestartReport(`${channel.name}: ingen programdata for kanalen lige nu, så testen ved ikke hvornår udsendelsen begyndte.`);
                 return;
               }
               const report = await probeTimeshift(probeFetch, access.creds, channel.streamId, programme, dialect, offset, {
+                epgShiftMinutes,
+                archiveShiftMinutes,
                 onProgress: (text) => setRestartReport(`Tester ${channel.name} · ${programme.title}\n${text}`),
               });
               setRestartReport(`${channel.name} · ${programme.title}\n${report}`);
@@ -818,6 +826,8 @@ export function SettingsScreen({
         </View>
         <Text style={styles.actionText}>Test</Text>
       </TvPressable>
+
+      <EpgTimingSettings db={session.db} onChanged={onRestored} />
 
       <Text style={styles.sectionTitle}>Avanceret</Text>
       <TvPressable style={styles.row} onPress={() => setAdvancedOpen((open) => !open)}>

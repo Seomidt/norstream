@@ -11,6 +11,9 @@ const f = vi.hoisted(() => ({
   requests: [] as Array<{ from: Date; minutes: number }>,
   offsets: [] as number[],
   clock: vi.fn(async (..._args: unknown[]) => ({ offsetMinutes: 120 } as { offsetMinutes: number; timeZone?: string })),
+  epgShift: vi.fn(async (..._args: unknown[]) => 0),
+  archiveShift: vi.fn(async (..._args: unknown[]) => 0),
+  saveProgress: vi.fn(async (..._args: unknown[]) => {}),
   loads: [] as Array<{ source: unknown; seek: number }>,
   back: vi.fn(),
   seekImmediately: true,
@@ -72,7 +75,8 @@ vi.mock('../../storage/settings.js', () => ({
 }));
 vi.mock('../../storage/programmes.js', () => ({ getNowNext: async () => ({ now: null, next: null }) }));
 vi.mock('../../storage/channels.js', () => ({ listChannels: async () => [] }));
-vi.mock('../../storage/history.js', () => ({ recordChannelWatch: async () => {}, saveArchiveProgress: async () => {} }));
+vi.mock('../../storage/history.js', () => ({ recordChannelWatch: async () => {}, saveArchiveProgress: f.saveProgress }));
+vi.mock('../../storage/epgTiming.js', () => ({ getEpgTimeShift: f.epgShift, getArchiveTimeShift: f.archiveShift }));
 vi.mock('../../sync/epgCache.js', () => ({ ensureEpg: async () => {} }));
 vi.mock('../../sync/panelClock.js', () => ({ refreshPanelClock: f.clock }));
 vi.mock('../../sources/access.js', () => ({ liveUrlFor: (_access: unknown, _channel: unknown, format: string) => `https://example.invalid/live.${format}` }));
@@ -103,6 +107,7 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   f.requests.length = 0; f.loads.length = 0; f.listeners.clear();
   f.offsets.length = 0; f.clock.mockReset().mockResolvedValue({ offsetMinutes: 120 });
+  f.epgShift.mockReset().mockResolvedValue(0); f.archiveShift.mockReset().mockResolvedValue(0); f.saveProgress.mockClear();
   f.player.currentTime = 0; f.player.status = 'readyToPlay'; f.player.playing = true;
   f.player.duration = 1020; f.seekImmediately = true;
   f.setting.mockReset().mockResolvedValue('php');
@@ -126,6 +131,40 @@ async function end(position: number, now: string) {
 }
 
 describe('TV2: igangvaerende udsendelse slutter under forsinket afspilning', () => {
+  it('19 News bruger +60 i EPG og arkiv uden at forlaenge et voksende arkiv med en time', async () => {
+    vi.setSystemTime(new Date('2026-10-25T18:15:00Z'));
+    f.epgShift.mockResolvedValue(60); f.archiveShift.mockResolvedValue(60);
+    f.clock.mockResolvedValue({ offsetMinutes: 60 });
+    const programme = { ...news, title: '19 News', start: new Date('2026-10-25T18:00:00Z'), stop: new Date('2026-10-25T18:30:00Z') };
+    await mount(programme);
+    expect(f.requests).toEqual([{ from: programme.start, minutes: 13 }]);
+    expect(f.epgShift).toHaveBeenCalledWith(session.db, channel.sourceId);
+    expect(f.archiveShift).toHaveBeenCalledWith(session.db, channel.sourceId);
+    // Aendrede indstillinger maa ikke omfortolke et allerede startet stykke.
+    f.epgShift.mockResolvedValue(0);
+    await act(async () => {
+      f.player.currentTime = 30;
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 30, videoRenderedFrames: 0 });
+      f.player.currentTime = 0; f.player.status = 'idle'; f.player.playing = false;
+      for (const fn of [...f.listeners.get('playToEnd') ?? []]) fn(undefined);
+    });
+    expect(f.requests[1]?.from).toEqual(programme.start);
+    expect(f.loads[1]?.seek).toBe(30);
+    expect(f.epgShift).toHaveBeenCalledTimes(1);
+    expect(f.archiveShift).toHaveBeenCalledTimes(1);
+    expect(f.saveProgress.mock.calls.at(-1)?.[5]).toBe(60);
+  });
+
+  it('en separat arkivkorrektion aendrer kun adressens start, ikke programmets tid eller varighed', async () => {
+    vi.setSystemTime(new Date('2026-10-25T18:15:00Z'));
+    f.epgShift.mockResolvedValue(60); f.archiveShift.mockResolvedValue(0);
+    const programme = { ...news, start: new Date('2026-10-25T18:00:00Z'), stop: new Date('2026-10-25T18:30:00Z') };
+    await mount(programme);
+    expect(f.requests).toEqual([{ from: new Date('2026-10-25T17:00:00Z'), minutes: 13 }]);
+    expect(programme.start.toISOString()).toBe('2026-10-25T18:00:00.000Z');
+    expect(f.loads[0]?.seek).toBe(0);
+  });
+
   it('bruger et friskt panelur efter vintertid og genbruger det ved fortsaettelse', async () => {
     vi.setSystemTime(new Date('2026-10-25T17:04:00Z'));
     f.clock.mockResolvedValue({ offsetMinutes: 60, timeZone: 'Europe/Copenhagen' });

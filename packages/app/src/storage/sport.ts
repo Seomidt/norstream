@@ -2,6 +2,7 @@ import { likePatterns, looksLikeSport } from '../features/sport/sportSearch.js';
 import type { ProgrammeRow } from '../features/sport/sportSearch.js';
 import { listCategorySummaries, listHiddenCountries } from './countries.js';
 import { getSetting, setSetting } from './settings.js';
+import { EPG_TIME_SHIFT_MINUTES_LIMIT } from './epgTiming.js';
 import type { SqlDatabase, SqlValue } from './types.js';
 
 /**
@@ -24,15 +25,18 @@ export async function searchProgrammes(
 ): Promise<ProgrammeRow[]> {
   const patterns = likePatterns(terms);
   if (terms.length === 0) return [];
-  const where = ['stop_ms > ?', 'start_ms < ?'];
-  const params: SqlValue[] = [fromMs, toMs];
+  const maxShiftMs = EPG_TIME_SHIFT_MINUTES_LIMIT * 60_000;
+  // Raavinduet kan bruge stop-indekset; den efterfoelgende effektive
+  // sammenligning vaelger praecist, ogsaa ved graenserne +/- tolv timer.
+  const where = ['source_stop_ms > ?', 'source_start_ms < ?', 'stop_ms > ?', 'start_ms < ?'];
+  const params: SqlValue[] = [fromMs - maxShiftMs, toMs + maxShiftMs, fromMs, toMs];
   for (const pattern of patterns) {
     where.push("(title LIKE ? OR COALESCE(description, '') LIKE ?)");
     params.push(pattern, pattern);
   }
   params.push(SEARCH_LIMIT);
   const rows = await db.getAllAsync<{ channel_id: string; title: string; description: string | null; start_ms: number; stop_ms: number }>(
-    `SELECT channel_id, title, description, start_ms, stop_ms FROM programmes
+    `SELECT channel_id, title, description, start_ms, stop_ms FROM programmes_effective
      WHERE ${where.join(' AND ')}
      ORDER BY start_ms
      LIMIT ?`,

@@ -2,6 +2,7 @@ import { buildTimeshiftUrl } from '@norstream/core';
 import type { Programme, TimeshiftDialect, XtreamCredentials } from '@norstream/core';
 import { safe } from '../../diagnostics/log.js';
 import { LIVE_EDGE_LAG_MS } from './archiveContinuation.js';
+import { archiveRequestTime } from './archiveTiming.js';
 
 /**
  * "Test start forfra" (v355): kan panelet levere arkivet som en stroem der
@@ -76,6 +77,10 @@ export function resolveVariant(base: string, variant: string): string {
 
 export interface ProbeOptions {
   now?: number;
+  /** Programmets tider er allerede korrigeret i EPG-laesevisningen. */
+  epgShiftMinutes?: number;
+  /** Kildens arkivkorrektion holdes adskilt fra EPG og serverens tidszone. */
+  archiveShiftMinutes?: number;
   /** Hvor laenge der ventes mellem de to laesninger af spillelisten. */
   waitMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -137,14 +142,20 @@ export async function probeTimeshift(
   };
   const startMs = programme.start.getTime();
   const endMs = programme.stop.getTime();
+  const timing = {
+    epgMinutes: options.epgShiftMinutes ?? 0,
+    archiveMinutes: options.archiveShiftMinutes ?? 0,
+  };
+  const archiveStart = archiveRequestTime(programme.start, timing);
   const stillOn = endMs > now;
   say(`Udsendelse ${clock(startMs)}–${clock(endMs)}, nu ${clock(now)}${stillOn ? '' : ' (slut — testen siger mest om igangværende udsendelser)'}. Dialekt ${dialect}, offset ${offsetMinutes} min.`);
+  say(`Tidskorrektion: EPG ${timing.epgMinutes} min, arkiv ${timing.archiveMinutes} min; arkivadresse fra ${clock(archiveStart.getTime())}.`);
 
   const toEndMinutes = Math.max(1, Math.ceil((endMs - startMs) / 60_000));
   const existingMinutes = Math.max(1, Math.ceil((Math.min(endMs, now - LIVE_EDGE_LAG_MS) - startMs) / 60_000));
 
   // A. HLS til udsendelsens slut, to gange.
-  const urlA = buildTimeshiftUrl(creds, streamId, programme.start, toEndMinutes, dialect, offsetMinutes, 'm3u8');
+  const urlA = buildTimeshiftUrl(creds, streamId, archiveStart, toEndMinutes, dialect, offsetMinutes, 'm3u8');
   const first = await playlist(fetchProbe, urlA);
   let grows: boolean | null = null;
   if (first.facts === null) {
@@ -168,7 +179,7 @@ export async function probeTimeshift(
   }
 
   // B. HLS kun for det der findes (som appen beder om i dag).
-  const urlB = buildTimeshiftUrl(creds, streamId, programme.start, existingMinutes, dialect, offsetMinutes, 'm3u8');
+  const urlB = buildTimeshiftUrl(creds, streamId, archiveStart, existingMinutes, dialect, offsetMinutes, 'm3u8');
   const existing = await playlist(fetchProbe, urlB);
   say(
     existing.facts === null
@@ -177,7 +188,7 @@ export async function probeTimeshift(
   );
 
   // C. .ts til slut: kun hovederne.
-  const urlC = buildTimeshiftUrl(creds, streamId, programme.start, toEndMinutes, dialect, offsetMinutes, 'ts');
+  const urlC = buildTimeshiftUrl(creds, streamId, archiveStart, toEndMinutes, dialect, offsetMinutes, 'ts');
   try {
     const head = await fetchProbe(urlC, true);
     const length = head.headers['content-length'];

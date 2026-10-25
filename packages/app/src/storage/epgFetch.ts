@@ -37,7 +37,7 @@ export async function getEpgFreshness(
   const row = await db.getFirstAsync<FreshnessRow>(
     `SELECT
        (SELECT fetched_at FROM epg_fetch  WHERE stream_id  = ?) AS fetched_at,
-       (SELECT MAX(stop_ms) FROM programmes WHERE channel_id = ?) AS latest_stop`,
+       (SELECT MAX(stop_ms) FROM programmes_effective WHERE channel_id = ?) AS latest_stop`,
     [streamId, streamId],
   );
   return {
