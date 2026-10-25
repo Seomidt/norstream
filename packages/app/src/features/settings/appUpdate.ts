@@ -1,5 +1,6 @@
 import * as Application from 'expo-application';
 import * as IntentLauncher from 'expo-intent-launcher';
+import { Platform } from 'react-native';
 import {
   cacheDirectory,
   createDownloadResumable,
@@ -89,7 +90,31 @@ function notify(progress: DownloadProgress | null): void {
   for (const listener of listeners) listener(progress);
 }
 
-let inFlight: { versionCode: number; promise: Promise<string> } | null = null;
+const inFlight = new Map<number, Promise<string>>();
+let downloadQueue: Promise<unknown> = Promise.resolve();
+const playbackPauses = new Set<symbol>();
+const resumeWaiters = new Set<() => void>();
+let activeDownload: { pause: () => void } | null = null;
+
+/** Video har foersteret til nettet. Flere ejere kan holde samme pause. */
+export function pauseApkDownloads(): () => void {
+  const token = Symbol('apk-playback-pause');
+  playbackPauses.add(token);
+  activeDownload?.pause();
+  return () => {
+    if (!playbackPauses.delete(token) || playbackPauses.size !== 0) return;
+    for (const resume of [...resumeWaiters]) resume();
+  };
+}
+
+async function waitForDownloadSlot(): Promise<void> {
+  while (playbackPauses.size !== 0) {
+    await new Promise<void>((resolve) => {
+      const resume = (): void => { resumeWaiters.delete(resume); resolve(); };
+      resumeWaiters.add(resume);
+    });
+  }
+}
 
 /** Saa laenge en hentning maa staa uden nye bytes, foer den regnes for gaaet i staa. */
 const DOWNLOAD_STALL_MS = 45_000;
@@ -136,14 +161,20 @@ export async function discardApk(versionCode: number): Promise<void> {
  * Kaster med en grund der kan vises.
  */
 export function downloadApk(info: { versionCode: number; url: string; size: number | null }): Promise<string> {
-  if (inFlight !== null && inFlight.versionCode === info.versionCode) return inFlight.promise;
-  const promise = (async (): Promise<string> => {
+  const existing = inFlight.get(info.versionCode);
+  if (existing !== undefined) return existing;
+  // Ogsaa forskellige udgaver serialiseres, saa de ikke downloader samtidig
+  // eller sletter hinandens filer gennem removeOtherApks.
+  const promise = downloadQueue.then(async (): Promise<string> => {
     if (cacheDirectory === null) throw new Error('Der er ingen plads at hente til.');
     const ready = await readyApk(info.versionCode, info.size);
     if (ready !== null) return ready;
+    await waitForDownloadSlot();
     await removeOtherApks(info.versionCode);
     const target = apkPath(info.versionCode);
     await deleteAsync(target, { idempotent: true }).catch(() => undefined);
+    // Afspilning kan vaere begyndt under et af filsystemets async-kald.
+    await waitForDownloadSlot();
     notify({ versionCode: info.versionCode, written: 0, total: info.size });
     logEvent('opdatering', `henter udgave ${info.versionCode}${info.size === null ? '' : ` (${Math.round(info.size / 1048576)} MB)`}`);
     // Vagt mod en hentning der staar stille (v361): paa tv stod bjaelken paa
@@ -152,28 +183,119 @@ export function downloadApk(info: { versionCode: number; url: string; size: numb
     // igangvaerende blev genbrugt). Kommer der ingen bytes i STALL_MS,
     // afbrydes den og siger det; naeste tryk henter forfra.
     let lastWritten = 0;
-    let lastChange = Date.now();
+    let idleMs = 0;
+    let runningSince: number | null = null;
     let stalled = false;
-    const task = createDownloadResumable(info.url, target, {}, ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
+    const stopClock = (): void => {
+      if (runningSince !== null) idleMs += Date.now() - runningSince;
+      runningSince = null;
+    };
+    const makeTask = (resumeData?: string) => createDownloadResumable(info.url, target, {}, ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
       if (totalBytesWritten !== lastWritten) {
         lastWritten = totalBytesWritten;
-        lastChange = Date.now();
+        idleMs = 0;
+        if (runningSince !== null) runningSince = Date.now();
       }
       notify({
         versionCode: info.versionCode,
         written: totalBytesWritten,
         total: info.size ?? (totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : null),
       });
-    });
+    }, resumeData);
+    let task = makeTask();
+    let resume = false;
+    let resumed = false;
+    let resumedFromBytes = 0;
+    let restartedRange = false;
+    let control: { pause: () => void } | null = null;
     const watchdog = setInterval(() => {
-      if (Date.now() - lastChange < DOWNLOAD_STALL_MS) return;
+      if (runningSince === null || stalled || idleMs + Date.now() - runningSince < DOWNLOAD_STALL_MS) return;
       stalled = true;
+      stopClock();
       clearInterval(watchdog);
       void task.cancelAsync().catch(() => undefined);
     }, 5_000);
     let result: Awaited<ReturnType<typeof task.downloadAsync>>;
     try {
-      result = await task.downloadAsync();
+      while (true) {
+        await waitForDownloadSlot();
+        // En anden microtask kan tage en pause efter waiterens resolve.
+        // Fra denne kontrol til native-start er der derfor ingen await.
+        if (playbackPauses.size !== 0) continue;
+        let finished = false;
+        let pauseResult: Promise<boolean> | null = null;
+        const cycle = {
+          pause: (): void => {
+            if (finished || pauseResult !== null || stalled) return;
+            stopClock();
+            pauseResult = task.pauseAsync().then(() => true).catch(async () => {
+              // En afsluttet eller endnu ikke registreret native opgave kan
+              // ikke pauses. Stop den, og hent forfra efter afspilningen.
+              await task.cancelAsync().catch(() => undefined);
+              return false;
+            });
+          },
+        };
+        control = cycle;
+        activeDownload = cycle;
+        runningSince = Date.now();
+        let failure: unknown;
+        try {
+          result = await (resume ? task.resumeAsync() : task.downloadAsync());
+        } catch (cause: unknown) {
+          failure = cause;
+          result = undefined;
+        }
+        finished = true;
+        stopClock();
+        if (activeDownload === cycle) activeDownload = null;
+        const paused: boolean | null = pauseResult === null ? null : await pauseResult;
+        // Native kan naa at afslutte filen samtidig med pause-anmodningen.
+        // En hel fil har forrang; der maa ikke startes endnu en hentning.
+        if (result != null) {
+          // Android appender ved resume, selv naar serveren ignorerer Range.
+          // En hel HTTP 200-fil oven paa del-filen maa aldrig installeres.
+          if (Platform.OS === 'android' && resume && resumedFromBytes > 0 && result.status === 200) {
+            if (restartedRange) throw new Error('Opdateringsserveren kunne ikke genoptage hentningen. Prøv igen.');
+            restartedRange = true;
+            await deleteAsync(target, { idempotent: true }).catch(() => undefined);
+            task = makeTask();
+            lastWritten = 0;
+            idleMs = 0;
+            resume = false;
+            resumedFromBytes = 0;
+            continue;
+          }
+          resumed = resume;
+          break;
+        }
+        if (stalled) throw stallError(lastWritten, info.size);
+        if (paused !== null) {
+          resume = paused;
+          if (paused && Platform.OS === 'android') {
+            // Android tager sit pause-snapshot foer det sidste write er
+            // draenet. Brug filens faktiske stoerrelse EFTER begge native
+            // promises er afsluttet, ellers kan sidste stykke dubleres.
+            const partial = await getInfoAsync(target).catch(() => null);
+            if (partial?.exists && Number.isSafeInteger(partial.size) && partial.size >= 0) {
+              task = makeTask(String(partial.size));
+              lastWritten = partial.size;
+              resumedFromBytes = partial.size;
+            } else resume = false;
+          }
+          if (!resume) {
+            await waitForDownloadSlot();
+            await deleteAsync(target, { idempotent: true }).catch(() => undefined);
+            lastWritten = 0;
+            idleMs = 0;
+            resumedFromBytes = 0;
+            task = makeTask();
+          }
+          continue;
+        }
+        if (failure !== undefined) throw failure;
+        throw new Error('Hentningen blev afbrudt. Prøv igen.');
+      }
     } catch (cause) {
       await deleteAsync(target, { idempotent: true }).catch(() => undefined);
       if (stalled) throw stallError(lastWritten, info.size);
@@ -181,14 +303,15 @@ export function downloadApk(info: { versionCode: number; url: string; size: numb
       throw new Error('APK’en kunne ikke hentes. Er der forbindelse? Prøv igen.');
     } finally {
       clearInterval(watchdog);
+      if (activeDownload === control) activeDownload = null;
     }
-    if (result === undefined) {
+    if (result == null) {
       await deleteAsync(target, { idempotent: true }).catch(() => undefined);
       if (stalled) throw stallError(lastWritten, info.size);
       throw new Error('Hentningen blev afbrudt. Prøv igen.');
     }
     logEvent('opdatering', `hentet: ${Math.round(lastWritten / 1048576)} MB, svar ${result.status}`);
-    if (result.status !== 200) {
+    if (result.status !== 200 && !(resumed && result.status === 206)) {
       await deleteAsync(target, { idempotent: true }).catch(() => undefined);
       throw new Error(`Opdateringsserveren svarede HTTP ${result.status}.`);
     }
@@ -199,11 +322,12 @@ export function downloadApk(info: { versionCode: number; url: string; size: numb
       throw new Error('Hentningen blev afbrudt, før filen var hel. Prøv igen.');
     }
     return result.uri;
-  })().finally(() => {
-    if (inFlight !== null && inFlight.promise === promise) inFlight = null;
+  }).finally(() => {
+    if (inFlight.get(info.versionCode) === promise) inFlight.delete(info.versionCode);
     notify(null);
   });
-  inFlight = { versionCode: info.versionCode, promise };
+  inFlight.set(info.versionCode, promise);
+  downloadQueue = promise.catch(() => undefined);
   return promise;
 }
 
@@ -214,12 +338,15 @@ export function downloadApk(info: { versionCode: number; url: string; size: numb
  * installeren slet ikke kunne startes.
  */
 export async function installApk(localUri: string): Promise<InstallOutcome> {
+  if (playbackPauses.size !== 0) throw new Error('Afslut afspilningen, og prøv installationen igen.');
   let contentUri: string;
   try {
     contentUri = await getContentUriAsync(localUri);
   } catch {
     throw new Error('Filen kunne ikke gøres klar til installation.');
   }
+  // Afspilning kan vaere startet mens content-URI'en blev gjort klar.
+  if (playbackPauses.size !== 0) throw new Error('Afslut afspilningen, og prøv installationen igen.');
   let result: IntentLauncher.IntentLauncherResult;
   try {
     // FLAG_GRANT_READ_URI_PERMISSION = 1, saa installeren maa laese filen.

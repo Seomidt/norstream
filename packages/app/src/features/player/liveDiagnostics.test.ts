@@ -10,10 +10,18 @@ it('taaler frigivet afspiller og logger ingen raa fejl eller adresser', () => {
   const player = {
     get currentTime(): number { throw Error('http://private/u/password'); },
     bufferedPosition: NaN, status: 'http://private/u/password', playing: false,
+    get isLive(): boolean { throw Error('http://private/u/password'); },
+    get duration(): number { throw Error('http://private/u/password'); },
   };
   const line = liveFailureSnapshot(player, 'native', 'ts');
   expect(line).toContain('ur ? s');
   expect(line).not.toContain('private');
   expect(line).not.toContain('password');
   expect(line).not.toContain('http');
+  expect(line).toContain('native live ?, varighed ? s');
+});
+it('skelner native live metadata fra endelig varighed uden at gaette paa aarsagen', () => {
+  const player = { currentTime: 77.6, bufferedPosition: 77.6, status: 'idle', playing: false, duration: 77.6, isLive: false };
+  expect(liveFailureSnapshot(player, 'eof', 'hls')).toContain('native live nej, varighed 77.6 s');
+  expect(liveFailureSnapshot({ ...player, duration: Infinity, isLive: true }, 'buffer-timeout', 'hls')).toContain('native live ja, varighed ? s');
 });

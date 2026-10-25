@@ -5,7 +5,7 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
-import { checkForUpdate, currentVersionCode, discardApk, downloadApk, installApk, onDownloadProgress, shouldDiscardAfter } from './appUpdate.js';
+import { checkForUpdate, currentVersionCode, discardApk, downloadApk, installApk, onDownloadProgress, pauseApkDownloads, shouldDiscardAfter } from './appUpdate.js';
 import type { DownloadProgress, UpdateInfo } from './appUpdate.js';
 import { percentText } from './appUpdateParse.js';
 
@@ -43,6 +43,7 @@ export function UpdateBanner({ quiet }: { quiet: boolean }) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const [found, setFound] = useState<UpdateInfo | null>(null);
+  const foundRef = useRef<UpdateInfo | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -53,26 +54,55 @@ export function UpdateBanner({ quiet }: { quiet: boolean }) {
   /** Udgaver der er sat til at hente af sig selv (tv), saa det kun sker én gang. */
   const prefetched = useRef(new Set<number>());
   const phaseRef = useRef<Phase>('idle');
-  phaseRef.current = phase;
+  const quietRef = useRef(quiet);
+  const quietRevision = useRef(0);
+  if (quiet && !quietRef.current) quietRevision.current += 1;
+  quietRef.current = quiet;
+  const mounted = useRef(true);
+  const installing = useRef(false);
+  const verifyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const changePhase = useCallback((next: Phase): void => {
+    phaseRef.current = next;
+    setPhase(next);
+  }, []);
+  const markReady = useCallback((): void => {
+    const versionCode = foundRef.current?.versionCode;
+    changePhase(versionCode !== undefined && localUri.current?.versionCode === versionCode ? 'ready' : 'idle');
+  }, [changePhase]);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (verifyTimer.current !== null) clearTimeout(verifyTimer.current);
+    };
+  }, []);
+
+  // Lejen daekker ogsaa en hentning der begyndte i menuen. Hver afspiller
+  // venter med APK-netvaerk, indtil den sidste stille periode er afsluttet.
+  useEffect(() => quiet ? pauseApkDownloads() : undefined, [quiet]);
 
   useEffect(() => onDownloadProgress(setProgress), []);
 
   /** Henter filen (eller genbruger den) og goer bjaelken klar til at installere. */
   const prepare = useCallback(async (info: UpdateInfo): Promise<string | null> => {
+    if (quietRef.current || !mounted.current || phaseRef.current === 'downloading' || phaseRef.current === 'installing') return null;
     if (localUri.current !== null && localUri.current.versionCode === info.versionCode) return localUri.current.uri;
-    setPhase('downloading');
+    changePhase('downloading');
     setMessage(null);
     try {
       const uri = await downloadApk(info);
+      if (!mounted.current) return null;
       localUri.current = { versionCode: info.versionCode, uri };
-      setPhase('ready');
+      markReady();
       return uri;
     } catch (error) {
+      if (!mounted.current) return null;
       setMessage(error instanceof Error ? error.message : 'Opdateringen kunne ikke hentes.');
-      setPhase('idle');
+      changePhase('idle');
       return null;
     }
-  }, []);
+  }, [changePhase, markReady]);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,13 +110,10 @@ export function UpdateBanner({ quiet }: { quiet: boolean }) {
       try {
         const info = await checkForUpdate();
         if (cancelled) return;
-        setFound(info.available ? info : null);
-        // Tv: hent filen af sig selv, saa den er klar naar man trykker. Én
-        // gang per udgave, og aldrig mens der allerede hentes/installeres.
-        if (info.available && isTV && !prefetched.current.has(info.versionCode) && phaseRef.current === 'idle') {
-          prefetched.current.add(info.versionCode);
-          void prepare(info);
-        }
+        const next = info.available ? info : null;
+        foundRef.current = next;
+        setFound(next);
+        if (phaseRef.current === 'ready' && localUri.current?.versionCode !== next?.versionCode) changePhase('idle');
       } catch {
         // Stille med vilje: ingen forbindelse eller ingen udgivelse er ikke noget at vise.
       }
@@ -102,61 +129,84 @@ export function UpdateBanner({ quiet }: { quiet: boolean }) {
       clearInterval(timer);
       subscription.remove();
     };
-  }, [prepare]);
+  }, [prepare, changePhase]);
+
+  // Kendte udgaver hentes straks efter afspilning, uden et nyt opslag eller
+  // ventetid til naeste halvtime. Fejlede auto-forsoeg gentages kun manuelt.
+  useEffect(() => {
+    if (quietRef.current || found === null || !isTV || !found.available
+      || prefetched.current.has(found.versionCode) || phaseRef.current !== 'idle') return;
+    prefetched.current.add(found.versionCode);
+    void prepare(found);
+  }, [quiet, found, phase, prepare]);
 
   const visible =
     found !== null && !quiet && (snoozed.current.get(found.versionCode) ?? 0) <= Date.now();
 
   const later = (): void => {
-    if (found === null) return;
-    snoozed.current.set(found.versionCode, Date.now() + SNOOZE_MS);
+    const info = foundRef.current;
+    if (info === null) return;
+    snoozed.current.set(info.versionCode, Date.now() + SNOOZE_MS);
     setMessage(null);
-    setFound({ ...found });
+    setFound({ ...info });
   };
 
   const install = async (): Promise<void> => {
-    if (found === null || phase === 'downloading' || phase === 'installing') return;
+    if (quietRef.current || found === null || installing.current || phaseRef.current === 'downloading' || phaseRef.current === 'installing') return;
+    installing.current = true;
     const info = found;
-    const uri = await prepare(info);
-    if (uri === null) return;
-    setPhase('installing');
-    setMessage(null);
+    const startedQuietRevision = quietRevision.current;
     try {
+      const uri = await prepare(info);
+      // En bruger der begyndte at se TV under hentningen skal selv trykke
+      // igen bagefter; installeren maa ikke aabne sent oven paa afspilleren.
+      if (uri === null || !mounted.current || quietRef.current || quietRevision.current !== startedQuietRevision
+        || foundRef.current?.versionCode !== info.versionCode) return;
+      changePhase('installing');
+      setMessage(null);
       const outcome = await installApk(uri);
+      if (!mounted.current) return;
       if (outcome.kind === 'installed') {
         // Android skifter appen ud og lukker den normalt her. Lever den
         // videre, ses om den blev ny; ellers siges det.
         setMessage('Installeret — appen genstarter …');
-        setTimeout(() => {
+        verifyTimer.current = setTimeout(() => {
+          verifyTimer.current = null;
           void checkForUpdate()
             .then((again) => {
+              if (!mounted.current) return;
               if (!again.available) {
+                foundRef.current = null;
                 setFound(null);
                 return;
               }
               setMessage('Android meldte "installeret", men appen er stadig udgave ' + currentVersionCode() + '. Genstart enheden, og prøv igen.');
-              setPhase('ready');
+              markReady();
             })
-            .catch(() => setPhase('ready'));
+            .catch(() => { if (mounted.current) markReady(); });
         }, VERIFY_MS);
         return;
       }
       if (outcome.kind === 'cancelled') {
-        setPhase('ready');
-        later();
+        markReady();
+        if (foundRef.current?.versionCode === info.versionCode) later();
         return;
       }
       setMessage(outcome.text);
       if (shouldDiscardAfter(outcome)) {
         await discardApk(info.versionCode);
+        if (!mounted.current) return;
         localUri.current = null;
-        setPhase('idle');
+        changePhase('idle');
       } else {
-        setPhase('ready');
+        markReady();
       }
     } catch (error) {
+      if (!mounted.current) return;
       setMessage(error instanceof Error ? error.message : 'Installationen kunne ikke startes.');
-      setPhase('ready');
+      markReady();
+    } finally {
+      installing.current = false;
     }
   };
 
@@ -234,7 +284,7 @@ export function UpdateBanner({ quiet }: { quiet: boolean }) {
       </View>
       {isTV && (
         <Text style={styles.hint}>
-          {phase === 'downloading' ? 'Henter opdateringen — du kan se tv imens' : phase === 'installing' ? 'Følg installationen på skærmen' : 'Tilbage: senere'}
+          {phase === 'downloading' ? 'Hentningen sættes på pause, mens du ser TV' : phase === 'installing' ? 'Følg installationen på skærmen' : 'Tilbage: senere'}
         </Text>
       )}
     </View>

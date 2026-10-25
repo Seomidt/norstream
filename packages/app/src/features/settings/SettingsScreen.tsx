@@ -839,6 +839,7 @@ export function SettingsScreen({
               <Text style={styles.rowTitle}>Vis loggen</Text>
               {logLines !== null && (
                 <Text style={styles.rowHint} selectable>
+                  Udgave {currentVersionCode()}{'\n'}
                   {logLines.length === 0 ? 'Loggen er tom endnu.' : logLines.join('\n')}
                 </Text>
               )}

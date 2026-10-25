@@ -5,6 +5,8 @@ interface SamplePort {
   bufferedPosition: number;
   playing: boolean;
   status: string;
+  readonly duration?: number;
+  readonly isLive?: boolean;
 }
 function number(read: () => unknown): number | null {
   try {
@@ -15,12 +17,16 @@ function number(read: () => unknown): number | null {
 export function liveFailureSnapshot(player: SamplePort, reason: LiveFailureReason, format: 'ts' | 'hls'): string {
   const position = number(() => player.currentTime), buffered = number(() => player.bufferedPosition);
   const ahead = position === null || buffered === null ? null : Math.max(0, buffered - position);
-  let status = '?', playing = '?';
+  let status = '?', playing = '?', nativeLive = '?';
   try {
     const raw = player.status;
     if (['idle', 'loading', 'readyToPlay', 'error'].includes(raw)) status = raw;
     playing = player.playing === true ? 'ja' : 'nej';
   } catch { /* Frigivet afspiller: ingen raa fejltekst. */ }
+  try {
+    if (typeof player.isLive === 'boolean') nativeLive = player.isLive ? 'ja' : 'nej';
+  } catch { /* Native metadata kan vaere frigivet. */ }
+  const duration = number(() => player.duration);
   const text = (value: number | null): string => value === null ? '?' : value.toFixed(1);
-  return `live-diagnose v403: ${reason}, ${format}, ${status}, spiller ${playing}; ur ${text(position)} s, buffer til ${text(buffered)} s, foran ${text(ahead)} s`;
+  return `live-diagnose v417: ${reason}, ${format}, ${status}, spiller ${playing}; ur ${text(position)} s, buffer til ${text(buffered)} s, foran ${text(ahead)} s; native live ${nativeLive}, varighed ${text(duration)} s`;
 }
