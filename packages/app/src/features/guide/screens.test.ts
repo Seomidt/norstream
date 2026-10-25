@@ -35,7 +35,12 @@ vi.mock('react-native', async () => {
   };
 });
 vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
-vi.mock('../../storage/programmes.js', () => ({ listProgrammes: mocks.list }));
+vi.mock('../../storage/programmes.js', () => ({
+  listProgrammes: mocks.list,
+  listProgrammesFor: async (db: unknown, ids: string[], from: Date, to: Date) =>
+    (await Promise.all(ids.map(id => mocks.list(db, id, from, to)))).flat()
+      .filter((p: Programme) => p.stop > from && p.start < to),
+}));
 vi.mock('../../storage/channels.js', () => ({ listChannels: mocks.channels }));
 vi.mock('../../storage/settings.js', () => ({
   getFavoriteGroup: async () => null, getGuideInfoMode: async () => 'normal',
@@ -60,6 +65,7 @@ import { GuideScreen } from './GuideScreen.js';
 import { TimelineGrid } from './TimelineGrid.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { invalidateGuideSnapshot, peekGuideSnapshot } from '../../storage/guideSnapshot.js';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -105,6 +111,7 @@ async function measureTimeline(tree: ReactTestRenderer) {
 }
 
 beforeEach(() => {
+  invalidateGuideSnapshot(session.db);
   vi.useFakeTimers();
   vi.setSystemTime(new Date(2026, 9, 12, 18, 0, 0));
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -211,6 +218,59 @@ describe('dagsoversigt paa TV med faktisk React-livscyklus', () => {
 });
 
 describe('Tilbage fra hele dagen bruger den rigtige TV-guide', () => {
+  function guideElement(reloadToken = 0, currentSession = session) {
+    return createElement(GuideScreen, {
+      session: currentSession, onPlay: vi.fn(), onRestart: vi.fn(), onAuthError: vi.fn(), onBrowse: vi.fn(),
+      previewEnabled: false, previewHandle: { current: null }, active: true, reloadToken,
+    });
+  }
+
+  it('tegner den varme kanalliste straks ved genbesoeg mens SQLite-opdateringen venter', async () => {
+    await mount(guideElement());
+    expect(peekGuideSnapshot(session.db, 0)?.channels).toEqual([channel, second]);
+    await act(async () => { rendered!.unmount(); rendered = null; });
+    const pending = deferred<StoredChannel[]>();
+    mocks.channels.mockReturnValue(pending.promise);
+    const tree = await mount(guideElement());
+    expect(tree.root.findByType(TimelineGrid).props.channels).toEqual([channel, second]);
+    expect(tree.root.findAllByType(host('ActivityIndicator'))).toHaveLength(0);
+    await act(async () => pending.resolve([second]));
+    expect(tree.root.findByType(TimelineGrid).props.channels).toEqual([second]);
+  });
+
+  it('bevarer den varme guide ved en fejl i genindlaesningen', async () => {
+    await mount(guideElement());
+    await act(async () => { rendered!.unmount(); rendered = null; });
+    mocks.channels.mockRejectedValueOnce(new Error('test storage failure'));
+    const tree = await mount(guideElement());
+    expect(tree.root.findByType(TimelineGrid).props.channels).toEqual([channel, second]);
+    expect(tree.root.findAllByType(host('ActivityIndicator'))).toHaveLength(0);
+  });
+
+  it.each(['invalidation', 'reload', 'database'] as const)('bruger ikke en varm kanalliste efter %s', async change => {
+    await mount(guideElement());
+    await act(async () => { rendered!.unmount(); rendered = null; });
+    if (change === 'invalidation') invalidateGuideSnapshot(session.db);
+    const pending = deferred<StoredChannel[]>();
+    mocks.channels.mockReturnValue(pending.promise);
+    const nextSession = change === 'database' ? { ...session, db: {} } as AppSession : session;
+    const tree = await mount(guideElement(change === 'reload' ? 1 : 0, nextSession));
+    expect(tree.root.findAllByType(TimelineGrid)).toHaveLength(0);
+    expect(tree.root.findAllByType(host('ActivityIndicator'))).toHaveLength(1);
+    await act(async () => pending.resolve([second]));
+    expect(tree.root.findByType(TimelineGrid).props.channels).toEqual([second]);
+  });
+
+  it('kasserer et kanalsvar fra foer en favorit blev aendret og genlaeser straks', async () => {
+    const pending = deferred<StoredChannel[]>();
+    mocks.channels.mockReturnValueOnce(pending.promise).mockResolvedValue([second]);
+    const tree = await mount(guideElement());
+    invalidateGuideSnapshot(session.db);
+    await act(async () => pending.resolve([channel]));
+    expect(tree.root.findByType(TimelineGrid).props.channels).toEqual([second]);
+    expect(peekGuideSnapshot(session.db, 0)?.channels).toEqual([second]);
+  });
+
   it('genbruger aabningshandlingen naar kanalens fokus og preview skifter', async () => {
     const tree = await mount(createElement(GuideScreen, {
       session, onPlay: vi.fn(), onRestart: vi.fn(), onAuthError: vi.fn(), onBrowse: vi.fn(),

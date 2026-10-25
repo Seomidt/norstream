@@ -17,10 +17,29 @@ type Waiter = () => void;
 let busy = false;
 const foreground: Waiter[] = [];
 const background: Waiter[] = [];
+const backgroundPauses = new Set<symbol>();
+
+function advance(): void {
+  if (busy) return;
+  const next = foreground.shift() ?? (backgroundPauses.size === 0 ? background.shift() : undefined);
+  if (next === undefined) return;
+  busy = true;
+  next();
+}
+
+/** Afspilning kan saette baggrunds-EPG paa pause. Et startet kald afsluttes. */
+export function pauseBackgroundPanel(): () => void {
+  const token = Symbol('panel-background-pause');
+  backgroundPauses.add(token);
+  return () => {
+    if (!backgroundPauses.delete(token)) return;
+    advance();
+  };
+}
 
 /** Venter til panelet er ledigt. Baggrund koerer kun naar ingen forgrund venter. */
 export function acquirePanel(isBackground: boolean): Promise<void> {
-  if (!busy) {
+  if (!busy && (!isBackground || backgroundPauses.size === 0)) {
     busy = true;
     return Promise.resolve();
   }
@@ -30,12 +49,8 @@ export function acquirePanel(isBackground: boolean): Promise<void> {
 }
 
 export function releasePanel(): void {
-  const next = foreground.shift() ?? background.shift();
-  if (next === undefined) {
-    busy = false;
-    return;
-  }
-  next();
+  busy = false;
+  advance();
 }
 
 /** Koerer `work` naar panelet er ledigt, og slipper det igen — ogsaa ved fejl. */
@@ -58,4 +73,5 @@ export function resetPanelGate(): void {
   busy = false;
   foreground.length = 0;
   background.length = 0;
+  backgroundPauses.clear();
 }

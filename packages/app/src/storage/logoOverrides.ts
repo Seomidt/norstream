@@ -1,5 +1,6 @@
 import { normaliseChannelName } from '@norstream/core';
 import type { SqlDatabase, SqlValue } from './types.js';
+import { invalidateGuideSnapshot } from './guideSnapshot.js';
 
 /**
  * Logoer brugeren selv har valgt.
@@ -16,10 +17,12 @@ export async function setLogoOverride(db: SqlDatabase, channelKey: string, url: 
     channelKey,
     url.trim(),
   ]);
+  invalidateGuideSnapshot(db);
 }
 
 export async function clearLogoOverride(db: SqlDatabase, channelKey: string): Promise<void> {
   await db.runAsync('DELETE FROM logo_overrides WHERE channel_key = ?', [channelKey]);
+  invalidateGuideSnapshot(db);
 }
 
 export async function getLogoOverride(db: SqlDatabase, channelKey: string): Promise<string | null> {

@@ -1,6 +1,6 @@
 import type { SqlDatabase } from '../storage/types.js';
 import {
-  collectionCandidates, collectionIsFresh, freshCollectionLookup, saveCollectionLookup, saveMovieCollection,
+  collectionCandidates, collectionIsFresh, freshCollectionLookup, saveCollectionLookup, saveMovieCollection, staleMovieCollectionIds,
 } from '../storage/movieCollections.js';
 import type { MovieCollectionDetails, MovieCollectionPart } from '../storage/movieCollections.js';
 import { searchTmdb, tmdbAuth, TmdbRequestError } from './tmdb.js';
@@ -16,9 +16,12 @@ export interface CollectionDiscoveryOptions {
   isCancelled?: () => boolean;
   now?: () => number;
   pauseMs?: number;
+  /** Kendte samlinger genhenter kun udloebne dele, ikke nye katalogtitler. */
+  knownOnly?: boolean;
 }
 export interface CollectionDiscoveryResult { looked: number; changed: number; remaining: boolean; failed: boolean }
 const validId = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+const scopeOf = (options: CollectionDiscoveryOptions): string | null => options.knownOnly === true ? 'known-collections' : options.itemKey === undefined ? null : `item:${options.itemKey}`;
 const record = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown): string | null => typeof value === 'string' && value.trim().length > 0 ? value.trim().slice(0, 250) : null;
 function image(value: unknown): string | null {
@@ -73,11 +76,11 @@ export function discoverMovieCollections(
     // Et enkelt filmkort og hele oversigten har forskellige kandidater.
     // Del samme scope, men genberegn et andet scopes restarbejde bagefter.
     return previous.promise.then(result => !options.isCancelled?.()
-      && (previous.scope !== (options.itemKey ?? null) || previous.isCancelled())
+      && (previous.scope !== scopeOf(options) || previous.isCancelled())
       ? discoverMovieCollections(db, fetchImpl, apiKey, options) : result);
   }
   const task = run(db, fetchImpl, apiKey, options).finally(() => { if (running.get(db)?.promise === task) running.delete(db); });
-  running.set(db, { scope: options.itemKey ?? null, promise: task, isCancelled: options.isCancelled ?? (() => false) });
+  running.set(db, { scope: scopeOf(options), promise: task, isCancelled: options.isCancelled ?? (() => false) });
   return task;
 }
 
@@ -87,6 +90,21 @@ async function run(db: SqlDatabase, fetchImpl: TmdbFetch, apiKey: string, option
   if (apiKey.trim().length === 0 || stopped()) return result;
   const limit = Math.max(1, Math.min(30, Math.trunc(options.limit ?? 12)));
   const now = options.now ?? Date.now;
+  if (options.knownOnly === true) {
+    const ids = await staleMovieCollectionIds(db, now(), limit);
+    for (const id of ids) {
+      if (stopped()) return result;
+      try {
+        const collection = parseMovieCollection(await json(fetchImpl, apiKey, `/collection/${id}`), id);
+        if (stopped()) return result;
+        await saveMovieCollection(db, collection, now());
+        result.looked += 1;
+        result.changed += 1;
+      } catch { result.failed = true; break; }
+    }
+    if (!stopped() && !result.failed) result.remaining = (await staleMovieCollectionIds(db, now(), 1)).length > 0;
+    return result;
+  }
   const candidates = await collectionCandidates(db, now(), limit, options.itemKey);
   const membership = new Map<number, number | null>();
   result.remaining = candidates.length === limit;

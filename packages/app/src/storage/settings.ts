@@ -1,5 +1,6 @@
 import type { TimeshiftDialect } from '@norstream/core';
 import type { SqlDatabase } from './types.js';
+import { invalidateGuideSnapshot } from './guideSnapshot.js';
 
 const KEY_DIALECT = 'timeshift_dialect';
 const KEY_OFFSET = 'panel_offset_minutes';
@@ -58,6 +59,9 @@ export async function setSetting(
      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
     [key, value],
   );
+  if (key === 'favorite_group' || key === KEY_DIALECT || key.startsWith(`${KEY_DIALECT}:`) || key.startsWith('logo_host:')) {
+    invalidateGuideSnapshot(db);
+  }
 }
 
 /**

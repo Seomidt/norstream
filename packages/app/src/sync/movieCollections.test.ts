@@ -4,7 +4,7 @@ import { migrate } from '../storage/schema.js';
 import { addSource } from '../storage/sources.js';
 import { replaceVodItems } from '../storage/vod.js';
 import { invalidateQueryCache } from '../storage/queryCache.js';
-import { listMovieCollections } from '../storage/movieCollections.js';
+import { COLLECTION_MAX_AGE_MS, listMovieCollections, saveMovieCollection } from '../storage/movieCollections.js';
 import type { SqlDatabase } from '../storage/types.js';
 import type { TmdbFetch } from './tmdb.js';
 import { discoverMovieCollections, movieCollectionId, parseMovieCollection } from './movieCollections.js';
@@ -38,6 +38,28 @@ it('samme film i flere kvaliteter kraever ikke gentagne TMDB-netkald', async () 
   await discoverMovieCollections(db, fetch, 'key', options);
   expect(fetch).toHaveBeenCalledTimes(2);
   expect((await listMovieCollections(db))[0]?.available).toBe(1);
+});
+
+it('kendte friske samlinger genhentes ikke og udloebne dele opdateres uden nye filmopslag', async () => {
+  await saveMovieCollection(db, parseMovieCollection(collection, 7), options.now());
+  const fetch: TmdbFetch = vi.fn(async () => response({ ...collection, name: 'Opdateret samling' }));
+  const result = await discoverMovieCollections(db, fetch, 'key', { ...options, knownOnly: true });
+  expect(result).toMatchObject({ looked: 0, changed: 0, failed: false });
+  expect(fetch).not.toHaveBeenCalled();
+  const later = () => options.now() + COLLECTION_MAX_AGE_MS + 1;
+  expect(await discoverMovieCollections(db, fetch, 'key', { ...options, now: later, knownOnly: true }))
+    .toMatchObject({ looked: 1, changed: 1, failed: false, remaining: false });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(vi.mocked(fetch).mock.calls[0]![0]).toContain('/collection/7?');
+  expect((await listMovieCollections(db))[0]?.name).toBe('Opdateret samling');
+});
+
+it('fejl ved opdatering af en kendt samling bevarer dens lokale film og navn', async () => {
+  await saveMovieCollection(db, parseMovieCollection(collection, 7), 0);
+  const fetch: TmdbFetch = vi.fn(async () => response({}, 401));
+  expect(await discoverMovieCollections(db, fetch, 'key', { ...options, now: () => COLLECTION_MAX_AGE_MS + 1, knownOnly: true }))
+    .toMatchObject({ changed: 0, failed: true });
+  expect((await listMovieCollections(db))[0]).toMatchObject({ name: 'En samling', available: 1 });
 });
 
 it('en film uden gemt TMDB-id findes via valideret titel og aar foer samlingen hentes', async () => {

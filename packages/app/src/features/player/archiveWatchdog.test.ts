@@ -99,3 +99,46 @@ it('v383-loggens lydur paa 48.290 s flytter ikke resume forbi sidste billede ved
   expect(clock.observe(18.4, 1)).toBe(18.4);
   expect(clock.observe(19.4, 26)).toBe(19.4);
 });
+
+it.each([undefined, null, 0, NaN])('optional billedtaeller %s maa ikke nulstille 30 sekunders afspilning ved EOF', (frames) => {
+  const clock = new ArchiveVideoClock();
+  clock.reset(0, 120);
+  for (let second = 1; second <= 30; second++) expect(clock.observe(second, frames)).toBe(second);
+  expect(clock.hasFrames).toBe(false);
+  expect(clock.observe(0, frames)).toBe(30);
+  expect(clock.read(0, true)).toBe(30);
+  expect(clock.read(90_000, true)).toBe(30);
+});
+
+it('rigtige billedtaellere bevarer sidste billede ved lydfremdrift og nulstillet TS-ur', () => {
+  const clock = new ArchiveVideoClock();
+  clock.reset(0, 120);
+  expect(clock.observe(30, 750)).toBe(30);
+  expect(clock.observe(60, 750)).toBe(30);
+  expect(clock.read(60, true)).toBe(30);
+  expect(clock.observe(0, 751)).toBe(30);
+  expect(clock.read(0, true)).toBe(30);
+  expect(clock.read(31, true)).toBe(31);
+  // Nyt arkivstykke eller et bevidst tilbage-seek har et nyt udgangspunkt.
+  clock.reset(10, 120);
+  expect(clock.observe(10.5, 1)).toBe(10.5);
+  expect(clock.observe(11.5, 26)).toBe(11.5);
+});
+
+it('asynkron HLS-spoling ignorerer gamle samples og native poll indtil maalets bekraeftelse', () => {
+  const clock = new ArchiveVideoClock();
+  clock.reset(0, 120);
+  clock.observe(80, 2000);
+  clock.requestSeek(70);
+  expect(clock.position).toBe(80); // et oenske er endnu ikke bekraeftet fremdrift
+  expect(clock.observe(80, 2001)).toBe(80);
+  expect(clock.read(80)).toBe(80);
+  expect(clock.observe(70, 2002)).toBe(70);
+  expect(clock.read(0, true)).toBe(70);
+  clock.requestSeek(100);
+  expect(clock.observe(71, 2026)).toBe(70);
+  expect(clock.read(100)).toBe(100);
+  clock.requestSeek(90);
+  clock.reset(0, 60); // kildeskift annullerer den gamle spoleanmodning
+  expect(clock.observe(1, undefined)).toBe(1);
+});

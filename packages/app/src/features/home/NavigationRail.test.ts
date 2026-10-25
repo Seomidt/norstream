@@ -6,6 +6,7 @@ import type { AppSession } from '../../session.js';
 const mocks = vi.hoisted(() => ({
   keys: new Set<(event: Record<string, unknown>) => void>(),
   nativeFocus: vi.fn(), log: vi.fn(), front: vi.fn(), vod: vi.fn(), radio: vi.fn(),
+  sport: vi.fn(), enrich: vi.fn(), sync: vi.fn(), prefetch: vi.fn(),
   subpageBack: false,
 }));
 vi.mock('react-native', async () => {
@@ -28,12 +29,12 @@ vi.mock('../../diagnostics/log.js', () => ({ logEvent: mocks.log }));
 vi.mock('../../storage/settings.js', () => ({
   clearLastSyncMs: vi.fn(), getLastSyncMs: async () => Date.now(),
   getMiniPreviewEnabled: async () => false, getStreamFormatSetting: async () => 'ts',
-  getTmdbApiKey: async () => null, getVideoSurface: async () => 'surfaceView',
+  getTmdbApiKey: async () => 'test-key', getVideoSurface: async () => 'surfaceView',
 }));
-vi.mock('../../sync/syncAll.js', () => ({ CHANNEL_SYNC_INTERVAL_MS: 86_400_000, syncAllSources: vi.fn() }));
+vi.mock('../../sync/syncAll.js', () => ({ CHANNEL_SYNC_INTERVAL_MS: 86_400_000, syncAllSources: mocks.sync }));
 vi.mock('../../sync/useAutomaticChannelSync.js', () => ({ useAutomaticChannelSync: () => {} }));
 vi.mock('../../sync/useFollowedSeriesRefresh.js', () => ({ useFollowedSeriesRefresh: () => {} }));
-vi.mock('../../sync/prefetchEpg.js', () => ({ prefetchFavouritesEpg: vi.fn() }));
+vi.mock('../../sync/prefetchEpg.js', () => ({ prefetchFavouritesEpg: mocks.prefetch }));
 vi.mock('../../ui/posterFill.js', () => ({ forgetPosterMisses: vi.fn() }));
 vi.mock('../../ui/logoCache.js', () => ({ forgetLogoMisses: vi.fn(), resetLogo: vi.fn() }));
 vi.mock('../../ui/Notice.js', () => ({ Notice: () => null }));
@@ -42,8 +43,8 @@ vi.mock('../../storage/cloudBackup.js', () => ({ runWeeklyCloudBackup: vi.fn() }
 vi.mock('../../storage/credentials.js', () => ({ loadSourceCredentials: vi.fn() }));
 vi.mock('../settings/cloudSync.js', () => ({ loadFromCloud: vi.fn(), saveToCloud: vi.fn() }));
 vi.mock('../../storage/cloudAutoSync.js', () => ({ runCloudSync: vi.fn() }));
-vi.mock('../sport/findMatches.js', () => ({ refreshSportEpg: vi.fn() }));
-vi.mock('../../sync/vodMeta.js', () => ({ enrichVodMeta: vi.fn() }));
+vi.mock('../sport/findMatches.js', () => ({ refreshSportEpg: mocks.sport }));
+vi.mock('../../sync/vodMeta.js', () => ({ enrichVodMeta: mocks.enrich }));
 vi.mock('../../sync/tmdb.js', () => ({ tmdbFetch: vi.fn() }));
 vi.mock('./FrontScreen.js', () => ({ FrontScreen: (props: unknown) => { mocks.front(props); return null; } }));
 vi.mock('../vod/VodScreen.js', () => ({ VodScreen: (props: unknown) => { mocks.vod(props); return null; } }));
@@ -60,6 +61,7 @@ vi.mock('../../ui/deferredScreen.js', () => ({
 import { HomeScreen, type HomePlace, type Tab } from './HomeScreen.js';
 import { NavigationRail, type NavigationRailControl } from './NavigationRail.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { resetPanelGate, withPanel } from '../../sync/panelGate.js';
 
 const tabs = [
   { id: 'home', label: 'Hjem', icon: 'H' },
@@ -114,6 +116,9 @@ beforeEach(() => {
   mocks.nativeFocus.mockReset();
   mocks.keys.clear();
   mocks.subpageBack = false;
+  mocks.sport.mockResolvedValue(0); mocks.enrich.mockResolvedValue(undefined);
+  mocks.sync.mockResolvedValue({ rejected: [], synced: 0 }); mocks.prefetch.mockResolvedValue({ fetched: 0, skipped: true });
+  resetPanelGate();
   control = { current: null };
   selected = vi.fn(); entered = vi.fn();
 });
@@ -302,4 +307,45 @@ it('HomeScreen lader et nyt Tilbage gentage Guide-fokus efter forkert automatisk
   expect(counts()).toEqual(before);
   await focus('guide');
   expect(mocks.log).toHaveBeenCalledTimes(1);
+});
+
+function playbackHomeProps() {
+  return {
+    session: { db: {}, sources: [], credsBySource: new Map(), fetchImpl: vi.fn() } as unknown as AppSession,
+    place: { tab: 'home', browse: null, vod: null } as HomePlace, onPlaceChange: vi.fn(),
+    onSelect: vi.fn(), onOpenVod: vi.fn(), onTrailer: vi.fn(), onSignedOut: vi.fn(), onSourcesChanged: vi.fn(),
+    backRef: { current: () => false },
+  };
+}
+
+it('HomeScreen saetter baggrunds-EPG og 90/120-sekunders job paa pause under afspilning og genoptager efter lukning', async () => {
+  const props = playbackHomeProps();
+  await mount(createElement(HomeScreen, props));
+  await tick(30_000);
+  await act(async () => tree!.update(createElement(HomeScreen, { ...props, covered: true })));
+  const ran = vi.fn(); const pending = withPanel(true, async () => { ran(); });
+  await withPanel(false, async () => undefined);
+  await tick(130_000);
+  expect(ran).not.toHaveBeenCalled();
+  expect(mocks.sport).not.toHaveBeenCalled(); expect(mocks.enrich).not.toHaveBeenCalled();
+  await act(async () => tree!.update(createElement(HomeScreen, props)));
+  await pending; expect(ran).toHaveBeenCalledTimes(1);
+  await tick(120_000);
+  expect(mocks.sport).toHaveBeenCalledTimes(1); expect(mocks.enrich).toHaveBeenCalledTimes(1);
+  await act(async () => tree!.update(createElement(HomeScreen, { ...props, covered: true })));
+  const afterUnmount = vi.fn(); const queued = withPanel(true, async () => { afterUnmount(); });
+  await act(async () => { tree!.unmount(); tree = null; });
+  await queued; expect(afterUnmount).toHaveBeenCalledTimes(1);
+});
+
+it('en kanalsynk startet foer video aabnes starter ikke favorit-EPG under videoen', async () => {
+  const props = playbackHomeProps();
+  let done!: (value: { rejected: never[]; synced: number }) => void;
+  mocks.sync.mockReturnValue(new Promise(resolve => { done = resolve; }));
+  await mount(createElement(HomeScreen, props));
+  await act(async () => mocks.front.mock.lastCall![0].onRefresh());
+  expect(mocks.sync).toHaveBeenCalledTimes(1);
+  await act(async () => tree!.update(createElement(HomeScreen, { ...props, covered: true })));
+  await act(async () => done({ rejected: [], synced: 0 }));
+  expect(mocks.prefetch).not.toHaveBeenCalled();
 });

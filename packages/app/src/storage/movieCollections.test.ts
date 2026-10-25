@@ -3,9 +3,9 @@ import { migrate } from './schema.js';
 import { createTestDatabase } from './testDb.js';
 import { addSource, deleteSource } from './sources.js';
 import { replaceVodItems } from './vod.js';
-import { invalidateQueryCache } from './queryCache.js';
+import { invalidateQueryCache, queryCacheRevision } from './queryCache.js';
 import type { SqlDatabase } from './types.js';
-import { collectionCandidates, listMovieCollectionItems, listMovieCollections, movieCollectionForItem, saveCollectionLookup, saveMovieCollection } from './movieCollections.js';
+import { COLLECTION_MAX_AGE_MS, collectionCandidates, listMovieCollectionItems, listMovieCollections, movieCollectionForItem, movieCollectionsRefreshDue, peekMovieCollectionItems, peekMovieCollections, saveCollectionLookup, saveMovieCollection, staleMovieCollectionIds } from './movieCollections.js';
 import type { MovieCollectionDetails } from './movieCollections.js';
 
 let db: SqlDatabase;
@@ -87,5 +87,100 @@ describe('filmsamlinger i eget katalog', () => {
     await expect(saveMovieCollection(db, { ...collection, name: 'Ny', parts: [collection.parts[0]!, collection.parts[0]!] }, 2000)).rejects.toThrow();
     expect((await listMovieCollections(db))[0]?.name).toBe('Samlingen');
     expect((await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM movie_collection_members'))?.n).toBe(3);
+  });
+
+  it('genindgang bruger frisk lokal oversigt og film uden nyt katalogscan eller hydrering', async () => {
+    await replaceVodItems(db, source, 'movie', [movie('first', 'First film', 2000)]);
+    await saveMovieCollection(db, collection, 1000);
+    expect(peekMovieCollections(db)).toBeNull();
+    const all = await listMovieCollections(db);
+    const items = await listMovieCollectionItems(db, 7);
+    const read = vi.spyOn(db, 'getAllAsync');
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 4 * 60_000);
+    expect(await listMovieCollections(db)).toBe(all);
+    expect(await listMovieCollectionItems(db, 7)).toBe(items);
+    expect(peekMovieCollections(db)).toBe(all);
+    expect(peekMovieCollectionItems(db, 7)).toBe(items);
+    expect(read).not.toHaveBeenCalled();
+    clock.mockRestore();
+  });
+
+  it('bevarer varm visning mens udloebne lokale metadata genlaeses med nye plakater', async () => {
+    await replaceVodItems(db, source, 'movie', [movie('first', 'First film', 2000)]);
+    await saveMovieCollection(db, collection, 1000);
+    const old = await listMovieCollectionItems(db, 7);
+    await db.runAsync('UPDATE vod_items SET poster_url=? WHERE key=?', ['https://example.invalid/new.jpg', key('first')]);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 6 * 60_000);
+    expect(peekMovieCollectionItems(db, 7)).toBe(old);
+    const fresh = await listMovieCollectionItems(db, 7);
+    expect(fresh[0]?.posterUrl).toBe('https://example.invalid/new.jpg');
+    expect(peekMovieCollectionItems(db, 7)).toBe(fresh);
+    clock.mockRestore();
+  });
+
+  it('hydrerer en endnu uaabnet samling fra kendte matches foer en langsom katalogopdatering er faerdig', async () => {
+    await replaceVodItems(db, source, 'movie', [movie('first', 'First film', 2000)]);
+    await saveMovieCollection(db, collection, 1000);
+    await listMovieCollections(db);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 6 * 60_000);
+    let release!: () => void;
+    const waiting = new Promise<void>(resolve => { release = resolve; });
+    const original = db.getAllAsync.bind(db);
+    const read = vi.spyOn(db, 'getAllAsync').mockImplementation(async (sql, args) => {
+      if (sql.includes('AS year,fp.tmdb_id AS tmdb_id')) await waiting;
+      return original(sql, args);
+    });
+    expect((await listMovieCollectionItems(db, 7))[0]?.key).toBe(key('first'));
+    release();
+    await listMovieCollections(db);
+    read.mockRestore(); clock.mockRestore();
+  });
+
+  it('egen metadata genbruger katalogets identitetsindeks uden at kassere andre skaermes cache', async () => {
+    await replaceVodItems(db, source, 'movie', [movie('first', 'First film', 2000)]);
+    await saveMovieCollection(db, collection, 1000);
+    await listMovieCollections(db);
+    const revision = queryCacheRevision();
+    const read = vi.spyOn(db, 'getAllAsync');
+    await saveMovieCollection(db, { ...collection, name: 'Nyt navn' }, 2000);
+    expect(peekMovieCollections(db)).toBeNull();
+    expect((await listMovieCollections(db))[0]?.name).toBe('Nyt navn');
+    const candidate = (await collectionCandidates(db, 2000, 1))[0]!;
+    await saveCollectionLookup(db, candidate, 999, null, 2000);
+    expect(await listMovieCollections(db)).toEqual([]);
+    await saveCollectionLookup(db, candidate, 100, 7, 2001);
+    expect((await listMovieCollections(db))[0]?.available).toBe(1);
+    expect(queryCacheRevision()).toBe(revision);
+    expect(read.mock.calls.some(([sql]) => sql.includes('AS year,fp.tmdb_id AS tmdb_id'))).toBe(false);
+  });
+
+  it('katalogskift invaliderer varme snapshots med det samme, og databaser deler dem aldrig', async () => {
+    await replaceVodItems(db, source, 'movie', [movie('first', 'First film', 2000)]);
+    await saveMovieCollection(db, collection, 1000);
+    await listMovieCollections(db); await listMovieCollectionItems(db, 7);
+    const other = createTestDatabase();
+    expect(peekMovieCollections(other)).toBeNull(); expect(peekMovieCollectionItems(other, 7)).toBeNull();
+    await replaceVodItems(db, source, 'movie', []);
+    expect(peekMovieCollections(db)).toBeNull(); expect(peekMovieCollectionItems(db, 7)).toBeNull();
+    expect(await listMovieCollections(db)).toEqual([]);
+    expect(await listMovieCollectionItems(db, 7)).toEqual([]);
+  });
+
+  it('kontrollerer ugentlig metadatafrist uden at laese filmkataloget', async () => {
+    await saveMovieCollection(db, collection, 1000);
+    const read = vi.spyOn(db, 'getAllAsync');
+    expect(await movieCollectionsRefreshDue(db, 1000 + COLLECTION_MAX_AGE_MS - 1)).toBe(false);
+    expect(await staleMovieCollectionIds(db, 1000 + COLLECTION_MAX_AGE_MS - 1)).toEqual([]);
+    expect(await movieCollectionsRefreshDue(db, 1000 + COLLECTION_MAX_AGE_MS)).toBe(true);
+    expect(await staleMovieCollectionIds(db, 1000 + COLLECTION_MAX_AGE_MS)).toEqual([7]);
+    expect(read.mock.calls.some(([sql]) => sql.includes('vod_items'))).toBe(false);
+  });
+
+  it('bevarer hoejst tolv hydrerede samlingssider', async () => {
+    await replaceVodItems(db, source, 'movie', [movie('first', 'First film', 2000)]);
+    for (let id = 1; id <= 13; id += 1) await saveMovieCollection(db, { ...collection, id }, 1000);
+    for (let id = 1; id <= 13; id += 1) await listMovieCollectionItems(db, id);
+    expect(peekMovieCollectionItems(db, 1)).toBeNull();
+    expect(peekMovieCollectionItems(db, 13)?.[0]?.key).toBe(key('first'));
   });
 });

@@ -11,6 +11,7 @@ const f = vi.hoisted(() => ({
   requests: [] as Array<{ from: Date; minutes: number }>,
   loads: [] as Array<{ source: unknown; seek: number }>,
   back: vi.fn(),
+  seekImmediately: true,
   appState: { currentState: 'active', addEventListener: (_event: string, fn: (state: string) => void) => {
     let entries = f.listeners.get('appState');
     if (entries === undefined) { entries = new Set(); f.listeners.set('appState', entries); }
@@ -31,6 +32,7 @@ const f = vi.hoisted(() => ({
     },
     play: () => { f.player.playing = true; },
     pause: () => { f.player.playing = false; },
+    seekBy: (seconds: number) => { if (f.seekImmediately) f.player.currentTime = Math.max(0, Math.min(f.player.duration, f.player.currentTime + seconds)); },
   },
 }));
 vi.mock('react-native', () => ({
@@ -84,6 +86,7 @@ vi.mock('../radio/useSaveSong.js', () => ({ useSaveSong: () => null }));
 
 import { PlayerScreen } from './PlayerScreen.js';
 import { LandscapePlayer } from './Landscape.js';
+import { applyStreamFormatSetting } from './format.js';
 
 const at = (time: string) => new Date(`2026-10-16T${time}Z`);
 const news = { channelId: 'tv2', title: '18-Nyhederne', description: null, start: at('18:00:00'), stop: at('18:20:00') };
@@ -96,8 +99,10 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   f.requests.length = 0; f.loads.length = 0; f.listeners.clear();
   f.player.currentTime = 0; f.player.status = 'readyToPlay'; f.player.playing = true;
+  f.player.duration = 1020; f.seekImmediately = true;
   f.setting.mockReset().mockResolvedValue('php');
   f.back.mockReset(); f.appState.currentState = 'active';
+  applyStreamFormatSetting('auto');
   tree = null;
 });
 afterEach(async () => {
@@ -106,7 +111,7 @@ afterEach(async () => {
   expect(vi.getTimerCount()).toBe(0);
   vi.unstubAllGlobals(); vi.useRealTimers();
 });
-const mount = async () => act(async () => { tree = create(createElement(PlayerScreen, { session, channel, startFrom: news, onBack: f.back })); });
+const mount = async (programme = news) => act(async () => { tree = create(createElement(PlayerScreen, { session, channel, startFrom: programme, onBack: f.back })); });
 async function end(position: number, now: string) {
   vi.setSystemTime(at(now));
   await act(async () => {
@@ -116,6 +121,88 @@ async function end(position: number, now: string) {
 }
 
 describe('TV2: igangvaerende udsendelse slutter under forsinket afspilning', () => {
+  it.each([undefined, 0].flatMap(frames => [{ frames, completed: false }, { frames, completed: true }]))('bevarer 30 sekunders fremdrift gennem gentagne EOF, faerdig $completed og billedtaeller $frames', async ({ frames, completed }) => {
+    if (completed) vi.setSystemTime(at('18:40:00'));
+    await mount(completed ? news : { ...news, stop: at('19:00:00') });
+    for (const [index, start] of [0, 30, 0].entries()) {
+      f.player.playing = true;
+      for (let second = 1; second <= 30; second += 1) {
+        await act(async () => {
+          f.player.currentTime = start + second;
+          for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: start + second, videoRenderedFrames: frames });
+        });
+        await advance(1000);
+      }
+      expect(f.loads).toHaveLength(index + 1);
+      await act(async () => {
+        // Nogle native EOF-forloeb nulstiller uret inden slut-haendelsen.
+        f.player.currentTime = 0; f.player.status = 'idle'; f.player.playing = false;
+        for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 0, videoRenderedFrames: frames });
+        for (const fn of [...f.listeners.get('playToEnd') ?? []]) fn(undefined);
+      });
+      expect(f.loads).toHaveLength(index + 2);
+    }
+    expect(f.requests.map(request => request.from)).toEqual([at('18:00:00'), at('18:00:00'), at('18:01:00'), at('18:01:00')]);
+    expect(f.loads.map(load => load.seek)).toEqual([0, 30, 0, 30]);
+    expect(f.loads.map(load => load.source)).not.toContain('https://example.invalid/live.ts');
+    expect(f.back).not.toHaveBeenCalled();
+  });
+
+  it('genforbinder fra 30 s efter native fejl med nulstillet ur og tom billedtaeller', async () => {
+    await mount({ ...news, stop: at('19:00:00') });
+    f.player.currentTime = 30;
+    await act(async () => {
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 30, videoRenderedFrames: 0 });
+    });
+    f.player.currentTime = 0;
+    await status('error'); await advance(1500);
+    expect(f.loads.map(load => load.seek)).toEqual([0, 30]);
+    expect(f.requests[1]?.from).toEqual(news.start);
+  });
+
+  it('et bevidst HLS-tilbage-seek nulstiller billeduret og bevarer det lavere tidspunkt ved EOF', async () => {
+    applyStreamFormatSetting('m3u8'); f.setting.mockResolvedValue('path');
+    await mount();
+    f.player.currentTime = 80;
+    await act(async () => {
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 80, videoRenderedFrames: 2000 });
+      expect(tree!.root.findByType(LandscapePlayer).props.onPlayerKey('left')).toBe(true);
+    });
+    expect(f.player.currentTime).toBe(70);
+    await act(async () => {
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 70, videoRenderedFrames: 2001 });
+    });
+    await end(0, '18:20:08.546');
+    expect(f.requests[1]?.from).toEqual(at('18:01:00'));
+    expect(f.loads[1]?.seek).toBe(10);
+  });
+
+  it.each([
+    { key: 'left', taps: 1, duration: 1020, target: 70, seek: 10 },
+    { key: 'left', taps: 2, duration: 1020, target: 60, seek: 0 },
+    { key: 'right', taps: 1, duration: 1020, target: 110, seek: 50 },
+    { key: 'right', taps: 1, duration: 85, target: 85, seek: 25 },
+  ])('venter paa $taps asynkrone HLS-spolinger $key til $target s trods gamle samples og native poll', async ({ key, taps, duration, target, seek }) => {
+    applyStreamFormatSetting('m3u8'); f.setting.mockResolvedValue('path');
+    f.seekImmediately = false; f.player.duration = duration;
+    await mount();
+    f.player.currentTime = 80;
+    await act(async () => {
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 80, videoRenderedFrames: 2000 });
+      for (let tap = 0; tap < taps; tap++) expect(tree!.root.findByType(LandscapePlayer).props.onPlayerKey(key)).toBe(true);
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 80, videoRenderedFrames: 2001 });
+    });
+    await advance(3000); // native uret staar stadig paa den gamle position
+    f.player.currentTime = target;
+    await act(async () => {
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: target, videoRenderedFrames: 2002 });
+    });
+    await end(0, '18:20:08.546');
+    expect(f.requests[1]?.from).toEqual(at('18:01:00'));
+    expect(f.loads[1]?.seek).toBe(seek);
+    expect(f.loads).toHaveLength(2);
+  });
+
   it('fortsaetter fra native slutposition ved idle uden en playToEnd-haendelse', async () => {
     await mount();
     vi.setSystemTime(at('18:36:10.171'));

@@ -16,6 +16,7 @@ import {
 import { CHANNEL_SYNC_INTERVAL_MS, syncAllSources } from '../../sync/syncAll.js';
 import { useAutomaticChannelSync } from '../../sync/useAutomaticChannelSync.js';
 import { prefetchFavouritesEpg } from '../../sync/prefetchEpg.js';
+import { pauseBackgroundPanel } from '../../sync/panelGate.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
@@ -167,6 +168,12 @@ export function HomeScreen({
   covered = false,
 }: Props) {
   const styles = useStyles(makeStyles);
+  const coveredRef = useRef(covered);
+  coveredRef.current = covered;
+  // En koesat EPG-runde maa ikke fortsaette kanal for kanal under video.
+  useEffect(() => {
+    if (covered) return pauseBackgroundPanel();
+  }, [covered]);
   // Telefonens navigationslinje ligger oven i fanelinjen uden det her.
   // Maalt frem for gaettet: en fast polstring rammer forkert paa baade
   // gestus-navigation og de gammeldags tre knapper.
@@ -398,22 +405,26 @@ export function HomeScreen({
   // v350: halvandet minut, ikke 30 s — forsiden, kanalhentningen og skyen
   // skal vaere faerdige foerst, og kaldene gaar i koe bag alt synligt.
   useEffect(() => {
-    const timer = setTimeout(() => void refreshSportEpg(session).catch(() => 0), 90_000);
+    if (covered) return;
+    const timer = setTimeout(() => {
+      if (!coveredRef.current) void refreshSportEpg(session).catch(() => 0);
+    }, 90_000);
     return () => clearTimeout(timer);
-  }, [session]);
+  }, [session, covered]);
 
   // Genre og aar fra TMDB til de nyeste film og serier (v367), til udvalget
   // under Film. To minutter efter start, nogle hundrede ad gangen; TMDB er
   // ikke panelet og tager ikke dets forbindelse.
   useEffect(() => {
+    if (covered) return;
     const timer = setTimeout(() => {
       void (async () => {
         const apiKey = await getTmdbApiKey(session.db);
-        if (apiKey !== null) await enrichVodMeta(session.db, tmdbFetch, apiKey);
+        if (apiKey !== null && !coveredRef.current) await enrichVodMeta(session.db, tmdbFetch, apiKey);
       })().catch(() => undefined);
     }, 120_000);
     return () => clearTimeout(timer);
-  }, [session]);
+  }, [session, covered]);
 
   /**
    * Panelet afviste et kald.
@@ -458,9 +469,11 @@ export function HomeScreen({
       // Bagefter, og uden at nogen venter paa det: favoritternes programtabel
       // for det naeste doegn, saa guiden er fyldt naar den aabnes. Fejler det,
       // henter guiden selv som foer.
-      void prefetchFavouritesEpg(session.db, session.credsBySource, session.fetchImpl).catch(
-        () => undefined,
-      );
+      if (!coveredRef.current) {
+        void prefetchFavouritesEpg(session.db, session.credsBySource, session.fetchImpl).catch(
+          () => undefined,
+        );
+      }
     },
     [session],
   );

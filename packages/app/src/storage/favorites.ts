@@ -1,4 +1,5 @@
 import { listChannels } from './channels.js';
+import { invalidateGuideSnapshot } from './guideSnapshot.js';
 import type { SqlDatabase } from './types.js';
 
 /**
@@ -36,7 +37,9 @@ export async function addCategoryToFavorites(
        AND id NOT IN (SELECT channel_id FROM favorite_exclusions WHERE category_id = ?)`,
     [categoryId, last?.n ?? -1, categoryId, categoryId],
   );
-  return (await countFavorites(db)) - before;
+  const added = (await countFavorites(db)) - before;
+  if (added > 0) invalidateGuideSnapshot(db);
+  return added;
 }
 
 async function countFavorites(db: SqlDatabase): Promise<number> {
@@ -55,6 +58,7 @@ export async function removeCategoryFromFavorites(
 ): Promise<void> {
   await db.runAsync('DELETE FROM favorites WHERE source_category_id = ?', [categoryId]);
   await db.runAsync('DELETE FROM favorite_exclusions WHERE category_id = ?', [categoryId]);
+  invalidateGuideSnapshot(db);
 }
 
 export interface FavoriteCategory {
@@ -123,4 +127,5 @@ async function writeOrder(db: SqlDatabase, ids: readonly string[]): Promise<void
   for (let index = 0; index < ids.length; index += 1) {
     await db.runAsync('UPDATE favorites SET position = ? WHERE channel_id = ?', [index, ids[index]!]);
   }
+  invalidateGuideSnapshot(db);
 }

@@ -198,7 +198,7 @@ export function PlayerScreen({
    * hvor panelets arkiv sluttede, da det blev bedt om — ved start-forfra paa
    * en udsendelse der sendes, er det midt i den. Se archiveContinuation.
    */
-  const archiveRef = useRef<{ programme: Programme; playbackStop: Date; segmentStart: number; seekSeconds: number; format: StreamFormat; dialect: TimeshiftDialect; panelOffsetMinutes: number } | null>(null);
+  const archiveRef = useRef<{ programme: Programme; playbackStop: Date; segmentStart: number; seekSeconds: number; durationSeconds: number; format: StreamFormat; dialect: TimeshiftDialect; panelOffsetMinutes: number } | null>(null);
   /** Afspillerens position i det nuvaerende stykke, i sekunder. */
   const positionRef = useRef(0);
   const readArchiveProgress = useCallback(() => {
@@ -474,8 +474,8 @@ export function PlayerScreen({
   }, [restarted]);
   useEffect(() => {
     let waitTimer: ReturnType<typeof setTimeout> | null = null;
-    const observedPosition = (): number => isTV && archiveVideoClock.current.hasFrames
-      ? archiveVideoClock.current.position
+    const observedPosition = (): number => isTV
+      ? archiveVideoClock.current.read(player.currentTime)
       : playbackClock(positionRef.current, player.currentTime, connection.prepared);
     const continueArchive = (): void => {
       if (isRadio || !restarted || caughtUpHandled.current || changingSource.current || preparingArchive.current || !connection.committed || !playIntent.current) return;
@@ -496,7 +496,7 @@ export function PlayerScreen({
       const airing = segment.programme;
       // Det sidste timeUpdate kan ligge et sekund foer slut. Native tid
       // giver den faktiske ende, saa hvert styk-skift ikke gentager et sekund.
-      const endedAt = player.currentTime;
+      const endedAt = isTV ? archiveVideoClock.current.read(player.currentTime, true) : player.currentTime;
       if (Number.isFinite(endedAt) && endedAt > positionRef.current) positionRef.current = endedAt;
       const nowMs = Date.now();
       const next = archiveContinuation(archivePlaybackBounds(airing, segment.playbackStop.getTime()), segment.segmentStart, positionRef.current, nowMs);
@@ -627,10 +627,10 @@ export function PlayerScreen({
     let cancelled = false;
     changingSource.current = true;
     recovery.current.beginLoad();
-    const seek = archiveRef.current?.seekSeconds ?? 0;
-    positionRef.current = seek;
-    archiveVideoClock.current.reset(seek);
     const segment = archiveRef.current;
+    const seek = segment?.seekSeconds ?? 0;
+    positionRef.current = seek;
+    archiveVideoClock.current.reset(seek, segment?.durationSeconds);
     const linear = Platform.OS === 'android' && segment !== null && (segment.dialect === 'php' || segment.format === 'ts');
     setRadioState('connecting');
     if (linear) logEvent('arkiv', `sekventiel TS v384: overlap ${seek.toFixed(3)} s, ingen PCR-byte-seek`);
@@ -711,7 +711,7 @@ export function PlayerScreen({
       // Et bekraeftet stykke har stadig et gyldigt ur, selv om active er
       // falsk midlertidigt. Genoptag dér, aldrig fra den gamle JS-position.
       if (archiveRef.current !== null && connection.prepared) {
-        try { positionRef.current = isTV && archiveVideoClock.current.hasFrames ? archiveVideoClock.current.position : playbackClock(positionRef.current, player.currentTime, true); } catch { /* Afspilleren er vaek. */ }
+        try { positionRef.current = isTV ? archiveVideoClock.current.read(player.currentTime) : playbackClock(positionRef.current, player.currentTime, true); } catch { /* Afspilleren er vaek. */ }
       }
 
       const { attempt, retry } = recovery.current.failure();
@@ -909,7 +909,7 @@ export function PlayerScreen({
           const expected = mayPlay() && connection.prepared
             && (status === 'loading' || status === 'readyToPlay')
             && (isTV || player.playing || status === 'loading');
-          const position = isTV && archiveVideoClock.current.hasFrames ? archiveVideoClock.current.position : playbackClock(positionRef.current, player.currentTime, connection.prepared);
+          const position = isTV ? archiveVideoClock.current.read(player.currentTime) : playbackClock(positionRef.current, player.currentTime, connection.prepared);
           if (connection.prepared) positionRef.current = position;
           if (archiveWatchdog.stalled(position, Date.now(), expected)) {
             let buffered = -1;
@@ -1049,7 +1049,7 @@ export function PlayerScreen({
         );
         logEvent('arkiv', `slutgraense v395: guide ${clockOf(programme.stop.getTime())}, arkiv til ${clockOf(bounds.stop.getTime())}`);
         const format = archiveFormat.current ?? formatForPlatform();
-        archiveRef.current = { programme, playbackStop: bounds.stop, segmentStart: window.from.getTime(), seekSeconds: window.seekSeconds, format, dialect, panelOffsetMinutes: offset };
+        archiveRef.current = { programme, playbackStop: bounds.stop, segmentStart: window.from.getTime(), seekSeconds: window.seekSeconds, durationSeconds: window.minutes * 60, format, dialect, panelOffsetMinutes: offset };
         positionRef.current = window.seekSeconds;
         // Samme beholder som live (.ts paa Android): arkivet som HLS gav groen
         // skaerm med lyd paa DR-kanalerne paa tv, mens live i .ts var fint.
@@ -1206,7 +1206,16 @@ export function PlayerScreen({
     const segment = archiveRef.current;
     if (segment === null || changingSource.current || preparingArchive.current || !connection.prepared) return;
     if (Platform.OS !== 'android' || (segment.dialect !== 'php' && segment.format !== 'ts')) {
-      player.seekBy(seconds);
+      const native = player.currentTime;
+      const base = (isTV ? archiveVideoClock.current.seekTarget : null)
+        ?? (Number.isFinite(native) && native >= 0 && native <= segment.durationSeconds + 2 ? native : positionRef.current);
+      const maximum = Number.isFinite(player.duration) && player.duration > 0 ? Math.min(segment.durationSeconds, player.duration) : segment.durationSeconds;
+      const target = Math.max(0, Math.min(maximum, base + seconds));
+      // Bevar bekraeftet fremdrift indtil native har naaet spoletiden.
+      // Et gammelt 80 s-sample efter seek til 70 maa ikke ophaeve spoling.
+      archiveVideoClock.current.requestSeek(target);
+      try { player.seekBy(seconds); }
+      catch (error) { archiveVideoClock.current.cancelSeek(); throw error; }
       return;
     }
     const start = segment.programme.start.getTime();

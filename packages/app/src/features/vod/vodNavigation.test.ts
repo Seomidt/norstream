@@ -22,7 +22,7 @@ describe('Film og Serier: Tilbage', () => {
   });
   it('samlinger og fulgte serier har en sammenhaengende tilbage-vej', () => {
     expect(parentVodLevel({ name: 'collection', collectionId: 7 })).toEqual({ name: 'collections' });
-    expect(parentVodLevel({ name: 'collections' })).toEqual({ name: 'home' });
+    expect(parentVodLevel({ name: 'collections' })).toEqual({ name: 'countries', kind: 'movie' });
     expect(parentVodLevel({ name: 'followed' })).toEqual({ name: 'home' });
     expect(parentVodLevel({ name: 'followed', fromSeries: true })).toEqual({ name: 'countries', kind: 'series' });
   });

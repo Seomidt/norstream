@@ -15,6 +15,7 @@ import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
+import { guideSnapshotRevision, peekGuideSnapshot, saveGuideSnapshot } from '../../storage/guideSnapshot.js';
 import { listProgrammes } from '../../storage/programmes.js';
 import { getFavoriteGroup, getGuideInfoMode, setFavoriteGroup, sourcesWithDialect } from '../../storage/settings.js';
 import type { GuideInfoMode } from '../../storage/settings.js';
@@ -137,7 +138,10 @@ export const GuideScreen = memo(function GuideScreen({
 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
-  const [channels, setChannels] = useState<StoredChannel[]>([]);
+  // Sidste gyldige kanalliste tegnes i foerste render. SQLite validerer den
+  // bagefter, saa et nyt guidebesoeg ikke venter paa alle metadataopslagene.
+  const [initialSnapshot] = useState(() => peekGuideSnapshot(session.db, reloadToken));
+  const [channels, setChannels] = useState<StoredChannel[]>(() => initialSnapshot?.channels ?? []);
   const [rows, setRows] = useState<Record<string, Programme[]>>({});
   /**
    * Kilderne der har fundet en timeshift-dialekt.
@@ -147,7 +151,7 @@ export const GuideScreen = memo(function GuideScreen({
    * nogen kanal, uanset hvor mange af dem der havde arkiv.
    */
   const [dialectSources, setDialectSources] = useState<ReadonlySet<string>>(
-    () => new Set<string>(),
+    () => initialSnapshot?.dialectSources ?? new Set<string>(),
   );
   /** Hvor mange minutter vinduet er forskudt fra nu. Negativt er bagud. */
   const [offsetMinutes, setOffsetMinutes] = useState(0);
@@ -270,7 +274,7 @@ export const GuideScreen = memo(function GuideScreen({
     };
   }
   /** Kanalen previewet viser, eller null. Foelger den oeverste synlige raekke. */
-  const [previewChannel, setPreviewChannel] = useState<StoredChannel | null>(null);
+  const [previewChannel, setPreviewChannel] = useState<StoredChannel | null>(() => initialSnapshot?.channels[0] ?? null);
   /**
    * Kanalen brugeren selv har valgt til previewet, ved et tryk paa navnet.
    * Saa laenge den er sat, foelger previewet ikke rulningen: de nederste
@@ -350,7 +354,7 @@ export const GuideScreen = memo(function GuideScreen({
   }, [session, showNews]);
   // Laerredets bredde, ikke vinduets: paa tv er de ikke ens (se ui/tv.ts).
   const sideBySide = guideTopLayout(useCanvasSize().width) === 'side';
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(initialSnapshot === null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   /** Den celle bladet er aabnet for, eller null naar det er lukket. */
   const [sheet, setSheet] = useState<{
@@ -429,26 +433,39 @@ export const GuideScreen = memo(function GuideScreen({
   }, [session.db, previewId, now, previewRows]);
 
   /** Favoritgruppen guiden viser (null = alle), og alle grupperne til at skifte imellem. */
-  const [group, setGroup] = useState<FavoriteGroup | null>(null);
-  const [groups, setGroups] = useState<FavoriteGroup[]>([]);
+  const [group, setGroup] = useState<FavoriteGroup | null>(() => initialSnapshot?.group ?? null);
+  const [groups, setGroups] = useState<FavoriteGroup[]>(() => initialSnapshot?.groups ?? []);
   const [groupTick, setGroupTick] = useState(0);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const [chosen, groupList, withDialect] = await Promise.all([
-          getFavoriteGroup(session.db),
-          listFavoriteGroups(session.db),
-          sourcesWithDialect(session.db),
-        ]);
-        const current = groupList.find((entry) => entry.id === chosen) ?? null;
-        const favourites = await listChannels(session.db, { favouritesOnly: true, groupId: current?.id ?? null });
-        if (cancelled) return;
-        setGroups(groupList);
-        setGroup(current);
-        setChannels(favourites);
-        setDialectSources(withDialect);
-        setPreviewChannel((current) => favourites.find(c => c.id === current?.id) ?? favourites[0] ?? null);
+        while (!cancelled) {
+          const revision = guideSnapshotRevision(session.db);
+          const [chosen, groupList, withDialect] = await Promise.all([
+            getFavoriteGroup(session.db),
+            listFavoriteGroups(session.db),
+            sourcesWithDialect(session.db),
+          ]);
+          if (cancelled) return;
+          const current = groupList.find((entry) => entry.id === chosen) ?? null;
+          const favourites = await listChannels(session.db, { favouritesOnly: true, groupId: current?.id ?? null });
+          if (cancelled) return;
+          // En favorit/kilde kan vaere aendret under laesningen. Proev igen,
+          // saa det gamle svar hverken bliver tegnet eller varmer cachen.
+          if (revision !== guideSnapshotRevision(session.db)) continue;
+          saveGuideSnapshot(session.db, reloadToken, revision, {
+            channels: favourites, group: current, groups: groupList, dialectSources: withDialect,
+          });
+          setGroups(groupList);
+          setGroup(current);
+          setChannels(favourites);
+          setDialectSources(withDialect);
+          setPreviewChannel((current) => favourites.find(c => c.id === current?.id) ?? favourites[0] ?? null);
+          return;
+        }
+      } catch {
+        // En laesefejl fjerner ikke den visning, der allerede er gemt.
       } finally {
         if (!cancelled) setLoading(false);
       }

@@ -1,4 +1,5 @@
 import type { SqlDatabase } from './types.js';
+import { invalidateGuideSnapshot } from './guideSnapshot.js';
 
 /**
  * Grupper oven paa favoritterne.
@@ -43,6 +44,7 @@ export async function createFavoriteGroup(db: SqlDatabase, name: string): Promis
   const position = (last?.max ?? -1) + 1;
   const id = `g${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
   await db.runAsync('INSERT INTO favorite_groups (id, name, position) VALUES (?, ?, ?)', [id, trimmed, position]);
+  invalidateGuideSnapshot(db);
   return { id, name: trimmed, position, count: 0 };
 }
 
@@ -50,11 +52,13 @@ export async function renameFavoriteGroup(db: SqlDatabase, id: string, name: str
   const trimmed = name.trim();
   if (trimmed.length === 0) return;
   await db.runAsync('UPDATE favorite_groups SET name = ? WHERE id = ?', [trimmed, id]);
+  invalidateGuideSnapshot(db);
 }
 
 export async function deleteFavoriteGroup(db: SqlDatabase, id: string): Promise<void> {
   await db.runAsync('DELETE FROM favorite_group_members WHERE group_id = ?', [id]);
   await db.runAsync('DELETE FROM favorite_groups WHERE id = ?', [id]);
+  invalidateGuideSnapshot(db);
 }
 
 /** Flytter gruppen én plads op eller ned i raekken af grupper. */
@@ -69,6 +73,7 @@ export async function moveFavoriteGroup(db: SqlDatabase, id: string, direction: 
   for (let position = 0; position < order.length; position += 1) {
     await db.runAsync('UPDATE favorite_groups SET position = ? WHERE id = ?', [position, order[position]!]);
   }
+  invalidateGuideSnapshot(db);
 }
 
 export async function setFavoriteGroupMember(
@@ -82,6 +87,7 @@ export async function setFavoriteGroupMember(
   } else {
     await db.runAsync('DELETE FROM favorite_group_members WHERE group_id = ? AND channel_id = ?', [groupId, channelId]);
   }
+  invalidateGuideSnapshot(db);
 }
 
 /** Kanalerne i gruppen, som et saet af kanal-id'er. */

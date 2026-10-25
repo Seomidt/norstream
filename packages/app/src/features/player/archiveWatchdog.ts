@@ -59,14 +59,49 @@ export class ArchiveWatchdog {
 export class ArchiveVideoClock {
   private rendered: number | null = null;
   private seconds = 0;
-  reset(seconds: number): void { this.rendered = null; this.seconds = seconds; }
+  private maximum = Number.POSITIVE_INFINITY;
+  private pendingSeek: number | null = null;
+  reset(seconds: number, maximum = Number.POSITIVE_INFINITY): void {
+    this.rendered = null;
+    this.seconds = seconds;
+    this.maximum = maximum;
+    this.pendingSeek = null;
+  }
   get hasFrames(): boolean { return this.rendered !== null; }
   get position(): number { return this.seconds; }
+  get seekTarget(): number | null { return this.pendingSeek; }
+  /** Native seekBy er asynkront: gamle samples maa ikke ophaeve et tilbage-seek. */
+  requestSeek(seconds: number): void { this.pendingSeek = seconds; }
+  cancelSeek(): void { this.pendingSeek = null; }
+  private confirmSeek(seconds: number): boolean {
+    if (this.pendingSeek === null) return true;
+    if (!Number.isFinite(seconds) || seconds < 0 || seconds > this.maximum + 2 || Math.abs(seconds - this.pendingSeek) > 2) return false;
+    this.pendingSeek = null;
+    this.seconds = seconds;
+    this.rendered = null;
+    return true;
+  }
+  private advance(seconds: number): void {
+    // Native EOF kan nulstille uret. En TS-PTS-vaerdi maa heller ikke
+    // ligne fremdrift flere timer uden for det bestilte arkivstykke.
+    if (Number.isFinite(seconds) && seconds >= this.seconds && seconds <= this.maximum + 2) this.seconds = seconds;
+  }
+  /** Uden brugbare billedmaalinger bruges det bekraeftede native ur.
+   * Ved EOF tillades hoejst to sekunders hale efter sidste billedhaendelse. */
+  read(seconds: number, ended = false): number {
+    if (!this.confirmSeek(seconds)) return this.seconds;
+    if (!this.hasFrames || (ended && seconds <= this.seconds + 2)) this.advance(seconds);
+    return this.seconds;
+  }
   observe(seconds: number, rendered: unknown): number {
     if (!Number.isFinite(seconds) || seconds < 0) return this.seconds;
-    if (typeof rendered !== 'number' || !Number.isSafeInteger(rendered) || rendered < 0) return this.seconds;
-    if (rendered > 0 && (this.rendered === null || rendered > this.rendered)) this.seconds = seconds;
-    this.rendered = rendered;
+    if (!this.confirmSeek(seconds)) return this.seconds;
+    if (typeof rendered !== 'number' || !Number.isSafeInteger(rendered) || rendered < 0) return this.read(seconds);
+    if (rendered > 0 && (this.rendered === null || rendered > this.rendered)) this.advance(seconds);
+    // Nul er ogsaa standardvaerdien naar native ikke leverer taelleren.
+    // Den bliver foerst autoritet efter mindst ét faktisk vist billede.
+    if (rendered > 0 || this.rendered !== null) this.rendered = rendered;
+    else this.advance(seconds);
     return this.seconds;
   }
 }

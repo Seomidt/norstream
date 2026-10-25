@@ -1,6 +1,7 @@
 import { isValidSourceId } from '@norstream/core';
 import type { Source, SourceKind } from '@norstream/core';
 import { invalidateQueryCache } from './queryCache.js';
+import { invalidateGuideSnapshot } from './guideSnapshot.js';
 import type { SqlDatabase } from './types.js';
 import { deleteVodForSource } from './vod.js';
 
@@ -79,6 +80,7 @@ export async function addSource(
     ],
   );
 
+  invalidateGuideSnapshot(db);
   return {
     id,
     kind: source.kind,
@@ -146,10 +148,12 @@ export async function setSourceEnabled(
   enabled: boolean,
 ): Promise<void> {
   await db.runAsync('UPDATE sources SET enabled = ? WHERE id = ?', [enabled ? 1 : 0, id]);
+  invalidateGuideSnapshot(db);
 }
 
 export async function renameSource(db: SqlDatabase, id: string, name: string): Promise<void> {
   await db.runAsync('UPDATE sources SET name = ? WHERE id = ?', [name, id]);
+  invalidateGuideSnapshot(db);
 }
 
 /**
@@ -167,6 +171,7 @@ export async function updateSourceDetails(
     'UPDATE sources SET name = ?, url = ?, username = ?, xmltv_url = ? WHERE id = ?',
     [fields.name, fields.url, fields.username ?? null, fields.xmltvUrl ?? null, id],
   );
+  invalidateGuideSnapshot(db);
 }
 
 /**
@@ -189,6 +194,7 @@ export async function deleteSource(db: SqlDatabase, id: string): Promise<void> {
   await db.runAsync('DELETE FROM categories WHERE source_id = ?', [id]);
   await deleteVodForSource(db, id);
   await db.runAsync('DELETE FROM sources WHERE id = ?', [id]);
+  invalidateGuideSnapshot(db);
 }
 
 /**
@@ -218,4 +224,5 @@ export async function adoptLegacyKeys(db: SqlDatabase, sourceId: string): Promis
     "UPDATE OR IGNORE recordings SET id = channel_id || ':' || start_ms WHERE id NOT LIKE ? ",
     [`${sourceId}:%`],
   );
+  invalidateGuideSnapshot(db);
 }

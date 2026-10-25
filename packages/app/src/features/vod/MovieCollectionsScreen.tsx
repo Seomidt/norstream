@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, View } from 'react-native';
 import type { AppSession } from '../../session.js';
 import type { StoredVodItem } from '../../storage/vod.js';
 import { getTmdbApiKey } from '../../storage/settings.js';
-import { listMovieCollectionItems, listMovieCollections } from '../../storage/movieCollections.js';
+import { listMovieCollectionItems, listMovieCollections, movieCollectionsRefreshDue, peekMovieCollectionItems, peekMovieCollections } from '../../storage/movieCollections.js';
 import type { MovieCollectionSummary } from '../../storage/movieCollections.js';
 import { discoverMovieCollections } from '../../sync/movieCollections.js';
 import { tmdbFetch } from '../../sync/tmdb.js';
@@ -32,19 +32,29 @@ export function MovieCollectionsScreen({ session, collectionId, onCollection, on
   const styles = useStyles(makeStyles);
   const { colors } = useTheme();
   const scroll = useVodListFocus<Card>();
-  const [cards, setCards] = useState<Card[]>([]);
-  const [heading, setHeading] = useState('Filmsamlinger');
-  const [loading, setLoading] = useState(true);
+  const page = String(collectionId ?? 'list');
+  const hotAll = peekMovieCollections(session.db);
+  const hotItems = collectionId === null ? null : peekMovieCollectionItems(session.db, collectionId);
+  const hotCards = useMemo(() => collectionId === null
+    ? hotAll === null ? null : collectionCards(hotAll)
+    : hotItems === null ? null : movieCards(hotItems), [collectionId, hotAll, hotItems]);
+  const hotHeading = collectionId === null ? 'Filmsamlinger' : hotAll?.find(row => row.id === collectionId)?.name ?? 'Filmsamling';
+  const [savedCards, setCards] = useState<Card[]>(hotCards ?? []);
+  const [savedHeading, setHeading] = useState(hotHeading);
+  const [loading, setLoading] = useState(hotCards === null);
   const [updating, setUpdating] = useState(false);
   const [missingKey, setMissingKey] = useState(false);
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const [remaining, setRemaining] = useState(false);
-  const [loadedPage, setLoadedPage] = useState<string | null>(null);
+  const [loadedPage, setLoadedPage] = useState<string | null>(hotCards === null ? null : page);
+  const [loadedDb, setLoadedDb] = useState(session.db);
+  const cards = loadedDb === session.db && loadedPage === page ? savedCards : hotCards ?? [];
+  const heading = loadedDb === session.db && loadedPage === page ? savedHeading : hotHeading;
   const [firstFocus, setFirstFocus] = useState<string | null>(null);
   const focusedPage = useRef<string | null>(null);
+  const findMore = useRef(false);
   useEffect(() => {
-    const page = String(collectionId ?? 'list');
     if (!isTV || !active || loadedPage !== page || cards.length === 0 || focusedPage.current === page) return;
     focusedPage.current = page;
     setFirstFocus(page);
@@ -55,38 +65,48 @@ export function MovieCollectionsScreen({ session, collectionId, onCollection, on
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
-    const load = async (): Promise<void> => {
-      const all = await listMovieCollections(session.db);
+    const load = async (): Promise<MovieCollectionSummary[]> => {
+      // En kendt samlings navn er allerede lokalt. Dens faa film skal ikke
+      // vente paa en baggrundsopdatering af hele oversigtens katalogmatch.
+      const all = collectionId !== null && hotAll !== null ? hotAll : await listMovieCollections(session.db);
+      if (cancelled) return all;
       const items = collectionId === null ? [] : await listMovieCollectionItems(session.db, collectionId);
-      if (cancelled) return;
+      if (cancelled) return all;
       setHeading(collectionId === null ? 'Filmsamlinger' : all.find(row => row.id === collectionId)?.name ?? 'Filmsamling');
-      setCards(collectionId === null ? all.map(collection => ({
-        key: `collection:${collection.id}`, name: collection.name, poster: collection.posterUrl,
-        meta: `${collection.available} film i pakken`, collection,
-      })) : items.map(movie => ({
-        key: movie.key, name: movie.name, poster: movie.posterUrl ?? movie.foundPosterUrl,
-        meta: movie.year === null ? '' : String(movie.year), movie,
-      })));
+      setCards(collectionId === null ? collectionCards(all) : movieCards(items));
       setLoadedPage(String(collectionId ?? 'list'));
+      setLoadedDb(session.db);
       setLoading(false);
+      return all;
     };
-    setLoading(true); setFailed(false); setMissingKey(false); setRemaining(false);
+    setLoading(hotCards === null && !(loadedDb === session.db && loadedPage === page));
+    setFailed(false); setMissingKey(false); setRemaining(false);
     void (async () => {
       try {
-        await load();
+        const all = await load();
         // En aabnet samling viser allerede alle dens kendte dele. Navigation
         // mellem samlinger maa ikke starte nye katalog-batches.
         if (collectionId !== null) return;
+        const manual = findMore.current;
+        findMore.current = false;
+        const knownOnly = all.length > 0 && !manual;
+        // En kendt, frisk oversigt kraever hverken noegle eller TMDB-opslag.
+        // Nye titler kan fortsat findes med brugerens eksplicitte knap.
+        if (knownOnly && !await movieCollectionsRefreshDue(session.db, Date.now())) {
+          if (!cancelled) setRemaining(true);
+          return;
+        }
+        if (cancelled) return;
         const key = await getTmdbApiKey(session.db);
         if (cancelled) return;
         if (key === null || key.trim().length === 0) { setMissingKey(true); return; }
         setUpdating(true);
         // Hoejst 24 katalogtitler per besoeg. En afgang stopper naeste kald.
         for (let batch = 0; batch < 3 && !cancelled; batch += 1) {
-          const result = await discoverMovieCollections(session.db, tmdbFetch, key, { limit: 8, isCancelled: () => cancelled });
+          const result = await discoverMovieCollections(session.db, tmdbFetch, key, { limit: 8, knownOnly, isCancelled: () => cancelled });
           if (cancelled) return;
           if (result.changed > 0) await load();
-          setRemaining(result.remaining);
+          setRemaining(result.remaining || knownOnly);
           if (result.failed) { setFailed(true); break; }
           if (!result.remaining || result.looked === 0) break;
         }
@@ -108,7 +128,7 @@ export function MovieCollectionsScreen({ session, collectionId, onCollection, on
       <Text style={styles.name}>Kunne ikke opdatere samlinger. Prøv igen</Text>
     </TvPressable>}
     {remaining && !updating && !failed && !missingKey && <TvPressable style={styles.retry}
-      hasTVPreferredFocus={isTV && cards.length === 0} onPress={() => setRetry(value => value + 1)}>
+      hasTVPreferredFocus={isTV && cards.length === 0} onPress={() => { findMore.current = true; setRetry(value => value + 1); }}>
       <Text style={styles.name}>Find flere samlinger</Text>
     </TvPressable>}
     {!loading && cards.length === 0 && <Text style={styles.empty}>
@@ -124,6 +144,15 @@ export function MovieCollectionsScreen({ session, collectionId, onCollection, on
         onPress={() => item.collection !== undefined ? onCollection(item.collection.id) : onOpen(item.movie)} />}
     />
   </View>;
+}
+
+function collectionCards(all: MovieCollectionSummary[]): Card[] {
+  return all.map(collection => ({ key: `collection:${collection.id}`, name: collection.name, poster: collection.posterUrl,
+    meta: `${collection.available} film i pakken`, collection }));
+}
+function movieCards(items: StoredVodItem[]): Card[] {
+  return items.map(movie => ({ key: movie.key, name: movie.name, poster: movie.posterUrl ?? movie.foundPosterUrl,
+    meta: movie.year === null ? '' : String(movie.year), movie }));
 }
 
 function CollectionCard({ card, onFocus, onPress, preferFocus }: { card: Card; onFocus: () => void; onPress: () => void; preferFocus: boolean }) {

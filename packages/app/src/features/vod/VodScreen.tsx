@@ -174,8 +174,6 @@ export function VodScreen({ session, active, reloadToken = 0, backRef, level, on
           onOpen={onOpen}
           onBrowse={(kind) => onLevelChange({ name: 'countries', kind })}
           onCinema={() => onLevelChange({ name: 'cinema' })}
-          onCollections={() => onLevelChange({ name: 'collections' })}
-          onFollowed={() => onLevelChange({ name: 'followed' })}
         />
       </View>
     );
@@ -219,6 +217,7 @@ export function VodScreen({ session, active, reloadToken = 0, backRef, level, on
           kind={level.kind}
           onPick={(country) => onLevelChange({ name: 'categories', kind: level.kind, country })}
           onFilter={() => onLevelChange({ name: 'filter', kind: level.kind })}
+          onCollections={() => onLevelChange({ name: 'collections' })}
           onFollowed={() => onLevelChange({ name: 'followed', fromSeries: true })}
         />
       </View>
@@ -278,8 +277,6 @@ function Home({
   onOpen,
   onBrowse,
   onCinema,
-  onCollections,
-  onFollowed,
 }: {
   session: AppSession;
   active: boolean;
@@ -287,8 +284,6 @@ function Home({
   onOpen: (item: StoredVodItem) => void;
   onBrowse: (kind: VodKind) => void;
   onCinema: () => void;
-  onCollections: () => void;
-  onFollowed: () => void;
 }) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
@@ -389,14 +384,6 @@ function Home({
             <Text style={styles.browseTitle}>Biograf</Text>
             <Text style={styles.browseCount}>i biografen nu · kommer snart</Text>
           </TvPressable>
-          <TvPressable style={browseButtonStyle} onPress={onCollections}>
-            <Text style={styles.browseTitle}>Filmsamlinger</Text>
-            <Text style={styles.browseCount}>filmene i din pakke</Text>
-          </TvPressable>
-          <TvPressable style={browseButtonStyle} onPress={onFollowed}>
-            <Text style={styles.browseTitle}>Serier jeg følger</Text>
-            <Text style={styles.browseCount}>overblik og nye afsnit</Text>
-          </TvPressable>
         </View>
         {inProgress.length > 0 && <Shelf title="Fortsæt" items={inProgress}
           onOpen={item => { if (!continueOpen.current) onOpen(item); }}
@@ -448,12 +435,14 @@ function Countries({
   kind,
   onPick,
   onFilter,
+  onCollections,
   onFollowed,
 }: {
   session: AppSession;
   kind: VodKind;
   onPick: (country: CountryGroup) => void;
   onFilter: () => void;
+  onCollections: () => void;
   onFollowed: () => void;
 }) {
   // Én gang naar listen kommer frem, ikke ved hver tegning: ellers sprang fokus til toppen efter ethvert OK-tryk.
@@ -492,13 +481,13 @@ function Countries({
             <Text style={styles.chevron}>›</Text>
           </TvPressable>
         )}
-        {kind === 'series' && <TvPressable style={[styles.row, styles.filterRow]}
-          hasTVPreferredFocus={focusFirstAtMount && groups.length === 0} onPress={onFollowed}>
-          <Text style={styles.flag}>🔔</Text>
-          <View style={styles.rowMain}><Text style={styles.rowTitle}>Serier jeg følger</Text>
-            <Text style={styles.rowCount}>overblik og nye afsnit i pakken</Text></View>
+        <TvPressable style={[styles.row, styles.filterRow]}
+          hasTVPreferredFocus={focusFirstAtMount && groups.length === 0} onPress={kind === 'movie' ? onCollections : onFollowed}>
+          <Text style={styles.flag}>{kind === 'movie' ? '▣' : '🔔'}</Text>
+          <View style={styles.rowMain}><Text style={styles.rowTitle}>{kind === 'movie' ? 'Filmsamlinger' : 'Serier jeg følger'}</Text>
+            <Text style={styles.rowCount}>{kind === 'movie' ? 'filmserier i din pakke' : 'overblik og nye afsnit i pakken'}</Text></View>
           <Text style={styles.chevron}>›</Text>
-        </TvPressable>}
+        </TvPressable>
       </>}
       renderItem={({ item, index }) => (
         <TvPressable style={styles.row} onFocus={() => scroll.focus(index)} onPress={() => onPick(item)}>

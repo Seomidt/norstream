@@ -8,6 +8,7 @@ import {
 import type { Category, Channel } from '@norstream/core';
 import { deadLogoOrigins } from './logoHosts.js';
 import { invalidateQueryCache } from './queryCache.js';
+import { invalidateGuideSnapshot } from './guideSnapshot.js';
 import { withTransaction } from './transaction.js';
 import type { SqlDatabase, SqlValue } from './types.js';
 
@@ -498,6 +499,7 @@ export async function setFavorite(
     // Brugeren vil have den igen; en tidligere fravalgt kanal skal ikke blive
     // ved med at vaere udelukket fra kategoriens opdatering.
     await db.runAsync('DELETE FROM favorite_exclusions WHERE channel_id = ?', [id]);
+    invalidateGuideSnapshot(db);
     return;
   }
 
@@ -516,6 +518,7 @@ export async function setFavorite(
     );
   }
   await db.runAsync('DELETE FROM favorites WHERE channel_id = ?', [id]);
+  invalidateGuideSnapshot(db);
 }
 
 /**

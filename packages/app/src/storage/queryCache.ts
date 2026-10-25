@@ -11,6 +11,9 @@
 let epoch = 0;
 const cache = new Map<string, { promise: Promise<unknown>; expiresAt: number }>();
 
+/** Faelles revision til afledte snapshots af kanal- og katalogdata. */
+export function queryCacheRevision(): number { return epoch; }
+
 /** Kaster alt cachet vaek. Kaldes naar de underliggende data er aendret. */
 export function invalidateQueryCache(): void {
   epoch += 1;

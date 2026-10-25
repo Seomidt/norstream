@@ -1,6 +1,7 @@
 import { deriveCountryLoose, normaliseChannelName } from '@norstream/core';
 import type { SqlDatabase } from './types.js';
 import { withTransaction } from './transaction.js';
+import { invalidateGuideSnapshot } from './guideSnapshot.js';
 
 /**
  * Sikkerhedskopi af det brugeren selv har lavet: favoritter i deres
@@ -349,6 +350,20 @@ export async function restoreBackup(
   db: SqlDatabase,
   backup: Backup,
   options: RestoreOptions = {},
+): Promise<RestoreResult> {
+  invalidateGuideSnapshot(db);
+  try {
+    return await restoreBackupData(db, backup, options);
+  } finally {
+    // Ogsaa en delvis eller fejlet gendannelse maa afvise aeldre svar.
+    invalidateGuideSnapshot(db);
+  }
+}
+
+async function restoreBackupData(
+  db: SqlDatabase,
+  backup: Backup,
+  options: RestoreOptions,
 ): Promise<RestoreResult> {
   const current = await db.getAllAsync<{ id: string; url: string; username: string | null }>(
     'SELECT id, url, username FROM sources',
