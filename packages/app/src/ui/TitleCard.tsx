@@ -16,6 +16,7 @@ export const TitleCard = memo(function TitleCard({
   onPress,
   meta,
   preferFocus,
+  inPackage = false,
 }: {
   title: TmdbTitle;
   onPress: () => void;
@@ -23,10 +24,13 @@ export const TitleCard = memo(function TitleCard({
   meta?: string;
   /** Tv: kortet beder om fokus (én tegning ad gangen, se hasTVPreferredFocus). */
   preferFocus?: boolean;
+  /** Biografen: bekraeftet match i brugerens eget filmkatalog. */
+  inPackage?: boolean;
 }) {
   const styles = useStyles(makeStyles);
   return (
-    <TvPressable style={styles.title} onPress={onPress} hasTVPreferredFocus={preferFocus === true}>
+    <TvPressable style={styles.title} onPress={onPress} hasTVPreferredFocus={preferFocus === true}
+      accessibilityLabel={inPackage ? `${title.title}, i din pakke` : title.title}>
       <View style={styles.titleFrame}>
         {title.thumbUrl !== null ? (
           <Image source={{ uri: title.thumbUrl }} style={styles.titleImage} resizeMode="cover" />
@@ -37,6 +41,7 @@ export const TitleCard = memo(function TitleCard({
             </Text>
           </View>
         )}
+        {inPackage && <View style={styles.packageBadge} pointerEvents="none"><Text style={styles.packageText}>★ I pakken</Text></View>}
       </View>
       <Text style={styles.titleName} numberOfLines={1}>
         {title.title}
@@ -58,6 +63,8 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.surface,
   },
   titleImage: { width: '100%', height: '100%' },
+  packageBadge: { position: 'absolute', left: 3, right: 3, bottom: 3, borderRadius: 3, paddingVertical: 3, backgroundColor: colors.background },
+  packageText: { color: colors.text, fontSize: 11, fontWeight: '700', textAlign: 'center' },
   titleFallback: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: theme.spacing.sm },
   titleFallbackText: { color: colors.textMuted, fontSize: 12, textAlign: 'center', fontWeight: '600' },
   titleName: { color: colors.text, fontSize: 12, marginTop: 4 },

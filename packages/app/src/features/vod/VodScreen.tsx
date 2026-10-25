@@ -181,7 +181,7 @@ export function VodScreen({ session, active, reloadToken = 0, backRef, level, on
             fokus (og tastaturet kom frem) naar siden aabnede. */}
         {!isTV && searchField}
         <Crumb label="Biograf" onBack={back} />
-        <CinemaScreen session={session} onOpen={onOpen} onTrailer={onTrailer} onOpenSettings={onOpenSettings} />
+        <CinemaScreen session={session} onOpen={onOpen} onTrailer={onTrailer} onOpenSettings={onOpenSettings} active={active} reloadToken={reloadToken} />
       </View>
     );
   }

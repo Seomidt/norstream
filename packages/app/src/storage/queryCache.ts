@@ -9,7 +9,7 @@
  * brugeren skjuler/viser et land, hoppes epoken og alt gammelt kasseres.
  */
 let epoch = 0;
-const cache = new Map<string, Promise<unknown>>();
+const cache = new Map<string, { promise: Promise<unknown>; expiresAt: number }>();
 
 /** Kaster alt cachet vaek. Kaldes naar de underliggende data er aendret. */
 export function invalidateQueryCache(): void {
@@ -22,16 +22,17 @@ export function invalidateQueryCache(): void {
  * saa to samtidige kald deler ét opslag (det halverer ogsaa dobbelt-loads).
  * Fejler `load`, kastes den vaek igen, saa naeste kald proever forfra.
  */
-export async function cachedQuery<T>(key: string, load: () => Promise<T>): Promise<T> {
+export async function cachedQuery<T>(key: string, load: () => Promise<T>, maxAgeMs = Infinity): Promise<T> {
   const full = `${epoch}:${key}`;
   const hit = cache.get(full);
-  if (hit !== undefined) return hit as Promise<T>;
+  if (hit !== undefined && Date.now() < hit.expiresAt) return hit.promise as Promise<T>;
   const promise = load();
-  cache.set(full, promise);
+  const entry = { promise, expiresAt: Date.now() + Math.max(0, maxAgeMs) };
+  cache.set(full, entry);
   try {
     return (await promise) as T;
   } catch (cause) {
-    if (cache.get(full) === promise) cache.delete(full);
+    if (cache.get(full) === entry) cache.delete(full);
     throw cause;
   }
 }

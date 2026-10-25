@@ -839,6 +839,7 @@ export async function deleteVodForSource(db: SqlDatabase, sourceId: string): Pro
   await db.runAsync("DELETE FROM episodes WHERE series_key LIKE ? ESCAPE '\\'", [prefix]);
   await db.runAsync('DELETE FROM vod_items WHERE source_id = ?', [sourceId]);
   await db.runAsync('DELETE FROM vod_categories WHERE source_id = ?', [sourceId]);
+  invalidateQueryCache();
 }
 
 /** Hvor mange film og serier der ligger i databasen. Til indstillinger. */

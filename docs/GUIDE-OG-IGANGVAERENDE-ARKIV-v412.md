@@ -1,4 +1,4 @@
-# v412: Guide og genoptagelse af igangværende arkiv
+# v412: Guide, igangværende arkiv og biografmærke
 
 ## Guide
 
@@ -22,6 +22,14 @@ To fastlåste tilstande er genskabt i regressionstests og rettet:
 Pause, baggrund, afmontering og kildeskift stopper genoptagelse. Ved forgrund
 kontrolleres arkivets status igen. Ingen parallel live-/arkivforbindelse,
 preload, ny codec, ændret tidszone eller tvunget HLS-format er indført.
+
+## Biograf: i pakken
+
+Biografens cover viser `★ I pakken`, når filmen findes i det lokale
+filmkatalog. Match kræver samme TMDB-id eller både eksakt renset titel og
+årstal. Ukendt årstal eller et kendt andet TMDB-id giver ikke et positivt
+navnematch. Mærket og knappen i filmens ark bruger samme katalogmatch.
+Der åbnes ingen mediestrøm for at undersøge tilgængeligheden.
 
 ## Kilder undersøgt 25. oktober 2026
 

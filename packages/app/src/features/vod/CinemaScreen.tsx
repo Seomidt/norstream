@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, FlatList, Image, StyleSheet, Text, View } from 'react-native';
 import type { AppSession } from '../../session.js';
 import { getTmdbApiKey } from '../../storage/settings.js';
+import { getVodItem } from '../../storage/vod.js';
 import type { StoredVodItem } from '../../storage/vod.js';
 import { tmdbFetch } from '../../sync/tmdb.js';
 import { cinemaTitles } from '../../sync/tmdbHome.js';
@@ -14,7 +15,7 @@ import { TitleCard, TITLE_WIDTH } from '../../ui/TitleCard.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { isTV } from '../../ui/tv.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
-import { findInPanel } from '../home/panelMatch.js';
+import { cinemaPackageMatches } from './cinemaPackage.js';
 import { premiereLabel } from './premiere.js';
 
 interface Props {
@@ -24,6 +25,8 @@ interface Props {
   /** Traileren, slaaet op paa titel og aar. */
   onTrailer: (title: TmdbTitle) => void;
   onOpenSettings: () => void;
+  active?: boolean;
+  reloadToken?: number;
 }
 
 interface Sheet {
@@ -40,7 +43,7 @@ interface Sheet {
  * og "Se i din pakke" naar panelet har filmen. De nyeste er sjaeldent i
  * pakken endnu; det kommer hen ad vejen, og saa staar knappen der.
  */
-export function CinemaScreen({ session, onOpen, onTrailer, onOpenSettings }: Props) {
+export function CinemaScreen({ session, onOpen, onTrailer, onOpenSettings, active = true, reloadToken = 0 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const [tmdbKey, setTmdbKey] = useState<string | null | undefined>(undefined);
@@ -48,6 +51,7 @@ export function CinemaScreen({ session, onOpen, onTrailer, onOpenSettings }: Pro
   const [upcoming, setUpcoming] = useState<TmdbTitle[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  const [inPackage, setInPackage] = useState<ReadonlyMap<number, string> | null>(null);
   /**
    * Tv: den foerste plakat faar fokus naar listerne er der. Uden det gav
    * Android fokus til det foerste trykpunkt paa skaermen, og saa stod
@@ -119,11 +123,35 @@ export function CinemaScreen({ session, onOpen, onTrailer, onOpenSettings }: Pro
     return () => clearTimeout(timer);
   }, [sheet]);
 
+  // Et samlet, lokalt opslag for begge hylder. Listerne tegnes foer
+  // katalogmatch er klart; der startes ingen streams eller ekstra TMDB-kald.
+  useEffect(() => {
+    if (!active || nowPlaying === null || upcoming === null) return;
+    let cancelled = false;
+    setInPackage(null);
+    void cinemaPackageMatches(session.db, [...nowPlaying, ...upcoming]).then((matches) => {
+      if (!cancelled) setInPackage(matches);
+    }).catch(() => { if (!cancelled) setInPackage(new Map()); });
+    return () => { cancelled = true; };
+  }, [session.db, nowPlaying, upcoming, active, reloadToken]);
+
+  // Arket og maerket bruger samme match, ogsaa hvis arket aabnes inden
+  // det samlede opslag er faerdigt. Et gammelt svar maa ikke aendre et nyt ark.
+  useEffect(() => {
+    if (sheet === null || inPackage === null) return;
+    let cancelled = false;
+    const titleId = sheet.title.id;
+    const key = inPackage.get(titleId);
+    void (key === undefined ? Promise.resolve(null) : getVodItem(session.db, key)).then((found) => {
+      if (!cancelled) setSheet((current) => current?.title.id === titleId ? { ...current, inPanel: found } : current);
+    }).catch(() => {
+      if (!cancelled) setSheet((current) => current?.title.id === titleId ? { ...current, inPanel: null } : current);
+    });
+    return () => { cancelled = true; };
+  }, [session.db, sheet?.title.id, inPackage]);
+
   function open(title: TmdbTitle): void {
     setSheet({ title, inPanel: undefined });
-    void findInPanel(session.db, title).then((found) => {
-      setSheet((current) => (current !== null && current.title.id === title.id ? { ...current, inPanel: found } : current));
-    });
   }
 
   if (tmdbKey === null || error === 'auth') {
@@ -160,8 +188,9 @@ export function CinemaScreen({ session, onOpen, onTrailer, onOpenSettings }: Pro
           keyExtractor={(title) => String(title.id)}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.shelf}
+          extraData={inPackage}
           renderItem={({ item, index }) => (
-            <TitleCard title={item} onPress={() => open(item)} meta={meta(item)} preferFocus={firstFocus && id === firstShelf && index === 0} />
+            <TitleCard title={item} onPress={() => open(item)} meta={meta(item)} inPackage={inPackage?.has(item.id) === true} preferFocus={firstFocus && id === firstShelf && index === 0} />
           )}
         />
       )}
