@@ -6,7 +6,10 @@ export function parentVodLevel(level: VodLevel): VodLevel | null {
   switch (level.name) {
     case 'home': return null;
     case 'cinema':
+    case 'collections':
     case 'countries': return { name: 'home' };
+    case 'followed': return level.fromSeries ? { name: 'countries', kind: 'series' } : { name: 'home' };
+    case 'collection': return { name: 'collections' };
     case 'filter':
     case 'categories': return { name: 'countries', kind: level.kind };
     case 'items': return { name: 'categories', kind: level.kind, country: level.country };

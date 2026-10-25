@@ -5,7 +5,7 @@ import type { AppSession } from '../../session.js';
 import type { StoredEpisode, StoredVodItem } from '../../storage/vod.js';
 import type { Playback } from './VodDetailScreen.js';
 
-const mocks = vi.hoisted(() => ({ item: vi.fn(), episodes: vi.fn(), watched: vi.fn(), save: vi.fn(), players: [] as any[] }));
+const mocks = vi.hoisted(() => ({ item: vi.fn(), episodes: vi.fn(), watched: vi.fn(), save: vi.fn(), following: vi.fn(), newEpisodes: vi.fn(), seen: vi.fn(), players: [] as any[] }));
 vi.mock('react-native', () => ({
   Platform: { isTV: true, OS: 'android' }, View: 'View', Text: 'Text', Image: 'Image', ScrollView: 'ScrollView', ActivityIndicator: 'ActivityIndicator',
   StyleSheet: { create: (styles: unknown) => styles, absoluteFill: {} },
@@ -17,7 +17,10 @@ vi.mock('../../storage/vod.js', async (original) => ({
   getVodItem: mocks.item, listEpisodes: mocks.episodes, setWatched: mocks.watched, saveProgress: mocks.save,
 }));
 vi.mock('../../sync/vodDetails.js', () => ({ ensureVodDetails: async () => null }));
-vi.mock('../../storage/followedSeries.js', () => ({ isFollowed: async () => false }));
+vi.mock('../../storage/followedSeries.js', async (original) => ({
+  ...await original<typeof import('../../storage/followedSeries.js')>(),
+  isFollowed: mocks.following, getNewEpisodes: mocks.newEpisodes, markSeriesSeen: mocks.seen,
+}));
 vi.mock('../../storage/settings.js', () => ({ getSubtitlePreference: async () => 'off' }));
 vi.mock('../../net/doh.js', () => ({ streamSource: (uri: string) => ({ uri }) }));
 vi.mock('../player/Landscape.js', () => ({ useLandscape: () => false }));
@@ -82,6 +85,7 @@ beforeEach(() => {
   vi.useFakeTimers(); vi.clearAllMocks(); mocks.players.length = 0;
   mocks.episodes.mockResolvedValue([episode(1), episode(2), episode(3)]);
   mocks.watched.mockResolvedValue(undefined); mocks.save.mockResolvedValue(undefined);
+  mocks.following.mockResolvedValue(false); mocks.newEpisodes.mockResolvedValue([]); mocks.seen.mockResolvedValue(undefined);
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 });
 afterEach(async () => {
@@ -96,6 +100,23 @@ it('afsnit 1 som er set starter ved nul og springer ikke til afsnit 2', async ()
   expect(player.currentTime).toBe(0);
   await act(async () => { vi.advanceTimersByTime(12_000); });
   expect(mocks.players).toHaveLength(1);
+});
+
+it('aabning af en fulgt serie bevarer nye afsnit indtil eksplicit markering', async () => {
+  const stored = item({ kind: 'series', name: 'Testserie' });
+  mocks.item.mockResolvedValue(stored);
+  mocks.following.mockResolvedValue(true);
+  mocks.newEpisodes.mockResolvedValue([{ season: 2, episode: 5, title: 'Nyt afsnit' }]);
+  await act(async () => { tree = create(createElement(VodDetailScreen, {
+    session, itemKey: stored.key, onBack: vi.fn(), onPlay: vi.fn(), onTrailer: vi.fn(),
+  })); });
+  expect(mocks.seen).not.toHaveBeenCalled();
+  expect(text(tree!.toJSON())).toContain('S2 E5');
+  await act(async () => button('Markér nye afsnit som læst').props.onPress());
+  expect(mocks.seen).toHaveBeenCalledWith(session.db, stored.key);
+  expect(mocks.watched).not.toHaveBeenCalled();
+  expect(mocks.save).not.toHaveBeenCalled();
+  expect(text(tree!.toJSON())).not.toContain('Markér nye afsnit som læst');
 });
 
 it.each([

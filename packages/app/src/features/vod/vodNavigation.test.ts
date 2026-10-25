@@ -20,4 +20,10 @@ describe('Film og Serier: Tilbage', () => {
   it('biografens foraelder er katalogets forside', () => {
     expect(parentVodLevel({ name: 'cinema' })).toEqual({ name: 'home' });
   });
+  it('samlinger og fulgte serier har en sammenhaengende tilbage-vej', () => {
+    expect(parentVodLevel({ name: 'collection', collectionId: 7 })).toEqual({ name: 'collections' });
+    expect(parentVodLevel({ name: 'collections' })).toEqual({ name: 'home' });
+    expect(parentVodLevel({ name: 'followed' })).toEqual({ name: 'home' });
+    expect(parentVodLevel({ name: 'followed', fromSeries: true })).toEqual({ name: 'countries', kind: 'series' });
+  });
 });

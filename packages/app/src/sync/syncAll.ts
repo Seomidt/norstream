@@ -131,6 +131,9 @@ export async function syncAllSources(
     if (!force && fresh) {
       result.skipped += 1;
       await maybeXmltv(db, access, fetchImpl, now, force);
+      if (access.source.kind === 'xtream' && access.creds !== null) {
+        await refreshFollowedSeries(db, access.source.id, access.creds, fetchImpl, now).catch(() => undefined);
+      }
       continue;
     }
 

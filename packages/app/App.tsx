@@ -364,6 +364,10 @@ function AppInner() {
             session={session}
             itemKey={route.itemKey}
             autoPlay={route.autoPlay ?? null}
+            onOpenCollection={(collectionId) => {
+              setPlace(current => ({ ...current, tab: 'vod', vod: { name: 'collection', collectionId } }));
+              setRoute({ name: 'home' });
+            }}
             onBack={() => setRoute({ name: 'home' })}
             onPlay={(playback) => setRoute({ name: 'vodPlayer', itemKey: route.itemKey, playback })}
             onTrailer={(trailerId, title, year, kind) =>

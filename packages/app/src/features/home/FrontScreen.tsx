@@ -24,7 +24,7 @@ import { listArchiveProgress, listRecentChannels } from '../../storage/history.j
 import type { ArchiveProgress } from '../../storage/history.js';
 import { listFavoriteGroups } from '../../storage/favoriteGroups.js';
 import type { FavoriteGroup } from '../../storage/favoriteGroups.js';
-import { listFollowedSeries } from '../../storage/followedSeries.js';
+import { listFollowedSeries, newEpisodesLabel } from '../../storage/followedSeries.js';
 import type { FollowedSeries } from '../../storage/followedSeries.js';
 import type { HomeProvider } from '../../storage/settings.js';
 import type { SqlDatabase } from '../../storage/types.js';
@@ -528,7 +528,7 @@ export function FrontScreen({
   if (!hasGroups) rows.push({ kind: 'favourites' });
   for (const entry of groupsNow) rows.push({ kind: 'group', group: entry.group });
   if (tonight !== null) rows.push({ kind: 'tonight' });
-  if (followed.some((entry) => entry.episodes > entry.seenEpisodes)) rows.push({ kind: 'followed' });
+  if (followed.some((entry) => entry.newCount > 0)) rows.push({ kind: 'followed' });
   if (because !== null) rows.push({ kind: 'because' });
   // Kortet om noeglen kun paa telefonen, og kortet "vaelg tjenester" slet
   // ikke: paa tv stod de som fremmede kasser midt paa forsiden, og valget
@@ -698,13 +698,13 @@ export function FrontScreen({
         return (
           <Section title="Nye afsnit">
             <Shelf
-              data={followed.filter((entry) => entry.episodes > entry.seenEpisodes).map((entry) => ({ key: entry.series.key, entry }))}
+              data={followed.filter((entry) => entry.newCount > 0).map((entry) => ({ key: entry.series.key, entry }))}
               width={POSTER_WIDTH}
               renderItem={({ entry }) => (
                 <View>
                   <Poster item={entry.series} width={POSTER_WIDTH} onOpen={onOpenVod} />
                   <Text style={styles.newEpisodes}>
-                    {entry.episodes - entry.seenEpisodes === 1 ? '1 nyt afsnit' : `${entry.episodes - entry.seenEpisodes} nye afsnit`}
+                    {newEpisodesLabel(entry.newEpisodes)}
                   </Text>
                 </View>
               )}

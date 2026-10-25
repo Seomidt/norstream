@@ -16,7 +16,9 @@ import { continueEpisodeFor, latestEpisode } from './episodes.js';
 import { vodResumeAt } from './vodResume.js';
 import type { StoredEpisode, StoredVodItem } from '../../storage/vod.js';
 import { ensureVodDetails } from '../../sync/vodDetails.js';
-import { followSeries, isFollowed, markSeriesSeen, unfollowSeries } from '../../storage/followedSeries.js';
+import { followSeries, isFollowed, markSeriesSeen, unfollowSeries, getNewEpisodes, newEpisodesLabel } from '../../storage/followedSeries.js';
+import type { FollowedEpisode } from '../../storage/followedSeries.js';
+import { MovieCollectionLink } from './MovieCollectionLink.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
@@ -59,6 +61,7 @@ interface Props {
    * — filmen, eller afsnittet — hvor man slap.
    */
   autoPlay?: { episodeKey: string | null } | null;
+  onOpenCollection?: (collectionId: number) => void;
 }
 
 type Creds = XtreamCredentials;
@@ -96,13 +99,15 @@ function episodePlayback(item: StoredVodItem, episode: StoredEpisode, creds: Cre
  * foerst her, og kun én gang om ugen. Traileren spilles inde i appen med
  * YouTubes egen indlejrede afspiller; se `TrailerScreen`.
  */
-export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer, autoPlay }: Props) {
+export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer, autoPlay, onOpenCollection }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
   const [item, setItem] = useState<StoredVodItem | null | undefined>(undefined);
   /** Serien foelges: forsiden viser nye afsnit naar panelet faar dem. */
   const [followed, setFollowed] = useState(false);
+  const [newEpisodes, setNewEpisodes] = useState<FollowedEpisode[]>([]);
+  const followingSaving = useRef(false);
   const [details, setDetails] = useState<VodDetails | null>(null);
   const [episodes, setEpisodes] = useState<StoredEpisode[]>([]);
   const [season, setSeason] = useState<number | null>(null);
@@ -161,10 +166,9 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer, a
       const list = await listEpisodes(session.db, stored.key);
       setEpisodes(list);
       setSeason((current) => current ?? list[0]?.season ?? null);
-      // Listen er set: forsidens "nye afsnit" nulstilles for serien.
       const following = await isFollowed(session.db, stored.key);
       setFollowed(following);
-      if (following) await markSeriesSeen(session.db, stored.key);
+      setNewEpisodes(following ? await getNewEpisodes(session.db, stored.key) : []);
     }
     // autoPlay og onPlay aendrer sig ikke mens siden er aaben.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -351,12 +355,34 @@ export function VodDetailScreen({ session, itemKey, onBack, onPlay, onTrailer, a
             <TvPressable
               style={[styles.button, followed && styles.buttonDone]}
               onPress={() => {
-                void (followed ? unfollowSeries(session.db, item.key) : followSeries(session.db, item.key)).then(() => setFollowed(!followed));
+                if (followingSaving.current) return;
+                followingSaving.current = true;
+                void (async () => {
+                  try {
+                    if (followed) await unfollowSeries(session.db, item.key);
+                    else await followSeries(session.db, item.key);
+                    setFollowed(!followed);
+                    setNewEpisodes([]);
+                  } catch { setError('Følgevalget kunne ikke gemmes. Prøv igen.'); }
+                  finally { followingSaving.current = false; }
+                })();
               }}
             >
               <Text style={styles.buttonText}>{followed ? '✓ Følger serien' : '🔔 Følg serien'}</Text>
             </TvPressable>
           )}
+          {item.kind === 'series' && followed && newEpisodes.length > 0 && <>
+            <Text style={styles.meta}>{newEpisodesLabel(newEpisodes)}</Text>
+            <TvPressable style={styles.button} onPress={() => {
+              if (followingSaving.current) return;
+              followingSaving.current = true;
+              void markSeriesSeen(session.db, item.key).then(() => setNewEpisodes([]))
+                .catch(() => setError('Ny-markeringen kunne ikke ryddes. Prøv igen.'))
+                .finally(() => { followingSaving.current = false; });
+            }}><Text style={styles.buttonText}>Markér nye afsnit som læst</Text></TvPressable>
+          </>}
+          {item.kind === 'movie' && onOpenCollection !== undefined &&
+            <MovieCollectionLink session={session} itemKey={item.key} onOpen={onOpenCollection} />}
         </View>
 
         {creds === null && (

@@ -1,5 +1,6 @@
 import { deriveCountryLoose, normaliseChannelName } from '@norstream/core';
 import type { SqlDatabase } from './types.js';
+import { withTransaction } from './transaction.js';
 
 /**
  * Sikkerhedskopi af det brugeren selv har lavet: favoritter i deres
@@ -30,6 +31,14 @@ import type { SqlDatabase } from './types.js';
 // id'erne ikke passer — en 1:1 kopi ogsaa til en anden fil.
 export const BACKUP_VERSION = 3;
 
+export interface BackupFollowedSeries {
+  seriesKey: string;
+  followedMs: number;
+  seenEpisodes: number;
+  initializedMs: number | null;
+  episodes: Array<{ season: number; episode: number; firstSeenMs: number; acknowledgedMs: number | null }>;
+}
+
 export interface Backup {
   app: 'norstream';
   version: number;
@@ -53,6 +62,8 @@ export interface Backup {
   settings: Record<string, string>;
   watchlist: Array<{ itemKey: string; addedMs: number }>;
   progress: Array<{ itemKey: string; positionS: number; durationS: number | null; updatedMs: number }>;
+  /** Valgfrit i v3: foelg og nye afsnit, adskilt fra afspilningshistorikken. */
+  followedSeries?: BackupFollowedSeries[];
   /**
    * Navnet paa hver kanal favoritter, grupper og egne logoer peger paa
    * (noegle = kanalens sammensatte id). Bruges til at finde de samme kanaler
@@ -134,6 +145,22 @@ export async function createBackup(
     duration_s: number | null;
     updated_ms: number;
   }>('SELECT item_key, position_s, duration_s, updated_ms FROM vod_progress');
+  const followed = await db.getAllAsync<{
+    series_key: string; followed_ms: number; seen_episodes: number; initialized_ms: number | null;
+  }>(`SELECT f.series_key,f.followed_ms,f.seen_episodes,s.initialized_ms
+      FROM followed_series f LEFT JOIN followed_series_state s ON s.series_key=f.series_key
+      ORDER BY f.followed_ms DESC,f.series_key`);
+  const followedEpisodes = await db.getAllAsync<{
+    series_key: string; season: number; episode: number; first_seen_ms: number; acknowledged_ms: number | null;
+  }>(`SELECT e.series_key,e.season,e.episode,e.first_seen_ms,e.acknowledged_ms
+      FROM followed_episode_state e JOIN followed_series f ON f.series_key=e.series_key
+      ORDER BY e.series_key,e.season,e.episode`);
+  const episodesBySeries = new Map<string, BackupFollowedSeries['episodes']>();
+  for (const row of followedEpisodes) {
+    const entries = episodesBySeries.get(row.series_key) ?? [];
+    entries.push({ season: row.season, episode: row.episode, firstSeenMs: row.first_seen_ms, acknowledgedMs: row.acknowledged_ms });
+    episodesBySeries.set(row.series_key, entries);
+  }
 
   const settings: Record<string, string> = {};
   for (const row of settingRows) {
@@ -210,6 +237,10 @@ export async function createBackup(
       durationS: row.duration_s,
       updatedMs: row.updated_ms,
     })),
+    followedSeries: followed.map(row => ({
+      seriesKey: row.series_key, followedMs: row.followed_ms, seenEpisodes: row.seen_episodes,
+      initializedMs: row.initialized_ms, episodes: episodesBySeries.get(row.series_key) ?? [],
+    })),
     channelNames,
   };
 }
@@ -234,7 +265,8 @@ export function backupHasUserData(backup: Backup): boolean {
     backup.logoOverrides.length > 0 ||
     backup.hiddenCountries.length > 0 ||
     backup.watchlist.length > 0 ||
-    backup.progress.length > 0
+    backup.progress.length > 0 ||
+    (backup.followedSeries?.length ?? 0) > 0
   );
 }
 
@@ -256,6 +288,7 @@ export function parseBackup(text: string): Backup {
   if (candidate.version > BACKUP_VERSION) {
     throw new Error('Sikkerhedskopien er fra en nyere udgave af appen.');
   }
+  const followedSeries = readFollowedSeries(candidate.followedSeries);
   return {
     app: 'norstream',
     version: candidate.version,
@@ -270,6 +303,7 @@ export function parseBackup(text: string): Backup {
       typeof candidate.settings === 'object' && candidate.settings !== null ? candidate.settings : {},
     watchlist: Array.isArray(candidate.watchlist) ? candidate.watchlist : [],
     progress: Array.isArray(candidate.progress) ? candidate.progress : [],
+    ...(followedSeries === undefined ? {} : { followedSeries }),
     channelNames:
       typeof candidate.channelNames === 'object' && candidate.channelNames !== null
         ? (candidate.channelNames as Record<string, string>)
@@ -510,10 +544,99 @@ export async function restoreBackup(
     result.progress += 1;
   }
 
+  const followedSeries = readFollowedSeries(backup.followedSeries);
+  if (followedSeries !== undefined) {
+    const sourceIds = new Set(backup.sources.map(source => idMap.get(source.id)).filter((id): id is string => id !== undefined));
+    await restoreFollowedSeries(db, followedSeries, sourceIds, remap, options.mergeProgress === true);
+  }
+
   return result;
 }
 
 function sameUrl(a: string, b: string): boolean {
   const norm = (url: string): string => url.trim().replace(/\/+$/, '').toLowerCase();
   return norm(a) === norm(b);
+}
+
+const MAX_DATE_MS = 8_640_000_000_000_000;
+function timestamp(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= MAX_DATE_MS;
+}
+function nonnegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+/** En aeldre eller beskadiget kopi maa ikke ligne en bevidst tom foelgeliste. */
+function readFollowedSeries(value: unknown): BackupFollowedSeries[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const rows = new Map<string, BackupFollowedSeries>();
+  for (const raw of value) {
+    if (typeof raw !== 'object' || raw === null) continue;
+    const row = raw as Partial<BackupFollowedSeries>;
+    if (typeof row.seriesKey !== 'string' || row.seriesKey.length > 1024 || row.seriesKey.indexOf(':') < 1
+        || row.seriesKey.endsWith(':')
+        || !timestamp(row.followedMs) || !nonnegativeInteger(row.seenEpisodes)
+        || (row.initializedMs !== null && !timestamp(row.initializedMs)) || !Array.isArray(row.episodes)) continue;
+    const episodes = new Map<string, BackupFollowedSeries['episodes'][number]>();
+    for (const rawEpisode of row.episodes) {
+      if (typeof rawEpisode !== 'object' || rawEpisode === null) continue;
+      const episode = rawEpisode as Partial<BackupFollowedSeries['episodes'][number]>;
+      if (!nonnegativeInteger(episode.season) || !nonnegativeInteger(episode.episode) || episode.episode === 0
+          || !timestamp(episode.firstSeenMs) || (episode.acknowledgedMs !== null && !timestamp(episode.acknowledgedMs))) continue;
+      episodes.set(`${episode.season}:${episode.episode}`, {
+        season: episode.season, episode: episode.episode, firstSeenMs: episode.firstSeenMs, acknowledgedMs: episode.acknowledgedMs,
+      });
+    }
+    rows.set(row.seriesKey, {
+      seriesKey: row.seriesKey, followedMs: row.followedMs, seenEpisodes: row.seenEpisodes,
+      initializedMs: row.initializedMs, episodes: [...episodes.values()],
+    });
+  }
+  return value.length > 0 && rows.size === 0 ? undefined : [...rows.values()];
+}
+
+/** Kun kilder der genkendes i kopien erstattes. Andre lokale kilder bevares. */
+async function restoreFollowedSeries(
+  db: SqlDatabase,
+  entries: BackupFollowedSeries[],
+  sourceIds: ReadonlySet<string>,
+  remap: (key: string) => string | null,
+  merge: boolean,
+): Promise<void> {
+  const mapped = entries.flatMap(entry => {
+    const seriesKey = remap(entry.seriesKey);
+    return seriesKey !== null && sourceIds.has(seriesKey.slice(0, seriesKey.indexOf(':'))) ? [{ ...entry, seriesKey }] : [];
+  });
+  // Ukendte kilder er ikke en instruktion om at slette noget paa boksen.
+  if (sourceIds.size === 0 || (entries.length > 0 && mapped.length === 0)) return;
+  await withTransaction(db, async () => {
+    if (!merge) {
+      const encoded = JSON.stringify([...sourceIds]);
+      for (const table of ['followed_episode_state', 'followed_series_state', 'followed_series']) {
+        await db.runAsync(`DELETE FROM ${table}
+          WHERE substr(series_key,1,instr(series_key,':')-1) IN (SELECT value FROM json_each(?))`, [encoded]);
+      }
+    }
+    for (const entry of mapped) {
+      await db.runAsync(
+        `INSERT INTO followed_series(series_key,followed_ms,seen_episodes) VALUES(?,?,?)
+         ON CONFLICT(series_key) DO UPDATE SET followed_ms=MIN(followed_series.followed_ms,excluded.followed_ms),
+         seen_episodes=MAX(followed_series.seen_episodes,excluded.seen_episodes)`,
+        [entry.seriesKey, entry.followedMs, entry.seenEpisodes],
+      );
+      if (entry.initializedMs !== null) await db.runAsync(
+        `INSERT INTO followed_series_state(series_key,initialized_ms) VALUES(?,?)
+         ON CONFLICT(series_key) DO UPDATE SET initialized_ms=MIN(followed_series_state.initialized_ms,excluded.initialized_ms)`,
+        [entry.seriesKey, entry.initializedMs],
+      );
+      for (const episode of entry.episodes) await db.runAsync(
+        `INSERT INTO followed_episode_state(series_key,season,episode,first_seen_ms,acknowledged_ms) VALUES(?,?,?,?,?)
+         ON CONFLICT(series_key,season,episode) DO UPDATE SET first_seen_ms=MIN(followed_episode_state.first_seen_ms,excluded.first_seen_ms),
+         acknowledged_ms=CASE WHEN followed_episode_state.acknowledged_ms IS NULL THEN excluded.acknowledged_ms
+           WHEN excluded.acknowledged_ms IS NULL THEN followed_episode_state.acknowledged_ms
+           ELSE MAX(followed_episode_state.acknowledged_ms,excluded.acknowledged_ms) END`,
+        [entry.seriesKey, episode.season, episode.episode, episode.firstSeenMs, episode.acknowledgedMs],
+      );
+    }
+  });
 }

@@ -24,6 +24,7 @@ import { TvPressable } from '../../ui/TvPressable.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
 import { createRailSelection } from './railSelection.js';
 import { useRailFocus } from './useRailFocus.js';
+import { useFollowedSeriesRefresh } from '../../sync/useFollowedSeriesRefresh.js';
 import { forgetPosterMisses } from '../../ui/posterFill.js';
 import type { Level } from '../browse/BrowseScreen.js';
 import { parentVodLevel } from '../vod/vodNavigation.js';
@@ -198,6 +199,8 @@ export function HomeScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [homeVisits, setHomeVisits] = useState(0);
   const [favoritesToken, setFavoritesToken] = useState(0);
+  const followedChanged = useCallback(() => setFavoritesToken(value => value + 1), []);
+  useFollowedSeriesRefresh(session, !covered, followedChanged);
   const [showingSources, setShowingSources] = useState(false);
   /** Indstillingers underskaerme til logoer: listen, og valget for én kanal. */
   const [showingLogos, setShowingLogos] = useState(false);

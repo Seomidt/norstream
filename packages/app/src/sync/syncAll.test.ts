@@ -10,6 +10,7 @@ import type { SourceAccess } from '../sources/access.js';
 import { syncAllSources } from './syncAll.js';
 import { programmeOptions } from '../features/guide/layout.js';
 import { addSource } from '../storage/sources.js';
+import { followSeries } from '../storage/followedSeries.js';
 
 const creds: XtreamCredentials = {
   baseUrl: 'http://panel.example:8080',
@@ -68,6 +69,23 @@ beforeEach(async () => {
 });
 
 describe('syncAllSources', () => {
+  it('opdaterer fulgte serier selv om hele kataloget er friskt og springes over', async () => {
+    await setLogoRegistryEnabled(db, false);
+    const saved = await addSource(db, { kind: 'xtream', name: 'Panel', url: creds.baseUrl, username: creds.username });
+    const key = `${saved.id}:series-s1`;
+    await db.runAsync('INSERT INTO vod_items(key,source_id,item_id,kind,name,sort_order) VALUES(?,?,?,?,?,?)', [key, saved.id, 's1', 'series', 'Fulgte serie', 0]);
+    await followSeries(db, key);
+    const now = new Date('2026-10-25T10:00:00Z');
+    await setLastSyncMs(db, +now, saved.id);
+    const metadata = vi.fn(async (url: string) => {
+      expect(new URL(url).searchParams.get('action')).toBe('get_series_info');
+      return { ok: true, status: 200, text: async () => '', json: async () => ({ info: { name: 'Fulgte serie' }, episodes: { '1': [{ id: 'e1', episode_num: 1, title: 'Afsnit 1' }] } }) };
+    });
+    const result = await syncAllSources(db, [{ source: saved, creds }], metadata, { now });
+    expect(result.skipped).toBe(1); expect(result.synced).toBe(0);
+    expect(metadata).toHaveBeenCalledTimes(1);
+  });
+
   it('genaktiverer arkiv ved naeste automatiske kanalhentning og bevarer det ved netfejl', async () => {
     await setLogoRegistryEnabled(db, false);
     const saved = await addSource(db, { kind: 'xtream', name: 'Panel', url: creds.baseUrl, username: creds.username });

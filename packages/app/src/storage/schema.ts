@@ -1,5 +1,6 @@
 import { MATCH_KEY_VERSION } from '@norstream/core';
 import type { SqlDatabase } from './types.js';
+import { DISCOVERY_SCHEMA } from './discoverySchema.js';
 
 /**
  * Alle tidsstempler gemmes som epoch-millisekunder i INTEGER-kolonner,
@@ -18,6 +19,7 @@ CREATE TABLE IF NOT EXISTS diagnostic_outbox (id INTEGER PRIMARY KEY CHECK(id=1)
 `;
 
 const SCHEMA = `${DIAGNOSTIC_SCHEMA}
+${DISCOVERY_SCHEMA}
 
 -- Hvert sted kanaler kommer fra: et Xtream-panel eller en M3U-liste.
 -- Adgangskoder staar her **ikke**; de ligger i Keychain under kildens id.
@@ -447,6 +449,11 @@ const TABLES = [
   'radio_favorites',
   'vod_posters',
   'vod_watched',
+  'movie_collection_members',
+  'movie_collection_lookup',
+  'movie_collections',
+  'followed_episode_state',
+  'followed_series_state',
 ] as const;
 
 // v8 tilfoejer VOD-tabellerne, v9 xmltv_logos, v10 logo_resolved og en
@@ -466,7 +473,8 @@ const TABLES = [
 // v27: vod_posters.providers — tjenesterne titlen ligger paa i Danmark, pakket
 // ",8,119," (v369): maerke paa plakaten og fuldt tjeneste-filter.
 // v29: lokal fejlfindingsjournal og enkelt outbox; ingen aendring i programdata.
-const SCHEMA_VERSION = 29;
+// v30: filmsamlinger og identitet for afsnit i fulgte serier.
+const SCHEMA_VERSION = 30;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -781,8 +789,9 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     return;
   }
 
-  if (version === 28) {
+  if (version === 28 || version === 29) {
     await db.execAsync(DIAGNOSTIC_SCHEMA);
+    await db.execAsync(DISCOVERY_SCHEMA);
     await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     await refreshChannelsWhenMatchRulesChanged(db);
     return;

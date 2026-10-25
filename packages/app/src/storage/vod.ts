@@ -527,6 +527,19 @@ export async function getVodItem(db: SqlDatabase, key: string): Promise<StoredVo
   return withoutDeadPoster(toStored(row), await deadLogoOrigins(db));
 }
 
+/** Flere katalogtitler i ét opslag og i den bestilte raekkefoelge. */
+export async function listVodItemsByKeys(db: SqlDatabase, keys: readonly string[]): Promise<StoredVodItem[]> {
+  if (keys.length === 0) return [];
+  const unique = [...new Set(keys)];
+  const rows = await db.getAllAsync<ItemRow>(
+    `${SELECT_ITEM} WHERE i.key IN (SELECT value FROM json_each(?))`, [JSON.stringify(unique)],
+  );
+  const dead = await deadLogoOrigins(db);
+  const order = new Map(unique.map((key, index) => [key, index]));
+  return rows.map(row => withoutDeadPoster(toStored(row), dead))
+    .sort((a, b) => order.get(a.key)! - order.get(b.key)!);
+}
+
 /**
  * Plakaten tages ud naar dens vaert er maalt doed.
  *
