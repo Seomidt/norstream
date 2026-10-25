@@ -7,6 +7,7 @@ import type { StoredChannel } from '../../storage/channels.js';
 import { listProgrammesFor } from '../../storage/programmes.js';
 import type { SqlDatabase } from '../../storage/types.js';
 import { queryCacheRevision } from '../../storage/queryCache.js';
+import { programmeDataRevision } from '../../storage/programmeRevision.js';
 import { ensureEpg, ensureFullEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { TvPressable } from '../../ui/TvPressable.js';
@@ -90,15 +91,16 @@ interface Props {
 
 type ProgrammeMap = Record<string, Programme[]>;
 interface HotWindow { from: number; to: number; map: ProgrammeMap }
-interface HotCache { revision: number; first: HotWindow | null; recent: Map<string, HotWindow> }
+interface HotCache { revision: string; first: HotWindow | null; recent: Map<string, HotWindow> }
 /** Foerste live-side plus tolv nylige udsnit, aldrig et helt kanal-/ugekatalog. */
 const HOT_RECENT_WINDOWS = 12;
 const hotCaches = new WeakMap<SqlDatabase, HotCache>();
+function dataKey(db: SqlDatabase): string { return `${queryCacheRevision()}:${programmeDataRevision(db)}`; }
 
 function hotProgrammes(db: SqlDatabase, ids: readonly string[], from: number, to: number): ProgrammeMap {
   const cache = hotCaches.get(db);
   const map: ProgrammeMap = {};
-  if (cache === undefined || cache.revision !== queryCacheRevision()) return map;
+  if (cache === undefined || cache.revision !== dataKey(db)) return map;
   const windows = [...cache.recent.values()].reverse();
   if (cache.first !== null) windows.push(cache.first);
   for (const window of windows) {
@@ -110,8 +112,8 @@ function hotProgrammes(db: SqlDatabase, ids: readonly string[], from: number, to
 
 function rememberProgrammes(db: SqlDatabase, map: ProgrammeMap, from: number, to: number, first: boolean): void {
   let cache = hotCaches.get(db);
-  if (cache === undefined || cache.revision !== queryCacheRevision()) {
-    cache = { revision: queryCacheRevision(), first: null, recent: new Map() };
+  if (cache === undefined || cache.revision !== dataKey(db)) {
+    cache = { revision: dataKey(db), first: null, recent: new Map() };
     hotCaches.set(db, cache);
   }
   const window = { from, to, map };
@@ -219,7 +221,7 @@ export function TimelineGrid({
   });
 
   const channelIds = useMemo(() => metadataChannels.map((channel) => channel.id), [metadataChannels]);
-  const dataRevision = queryCacheRevision();
+  const dataRevision = dataKey(session.db);
   const viewKey = `${dataRevision}:${windowStartMs}:${windowEndMs}:${channelIds.join('\u0000')}`;
   const [cacheRevision, setCacheRevision] = useState(0);
   const [programmeState, setProgrammeState] = useState(() => ({
@@ -242,7 +244,7 @@ export function TimelineGrid({
   useEffect(() => {
     if (!active || suspended.current || listHeight <= 0 || metadataChannels.length === 0) return;
     let cancelled = false;
-    const stopped = () => cancelled || suspended.current || !activeRef.current || queryCacheRevision() !== dataRevision;
+    const stopped = () => cancelled || suspended.current || !activeRef.current || dataKey(session.db) !== dataRevision;
     const cancel = () => {
       cancelled = true;
       if (cacheCancel.current === cancel) cacheCancel.current = null;

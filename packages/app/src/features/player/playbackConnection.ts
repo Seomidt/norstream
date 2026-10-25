@@ -44,6 +44,7 @@ export class PlaybackConnection {
   private archive = false;
   private liveRebuffered = false;
   private linear = false;
+  private replay = false;
   private preroll: { muted: boolean; rate: number; timer: ReturnType<typeof setInterval> } | null = null;
   private wantsPlay = true;
   private started = false;
@@ -92,7 +93,7 @@ export class PlaybackConnection {
   }
 
   /** Hver anmodning er ny, ogsaa naar den skal genindlaese samme URL. */
-  load(source: VideoSource, archive: boolean, seekSeconds = 0, wantsPlay = true, linear = false): Promise<void> {
+  load(source: VideoSource, archive: boolean, seekSeconds = 0, wantsPlay = true, linear: boolean | 'replay' = false): Promise<void> {
     this.finishPreparation();
     const generation = ++this.generation;
     this.loaded = false;
@@ -108,7 +109,8 @@ export class PlaybackConnection {
     this.expectedUri = nextUri;
     this.seekSeconds = Math.max(0, Number.isFinite(seekSeconds) ? seekSeconds : 0);
     this.archive = archive;
-    this.linear = archive && linear;
+    this.linear = archive && linear === true;
+    this.replay = archive && linear === 'replay';
     this.wantsPlay = wantsPlay;
     // replaceAsync paa Android afslutter kun prepare()-kaldet. Det lover
     // hverken nye spor, en seek-map eller en faerdig buffer. Vent paa begge
@@ -125,14 +127,16 @@ export class PlaybackConnection {
     const run = async (): Promise<void> => {
       if (this.disposed || this.failed || generation !== this.generation) return;
       this.player.pause();
-      // Et minut-overlap skal ligge i sample-koeerne FOER seek. De 90 s
+      // Native replay laeser ved behov fra byte 0 og kasserer samples uden
+      // at spille overlap i 4x. Den behoever kun normal startup-buffer.
+      // Andre seekbare arkiver skal have overlap i sample-koeerne FOER seek. De 90 s
       // fremadbuffer var kun et efterfoelgende maal: foerste READY kom ved
       // 5 s, og et seek til 59.946 s forlod derfor den eksisterende buffer.
       // Media3 maatte saa hente ved en TS-byteposition, som PHP-arkivet kan
       // levere forkert. Startup stiler mod overlap + 5 s, stadig med samme
       // 64 MiB loft; efter bekraeftelse bruges normal genbuffring igen.
       this.player.bufferOptions = archive
-        ? { ...ARCHIVE_BUFFER, minBufferForPlayback: this.linear ? 5 : Math.min(90, this.seekSeconds + 5) }
+        ? { ...ARCHIVE_BUFFER, minBufferForPlayback: (this.linear || this.replay) ? 5 : Math.min(90, this.seekSeconds + 5) }
         : this.liveRebuffered ? LIVE_REBUFFER : LIVE_BUFFER;
       // Android frigiver den gamle MediaSource foer den nye forberedes.
       // iOS' asynkrone forberedelse afsluttes foer naeste replace starter.

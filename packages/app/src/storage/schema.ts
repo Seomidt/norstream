@@ -476,7 +476,7 @@ const TABLES = [
 // v29: lokal fejlfindingsjournal og enkelt outbox; ingen aendring i programdata.
 // v30: filmsamlinger og identitet for afsnit i fulgte serier.
 // v31: kildeopdelt EPG-/arkivkorrektion over uforandrede programraadata.
-const SCHEMA_VERSION = 31;
+const SCHEMA_VERSION = 32;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -780,6 +780,17 @@ async function clearSyncTimes(db: SqlDatabase): Promise<void> {
   );
 }
 
+async function clearEpgFetchTimes(db: SqlDatabase): Promise<void> {
+  const tables = await db.getAllAsync<{ name: string }>(
+    "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('epg_fetch', 'epg_archive_fetch')",
+  );
+  for (const table of tables) {
+    // Navnene kommer kun fra den lukkede liste ovenfor.
+    if (table.name === 'epg_fetch') await db.execAsync('DELETE FROM epg_fetch');
+    if (table.name === 'epg_archive_fetch') await db.execAsync('DELETE FROM epg_archive_fetch');
+  }
+}
+
 export async function migrate(db: SqlDatabase): Promise<void> {
   const version = await readUserVersion(db);
 
@@ -791,11 +802,21 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     return;
   }
 
+  if (version === 31) {
+    // Genhent synlige kanaler én gang efter rettelsen af sammenflettede
+    // EPG-svar. Behold data indtil en ny oversigt er klar.
+    await clearEpgFetchTimes(db);
+    await db.execAsync('PRAGMA user_version = 32;');
+    await refreshChannelsWhenMatchRulesChanged(db);
+    return;
+  }
+
   if (version === 28 || version === 29 || version === 30) {
     await db.execAsync(DIAGNOSTIC_SCHEMA);
     await db.execAsync(DISCOVERY_SCHEMA);
     await db.execAsync(EPG_TIMING_SCHEMA);
     await seedUpgradedEpgTiming(db);
+    await clearEpgFetchTimes(db);
     await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     await refreshChannelsWhenMatchRulesChanged(db);
     return;
@@ -843,6 +864,7 @@ export async function migrate(db: SqlDatabase): Promise<void> {
   await db.execAsync('CREATE INDEX IF NOT EXISTS idx_vod_posters_tmdb ON vod_posters (tmdb_id)');
   await db.execAsync(EPG_TIMING_SCHEMA);
   if (version > 0 && version < 31) await seedUpgradedEpgTiming(db);
+  if (version > 0 && version < 32) await clearEpgFetchTimes(db);
   await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   await refreshChannelsWhenMatchRulesChanged(db);
 }

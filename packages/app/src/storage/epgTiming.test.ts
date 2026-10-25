@@ -176,6 +176,6 @@ describe('v30 til v31: autoriseret korrektion paa allerede tilsluttede paneler',
     expect(await getEpgTimeShift(db, 'panel')).toBe(0);
     await source(db, 'later');
     expect(await getEpgTimeShift(db, 'later')).toBe(0);
-    expect(await db.getFirstAsync('PRAGMA user_version')).toEqual({ user_version: 31 });
+    expect(await db.getFirstAsync('PRAGMA user_version')).toEqual({ user_version: 32 });
   });
 });

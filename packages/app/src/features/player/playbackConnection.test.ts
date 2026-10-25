@@ -597,3 +597,42 @@ it('opbygger fire sekunders buffer efter live-udfald uden nye forbindelser og be
   f.pending[2]!.resolve(); f.connection.sourceLoaded('other.ts'); f.connection.status('readyToPlay');
   await zap;
 });
+
+
+it('springer v418-loggens 58.290 s over uden 17 s afspilning i 4x', async () => {
+  const f = fixture();
+  const loaded = f.connection.load('php.ts', true, 58.290, true, 'replay');
+  await Promise.resolve();
+  expect(f.player.bufferOptions.minBufferForPlayback).toBe(5);
+  f.pending[0]!.resolve();
+  f.connection.sourceLoaded('php.ts'); f.connection.status('readyToPlay');
+  await Promise.resolve(); await Promise.resolve();
+  expect(f.player.currentTime).toBe(58.290);
+  expect(f.player.playbackRate).toBe(1);
+  expect(f.player.muted).toBe(false);
+  expect(f.connection.prepared).toBe(false);
+  expect(f.calls.filter(c => c.startsWith('play@'))).toEqual([]);
+  // Native indlaesning efter seek maa stadig ikke starte for tidligt.
+  f.connection.status('loading');
+  expect(f.connection.position(58.290)).toBe(false);
+  f.connection.status('readyToPlay');
+  expect(f.connection.position(0)).toBe(false);
+  expect(f.connection.position(58.290)).toBe(true);
+  await loaded;
+  expect(f.calls.filter(c => c.startsWith('play@'))).toEqual(['play@58.29']);
+  expect(f.player.bufferOptions).toEqual(ARCHIVE_BUFFER);
+});
+
+it('bevarer brugerens pause og lyd ved hurtigt arkiv-overlap', async () => {
+  const f = fixture();
+  f.player.playbackRate = 1.25; f.player.muted = true;
+  const loaded = f.connection.load('php.ts', true, 58.290, false, 'replay');
+  await Promise.resolve(); f.pending[0]!.resolve();
+  f.connection.sourceLoaded('php.ts'); f.connection.status('readyToPlay');
+  await Promise.resolve(); await Promise.resolve();
+  f.connection.position(58.290);
+  await loaded;
+  expect(f.player.playbackRate).toBe(1.25);
+  expect(f.player.muted).toBe(true);
+  expect(f.calls.filter(c => c.startsWith('play@'))).toEqual([]);
+});

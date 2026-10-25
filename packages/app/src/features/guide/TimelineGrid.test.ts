@@ -1,3 +1,4 @@
+import { invalidateProgrammeData } from '../../storage/programmeRevision.js';
 import { createElement, type ElementType } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -400,4 +401,18 @@ it('annullerer ogsaa kanaler inde i den fulde EPG-batch naar afspilleren daekker
   expect(shouldContinue()).toBe(false);
   await act(async () => pending.resolve({ failed: 0 }));
   expect(mocks.full).toHaveBeenCalledTimes(1);
+});
+
+
+it('kasserer varm EPG efter en database-opdatering uden at rydde kanalcachen', async () => {
+  mocks.list.mockImplementation(programmesFor);
+  const options = props();
+  await mount(options);
+  expect(cached(0)[0]?.title).toBe('Program timeline:0');
+  await act(async () => { tree!.unmount(); tree = null; });
+  invalidateProgrammeData(options.session.db);
+  mocks.list.mockImplementation(async (_db, ids: string[]) => ids.map(id => programme(id, 'Rettet program')));
+  await mount(options);
+  expect(cached(0)[0]?.title).toBe('Rettet program');
+  expect(text(row(0))).not.toContain('Program timeline:0');
 });

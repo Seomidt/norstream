@@ -648,11 +648,11 @@ export function PlayerScreen({
     archiveVideoClock.current.reset(seek, segment?.durationSeconds);
     const linear = Platform.OS === 'android' && segment !== null && (segment.dialect === 'php' || segment.format === 'ts');
     setRadioState('connecting');
-    if (linear) logEvent('arkiv', `sekventiel TS v384: overlap ${seek.toFixed(3)} s, ingen PCR-byte-seek`);
+    if (linear) logEvent('arkiv', `overlap v419: ${seek.toFixed(3)} s, samples springes over uden PCR-byte-seek`);
     const stopObserving = segment === null ? null : watchArchivePreparation(player, connection, seek, line => logEvent('arkiv', line));
     // v397: et arkivstykke ad gangen gennem den serialiserede forbindelse.
     // Ingen native playlist, preload eller ekstra dekoder ved arkivskift.
-    void connection.load(streamSource(source), segment !== null, seek, playIntent.current, linear)
+    void connection.load(streamSource(source), segment !== null, seek, playIntent.current, linear ? 'replay' : false)
       .then(() => {
         if (cancelled) return;
         stopObserving?.('klar');
