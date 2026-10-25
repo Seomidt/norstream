@@ -12,6 +12,7 @@ import type { StoredVodItem } from '../storage/vod.js';
 import { getVodItem } from '../storage/vod.js';
 import { listFollowedSeriesKeys, prepareFollowedSeries, reconcileFollowedSeries } from '../storage/followedSeries.js';
 import { withTransaction } from '../storage/transaction.js';
+import { withPanel } from './panelGate.js';
 
 const pendingDetails = new WeakMap<SqlDatabase, Map<string, Promise<VodDetails>>>();
 
@@ -120,7 +121,13 @@ async function refresh(db: SqlDatabase, sourceId: string, creds: XtreamCredentia
     const previous = await getVodDetails(db, key);
     if (previous !== null && now.getTime() - previous.fetchedAt.getTime() < FOLLOWED_MAX_AGE_MS) continue;
     try {
-      await ensureVodDetails(db, item, creds, fetchImpl, now, FOLLOWED_MAX_AGE_MS);
+      const fetched = await withPanel(true, async () => {
+        // Afspilning kan have daekket Hjem mens opslaget stod i koe.
+        if (!shouldContinue()) return false;
+        await ensureVodDetails(db, item, creds, fetchImpl, now, FOLLOWED_MAX_AGE_MS);
+        return true;
+      });
+      if (!fetched) break;
       const current = await getVodDetails(db, key);
       if (current !== null && current.fetchedAt.getTime() === now.getTime()) {
         updated += 1;

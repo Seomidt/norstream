@@ -62,14 +62,36 @@ er dækket. Et allerede startet kald kan afsluttes; nye baggrundskald
 venter. Forgrundskald kan fortsat gennemføres, og køen genoptages, når
 brugeren vender tilbage. De planlagte Sport-/TMDB-jobs og favorit-EPG
 efter synk udskydes tilsvarende.
+Automatiske opslag af fulgte serier bruger nu også baggrundskøen;
+de kunne tidligere gå direkte til udbyderen uden om pausen. Et
+annulleret opslag kontrolleres igen, efter det har ventet i kø.
 
 Dette fjerner en konkret konkurrence om udbyderen. Det beviser ikke
 årsagen til brugerens DR1-liveudfald; det kræver en frisk native fejl-/
 bufferlog fra den berørte boks.
 
+## Gentagne korte live-forløb
+
+De efterfølgende fotologs viste seks live-TS-forløb, som sluttede med EOF
+efter cirka 48–78 sekunder med helt tom buffer. Hver genforbindelse stod
+igen som forsøg 1. Ti sekunders normal fremdrift havde nulstillet det
+almindelige genforsøgsbudget, så det eksisterende HLS-alternativ aldrig
+blev afprøvet ved netop dette gentagne mønster.
+
+Live-forløb holder nu særskilt styr på gentagne korte afslutninger pr.
+forbindelse. To korte EOF/idle-forløb udløser det eksisterende skift fra
+TS til HLS. Samme hændelse kan ikke tælle både som EOF og idle. Flere
+minutters stabil fremdrift rydder historikken. Gentagne korte HLS-forløb
+stopper med den eksisterende fejlvisning frem for at skifte formater i
+en uendelig sløjfe. Pause, kanalskift og arkiv påvirkes ikke.
+
+Dette retter appens manglende eskalering. Loggen alene beviser ikke,
+hvorfor den underliggende TS-kilde afsluttes, eller at HLS virker hos
+den konkrete udbyder.
+
 ## Kontrol
 
-Alle 1.492 tests bestod (app 1.239, core 249, radio 4). Typekontrol
+Alle 1.503 tests bestod (app 1.250, core 249, radio 4). Typekontrol
 bestod i alle tre workspaces.
 
 Tests omfatter varm genåbning med tilbageholdt database/netværk, skift

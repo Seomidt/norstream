@@ -60,3 +60,53 @@ export class PlaybackRecovery {
     return this.emptyEnds < 2;
   }
 }
+
+/** Korte live-forbindelser kan se raske ud i ti sekunder og alligevel ende
+ * hvert minut. Denne historik overlever det normale genforsoegsbudget. */
+export class LivePlaybackHealth {
+  private failures: number[] = [];
+  private first: { position: number; now: number } | null = null;
+  private last: { position: number; now: number } | null = null;
+  private stableSeconds = 0;
+  private recorded = false;
+  private playedSeconds = 0;
+
+  reset(): void { this.failures = []; this.beginLoad(); }
+  beginLoad(): void {
+    this.first = null; this.last = null; this.stableSeconds = 0; this.playedSeconds = 0; this.recorded = false;
+  }
+  /** Pause/baggrund er ikke et kort provider-EOF. */
+  suspend(): void { this.first = null; this.last = null; this.stableSeconds = 0; this.playedSeconds = 0; }
+  ready(position: number, now: number): void {
+    if (this.first === null && Number.isFinite(position) && position >= 0 && Number.isFinite(now)) this.first = { position, now };
+  }
+  position(position: number, now: number, playing: boolean): void {
+    if (!playing) return;
+    if (!Number.isFinite(position) || position < 0 || !Number.isFinite(now)) return;
+    this.ready(position, now);
+    const previous = this.last;
+    this.last = { position, now };
+    if (previous === null) return;
+    const elapsed = (now - previous.now) / 1000;
+    const delta = position - previous.position;
+    if (elapsed <= 0 || elapsed > 4 || delta <= 0 || delta > elapsed + 1) { this.stableSeconds = 0; return; }
+    this.stableSeconds += Math.min(delta, elapsed);
+    this.playedSeconds += Math.min(delta, elapsed);
+    if (this.stableSeconds >= 180) this.failures = [];
+  }
+  /** Én observation per load: idle og EOF fra samme kilde taelles kun én gang. */
+  failure(reason: string, _position: number, now: number): { shortEnds: number; escalate: boolean } {
+    this.failures = this.failures.filter(at => now >= at && now - at <= 10 * 60_000);
+    if (!this.recorded && (reason === 'eof' || reason === 'idle') && this.first !== null) {
+      const elapsed = (now - this.first.now) / 1000;
+      // EOF kan nulstille native uret til nul. Kun allerede bekraeftede,
+      // normale positionsdeltaer taeller; et enkelt PTS-spring er ikke nok.
+      const progressed = this.playedSeconds;
+      if (progressed >= 10 && elapsed >= 10 && elapsed <= 120 && progressed <= elapsed + 2) {
+        this.recorded = true;
+        this.failures.push(now);
+      }
+    }
+    return { shortEnds: this.failures.length, escalate: this.failures.length >= 2 };
+  }
+}

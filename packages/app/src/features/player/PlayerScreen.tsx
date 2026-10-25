@@ -38,7 +38,7 @@ import { setLastChannelId } from '../../storage/settings.js';
 import { recordChannelWatch, saveArchiveProgress } from '../../storage/history.js';
 import { archiveContinuation, archivePlaybackBounds, archiveWindow } from './archiveContinuation.js';
 import { PlaybackConnection } from './playbackConnection.js';
-import { PlaybackRecovery } from './playbackRecovery.js';
+import { LivePlaybackHealth, PlaybackRecovery } from './playbackRecovery.js';
 import { clockOf, logEvent } from '../../diagnostics/log.js';
 import { FALLBACK_FORMAT, formatForPlatform, hasFormatFallback, surfaceTypeForPlatform } from './format.js';
 import { restartBlockFor, restartHint } from './restart.js';
@@ -136,6 +136,7 @@ export function PlayerScreen({
   const preparingArchive = useRef(false);
   const startFromHandled = useRef(false);
   const recovery = useRef(new PlaybackRecovery(MAX_RETRIES));
+  const liveHealth = useRef(new LivePlaybackHealth());
   const cancelPendingRetry = useRef<() => void>(() => undefined);
   const nativeFailure = useRef<() => void>(() => undefined);
   const playbackStatus = useRef<(status: string) => void>(() => undefined);
@@ -244,6 +245,7 @@ export function PlayerScreen({
       archiveRequest.current += 1;
       preparingArchive.current = false;
       recovery.current.reset();
+      liveHealth.current.reset();
       playIntent.current = true;
       archiveFormat.current = null;
       setChannel(target);
@@ -321,9 +323,11 @@ export function PlayerScreen({
     connection.setPlayingIntent(desired);
     if (connection.seeking) return false;
     if (!desired) {
+      liveHealth.current.suspend();
       cancelPendingRetry.current();
     } else if (player.status === 'error' && source !== null) {
       recovery.current.reset();
+      liveHealth.current.reset();
       const segment = archiveRef.current;
       if (segment !== null) segment.seekSeconds = positionRef.current;
       requestSource(source);
@@ -372,6 +376,7 @@ export function PlayerScreen({
       }
       if (connection.active && !everReady.current) playbackStatus.current(player.status);
       const segment = archiveRef.current;
+      if (segment === null && !isRadio) liveHealth.current.position(currentTime, Date.now(), player.playing);
       const absolutePosition = positionRef.current + (segment === null ? 0 : segment.segmentStart / 1000);
       if (recovery.current.position(absolutePosition, Date.now(), player.playing)) {
         cancelPendingRetry.current();
@@ -385,7 +390,7 @@ export function PlayerScreen({
       void saveArchiveProgress(session.db, channel.id, startFrom, absolute).catch(() => undefined);
     });
     return () => { subscription.remove(); closePlaybackSnapshot(); };
-  }, [player, connection, restarted, startFrom, session.db, channel.id]);
+  }, [player, connection, restarted, startFrom, session.db, channel.id, isRadio]);
   useEffect(() => {
     try {
       player.staysActiveInBackground = isRadio;
@@ -544,6 +549,7 @@ export function PlayerScreen({
       setCaughtUpToLive(true);
       setBannerUntil(Date.now() + CHANNEL_BANNER_MS);
       recovery.current.reset();
+      liveHealth.current.reset();
       requestSource(liveUrlFor(access, channel, formatForPlatform()));
     };
     refreshArchiveEnd.current = continueArchive;
@@ -628,6 +634,7 @@ export function PlayerScreen({
     changingSource.current = true;
     recovery.current.beginLoad();
     const segment = archiveRef.current;
+    if (segment === null) liveHealth.current.beginLoad();
     const seek = segment?.seekSeconds ?? 0;
     positionRef.current = seek;
     archiveVideoClock.current.reset(seek, segment?.durationSeconds);
@@ -701,6 +708,18 @@ export function PlayerScreen({
       }
     }
 
+    function tryLiveFallback(): boolean {
+      if (!hasFormatFallback() || triedFallback || restarted || archiveRef.current !== null) return false;
+      const alternate = liveUrlFor(access, channel, FALLBACK_FORMAT);
+      if (alternate === null || alternate === source) return false;
+      setTriedFallback(true);
+      recovery.current.reset();
+      liveHealth.current.reset();
+      logEvent('afspiller', `skifter til det andet format (${FALLBACK_FORMAT})`);
+      requestSource(alternate);
+      return true;
+    }
+
     // Faelles vej for baade haarde fejl og stall.
     function handleFailure(reason: LiveFailureReason = 'native'): void {
       if (cancelled || gaveUp || retryTimer !== null || preparingArchive.current || changingSource.current) return;
@@ -714,7 +733,18 @@ export function PlayerScreen({
         try { positionRef.current = isTV ? archiveVideoClock.current.read(player.currentTime) : playbackClock(positionRef.current, player.currentTime, true); } catch { /* Afspilleren er vaek. */ }
       }
 
-      const { attempt, retry } = recovery.current.failure();
+      let repeatedShortLive = false;
+      if (archiveRef.current === null && !isRadio) {
+        const health = liveHealth.current.failure(reason, player.currentTime, Date.now());
+        if (health.escalate) {
+          logEvent('afspiller', `live korte forbindelser v415: ${health.shortEnds} afslutninger efter hver 10-120 s, ${/\.m3u8(\?|$)/.test(source ?? '') ? 'hls' : 'ts'}`);
+          if (tryLiveFallback()) return;
+          repeatedShortLive = true;
+        }
+      }
+      const failure = recovery.current.failure();
+      const { attempt } = failure;
+      const retry = failure.retry && !repeatedShortLive;
       const unseeked = archiveRef.current;
       if (retry && unseeked !== null && unseeked.seekSeconds > 0 && unseeked.format === 'ts' && unseeked.dialect === 'path' && (connection.committed || connection.seekTimedOut) && !connection.active && (player.status === 'readyToPlay' || connection.seekTimedOut)) {
         // Et panel kan sende TS uden laengde/seek-map. Det er klar data,
@@ -759,13 +789,7 @@ export function PlayerScreen({
       // kun hvor der findes et brugbart et — se hasFormatFallback(). Under
       // start-forfra springes fallback ogsaa over: arkivets beholder og
       // position bevares, i stedet for at skifte til live ved en fejl.
-      if (hasFormatFallback() && !triedFallback && !restarted) {
-        setTriedFallback(true);
-        recovery.current.reset();
-        logEvent('afspiller', `skifter til det andet format (${FALLBACK_FORMAT})`);
-        requestSource(liveUrlFor(access, channel, FALLBACK_FORMAT));
-        return;
-      }
+      if (tryLiveFallback()) return;
 
       logEvent('afspiller', 'opgiver: "Streamen kunne ikke afspilles"');
       gaveUp = true;
@@ -786,6 +810,7 @@ export function PlayerScreen({
         if (!connection.active) return; // connection ejer hele seek-deadlinen
         if (!everReady.current) logEvent('afspiller', `klar (${restarted ? 'arkiv' : 'live'}, ${/\.m3u8(\?|$)/.test(source) ? 'hls' : 'ts'})`);
         everReady.current = true;
+        if (archiveRef.current === null && !isRadio) liveHealth.current.ready(player.currentTime, Date.now());
         clearStallTimer();
         try {
           const audioTracks = player.availableAudioTracks;
@@ -878,6 +903,7 @@ export function PlayerScreen({
     const appState = AppState.addEventListener('change', state => {
       liveWatchdog.reset();
       if (state !== 'active' && !isRadio) {
+        liveHealth.current.suspend();
         cancelRetry();
         clearStallTimer();
       } else if (state === 'active') {
@@ -1001,6 +1027,7 @@ export function PlayerScreen({
       startFromHandled.current = true;
       if (!reconnect) {
         recovery.current.reset();
+        liveHealth.current.reset();
         lastSaved.current = 0;
         playIntent.current = true;
         archiveFormat.current = null;
@@ -1292,6 +1319,7 @@ export function PlayerScreen({
       <Text style={styles.connectingName}>{streamError}</Text>
       <TvPressable hasTVPreferredFocus={isTV} onPress={() => {
         recovery.current.reset();
+        liveHealth.current.reset();
         playIntent.current = true;
         const segment = archiveRef.current;
         if (segment !== null) {

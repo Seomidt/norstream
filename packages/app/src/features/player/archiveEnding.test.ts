@@ -71,7 +71,7 @@ vi.mock('../../storage/programmes.js', () => ({ getNowNext: async () => ({ now: 
 vi.mock('../../storage/channels.js', () => ({ listChannels: async () => [] }));
 vi.mock('../../storage/history.js', () => ({ recordChannelWatch: async () => {}, saveArchiveProgress: async () => {} }));
 vi.mock('../../sync/epgCache.js', () => ({ ensureEpg: async () => {} }));
-vi.mock('../../sources/access.js', () => ({ liveUrlFor: () => 'https://example.invalid/live.ts' }));
+vi.mock('../../sources/access.js', () => ({ liveUrlFor: (_access: unknown, _channel: unknown, format: string) => `https://example.invalid/live.${format}` }));
 vi.mock('../../net/doh.js', () => ({ streamSource: (source: string) => source }));
 vi.mock('../../diagnostics/reporter.js', () => ({ setPlaybackSnapshot: () => {}, closePlaybackSnapshot: () => {} }));
 vi.mock('../../diagnostics/log.js', async (importOriginal) => ({
@@ -349,6 +349,60 @@ async function background(value: string) {
 const advance = async (ms: number) => act(async () => { vi.advanceTimersByTime(ms); });
 
 describe('Live: baade lyd og billede stopper uden native fejl', () => {
+  async function playNormally(seconds: number) {
+    await act(async () => {
+      f.player.playing = true; f.player.status = 'readyToPlay';
+      for (let second = 0; second <= seconds; second += 1) {
+        if (second > 0) vi.advanceTimersByTime(1000);
+        f.player.currentTime = second;
+        for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: second });
+      }
+    });
+  }
+  async function shortEnd(seconds: number, resetNative = false) {
+    await playNormally(seconds);
+    await act(async () => {
+      f.player.playing = false; f.player.status = 'idle';
+      if (resetNative) {
+        f.player.currentTime = 0;
+        for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 0 });
+      }
+      for (const fn of [...f.listeners.get('playToEnd') ?? []]) fn(undefined);
+      for (const fn of [...f.listeners.get('statusChange') ?? []]) fn({ status: 'idle' });
+    });
+  }
+  it('TV2-loggens 48/67 sekunders TS-EOF skifter til HLS trods stabilt nulstillet genforsoegsbudget', async () => {
+    await mountLive(); await shortEnd(48); await advance(1500);
+    expect(f.loads.map(load => load.source)).toEqual(['https://example.invalid/live.ts', 'https://example.invalid/live.ts']);
+    await shortEnd(67);
+    expect(f.loads.map(load => load.source)).toEqual(['https://example.invalid/live.ts', 'https://example.invalid/live.ts', 'https://example.invalid/live.m3u8']);
+    await shortEnd(77); await advance(1500);
+    await shortEnd(78); await advance(10_000);
+    expect(f.loads).toHaveLength(4);
+    const texts = tree!.root.findAllByType('Text' as any).map(node => node.children.join('')).join(' ');
+    expect(texts).toContain('Streamen kunne ikke afspilles. Prøv igen.');
+    expect(f.requests).toHaveLength(0);
+  });
+  it('HLS der afvises efter korte TS-sessioner har fortsat et afgraenset budget uden formatcyklus', async () => {
+    await mountLive(); await shortEnd(48); await advance(1500); await shortEnd(67);
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await status('error'); await advance(attempt * 1500);
+    }
+    expect(f.loads.map(load => load.source)).toEqual([
+      'https://example.invalid/live.ts', 'https://example.invalid/live.ts',
+      'https://example.invalid/live.m3u8', 'https://example.invalid/live.m3u8', 'https://example.invalid/live.m3u8',
+    ]);
+    const texts = tree!.root.findAllByType('Text' as any).map(node => node.children.join('')).join(' ');
+    expect(texts).toContain('Streamen kunne ikke afspilles. Prøv igen.');
+  });
+  it('skifter ogsaa til HLS naar native melder EOF ved nul efter 48/67 sekunders faktisk afspilning', async () => {
+    await mountLive(); await shortEnd(48, true); await advance(1500);
+    await shortEnd(67, true);
+    expect(f.loads.map(load => load.source)).toEqual([
+      'https://example.invalid/live.ts', 'https://example.invalid/live.ts', 'https://example.invalid/live.m3u8',
+    ]);
+    expect(f.requests).toHaveLength(0);
+  });
   it('genforbinder efter EOF og idle, men aabner kun en forbindelse', async () => {
     await mountLive();
     await end(60, '18:20:08.546');

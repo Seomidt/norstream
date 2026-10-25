@@ -1,11 +1,12 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
 import { createTestDatabase } from '../storage/testDb.js';
 import { migrate } from '../storage/schema.js';
 import type { SqlDatabase } from '../storage/types.js';
 import { followSeries, getNewEpisodes } from '../storage/followedSeries.js';
-import { getVodDetails } from '../storage/vod.js';
-import { FOLLOWED_MAX_AGE_MS, refreshFollowedSeries } from './vodDetails.js';
+import { getVodDetails, getVodItem } from '../storage/vod.js';
+import { FOLLOWED_MAX_AGE_MS, ensureVodDetails, refreshFollowedSeries } from './vodDetails.js';
+import { panelQueue, pauseBackgroundPanel, resetPanelGate } from './panelGate.js';
 
 let db: SqlDatabase;
 const key = 'source:series';
@@ -16,9 +17,14 @@ const transport = (episodes: number[]) => vi.fn(async (url: string) => {
   return { ok: true, status: 200, json: async () => response(episodes), text: async () => '' };
 });
 beforeEach(async () => {
+  resetPanelGate();
   db = createTestDatabase(); await migrate(db);
   await db.runAsync("INSERT INTO vod_items(key,source_id,item_id,kind,name,sort_order) VALUES(?,?,?,?,?,?)", [key, 'source', 'series', 'series', 'En serie', 0]);
   await followSeries(db, key);
+});
+afterEach(() => {
+  expect(panelQueue()).toEqual({ foreground: 0, background: 0, busy: false });
+  resetPanelGate();
 });
 
 it('henter kun fulgte serier, gemmer foerste baseline og finder nye efter seks timer', async () => {
@@ -63,4 +69,52 @@ it('et ugyldigt tomt HTTP200-svar maa ikke slette afsnit eller forny sidste vell
   expect(await getNewEpisodes(db, key)).toEqual([]);
   await refreshFollowedSeries(db, 'source', creds, empty, new Date(+later + 60_000));
   expect(empty).toHaveBeenCalledTimes(1);
+});
+
+it('automatisk serieopdatering sender ingen HTTP mens afspilning holder baggrundskoeen paa pause', async () => {
+  const resume = pauseBackgroundPanel();
+  const fetch = transport([1, 2]);
+  const operation = refreshFollowedSeries(db, 'source', creds, fetch, new Date('2026-10-25T10:00:00Z'));
+  try {
+    await vi.waitFor(() => expect(panelQueue().background).toBe(1));
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await getVodDetails(db, key)).toBeNull();
+  } finally { resume(); }
+  expect(await operation).toBe(1);
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('en serieopdatering annulleret i baggrundskoeen springer HTTP over naar afspilningen slipper', async () => {
+  const resume = pauseBackgroundPanel();
+  const fetch = transport([1]);
+  let visible = true;
+  const now = new Date('2026-10-25T10:00:00Z');
+  const operation = refreshFollowedSeries(db, 'source', creds, fetch, now, () => visible);
+  try {
+    await vi.waitFor(() => expect(panelQueue().background).toBe(1));
+    visible = false;
+  } finally { resume(); }
+  expect(await operation).toBe(0);
+  expect(fetch).not.toHaveBeenCalled();
+  // Annullering er ingen netfejl og maa ikke udloese fem minutters ventetid.
+  expect(await refreshFollowedSeries(db, 'source', creds, fetch, now)).toBe(1);
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('et direkte brugeropslag virker mens automatisk serieopdatering venter paa panelkoeen', async () => {
+  const resume = pauseBackgroundPanel();
+  const fetch = transport([1]);
+  const now = new Date('2026-10-25T10:00:00Z');
+  const operation = refreshFollowedSeries(db, 'source', creds, fetch, now);
+  try {
+    await vi.waitFor(() => expect(panelQueue().background).toBe(1));
+    const item = await getVodItem(db, key);
+    const details = await ensureVodDetails(db, item!, creds, fetch, now);
+    expect((await getVodDetails(db, key))?.details).toEqual(details);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(panelQueue().background).toBe(1);
+  } finally { resume(); }
+  await operation;
+  // Baggrundsjobbet genbruger det netop gemte svar uden et ekstra HTTP-kald.
+  expect(fetch).toHaveBeenCalledTimes(1);
 });
