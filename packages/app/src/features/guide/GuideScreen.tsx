@@ -55,7 +55,7 @@ import {
   shiftedWindow,
   stateOf,
 } from './layout.js';
-import type { GuideCell } from './layout.js';
+import type { CellState, GuideCell } from './layout.js';
 import { neighbourIndex } from './layout.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
@@ -229,6 +229,7 @@ export const GuideScreen = memo(function GuideScreen({
   // af alle dagsknapperne, saa det kan ikke bruges til denne tilbage-vej.
   const dayOrigin = useRef<{ channelId: string; key: string; atMs: number | null } | null>(null);
   const [returnFocusChannelId, setReturnFocusChannelId] = useState<string | null>(null);
+  const cancelTimelineFocus = useRef<(() => void) | null>(null);
   const sheetReturnFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeDay = useCallback(() => {
     const origin = dayOrigin.current;
@@ -258,6 +259,7 @@ export const GuideScreen = memo(function GuideScreen({
       // guiden fra menuen igen (se focusFirstSignal nedenfor).
       // En hurtig Tilbage efter dagssiden/arket skal kunne naa menuen uden
       // at en ventende native gendannelse bagefter stjaeler fokus tilbage.
+      cancelTimelineFocus.current?.();
       setReturnFocusChannelId(null);
       setFocusTarget(null);
       if (sheetReturnFocusTimer.current !== null) {
@@ -406,7 +408,9 @@ export const GuideScreen = memo(function GuideScreen({
   // skifter, naar minuttet skifter, og naar en hentning har skrevet nye
   // programmer for kanalen (rows aendrer sig).
   const previewId = previewChannel?.id ?? null;
-  const previewRows = previewId === null ? undefined : rows[previewId];
+  // TV-gitteret ejer sine egne data. Dets valgte program er revisionen,
+  // saa nu/naeste opdateres uden telefon-guidens ekstra EPG-hentninger.
+  const previewRows = isTV ? focusedProgramme : previewId === null ? undefined : rows[previewId];
   useEffect(() => {
     if (previewId === null) {
       setPreviewProgrammes([]);
@@ -667,6 +671,7 @@ export const GuideScreen = memo(function GuideScreen({
   // der er fremme. Tegningen af det cachen allerede har sker med det samme —
   // ventetiden gaelder kun turen til panelet.
   useEffect(() => {
+    if (isTV) return;
     if (visibleChannels.current.length === 0) {
       visibleChannels.current = channels.slice(0, 12);
     }
@@ -692,6 +697,7 @@ export const GuideScreen = memo(function GuideScreen({
   // blokerer ikke de synlige hentninger. Kun én gang per liste.
   const prefetchedList = useRef<StoredChannel[] | null>(null);
   useEffect(() => {
+    if (isTV) return;
     if (channels.length === 0 || prefetchedList.current === channels) return;
     prefetchedList.current = channels;
     let cancelled = false;
@@ -780,6 +786,16 @@ export const GuideScreen = memo(function GuideScreen({
   // saa hardware-Tilbage (backRef ovenfor) stadig stiller vinduet paa nu.
   const stepGuideTime = useCallback((deltaMin: number): void => {
     setOffsetMinutes((value) => Math.min(DRAG_MAX_MINUTES, Math.max(DRAG_MIN_MINUTES, value + deltaMin)));
+  }, []);
+  // Stabil paa tvaers af fokus/preview, saa alle TV-raekker ikke tegnes igen.
+  const onOpenTimeline = useCallback((channel: StoredChannel, programme: Programme | null, state: CellState): void => {
+    setSheet({
+      channel,
+      cell: programme === null ? CHANNEL_CELL : {
+        key: `p-${programme.start.getTime()}`, programme, state, weight: 0,
+        clippedStart: false, clippedEnd: false,
+      },
+    });
   }, []);
   const onMeasureCells = useCallback((width: number): void => {
     gridWidth.current = width;
@@ -1035,26 +1051,12 @@ export const GuideScreen = memo(function GuideScreen({
           onFocusProgramme={setFocusedProgramme}
           offsetMinutes={offsetMinutes}
           onStepTime={stepGuideTime}
-          onOpen={(channel, programme, state) =>
-            setSheet({
-              channel,
-              cell:
-                programme === null
-                  ? CHANNEL_CELL
-                  : {
-                      key: `p-${programme.start.getTime()}`,
-                      programme,
-                      state,
-                      weight: 0,
-                      clippedStart: false,
-                      clippedEnd: false,
-                    },
-            })
-          }
+          onOpen={onOpenTimeline}
           focusFirstSignal={focusFirstSignal}
           active={active && dayFor === null && sheet === null}
           returnFocusChannelId={returnFocusChannelId}
           onReturnFocus={onDayFocusRestored}
+          cancelFocusRef={cancelTimelineFocus}
         />
       )}
       {!isTV && (

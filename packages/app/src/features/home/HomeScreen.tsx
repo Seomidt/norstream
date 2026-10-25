@@ -1,6 +1,6 @@
 import { deferredScreen } from '../../ui/deferredScreen.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, Pressable, StyleSheet, Text, TVFocusGuideView, useTVEventHandler, View } from 'react-native';
+import { AppState, StyleSheet, Text, TVFocusGuideView, View } from 'react-native';
 import { XtreamAuthError } from '@norstream/core';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
@@ -22,8 +22,8 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
-import { createRailSelection } from './railSelection.js';
-import { useRailFocus } from './useRailFocus.js';
+import { NavigationRail } from './NavigationRail.js';
+import type { NavigationRailControl } from './NavigationRail.js';
 import { useFollowedSeriesRefresh } from '../../sync/useFollowedSeriesRefresh.js';
 import { forgetPosterMisses } from '../../ui/posterFill.js';
 import type { Level } from '../browse/BrowseScreen.js';
@@ -119,8 +119,6 @@ interface Props {
 
 export type Tab = 'home' | 'favorites' | 'browse' | 'guide' | 'sport' | 'vod' | 'radio' | 'teletext' | 'settings';
 
-/** Tryk paa fjernbetjeningen der kan have flyttet fokus ind i eller langs menusoejlen. */
-
 // Stabile standard-niveauer. Foer var de inline-objekter (`{ name: 'countries' }`),
 // altsaa en ny reference ved HVER HomeScreen-render — og saa genindlaeste Browse
 // (og VOD) sit tungeste opslag hver gang forsiden tegnede sig om.
@@ -212,6 +210,7 @@ export function HomeScreen({
   /** Radioens egen tilbage-vej (internetradioens land og soegning), foer fanens. */
   const radioBack = useRef<() => boolean>(() => false);
   const vodBack = useRef<() => boolean>(() => false);
+  const railControl = useRef<NavigationRailControl | null>(null);
   const [pickingLogoFor, setPickingLogoFor] = useState<string | null>(null);
   const [logoToken, setLogoToken] = useState(0);
 
@@ -230,8 +229,7 @@ export function HomeScreen({
     if ((tab === 'guide' && guideBack.current()) || (tab === 'sport' && sportBack.current()) || (tab === 'teletext' && teletextBack.current())) {
       // Et gammelt piltryk maa ikke skifte fane, mens undersiden lukkes og
       // Android kortvarigt leder efter fokus paa baggrunden.
-      railSelection.cancel();
-      lastKey.current = { type: 'back', at: Date.now() };
+      railControl.current?.cancelSelection();
       return true;
     }
     if (tab === 'radio' && radioBack.current()) return true;
@@ -275,11 +273,8 @@ export function HomeScreen({
     }
     // Paa tv: foerst op i menuen (soejlen), saa videre som paa telefonen.
     // Ellers var menuen ikke til at naa fra guiden, som holder paa fokus.
-    if (isTV && !railFocused.current) {
-      railSelection.cancel();
-      lastKey.current = { type: 'back', at: Date.now() };
-      setRailOpen(true);
-      railFocus.request();
+    if (isTV && !railControl.current?.isFocused()) {
+      railControl.current?.requestFocus();
       return true;
     }
     if (tab !== 'home') {
@@ -532,29 +527,20 @@ export function HomeScreen({
 
   /** Skifter faneblad. Previewet lever i kanallisten; forlader man den, skal
       forbindelsen slippes med det samme. */
-  const selectTab = (id: Tab) => {
-    if (id !== tab) {
-      void previewHandle.current?.release().catch(() => undefined);
-      // Forsiden bliver staaende skjult; naar man kommer tilbage til den,
-      // skal den laese noegle, tjenester og favoritter igen, ellers stod
-      // et valg fra Indstillinger der foerst ved naeste start.
-      if (id === 'home') setHomeVisits((value) => value + 1);
-    }
+  const selectTab = useCallback((id: Tab) => {
+    const current = placeRef.current;
+    if (id === current.tab) return;
+    void previewHandle.current?.release().catch(() => undefined);
+    // Forsiden staar skjult; genlaes indstillinger naar man vaelger den igen.
+    if (id === 'home') setHomeVisits((value) => value + 1);
     if (id !== 'settings') {
       setShowingSources(false);
       setShowingLogos(false);
       setPickingLogoFor(null);
     }
-    setTab(id);
-  };
+    onPlaceChange({ ...current, tab: id });
+  }, [onPlaceChange]);
 
-  /**
-   * Hvornaar fjernbetjeningen sidst blev trykket. Fanerne skifter paa fokus,
-   * men kun naar fokus kom af et tryk: forsvinder den raekke der havde
-   * fokus (en favorit fjernet), flytter Android selv fokus til det
-   * foerste trykpunkt, som er Hjem i soejlen, og saa roeg man til
-   * forsiden hver gang man fjernede en favorit.
-   */
   /** Faner der har vaeret aabne: de bliver staaende skjult, se kroppen nedenfor. */
   const visited = useRef(new Set<Tab>());
   visited.current.add(tab);
@@ -572,103 +558,19 @@ export function HomeScreen({
     return () => clearTimeout(timer);
   }, []);
 
-  const lastKey = useRef<{ type: string; at: number }>({ type: '', at: 0 });
-  /**
-   * Pil hoejre fra menuen ind i indholdet: skaermen faar besked og saetter
-   * fokus paa sin foerste raekke. Android selv valgte det trykpunkt der laa
-   * naermest ikonet, og det var lige saa tit previewet eller en knap midt
-   * i listen som den foerste kanal.
-   */
-  const railFocused = useRef(false);
-  const focusedRailId = useRef<Tab | null>(null);
-  const railTabRef = useRef<View>(null);
-  const railFocus = useRailFocus(isTV && !covered, railTabRef);
-  /** Hvornaar soejlen sidst mistede fokus: Android flytter fokus ved tryk ned, foer tryk op naar herind. */
-  const railBlurredAt = useRef(0);
+  // Kun indgangen i indholdet aendrer HomeScreen. Menuens eget fokus,
+  // aabning og foldning bor i NavigationRail og roerer ikke skjulte faner.
   const [enterSignal, setEnterSignal] = useState(0);
-  useTVEventHandler((event) => {
-    if (event.eventType !== 'focus' && event.eventType !== 'blur') lastKey.current = { type: event.eventType, at: Date.now() };
-    if (event.eventType === 'right' && (railFocused.current || Date.now() - railBlurredAt.current < 400)) {
-      if (event.eventKeyAction !== undefined && Number(event.eventKeyAction) === 0) return;
-      // Vinduet efter blur bruges én gang: et andet tryk paa pil hoejre
-      // lige efter maa ikke sende fokus tilbage til den foerste raekke.
-      railBlurredAt.current = 0;
-      railSelection.enter();
-      setEnterSignal((value) => value + 1);
-    }
-  });
-  const selectTabLatest = useRef(selectTab);
-  selectTabLatest.current = selectTab;
-  const [railSelection] = useState(() => createRailSelection<Tab>(
-    id => selectTabLatest.current(id), () => lastKey.current,
-  ));
-  useEffect(() => () => railSelection.cancel(), [railSelection]);
+  const enterContent = useCallback(() => setEnterSignal(value => value + 1), []);
 
-  /**
-   * Tv: soejlen folder sig sammen til ikoner et par sekunder efter at
-   * fjernbetjeningen har forladt den, og folder sig ud igen naar den
-   * kommer tilbage (pil-venstre). Saa faar indholdet pladsen.
-   */
-  const [railOpen, setRailOpen] = useState(true);
-  const railTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onRailFocus = (id: Tab) => {
-    focusedRailId.current = id;
-    railFocused.current = true;
-    railFocus.confirm();
-    if (railTimer.current !== null) clearTimeout(railTimer.current);
-    railTimer.current = null;
-    setRailOpen(true);
-  };
-  const onRailBlur = (id: Tab) => {
-    // En sen blur fra den forrige fane maa ikke annullere den nye fanes fokus.
-    if (focusedRailId.current !== id) return;
-    focusedRailId.current = null;
-    railSelection.leave();
-    railFocused.current = false;
-    railBlurredAt.current = Date.now();
-    if (railTimer.current !== null) clearTimeout(railTimer.current);
-    railTimer.current = setTimeout(() => setRailOpen(false), 2000);
-  };
-
-  /* Fanerne: nederst paa telefonen, som en soejle til venstre paa tv. Fra
-     en liste paa hundrede raekker var menulinjen nederst hundrede tryk
-     vaek; til venstre er den ét tryk paa pil-venstre, som i de andre
-     tv-apps. Se selectTab for hvad et fanevalg goer. */
-  const tabs = (
-    <View style={isTV ? [styles.rail, !railOpen && styles.railFolded] : [styles.tabBar, { paddingBottom: theme.spacing.sm + (isTV ? 0 : insets.bottom) }]}>
-      {/* Indstillinger sidst og, paa tv, nederst i soejlen som et tandhjul
-          med luft over: Googles menusoejle har 5-6 destinationer og
-          handlingerne (indstillinger) for sig i bunden. */}
-      {TABS.map((item) => (
-        <TvPressable
-          key={item.id}
-          ref={tab === item.id ? railTabRef : undefined}
-          style={[isTV ? styles.railTab : styles.tab, isTV && item.id === 'settings' && styles.railSettings]}
-          onPress={() => {
-            railSelection.press(item.id);
-          }}
-          // Paa tv skifter fanen naar fjernbetjeningen lander paa den,
-          // uden et tryk paa OK: saadan goer de andre tv-apps, og at
-          // skulle trykke OK for at se hvad der er under Film foeltes
-          // som om intet skete. Se focusTab for de to forbehold.
-          onFocus={
-            isTV
-              ? () => {
-                  onRailFocus(item.id);
-                  railSelection.focus(item.id);
-                }
-              : undefined
-          }
-          onBlur={isTV ? () => onRailBlur(item.id) : undefined}
-        >
-          <Text style={[styles.tabIcon, tab === item.id && styles.tabActive]}>
-            {item.icon}
+  const phoneTabs = !isTV && (
+    <View style={[styles.tabBar, { paddingBottom: theme.spacing.sm + insets.bottom }]}>
+      {TABS.map(item => (
+        <TvPressable key={item.id} style={styles.tab} onPress={() => selectTab(item.id)}>
+          <Text style={[styles.tabIcon, tab === item.id && styles.tabActive]}>{item.icon}</Text>
+          <Text style={[styles.tabLabel, tab === item.id && styles.tabActive]} numberOfLines={1} adjustsFontSizeToFit>
+            {item.label}
           </Text>
-          {(!isTV || railOpen) && (
-            <Text style={[styles.tabLabel, tab === item.id && styles.tabActive]} numberOfLines={1} adjustsFontSizeToFit>
-              {item.label}
-            </Text>
-          )}
         </TvPressable>
       ))}
     </View>
@@ -870,9 +772,16 @@ export function HomeScreen({
         )}
       </TVFocusGuideView>
 
-      {!isTV && tabs}
+      {phoneTabs}
       </View>
-      {isTV && tabs}
+      {isTV && <NavigationRail
+        tabs={TABS}
+        activeTab={tab}
+        enabled={!covered}
+        onSelect={selectTab}
+        onEnter={enterContent}
+        controlRef={railControl}
+      />}
     </View>
   );
 }
@@ -885,17 +794,6 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   // laerredets kant. Paa telefonen laa det samme skjult under skaermens kant.
   body: { flex: 1, overflow: 'hidden' },
   hiddenTab: { display: 'none' },
-  rail: {
-    width: 84,
-    paddingTop: theme.spacing.md,
-    borderRightColor: colors.border,
-    borderRightWidth: StyleSheet.hairlineWidth,
-    backgroundColor: colors.surface,
-  },
-  railFolded: { width: 44 },
-  // Ni faner inklusive Tekst-tv skal kunne staa i laerredets 486 punkter.
-  railTab: { alignItems: 'center', paddingVertical: theme.spacing.xs, marginHorizontal: theme.spacing.xs, marginBottom: 2 },
-  railSettings: { marginTop: 'auto', marginBottom: theme.spacing.md, borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: theme.spacing.md },
   tabBar: {
     flexDirection: 'row',
     borderTopColor: colors.border,

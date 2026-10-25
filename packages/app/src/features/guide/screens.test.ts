@@ -6,7 +6,7 @@ import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 
 const mocks = vi.hoisted(() => ({
-  list: vi.fn(), channels: vi.fn(), full: vi.fn(), panel: vi.fn(),
+  list: vi.fn(), channels: vi.fn(), full: vi.fn(), short: vi.fn(), panel: vi.fn(),
   log: vi.fn(), scroll: vi.fn(), keys: new Set<(event: Record<string, unknown>) => void>(),
 }));
 vi.mock('react-native', async () => {
@@ -43,7 +43,7 @@ vi.mock('../../storage/settings.js', () => ({
 }));
 vi.mock('../../storage/favoriteGroups.js', () => ({ listFavoriteGroups: async () => [] }));
 vi.mock('../../storage/reminders.js', () => ({ hasReminder: async () => false, addReminder: async () => {}, removeReminder: async () => {} }));
-vi.mock('../../sync/epgCache.js', () => ({ ensureFullEpg: mocks.full, ensureEpg: async () => ({ failed: 0 }) }));
+vi.mock('../../sync/epgCache.js', () => ({ ensureFullEpg: mocks.full, ensureEpg: mocks.short }));
 vi.mock('../../sync/panelEpg.js', () => ({ panelEpgInFlight: mocks.panel, startPanelEpg: mocks.panel }));
 vi.mock('../../sync/weather.js', () => ({ loadCachedWeather: async () => null, refreshWeather: async () => null }));
 vi.mock('../../sync/news.js', () => ({ loadCachedNews: async () => null, refreshNews: async () => null }));
@@ -115,6 +115,7 @@ beforeEach(() => {
   mocks.list.mockImplementation(async (_db, id) => programmes(id));
   mocks.channels.mockResolvedValue([channel, second]);
   mocks.full.mockResolvedValue({ failed: 0 });
+  mocks.short.mockResolvedValue({ failed: 0 });
   mocks.panel.mockReturnValue(null);
 });
 afterEach(async () => {
@@ -210,6 +211,31 @@ describe('dagsoversigt paa TV med faktisk React-livscyklus', () => {
 });
 
 describe('Tilbage fra hele dagen bruger den rigtige TV-guide', () => {
+  it('genbruger aabningshandlingen naar kanalens fokus og preview skifter', async () => {
+    const tree = await mount(createElement(GuideScreen, {
+      session, onPlay: vi.fn(), onRestart: vi.fn(), onAuthError: vi.fn(), onBrowse: vi.fn(),
+      previewEnabled: false, previewHandle: { current: null }, active: true,
+    }));
+    await measureTimeline(tree);
+    const original = tree.root.findByType(TimelineGrid).props.onOpen;
+    await act(async () => tree.root.findByType(TimelineGrid).props.onFocusChannel(second));
+    expect(tree.root.findByType(TimelineGrid).props.onOpen).toBe(original);
+    await act(async () => tree.root.findByType(TimelineGrid).props.onFocusProgramme(programmes(second.id)[0]));
+    expect(tree.root.findByType(TimelineGrid).props.onOpen).toBe(original);
+  });
+
+  it('koerer ikke telefon-guidens ekstra forhaandshentning og ventende 12-kanalsopslag paa TV', async () => {
+    const tree = await mount(createElement(GuideScreen, {
+      session, onPlay: vi.fn(), onRestart: vi.fn(), onAuthError: vi.fn(), onBrowse: vi.fn(),
+      previewEnabled: false, previewHandle: { current: null }, active: true,
+    }));
+    await measureTimeline(tree);
+    await act(async () => { vi.advanceTimersByTime(350); });
+    expect(mocks.full.mock.calls.some(call => call[5]?.background === true)).toBe(false);
+    // TV beder om 200 kommende programmer; telefonens ekstra kald bruger standarden.
+    expect(mocks.short.mock.calls.every(call => call[5] === 200)).toBe(true);
+  });
+
   it('opdaterer et aabent programblad naar udbyderen tilfoejer og fjerner arkiv', async () => {
     const without = { ...channel, hasArchive: false, archiveDays: 0 };
     mocks.channels.mockResolvedValue([without, second]);
@@ -284,6 +310,20 @@ describe('Tilbage fra hele dagen bruger den rigtige TV-guide', () => {
     await act(async () => { vi.advanceTimersByTime(1600); });
     expect(focus).not.toHaveBeenCalled();
     expect(mocks.log).not.toHaveBeenCalledWith('guide', expect.stringContaining('ikke bekraeftet'));
+  });
+
+  it('annullerer native gendannelse i selve Back-handleren foer React tegner igen', async () => {
+    const focus = vi.fn();
+    const { tree, back } = await openDay(focus);
+    await act(async () => { expect(back.current()).toBe(true); });
+    expect(tree.root.findByType(TimelineGrid).props.returnFocusChannelId).toBe(second.id);
+    await act(async () => {
+      expect(back.current()).toBe(false);
+      // Effekternes oprydning har endnu ikke koert; et gammelt native tick maa stadig ikke skyde.
+      vi.advanceTimersByTime(300);
+      expect(focus).not.toHaveBeenCalled();
+    });
+    expect(tree.root.findByType(TimelineGrid).props.returnFocusChannelId).toBe(null);
   });
 
   it('holder fokusmaalet ved langsom native tilbagevenden og rydder gentagelser efter fokus', async () => {

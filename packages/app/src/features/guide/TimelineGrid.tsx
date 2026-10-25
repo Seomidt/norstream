@@ -1,9 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, StyleSheet, Text, TVFocusGuideView, View, useTVEventHandler } from 'react-native';
+import type { ViewToken } from 'react-native';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { listProgrammes } from '../../storage/programmes.js';
+import type { SqlDatabase } from '../../storage/types.js';
 import { ensureEpg, ensureFullEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { TvPressable } from '../../ui/TvPressable.js';
@@ -58,6 +60,10 @@ const GUIDE_EPG_LIMIT = 200;
 const SPAN_BACK_MIN = -DRAG_MIN_MINUTES;
 const SPAN_FWD_MIN = DRAG_MAX_MINUTES;
 const HALF_HOUR_MS = COL_MIN * 60_000;
+/** Et lille vindue omkring skaermen, uanset hvor mange kanaler listen har. */
+const LIST_WINDOW_SIZE = 5;
+const EPG_BATCH_SIZE = 4;
+const VIEWABILITY_CONFIG = { itemVisiblePercentThreshold: 1 };
 
 interface Props {
   session: AppSession;
@@ -86,6 +92,8 @@ interface Props {
   /** Kanalen man kom fra; slippes foerst ved dens native fokus-haendelse. */
   returnFocusChannelId: string | null;
   onReturnFocus: (restored: boolean) => void;
+  /** Tilbage kan stoppe native fokusfoersoeg foer React tegner menuen. */
+  cancelFocusRef?: { current: (() => void) | null };
 }
 
 /**
@@ -93,7 +101,8 @@ interface Props {
  * af- og genmonteres). Saa staar der ikke "Ingen oversigt" hver gang man aabner
  * guiden — det huskede vises straks, mens en frisk laesning opdaterer det.
  */
-let lastProgMap: Record<string, Programme[]> = {};
+const lastProgMaps = new WeakMap<SqlDatabase, Record<string, Programme[]>>();
+const NO_PROGRAMME_MAP: Record<string, Programme[]> = {};
 
 export function TimelineGrid({
   session,
@@ -109,13 +118,60 @@ export function TimelineGrid({
   active,
   returnFocusChannelId,
   onReturnFocus,
+  cancelFocusRef,
 }: Props) {
   const styles = useStyles(makeStyles);
   const rowNodes = useRef(new Map<string, View>());
   const focusedRow = useRef<string | null>(null);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const focusedIdRef = useRef(focusedId);
+  focusedIdRef.current = focusedId;
+  const suspended = useRef(false);
+  const entrySignal = useRef(focusFirstSignal);
+  if (entrySignal.current !== focusFirstSignal) {
+    entrySignal.current = focusFirstSignal;
+    suspended.current = false;
+  }
   const requestedChannel = useRef(returnFocusChannelId);
-  requestedChannel.current = returnFocusChannelId;
+  const previousReturnChannel = useRef(returnFocusChannelId);
+  if (previousReturnChannel.current !== returnFocusChannelId) {
+    previousReturnChannel.current = returnFocusChannelId;
+    requestedChannel.current = returnFocusChannelId;
+    if (returnFocusChannelId !== null) suspended.current = false;
+  }
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const focusCleanup = useRef<(() => void) | null>(null);
+  const metadataCancel = useRef<(() => void) | null>(null);
+  const metadataWork = useRef<Promise<void> | null>(null);
+  const cancelFocus = useCallback(() => {
+    suspended.current = true;
+    requestedChannel.current = null;
+    focusedRow.current = null;
+    focusCleanup.current?.();
+    focusCleanup.current = null;
+    metadataCancel.current?.();
+  }, []);
+  if (cancelFocusRef !== undefined) cancelFocusRef.current = cancelFocus;
+  useEffect(() => () => {
+    cancelFocus();
+    if (cancelFocusRef?.current === cancelFocus) cancelFocusRef.current = null;
+  }, [cancelFocus, cancelFocusRef]);
   const [listHeight, setListHeight] = useState(0);
+  const [firstVisibleIndex, setFirstVisibleIndex] = useState(0);
+  const visibleRows = Math.max(1, Math.ceil(listHeight / ROW_HEIGHT));
+  const visibleIndex = Math.min(firstVisibleIndex, Math.max(0, channels.length - 1));
+  const pageStart = Math.floor(visibleIndex / visibleRows) * visibleRows;
+  const metadataStart = Math.max(0, pageStart - visibleRows);
+  const metadataEnd = Math.min(channels.length, pageStart + visibleRows * 2);
+  const metadataChannels = useMemo(
+    () => channels.slice(metadataStart, metadataEnd),
+    [channels, metadataStart, metadataEnd],
+  );
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken<StoredChannel>[] }) => {
+    const first = viewableItems.find((item) => item.isViewable && item.index !== null)?.index;
+    if (first !== undefined && first !== null) setFirstVisibleIndex(first);
+  }).current;
   const registerRow = useCallback((id: string, node: View | null) => {
     if (node === null) rowNodes.current.delete(id);
     else rowNodes.current.set(id, node);
@@ -141,59 +197,91 @@ export function TimelineGrid({
     onStepTime(event.eventType === 'right' ? COL_MIN : -COL_MIN);
   });
 
-  // Programdata for HELE spanet, hentet én gang. Vinduet forskydes derefter kun
-  // lokalt (layoutRow), saa der ikke hentes ved hvert tidsskridt.
+  // Hele tidsspaendet for de synlige kanaler og en skaermfuld paa hver side.
+  // Vinduet forskydes derefter lokalt uden ny hentning ved hvert tidsskridt.
   const spanStartMs = anchorMs - SPAN_BACK_MIN * 60_000;
   const spanEndMs = anchorMs + SPAN_FWD_MIN * 60_000;
   // Start med det der sidst blev vist. Guide-fanen afmonteres naar man forlader
   // den (HomeScreen), saa hver gang man kom tilbage stod der "Ingen oversigt",
   // til cachen var laest ind igen ("som om den skal downloade det hver gang").
-  // Det huskede kort vises straks; draw() nedenunder opdaterer det med det samme.
-  const [progMap, setProgMap] = useState<Record<string, Programme[]>>(() => lastProgMap);
-  const draw = useCallback(async () => {
-    if (channels.length === 0) return;
-    const from = new Date(spanStartMs);
-    const to = new Date(spanEndMs);
-    const found = await Promise.all(channels.map((c) => listProgrammes(session.db, c.id, from, to)));
-    const map: Record<string, Programme[]> = {};
-    channels.forEach((c, i) => {
-      map[c.id] = found[i] ?? [];
-    });
-    lastProgMap = map;
-    setProgMap(map);
-  }, [channels, session.db, spanStartMs, spanEndMs]);
-
-  // Cachen foerst (hurtigt), saa nu/naeste fra panelet, saa den fulde tabel i
-  // baggrunden. Guiden staar aldrig tom mens der hentes.
+  // Det huskede kort vises straks; effekten opdaterer kun det aktuelle udsnit.
+  const [programmeState, setProgrammeState] = useState(() => ({
+    db: session.db,
+    map: lastProgMaps.get(session.db) ?? NO_PROGRAMME_MAP,
+  }));
+  const progMap = programmeState.db === session.db
+    ? programmeState.map
+    : lastProgMaps.get(session.db) ?? NO_PROGRAMME_MAP;
   useEffect(() => {
-    void draw();
-  }, [draw]);
-  useEffect(() => {
-    if (channels.length === 0) return;
+    if (!active || suspended.current || listHeight <= 0 || metadataChannels.length === 0) return;
     let cancelled = false;
-    void (async () => {
+    const stopped = () => cancelled || suspended.current || !activeRef.current;
+    const cancel = () => {
+      cancelled = true;
+      if (metadataCancel.current === cancel) metadataCancel.current = null;
+    };
+    metadataCancel.current = cancel;
+    const draw = async () => {
+      const from = new Date(spanStartMs);
+      const to = new Date(spanEndMs);
+      const map: Record<string, Programme[]> = {};
+      // Ét opslag ad gangen: Tilbage kan komme til mellem native svar, og der
+      // ligger aldrig tusindvis af gamle laesninger i SQLite-koeen.
+      for (const channel of metadataChannels) {
+        if (stopped()) return;
+        map[channel.id] = await listProgrammes(session.db, channel.id, from, to);
+      }
+      if (stopped()) return;
+      // SQLite er den fulde cache. Hold kun skaermens udsnit og eventuelt det
+      // gamle preview/fokusmaal i JS, og del aldrig data mellem databaser.
+      const previousMap = lastProgMaps.get(session.db);
+      for (const id of [focusedIdRef.current, requestedChannel.current]) {
+        if (id !== null && map[id] === undefined && previousMap?.[id] !== undefined) map[id] = previousMap[id];
+      }
+      lastProgMaps.set(session.db, map);
+      setProgrammeState({ db: session.db, map });
+    };
+    // Cachen foerst, saa nu/naeste, saa den fulde tabel. Smalle batches goer,
+    // at et gammelt udsnit standser hurtigt ved rulning, Tilbage eller skjul.
+    const previous = metadataWork.current;
+    const work = (async () => {
       try {
-        await ensureEpg(session.db, session.credsBySource, session.fetchImpl, channels.map((c) => c.id), new Date(), GUIDE_EPG_LIMIT);
-        if (!cancelled) void draw();
-        await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, channels);
+        // Menuen kan sende fokus tilbage foer det gamle native svar er kommet.
+        // Vent paa det ene igangvaerende batch foer samme udsnit genoptages.
+        if (previous !== null) await previous;
+        if (stopped()) return;
+        await draw();
+        for (let start = 0; start < metadataChannels.length; start += EPG_BATCH_SIZE) {
+          if (stopped()) return;
+          const batch = metadataChannels.slice(start, start + EPG_BATCH_SIZE);
+          await ensureEpg(session.db, session.credsBySource, session.fetchImpl, batch.map((channel) => channel.id), new Date(), GUIDE_EPG_LIMIT);
+        }
+        if (stopped()) return;
+        await draw();
+        for (let start = 0; start < metadataChannels.length; start += EPG_BATCH_SIZE) {
+          if (stopped()) return;
+          await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, metadataChannels.slice(start, start + EPG_BATCH_SIZE));
+        }
+        if (stopped()) return;
+        await draw();
       } catch {
         // Auth-/netfejl: det cachen har, staar.
       }
-      if (!cancelled) void draw();
     })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channels, session]);
+    metadataWork.current = work;
+    void work.finally(() => {
+      if (metadataWork.current === work) metadataWork.current = null;
+    });
+    return cancel;
+  }, [active, listHeight, metadataChannels, session, spanStartMs, spanEndMs, focusFirstSignal]);
 
   // Rul listen saa den fokuserede raekke er synlig (som favoritterne).
   const listRef = useRef<FlatList<StoredChannel>>(null);
   // Den kanal fjernbetjeningen staar paa. Bruges til at fortaelle boksen til
   // hoejre hvilken udsendelse der beskrives — ogsaa naar man bladrer tilbage.
-  const [focusedId, setFocusedId] = useState<string | null>(null);
   const onRowFocus = useCallback(
     (channel: StoredChannel, index: number) => {
+      if (!activeRef.current || suspended.current) return;
       focusedRow.current = channel.id;
       onFocusChannel(channel);
       setFocusedId(channel.id);
@@ -219,23 +307,28 @@ export function TimelineGrid({
   // forsvinder foer Android har lagt baggrunden frem.
   useEffect(() => {
     if (!active || returnFocusChannelId === null || listHeight <= 0) return;
+    if (requestedChannel.current !== returnFocusChannelId) return;
     const index = channels.findIndex((channel) => channel.id === returnFocusChannelId);
     if (index < 0) return;
+    setFirstVisibleIndex(index);
     listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: false });
     const request = () => {
-      if (requestedChannel.current === returnFocusChannelId) rowNodes.current.get(returnFocusChannelId)?.requestTVFocus();
+      if (activeRef.current && requestedChannel.current === returnFocusChannelId) rowNodes.current.get(returnFocusChannelId)?.requestTVFocus();
     };
     const frame = requestAnimationFrame(request);
     const retry = setInterval(request, 150);
     const timeout = setTimeout(() => {
       clearInterval(retry);
-      if (requestedChannel.current === returnFocusChannelId) onReturnFocus(false);
+      if (activeRef.current && requestedChannel.current === returnFocusChannelId) onReturnFocus(false);
     }, 1500);
-    return () => {
+    const stop = () => {
       cancelAnimationFrame(frame);
       clearInterval(retry);
       clearTimeout(timeout);
+      if (focusCleanup.current === stop) focusCleanup.current = null;
     };
+    focusCleanup.current = stop;
+    return stop;
   }, [active, returnFocusChannelId, channels, listHeight, onReturnFocus]);
 
   // Fortael boksen til hoejre hvilken udsendelse den fokuserede kanal viser i
@@ -243,7 +336,7 @@ export function TimelineGrid({
   // udsendelse i vinduet — praecis som raekkens "primary". Naar man bladrer
   // tilbage i tiden (offsetMinutes) skifter vinduet, saa den ogsaa skifter.
   useEffect(() => {
-    if (onFocusProgramme === undefined) return;
+    if (!active || onFocusProgramme === undefined) return;
     if (focusedId === null) {
       onFocusProgramme(null);
       return;
@@ -252,7 +345,7 @@ export function TimelineGrid({
     const primary =
       cells.find((c) => c.state === 'live')?.programme ?? cells.find((c) => c.programme !== null)?.programme ?? null;
     onFocusProgramme(primary);
-  }, [onFocusProgramme, focusedId, progMap, windowStartMs, windowEndMs, nowMs]);
+  }, [active, onFocusProgramme, focusedId, progMap, windowStartMs, windowEndMs, nowMs]);
 
   // Fokuser foerste raekke naar guiden aabnes / menuen sender fokus ind.
   const [focusPulse, setFocusPulse] = useState(true);
@@ -260,13 +353,14 @@ export function TimelineGrid({
   useEffect(() => {
     if (focusFirstSignal === seenSignal.current) return;
     seenSignal.current = focusFirstSignal;
+    listRef.current?.scrollToIndex({ index: 0, viewPosition: 0, animated: false });
     setFocusPulse(true);
   }, [focusFirstSignal]);
   useEffect(() => {
-    if (!focusPulse) return;
+    if (!focusPulse || !active || listHeight <= 0 || channels.length === 0) return;
     const f = requestAnimationFrame(() => setFocusPulse(false));
     return () => cancelAnimationFrame(f);
-  }, [focusPulse]);
+  }, [focusPulse, active, listHeight, channels.length]);
 
   const renderItem = useCallback(
     ({ item, index }: { item: StoredChannel; index: number }) => (
@@ -278,7 +372,7 @@ export function TimelineGrid({
         nowMs={nowMs}
         hasDialect={hasDialectFor(item)}
         index={index}
-        focusPulse={active && (item.id === returnFocusChannelId || (returnFocusChannelId === null && index === 0 && focusPulse))}
+        focusPulse={active && !suspended.current && (item.id === returnFocusChannelId || (returnFocusChannelId === null && index === 0 && focusPulse))}
         registerRow={registerRow}
         onFocusRow={onRowFocus}
         onBlurRow={onRowBlur}
@@ -326,9 +420,11 @@ export function TimelineGrid({
           keyExtractor={(c) => c.id}
           renderItem={renderItem}
           removeClippedSubviews={false}
-          initialNumToRender={Math.max(12, channels.length)}
-          windowSize={Math.max(11, channels.length + 2)}
-          maxToRenderPerBatch={Math.max(12, channels.length)}
+          initialNumToRender={visibleRows + 2}
+          windowSize={LIST_WINDOW_SIZE}
+          maxToRenderPerBatch={visibleRows + 2}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={VIEWABILITY_CONFIG}
           getItemLayout={(_, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
           onScrollToIndexFailed={() => undefined}
           contentContainerStyle={{ paddingBottom: ROW_HEIGHT * 4 }}
