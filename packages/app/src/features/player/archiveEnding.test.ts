@@ -9,6 +9,8 @@ import type { StoredChannel } from '../../storage/channels.js';
 const f = vi.hoisted(() => ({
   listeners: new Map<string, Set<(value: any) => void>>(),
   requests: [] as Array<{ from: Date; minutes: number }>,
+  offsets: [] as number[],
+  clock: vi.fn(async (..._args: unknown[]) => ({ offsetMinutes: 120 } as { offsetMinutes: number; timeZone?: string })),
   loads: [] as Array<{ source: unknown; seek: number }>,
   back: vi.fn(),
   seekImmediately: true,
@@ -48,8 +50,9 @@ vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ t
 vi.mock('@norstream/core', async (importOriginal) => ({
   ...await importOriginal<typeof import('@norstream/core')>(),
   detectTimeshiftDialect: vi.fn(),
-  buildTimeshiftUrl: (_creds: unknown, _id: unknown, from: Date, minutes: number) => {
+  buildTimeshiftUrl: (_creds: unknown, _id: unknown, from: Date, minutes: number, _dialect: unknown, offset: number) => {
     f.requests.push({ from, minutes });
+    f.offsets.push(offset);
     return `https://example.invalid/archive/${f.requests.length}.ts`;
   },
 }));
@@ -71,6 +74,7 @@ vi.mock('../../storage/programmes.js', () => ({ getNowNext: async () => ({ now: 
 vi.mock('../../storage/channels.js', () => ({ listChannels: async () => [] }));
 vi.mock('../../storage/history.js', () => ({ recordChannelWatch: async () => {}, saveArchiveProgress: async () => {} }));
 vi.mock('../../sync/epgCache.js', () => ({ ensureEpg: async () => {} }));
+vi.mock('../../sync/panelClock.js', () => ({ refreshPanelClock: f.clock }));
 vi.mock('../../sources/access.js', () => ({ liveUrlFor: (_access: unknown, _channel: unknown, format: string) => `https://example.invalid/live.${format}` }));
 vi.mock('../../net/doh.js', () => ({ streamSource: (source: string) => source }));
 vi.mock('../../diagnostics/reporter.js', () => ({ setPlaybackSnapshot: () => {}, closePlaybackSnapshot: () => {} }));
@@ -98,6 +102,7 @@ beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(at('18:19:08.546'));
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   f.requests.length = 0; f.loads.length = 0; f.listeners.clear();
+  f.offsets.length = 0; f.clock.mockReset().mockResolvedValue({ offsetMinutes: 120 });
   f.player.currentTime = 0; f.player.status = 'readyToPlay'; f.player.playing = true;
   f.player.duration = 1020; f.seekImmediately = true;
   f.setting.mockReset().mockResolvedValue('php');
@@ -121,6 +126,59 @@ async function end(position: number, now: string) {
 }
 
 describe('TV2: igangvaerende udsendelse slutter under forsinket afspilning', () => {
+  it('bruger et friskt panelur efter vintertid og genbruger det ved fortsaettelse', async () => {
+    vi.setSystemTime(new Date('2026-10-25T17:04:00Z'));
+    f.clock.mockResolvedValue({ offsetMinutes: 60, timeZone: 'Europe/Copenhagen' });
+    const programme = { ...news, start: new Date('2026-10-25T17:00:00Z'), stop: new Date('2026-10-25T17:30:00Z') };
+    await mount(programme);
+    expect(f.offsets).toEqual([60]);
+    expect(f.clock).toHaveBeenCalledTimes(1);
+    expect(f.clock.mock.calls[0]?.slice(0, 2)).toEqual([session.db, channel.sourceId]);
+    await act(async () => {
+      f.player.currentTime = 30;
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 30, videoRenderedFrames: 0 });
+      f.player.currentTime = 0; f.player.status = 'idle'; f.player.playing = false;
+      for (const fn of [...f.listeners.get('playToEnd') ?? []]) fn(undefined);
+    });
+    expect(f.offsets).toEqual([60, 60]);
+    expect(f.clock).toHaveBeenCalledTimes(1);
+    expect(f.loads.map(load => load.seek)).toEqual([0, 30]);
+  });
+
+  it('bruger sommertid til gaarssdagens arkiv selv om panelet nu er paa vintertid', async () => {
+    vi.setSystemTime(new Date('2026-10-25T17:04:00Z'));
+    f.clock.mockResolvedValue({ offsetMinutes: 60, timeZone: 'Europe/Copenhagen' });
+    await mount({ ...news, start: new Date('2026-10-24T16:00:00Z'), stop: new Date('2026-10-24T16:30:00Z') });
+    expect(f.offsets).toEqual([120]);
+    expect(f.clock).toHaveBeenCalledTimes(1);
+  });
+
+  it('et sent svar fra paneluret maa ikke starte arkivet efter Tilbage', async () => {
+    let resolveClock!: (clock: { offsetMinutes: number }) => void;
+    f.clock.mockImplementationOnce(() => new Promise(resolve => { resolveClock = resolve; }));
+    await mount();
+    expect(f.requests).toHaveLength(0);
+    await act(async () => { tree!.unmount(); tree = null; });
+    await act(async () => resolveClock({ offsetMinutes: 60 }));
+    expect(f.requests).toHaveLength(0);
+    expect(f.loads).toHaveLength(0);
+  });
+
+  it('brugerens Proev igen henter ur paa ny efter et mislykket arkivforloeb', async () => {
+    await mount();
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await status('error'); await advance(attempt * 1500);
+    }
+    expect(f.clock).toHaveBeenCalledTimes(1);
+    f.clock.mockResolvedValue({ offsetMinutes: 60 });
+    const retry = tree!.root.findAllByType('Text' as any).find(node => node.children.join('') === 'Prøv igen');
+    expect(retry).toBeDefined();
+    await act(async () => retry!.parent!.props.onPress());
+    expect(f.clock).toHaveBeenCalledTimes(2);
+    expect(f.offsets.at(-1)).toBe(60);
+    expect(f.requests.at(-1)?.from).toEqual(news.start);
+  });
+
   it.each([undefined, 0].flatMap(frames => [{ frames, completed: false }, { frames, completed: true }]))('bevarer 30 sekunders fremdrift gennem gentagne EOF, faerdig $completed og billedtaeller $frames', async ({ frames, completed }) => {
     if (completed) vi.setSystemTime(at('18:40:00'));
     await mount(completed ? news : { ...news, stop: at('19:00:00') });

@@ -12,8 +12,8 @@ import { ActivityIndicator, AppState, Platform, Pressable, StyleSheet, Text, Vie
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import type { SubtitleTrack } from 'expo-video';
-import { buildTimeshiftUrl, detectTimeshiftDialect } from '@norstream/core';
-import type { Programme, StreamFormat, TimeshiftDialect } from '@norstream/core';
+import { buildTimeshiftUrl, detectTimeshiftDialect, formatTimeshiftStart, panelOffsetForDate } from '@norstream/core';
+import type { PanelClock, Programme, StreamFormat, TimeshiftDialect } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
@@ -26,6 +26,7 @@ import {
 } from '../../storage/settings.js';
 import type { SubtitlePreference } from '../../storage/settings.js';
 import { ensureEpg } from '../../sync/epgCache.js';
+import { refreshPanelClock } from '../../sync/panelClock.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { liveUrlFor } from '../../sources/access.js';
 import { streamSource } from '../../net/doh.js';
@@ -143,6 +144,7 @@ export function PlayerScreen({
   const playIntent = useRef(true);
   const refreshArchiveEnd = useRef<() => void>(() => undefined);
   const archiveFormat = useRef<StreamFormat | null>(null);
+  const archiveClock = useRef<PanelClock | null>(null);
   const requestSource = useCallback((uri: string | null): void => {
     changingSource.current = true;
     // En fejl kan kraeve en ny indlaesning af praecis samme URL.
@@ -248,6 +250,7 @@ export function PlayerScreen({
       liveHealth.current.reset();
       playIntent.current = true;
       archiveFormat.current = null;
+      archiveClock.current = null;
       setChannel(target);
       setStartFrom(undefined);
       setRestarted(false);
@@ -1031,13 +1034,22 @@ export function PlayerScreen({
         lastSaved.current = 0;
         playIntent.current = true;
         archiveFormat.current = null;
+        archiveClock.current = null;
       }
       try {
-        const [dialect, offset] = await Promise.all([
+        // Offsettet fra forbindelsen kan vaere fra foer sommer/vintertid.
+        // Hent panelets eget ur ved en ny start, og genbrug det ved stykker
+        // og genforsoeg, saa de ikke giver ekstra baggrundskald.
+        const [dialect, clock] = await Promise.all([
           getTimeshiftDialect(session.db, channel.sourceId),
-          getPanelOffsetMinutes(session.db, channel.sourceId),
+          archiveClock.current !== null
+            ? Promise.resolve(archiveClock.current)
+            : access?.creds == null
+              ? getPanelOffsetMinutes(session.db, channel.sourceId).then((offsetMinutes): PanelClock => ({ offsetMinutes }))
+              : refreshPanelClock(session.db, channel.sourceId, access.creds, session.fetchImpl),
         ]);
         if (request !== archiveRequest.current) return;
+        archiveClock.current = clock;
         if (dialect === null || access?.creds == null) {
           // Uden dialekt kan arkiv-URLen ikke bygges. Kom vi fra guiden, staar
           // skaermen sort uden dette: fald tilbage paa live frem for ingenting —
@@ -1070,10 +1082,12 @@ export function PlayerScreen({
           setStreamError('Arkivet er ikke klart endnu. Prøv igen om lidt.');
           return;
         }
+        const offset = panelOffsetForDate(clock, window.from);
         logEvent(
           'arkiv',
           `beder om ${dialect}-arkiv fra ${clockOf(window.from.getTime())}, ${window.minutes} min (udsendelse ${clockOf(programme.start.getTime())}–${clockOf(programme.stop.getTime())}, offset ${offset} min, spol ${window.seekSeconds.toFixed(3)} s)`,
         );
+        logEvent('arkiv', `paneltid v416: ${formatTimeshiftStart(window.from, offset)}, offset ${offset} min${clock.timeZone === undefined ? ', maalt fast ur' : ', bekraeftet tidszone'}`);
         logEvent('arkiv', `slutgraense v395: guide ${clockOf(programme.stop.getTime())}, arkiv til ${clockOf(bounds.stop.getTime())}`);
         const format = archiveFormat.current ?? formatForPlatform();
         archiveRef.current = { programme, playbackStop: bounds.stop, segmentStart: window.from.getTime(), seekSeconds: window.seekSeconds, durationSeconds: window.minutes * 60, format, dialect, panelOffsetMinutes: offset };
@@ -1323,6 +1337,7 @@ export function PlayerScreen({
         playIntent.current = true;
         const segment = archiveRef.current;
         if (segment !== null) {
+          archiveClock.current = null;
           void playFromStart(segment.programme, new Date(segment.segmentStart + positionRef.current * 1000), 0, true);
         } else if (source !== null) { setStreamError(null); requestSource(source); }
       }}>

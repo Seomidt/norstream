@@ -10,7 +10,8 @@ import type {
 import { normaliseBaseUrl } from '../urls.js';
 import { truthyFlag } from './coerce.js';
 import { mapCategories, mapChannels } from './mapping.js';
-import { panelOffsetFromServerInfo } from './serverInfo.js';
+import { panelClockFromServerInfo, panelOffsetFromServerInfo } from './serverInfo.js';
+import type { PanelClock } from './serverInfo.js';
 import { mapEpgListings } from './epgListings.js';
 import { mapEpisodes, mapVodDetails, mapVodItems } from './vodMapping.js';
 
@@ -205,6 +206,11 @@ export class XtreamClient {
    */
   async getPanelOffsetMinutes(): Promise<number | null> {
     return panelOffsetFromServerInfo(await this.request());
+  }
+
+  /** Friskt panelur; en bekraeftet zone kan ogsaa omsaette aeldre arkivdatoer. */
+  async getPanelClock(): Promise<PanelClock | null> {
+    return panelClockFromServerInfo(await this.request());
   }
 
   async getVodCategories(): Promise<Category[]> {

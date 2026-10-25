@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { panelOffsetFromServerInfo } from './serverInfo.js';
+import { describe, expect, it, vi } from 'vitest';
+import { panelClockFromServerInfo, panelOffsetForDate, panelOffsetFromServerInfo } from './serverInfo.js';
 
 /** 2026-09-05 16:34:12 UTC. */
 const EPOCH_SECONDS = 1788626052;
@@ -66,6 +66,78 @@ describe('panelOffsetFromServerInfo', () => {
   it('taaler svar der slet ikke ligner server_info', () => {
     for (const raw of [null, undefined, 42, 'fejl', [], {}, { server_info: 'nej' }]) {
       expect(panelOffsetFromServerInfo(raw)).toBeNull();
+    }
+  });
+});
+
+describe('panelClockFromServerInfo og arkivdatoens offset', () => {
+  function clockInfo(utc: string, local: string, timezone?: string): unknown {
+    return { server_info: { time_now: local, timestamp_now: new Date(utc).getTime() / 1000, timezone } };
+  }
+
+  const winterInfo = () => clockInfo('2026-10-25T17:04:00Z', '2026-10-25 18:04:00', 'Europe/Amsterdam');
+
+  it('laeser vintertid efter den 25. oktober i stedet for det tidligere sommeroffset', () => {
+    const summer = panelClockFromServerInfo(clockInfo('2026-10-24T17:04:00Z', '2026-10-24 19:04:00', 'Europe/Amsterdam'));
+    const winter = panelClockFromServerInfo(winterInfo());
+    expect(summer).toEqual({ offsetMinutes: 120, timeZone: 'Europe/Amsterdam' });
+    expect(winter).toEqual({ offsetMinutes: 60, timeZone: 'Europe/Amsterdam' });
+    expect(panelOffsetForDate(winter!, new Date('2026-10-25T17:00:00Z'))).toBe(60);
+  });
+
+  it('bruger sommeroffset til en aeldre udsendelse selv om panelet nu har vintertid', () => {
+    const clock = panelClockFromServerInfo(winterInfo())!;
+    expect(panelOffsetForDate(clock, new Date('2026-10-24T17:00:00Z'))).toBe(120);
+    expect(panelOffsetForDate(clock, new Date('2026-10-25T00:59:59.999Z'))).toBe(120);
+    expect(panelOffsetForDate(clock, new Date('2026-10-25T01:00:00Z'))).toBe(60);
+  });
+
+  it('bevarer den maalte forskel naar panelet koerer fast +120 med en misvisende zone', () => {
+    const clock = panelClockFromServerInfo(clockInfo('2026-10-25T17:04:00Z', '2026-10-25 19:04:00', 'Europe/Amsterdam'))!;
+    expect(clock).toEqual({ offsetMinutes: 120 });
+    expect(panelOffsetForDate(clock, new Date('2026-10-25T17:00:00Z'))).toBe(120);
+  });
+
+  it('falder tilbage paa maaling ved ukendt eller manglende zone', () => {
+    for (const zone of [undefined, '', 'Not/A_Zone', 'x'.repeat(101)]) {
+      expect(panelClockFromServerInfo(clockInfo('2026-10-25T17:04:00Z', '2026-10-25 18:04:00', zone)))
+        .toEqual({ offsetMinutes: 60 });
+    }
+  });
+
+  it('haandterer Nepals kvarte time uden afrunding til hele timer', () => {
+    const clock = panelClockFromServerInfo(clockInfo('2026-10-25T17:04:00Z', '2026-10-25 22:49:00', 'Asia/Kathmandu'))!;
+    expect(clock).toEqual({ offsetMinutes: 345, timeZone: 'Asia/Kathmandu' });
+    expect(panelOffsetForDate(clock, new Date('2026-10-24T17:00:00.567Z'))).toBe(345);
+  });
+
+  it('udleder aldrig et panelur fra zonen alene', () => {
+    for (const raw of [null, {}, { server_info: { timezone: 'Europe/Amsterdam' } }]) {
+      expect(panelClockFromServerInfo(raw)).toBeNull();
+    }
+  });
+
+  it('bevarer det maalte offset naar boksens Intl ikke understoetter zoner', () => {
+    const formatter = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(() => { throw new RangeError('zoner mangler'); });
+    try {
+      expect(panelClockFromServerInfo(winterInfo())).toEqual({ offsetMinutes: 60 });
+      expect(panelOffsetForDate({ offsetMinutes: 60, timeZone: 'Europe/Amsterdam' }, new Date('2026-10-24T17:00:00Z'))).toBe(60);
+    } finally {
+      formatter.mockRestore();
+    }
+  });
+
+  it('bevarer maaling ved uforstaaelige Intl-dele eller ugyldig arkivdato', () => {
+    const clock = panelClockFromServerInfo(winterInfo())!;
+    expect(panelOffsetForDate(clock, new Date(Number.NaN))).toBe(60);
+    const formatter = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(() => ({
+      formatToParts: () => [{ type: 'hour', value: '24' }],
+    } as unknown as Intl.DateTimeFormat));
+    try {
+      expect(panelClockFromServerInfo(winterInfo())).toEqual({ offsetMinutes: 60 });
+      expect(panelOffsetForDate(clock, new Date('2026-10-24T17:00:00Z'))).toBe(60);
+    } finally {
+      formatter.mockRestore();
     }
   });
 });

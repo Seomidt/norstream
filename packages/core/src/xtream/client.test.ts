@@ -218,3 +218,30 @@ describe('XtreamClient.getPanelOffsetMinutes', () => {
     await expect(client.getPanelOffsetMinutes()).resolves.toBeNull();
   });
 });
+
+describe('XtreamClient.getPanelClock', () => {
+  it('henter maalingen og en bekraeftet tidszone med et enkelt metadataopslag', async () => {
+    const fetchImpl = respondWith({ server_info: {
+      time_now: '2026-10-25 18:04:00',
+      timestamp_now: new Date('2026-10-25T17:04:00Z').getTime() / 1000,
+      timezone: 'Europe/Amsterdam',
+    } });
+    await expect(new XtreamClient(creds, fetchImpl).getPanelClock()).resolves
+      .toEqual({ offsetMinutes: 60, timeZone: 'Europe/Amsterdam' });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith('http://panel.example:8080/player_api.php?username=USER&password=PASS');
+  });
+
+  it('bevarer et fast serveroffset naar zonen ikke passer til serveruret', async () => {
+    const fetchImpl = respondWith({ server_info: {
+      time_now: '2026-10-25 19:04:00',
+      timestamp_now: new Date('2026-10-25T17:04:00Z').getTime() / 1000,
+      timezone: 'Europe/Amsterdam',
+    } });
+    await expect(new XtreamClient(creds, fetchImpl).getPanelClock()).resolves.toEqual({ offsetMinutes: 120 });
+  });
+
+  it('returnerer null naar panelet ikke oplyser et maateligt ur', async () => {
+    await expect(new XtreamClient(creds, respondWith({ user_info: { auth: 1 } })).getPanelClock()).resolves.toBeNull();
+  });
+});
