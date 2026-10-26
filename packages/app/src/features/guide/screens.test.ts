@@ -44,7 +44,18 @@ vi.mock('../../storage/settings.js', () => ({
 }));
 vi.mock('../../storage/favoriteGroups.js', () => ({ listFavoriteGroups: async () => [] }));
 vi.mock('../../storage/reminders.js', () => ({ hasReminder: async () => false, addReminder: async () => {}, removeReminder: async () => {} }));
-vi.mock('../../sync/epgCache.js', () => ({ ensureFullEpg: mocks.full, ensureEpg: async () => ({ failed: 0 }) }));
+vi.mock('../../sync/epgCache.js', () => ({
+  ensureFullEpg: mocks.full,
+  ensureEpg: async (_db: unknown, _creds: unknown, _fetch: unknown, ids: string[], now: Date, limit: number, options: {onProgrammes?: (id: string, rows: Programme[]) => void}) => {
+    let count = 0;
+    for (const id of ids) {
+      const rows = programmes(id).filter(p => p.stop > now).slice(0, limit);
+      options?.onProgrammes?.(id, rows);
+      count += rows.length;
+    }
+    return {fetched:ids.length,programmes:count,failed:0,reason:null};
+  },
+}));
 vi.mock('../../sync/panelEpg.js', () => ({ panelEpgInFlight: mocks.panel, startPanelEpg: mocks.panel, syncPanelEpg: mocks.panel }));
 vi.mock('../../sync/weather.js', () => ({ loadCachedWeather: async () => null, refreshWeather: async () => null }));
 vi.mock('../../sync/news.js', () => ({ loadCachedNews: async () => null, refreshNews: async () => null }));

@@ -521,3 +521,41 @@ it('tom fuld HTTP-succes rydder den gamle kanaloversigt, mens en HTTP-fejl bevar
   expect(empty).toMatchObject({fetched:1,programmes:0,failed:0});
   expect(await listProgrammes(db,WITH_ARCHIVE.id,NOW,old.stop)).toEqual([]);
 });
+
+it('guidens korte HTTP-svar blandes ikke med en forskudt arkivpost fra SQL', async () => {
+  const id = key('dr1');
+  // To API-veje kan levere samme udsendelse paa forskellige tidspunkter.
+  // Guiden skal bruge ét svar; naboen i SQL maa ikke blive en ekstra bjaelke.
+  await ensureFullEpg(db, sources, panel({listings:{dr1:[listing(60,60)]}}), [{id}], NOW, {force:true});
+  const short = vi.fn();
+  await ensureEpg(db, sources, panel({listings:{dr1:[listing(0,60)]}}), [id], NOW, 12, {force:true,onProgrammes:short});
+  expect(short).toHaveBeenCalledTimes(1);
+  const [channel, snapshot] = short.mock.calls[0]!;
+  expect(channel).toBe(id);
+  expect(snapshot).toHaveLength(1);
+  expect(snapshot[0].start).toEqual(NOW);
+  expect(snapshot[0].stop).toEqual(new Date(NOW.getTime()+3600_000));
+  expect(await listProgrammes(db,id,NOW,new Date(NOW.getTime()+7200_000))).toHaveLength(2);
+});
+
+it('guidens fulde snapshot indeholder kun kanalens friske svar', async () => {
+  const onProgrammes=vi.fn(), id=key('dr2');
+  await upsertProgrammes(db,[{channelId:id,title:'Gammel',description:null,start:NOW,stop:new Date(NOW.getTime()+3600_000)}]);
+  await ensureFullEpg(db,sources,panel({listings:{dr2:[listing(30,60)]}}),[{id}],NOW,{force:true,onProgrammes});
+  expect(onProgrammes).toHaveBeenCalledTimes(1);
+  expect(onProgrammes.mock.calls[0]![1]).toHaveLength(1);
+  expect(onProgrammes.mock.calls[0]![1][0].start).toEqual(new Date(NOW.getTime()+1800_000));
+});
+
+it('bevarer et startet svar naar raekken rulles vaek, men starter ikke naeste kanal', async () => {
+  let visible=true;
+  const onProgrammes=vi.fn();
+  const fetchImpl:FetchLike=async()=>{
+    visible=false;
+    return {ok:true,status:200,text:async()=>'',json:async()=>({epg_listings:[listing(0,60)]})};
+  };
+  const result=await ensureEpg(db,sources,fetchImpl,[key('1'),key('2')],NOW,12,{force:true,shouldContinue:()=>visible,onProgrammes});
+  expect(result.fetched).toBe(1);
+  expect(onProgrammes).toHaveBeenCalledTimes(1);
+  expect(onProgrammes.mock.calls[0]![0]).toBe(key('1'));
+});

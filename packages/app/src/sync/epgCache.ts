@@ -1,5 +1,5 @@
 import { XtreamAuthError, XtreamClient, parseChannelKey } from '@norstream/core';
-import type { FetchLike, XtreamCredentials } from '@norstream/core';
+import type { FetchLike, Programme, XtreamCredentials } from '@norstream/core';
 import { groupBySource } from '../sources/access.js';
 import { maxArchiveDays } from '../storage/channels.js';
 import {
@@ -98,6 +98,8 @@ export interface EnsureEpgOptions {
   force?: boolean;
   /** Skjult/forladt guide: stop kanaler som endnu ikke har startet HTTP. */
   shouldContinue?: () => boolean;
+  /** Guiden tegner dette HTTP-svar, aldrig en blanding med andre SQL-skrivere. */
+  onProgrammes?: (channelId: string, programmes: Programme[]) => void;
 }
 
 /**
@@ -212,7 +214,11 @@ export async function ensureEpg(
     // eget id: to paneler har begge en kanal 1.
     // replaceWindow (v360): det panelet siger NU om de naeste timer erstatter
     // det der laa — et flyttet program maa ikke blive liggende ved siden af.
-    await upsertProgrammes(db, batch.map((p) => ({ ...p, channelId: key })), { replaceWindow: true });
+    const snapshot = batch.map((p) => ({ ...p, channelId: key }));
+    await upsertProgrammes(db, snapshot, { replaceWindow: true });
+    // Et allerede startet svar er gyldigt selv om raekken lige blev rullet
+    // vaek. Ejeren af snapshot afviser selv et forladt guidebesoeg.
+    options.onProgrammes?.(key, snapshot);
     // Ogsaa naar batch er tom: se needsEpgFetch's regel 1. Uden dette ville
     // en kanal uden programdata blive hentet igen ved hver rendering.
     await markEpgFetched(db, key, now);
@@ -226,7 +232,7 @@ export async function ensureEpg(
 
   // Ryd kun naar vi faktisk fik noget. Ellers ville en tur hvor panelet var
   // nede slette den EPG appen allerede havde, uden noget at saette i stedet.
-  if (programmes > 0) {
+  if (programmes > 0 && options.force !== true) {
     await deleteProgrammesBefore(db, retentionCutoff(now, await maxArchiveDays(db)));
   }
 
@@ -296,10 +302,12 @@ export async function ensureFullEpg(
 
       if (batch === null) return;
 
-      await upsertProgrammes(db, batch.map((p) => ({ ...p, channelId: key })), {
+      const snapshot = batch.map((p) => ({ ...p, channelId: key }));
+      await upsertProgrammes(db, snapshot, {
         replaceWindow: true,
         ...(options.force === true ? { replaceChannelIds: [key] } : {}),
       });
+      options.onProgrammes?.(key, snapshot);
       await markArchiveFetched(db, key, now);
       fetched += 1;
       programmes += batch.length;
