@@ -198,8 +198,8 @@ export function stateOf(programme: Programme, now: Date): CellState {
  * vise et forkert tidspunkt for dem alle.
  *
  * `programmes` forventes sorteret efter starttidspunkt, som `mapShortEpg`
- * leverer dem. Overlappende programmer klippes mod det foregaaende, saa
- * summen af vaegte altid er praecis vinduets laengde.
+ * leverer dem. Ved overlap vinder den seneste start, som i nu/naeste-opslaget.
+ * Summen af vaegte er altid praecis vinduets laengde.
  */
 export function layoutRow(
   programmes: readonly Programme[],
@@ -211,46 +211,43 @@ export function layoutRow(
   const endMs = windowEnd.getTime();
   if (endMs <= startMs) return [];
 
-  const cells: GuideCell[] = [];
-  let cursor = startMs;
-
-  const pushGap = (until: number): void => {
-    if (until <= cursor) return;
-    cells.push({
-      key: `gap-${cursor}`,
-      programme: null,
-      state: 'gap',
-      weight: (until - cursor) / 60_000,
-      clippedStart: false,
-      clippedEnd: false,
-    });
-    cursor = until;
-  };
-
-  for (const programme of programmes) {
-    const programmeStart = programme.start.getTime();
-    const programmeStop = programme.stop.getTime();
-    if (programmeStop <= startMs || programmeStart >= endMs) continue;
-
-    const from = Math.max(programmeStart, cursor);
-    const to = Math.min(programmeStop, endMs);
-    // Helt daekket af et foregaaende, overlappende program.
-    if (to <= from) continue;
-
-    pushGap(from);
-    cells.push({
-      key: `p-${programmeStart}`,
-      programme,
-      state: stateOf(programme, now),
-      weight: (to - from) / 60_000,
-      clippedStart: programmeStart < startMs,
-      clippedEnd: programmeStop > endMs,
-    });
-    cursor = to;
+  // Seneste start vinder et overlap, ligesom getNowNext. Originale
+  // Programme-objekter bevares til arkivet; kun de tegnede intervaller deles.
+  const valid = programmes.filter(p => Number.isFinite(p.start.getTime()) && Number.isFinite(p.stop.getTime())
+    && p.stop.getTime() > p.start.getTime() && p.stop.getTime() > startMs && p.start.getTime() < endMs)
+    .slice().sort((a, b) => a.start.getTime() - b.start.getTime());
+  const bounds = [...new Set([startMs, endMs, ...valid.flatMap(p => [
+    Math.max(startMs, p.start.getTime()), Math.min(endMs, p.stop.getTime()),
+  ])])].sort((a, b) => a - b);
+  const segments: Array<{ from: number; to: number; programme: Programme | null }> = [];
+  for (let i = 0; i < bounds.length - 1; i += 1) {
+    const from = bounds[i]!, to = bounds[i + 1]!;
+    let programme: Programme | null = null;
+    for (let j = valid.length - 1; j >= 0; j -= 1) {
+      const candidate = valid[j]!;
+      if (candidate.start.getTime() <= from && candidate.stop.getTime() > from) { programme = candidate; break; }
+    }
+    const last = segments[segments.length - 1];
+    if (last !== undefined && last.programme === programme) last.to = to;
+    else segments.push({ from, to, programme });
   }
-
-  pushGap(endMs);
-  return cells;
+  const nowMs = now.getTime();
+  const inside = nowMs >= startMs && nowMs < endMs;
+  const used = new Set<Programme>();
+  return segments.map(({ from, to, programme }): GuideCell => {
+    const repeated = programme !== null && used.has(programme);
+    if (programme !== null) used.add(programme);
+    return {
+      key: programme === null ? `gap-${from}` : `p-${programme.start.getTime()}${repeated ? `-${from}` : ''}`,
+      programme,
+      state: programme === null ? 'gap' : inside
+        ? nowMs < from ? 'future' : nowMs >= to ? 'past' : 'live'
+        : stateOf(programme, now),
+      weight: (to - from) / 60_000,
+      clippedStart: programme !== null && programme.start.getTime() < from,
+      clippedEnd: programme !== null && programme.stop.getTime() > to,
+    };
+  });
 }
 
 export type GuideAction =

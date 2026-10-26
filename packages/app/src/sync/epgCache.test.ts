@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
 import { XtreamAuthError, channelKey } from '@norstream/core';
-import { getEpgFreshness, markEpgFetched } from '../storage/epgFetch.js';
+import { getEpgFreshness, markEpgFetched, markArchiveFetched } from '../storage/epgFetch.js';
 import { listProgrammes, upsertProgrammes } from '../storage/programmes.js';
 import { migrate } from '../storage/schema.js';
 import { createTestDatabase } from '../storage/testDb.js';
 import type { SqlDatabase } from '../storage/types.js';
 import { ensureFullEpg, ensureEpg, retentionCutoff } from './epgCache.js';
+import { acquirePanel, releasePanel, panelQueue, resetPanelGate } from './panelGate.js';
 
 const creds: XtreamCredentials = {
   baseUrl: 'http://panel.example:8080',
@@ -443,4 +444,80 @@ describe('cachen sparer turene til panelet', () => {
     );
     expect(stored).toHaveLength(1);
   });
+});
+
+
+describe('direkte EPG-opdatering fra synlig guide', () => {
+  beforeEach(() => resetPanelGate());
+
+  it('force henter den fulde oversigt selv om seks-timersmarkeringen er ny', async () => {
+    await markArchiveFetched(db, WITH_ARCHIVE.id, NOW);
+    const fetchImpl = archivePanel({ '247634': [listing(0)] });
+    const result = await ensureFullEpg(db, sources, fetchImpl, [WITH_ARCHIVE], NOW, { force:true });
+    expect(result).toMatchObject({ fetched:1, programmes:1, failed:0 });
+    expect(fetchImpl.actions).toEqual(['get_simple_data_table']);
+  });
+
+  it('force kort EPG omgaas baade kort og fuld friskhedsmarkering', async () => {
+    await markEpgFetched(db, WITH_ARCHIVE.id, NOW);
+    await markArchiveFetched(db, WITH_ARCHIVE.id, NOW);
+    const fetchImpl = panel({listings:{'247634':[listing(0)]}});
+    const result = await ensureEpg(db, sources, fetchImpl, [WITH_ARCHIVE.id], NOW, 12, {force:true});
+    expect(result).toMatchObject({fetched:1,programmes:1,failed:0});
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['short','full'] as const)('annulleret %s venter i panelets koe uden at starte HTTP eller markere en hentning', async kind => {
+    await acquirePanel(false);
+    let active = true;
+    const fetchImpl = panel({listings:{'247634':[listing(0)]}});
+    const options = {force:true, shouldContinue:()=>active};
+    const pending = kind === 'full'
+      ? ensureFullEpg(db,sources,fetchImpl,[WITH_ARCHIVE],NOW,options)
+      : ensureEpg(db,sources,fetchImpl,[WITH_ARCHIVE.id],NOW,12,options);
+    try {
+      await vi.waitFor(() => expect(panelQueue().foreground).toBe(1));
+      active = false;
+    } finally { releasePanel(); }
+    expect(await pending).toMatchObject({fetched:0,programmes:0,failed:0,reason:null});
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(await db.getAllAsync('SELECT * FROM epg_fetch')).toEqual([]);
+    expect(await db.getAllAsync('SELECT * FROM epg_archive_fetch')).toEqual([]);
+  });
+
+  it.each(['short','full'] as const)('stopper de resterende %s-kanaler efter afspilning starter', async kind => {
+    let active = true;
+    const fetchImpl = panel({listings:{'247634':[listing(0)],'999':[listing(0)]},onConcurrency:()=>{active=false;}});
+    const options = {force:true,shouldContinue:()=>active};
+    const result = kind === 'full'
+      ? await ensureFullEpg(db,sources,fetchImpl,[WITH_ARCHIVE,WITHOUT_ARCHIVE],NOW,options)
+      : await ensureEpg(db,sources,fetchImpl,[WITH_ARCHIVE.id,WITHOUT_ARCHIVE.id],NOW,12,options);
+    expect(result).toMatchObject({fetched:1,programmes:1,failed:0});
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const markers = await db.getAllAsync<{stream_id:string}>(`SELECT stream_id FROM ${kind === 'full' ? 'epg_archive_fetch' : 'epg_fetch'}`);
+    expect(markers).toEqual([{stream_id:WITH_ARCHIVE.id}]);
+  });
+});
+
+it('en frisk fuld oversigt erstatter gamle raekker uden for det nye svar, kun for den bestilte kanal', async () => {
+  const make = (channelId: string, minutes: number, title: string) => ({channelId,title,description:null,start:new Date(NOW.getTime()+minutes*60_000),stop:new Date(NOW.getTime()+(minutes+30)*60_000)});
+  await upsertProgrammes(db,[make(WITH_ARCHIVE.id,-180,'Gammel fortid'),make(WITH_ARCHIVE.id,240,'Gammel fremtid'),make(WITHOUT_ARCHIVE.id,240,'Anden kanal')]);
+  const fetchImpl = archivePanel({'247634':[listing(0)]});
+  const result = await ensureFullEpg(db,sources,fetchImpl,[WITH_ARCHIVE],NOW,{force:true});
+  expect(result).toMatchObject({fetched:1,programmes:1,failed:0});
+  expect((await db.getAllAsync<{channel_id:string;title:string}>('SELECT channel_id,title FROM programmes ORDER BY channel_id'))).toEqual([
+    {channel_id:WITH_ARCHIVE.id,title:'TV Avisen'},
+    {channel_id:WITHOUT_ARCHIVE.id,title:'Anden kanal'},
+  ]);
+});
+
+it('tom fuld HTTP-succes rydder den gamle kanaloversigt, mens en HTTP-fejl bevarer den', async () => {
+  const old = {channelId:WITH_ARCHIVE.id,title:'Gammel',description:null,start:NOW,stop:new Date(NOW.getTime()+30*60_000)};
+  await upsertProgrammes(db,[old]);
+  const failed = await ensureFullEpg(db,sources,archivePanel({}, {'247634':500}),[WITH_ARCHIVE],NOW,{force:true});
+  expect(failed).toMatchObject({fetched:0,failed:1});
+  expect((await listProgrammes(db,WITH_ARCHIVE.id,NOW,old.stop))[0]?.title).toBe('Gammel');
+  const empty = await ensureFullEpg(db,sources,archivePanel(),[WITH_ARCHIVE],NOW,{force:true});
+  expect(empty).toMatchObject({fetched:1,programmes:0,failed:0});
+  expect(await listProgrammes(db,WITH_ARCHIVE.id,NOW,old.stop)).toEqual([]);
 });

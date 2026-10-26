@@ -18,7 +18,7 @@ export interface NowNext {
 export function nowAndNext(programmes: readonly Programme[], now: Date): NowNext {
   const ms = now.getTime();
   const sorted = [...programmes].sort((a, b) => a.start.getTime() - b.start.getTime());
-  const current = sorted.find((p) => p.start.getTime() <= ms && p.stop.getTime() > ms) ?? null;
+  const current = [...sorted].reverse().find((p) => p.start.getTime() <= ms && p.stop.getTime() > ms) ?? null;
   const after = current === null ? ms : current.stop.getTime() - 1;
   const next = sorted.find((p) => p.start.getTime() > after && p !== current) ?? null;
   return { now: current, next };

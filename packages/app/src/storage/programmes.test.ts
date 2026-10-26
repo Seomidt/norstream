@@ -296,3 +296,33 @@ describe('forsidens samlede nu-opslag', () => {
     expect((await nowProgrammesFor(db, [], T(20))).size).toBe(0);
   });
 });
+
+it('blander ikke to samtidige EPG-snapshots med flyttede udsendelser', async () => {
+  const minute = (h: number, m: number) => new Date(Date.UTC(2026, 8, 4, h, m));
+  const enBy = { ...prog('dr2', 19, 21, 'En by i provinsen'), start: minute(19, 50), stop: minute(20, 50) };
+  await Promise.all([
+    upsertProgrammes(db, [enBy, { ...prog('dr2', 21, 22, 'Musikquiz'), start: minute(20, 50) }], { replaceWindow: true }),
+    upsertProgrammes(db, [{ ...enBy, stop: T(20) }, prog('dr2', 20, 21, 'Musikquiz'), prog('dr2', 21, 22, 'Bagefter')], { replaceWindow: true }),
+  ]);
+  expect((await listProgrammes(db, 'dr2', T(19), T(23))).map(p => [p.title, p.start.getTime(), p.stop.getTime()])).toEqual([
+    ['En by i provinsen', minute(19, 50).getTime(), T(20).getTime()],
+    ['Musikquiz', T(20).getTime(), T(21).getTime()],
+    ['Bagefter', T(21).getTime(), T(22).getTime()],
+  ]);
+});
+
+it('ruller et vindue tilbage ved skrivefejl og behandler naeste friske svar', async () => {
+  await upsertProgrammes(db, [prog('dr2', 20, 21, 'Behold den gamle')]);
+  const run = db.runAsync.bind(db);
+  let fail = true;
+  db.runAsync = async (sql, args) => {
+    if (fail && sql.startsWith('INSERT INTO programmes')) { fail = false; throw new Error('disk-fejl'); }
+    return run(sql, args);
+  };
+  const bad = upsertProgrammes(db, [prog('dr2', 20, 21, 'Ufuldstaendigt svar')], { replaceWindow: true });
+  const next = upsertProgrammes(db, [prog('dr1', 20, 21, 'Naeste svar')], { replaceWindow: true });
+  await expect(bad).rejects.toThrow('disk-fejl');
+  await next;
+  expect((await getNowNext(db, 'dr2', T(20))).now?.title).toBe('Behold den gamle');
+  expect((await getNowNext(db, 'dr1', T(20))).now?.title).toBe('Naeste svar');
+});

@@ -154,7 +154,7 @@ describe('layoutRow', () => {
     }
   });
 
-  it('klipper overlappende programmer mod det foregaaende', () => {
+  it('giver den seneste start sin rigtige plads ved overlap', () => {
     const cells = layoutRow(
       [
         programme('2026-09-05T19:00:00.000Z', '2026-09-05T20:00:00.000Z', 'A'),
@@ -166,11 +166,11 @@ describe('layoutRow', () => {
     );
 
     expect(cells.map((c) => c.programme?.title)).toEqual(['A', 'B', undefined]);
-    expect(cells.map((c) => c.weight)).toEqual([60, 30, 30]);
+    expect(cells.map((c) => c.weight)).toEqual([30, 60, 30]);
     expect(totalWeight(cells)).toBe(120);
   });
 
-  it('udelader et program der er helt daekket af det foregaaende', () => {
+  it('viser et senere program i et langt program uden at forskyde tiderne', () => {
     const cells = layoutRow(
       [
         programme('2026-09-05T19:00:00.000Z', '2026-09-05T21:00:00.000Z', 'Lang'),
@@ -181,7 +181,8 @@ describe('layoutRow', () => {
       NOW,
     );
 
-    expect(cells.map((c) => c.programme?.title)).toEqual(['Lang']);
+    expect(cells.map((c) => c.programme?.title)).toEqual(['Lang', 'Skjult', 'Lang']);
+    expect(cells.map(c => c.weight)).toEqual([30,30,60]);
   });
 
   it('udelader programmer helt uden for vinduet', () => {
@@ -444,4 +445,29 @@ describe('offsetForTarget', () => {
     expect(offsetForTarget(now, 30, 20)).toBe(DRAG_MAX_MINUTES);
     expect(offsetForTarget(now, -30, 20)).toBe(DRAG_MIN_MINUTES);
   });
+});
+
+
+it('DR2-foto: 07:00-programmet staar ved 07:00 og er det eneste aktuelle kl.07:15', () => {
+  const at = (t: string) => new Date(`2026-10-26T${t}:00Z`);
+  const old = programme(at('06:50').toISOString(), at('07:20').toISOString(), 'Gammelt');
+  const current = programme(at('07:00').toISOString(), at('07:50').toISOString(), 'Husker du');
+  const cells = layoutRow([old,current],at('07:00'),at('08:30'),at('07:15'));
+  expect(cells[0]?.programme).toBe(current);
+  expect(cells.filter(c => c.state==='live').map(c=>c.programme)).toEqual([current]);
+  expect(cells[0]?.weight).toBe(50);
+  expect(old.stop).toEqual(at('07:20'));
+  expect(current.start).toEqual(at('07:00'));
+});
+
+it('et kort overlap kan ikke skjule resten af en laengere udsendelse eller aendre arkiv-id', () => {
+  const at = (t: string) => new Date(`2026-10-26T${t}:00Z`);
+  const long = programme(at('06:50').toISOString(),at('08:00').toISOString(),'Lang');
+  const short = programme(at('07:00').toISOString(),at('07:20').toISOString(),'Kort');
+  const cells = layoutRow([short,long],at('06:30'),at('08:30'),at('07:30'));
+  expect(cells.filter(c=>c.state==='live').map(c=>c.programme)).toEqual([long]);
+  expect(cells.filter(c=>c.programme===long)).toHaveLength(2);
+  expect(new Set(cells.map(c=>c.key)).size).toBe(cells.length);
+  expect(totalWeight(cells)).toBe(120);
+  expect(long.start).toEqual(at('06:50'));
 });

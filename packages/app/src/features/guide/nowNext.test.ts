@@ -113,3 +113,10 @@ describe('relativeDay', () => {
     expect(relativeDay(new Date(2026, 8, 17, 20, 0), now)).toBe('tor 17. sep');
   });
 });
+
+it('vaelger samme aktuelle udsendelse som tidslinjen ved overlap', () => {
+  const old = prog('Gammelt',at(6,50),at(7,20));
+  const current = prog('Husker du',at(7,0),at(7,50));
+  const next = prog('Naeste',at(7,50),at(8,30));
+  expect(nowAndNext([old,current,next],at(7,15))).toEqual({now:current,next});
+});

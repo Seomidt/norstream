@@ -46,14 +46,35 @@ export interface UpsertOptions {
    * ikke, saa fortiden (arkivet) bliver staaende.
    */
   replaceWindow?: boolean;
+  /** Komplet, frisk kanaloversigt: erstat ogsaa et tomt svar atomisk. */
+  replaceChannelIds?: readonly string[];
 }
 
-export async function upsertProgrammes(
+// Uafhaengige EPG-hentninger maa ikke flette deres slet/indsaet-trin.
+// Koen er per database og bruges kun af EPG-skrivere.
+const programmeWrites = new WeakMap<SqlDatabase, Promise<void>>();
+
+export function upsertProgrammes(
   db: SqlDatabase,
   programmes: Programme[],
   options: UpsertOptions = {},
 ): Promise<void> {
-  if (programmes.length === 0) return;
+  if (programmes.length === 0 && (options.replaceChannelIds?.length ?? 0) === 0) return Promise.resolve();
+  const previous = programmeWrites.get(db) ?? Promise.resolve();
+  const work = previous.then(() => writeProgrammes(db, programmes, options));
+  // En mislykket skrivning maa ikke blokere det naeste friske svar.
+  const tail = work.catch(() => undefined);
+  programmeWrites.set(db, tail);
+  void tail.then(() => { if (programmeWrites.get(db) === tail) programmeWrites.delete(db); });
+  return work;
+}
+
+async function writeProgrammes(
+  db: SqlDatabase,
+  programmes: Programme[],
+  options: UpsertOptions = {},
+): Promise<void> {
+  if (programmes.length === 0 && (options.replaceChannelIds?.length ?? 0) === 0) return;
 
   // Afdupliker paa (channel_id, start_ms) FOER batchen: en fler-raekkers INSERT
   // med to ens noegler i samme saetning afvises af SQLite ("ON CONFLICT does not
@@ -63,52 +84,67 @@ export async function upsertProgrammes(
   for (const p of programmes) byKey.set(`${p.channelId}\u0000${p.start.getTime()}`, p);
   const rows = [...byKey.values()];
 
-  if (options.replaceWindow === true) {
-    const windows = new Map<string, { from: number; to: number }>();
-    for (const p of rows) {
-      const window = windows.get(p.channelId);
-      const start = p.start.getTime();
-      const stop = p.stop.getTime();
-      if (window === undefined) windows.set(p.channelId, { from: start, to: stop });
-      else {
-        window.from = Math.min(window.from, start);
-        window.to = Math.max(window.to, stop);
-      }
-    }
-    await withTransaction(db, async () => {
-      for (const [channelId, window] of windows) {
-        await db.runAsync('DELETE FROM programmes WHERE channel_id = ? AND stop_ms > ? AND start_ms < ?', [channelId, window.from, window.to]);
-      }
-    });
+  const channels = new Map<string, Programme[]>();
+  for (const row of rows) {
+    const channelRows = channels.get(row.channelId);
+    if (channelRows === undefined) channels.set(row.channelId, [row]);
+    else channelRows.push(row);
   }
 
-  // Flere smaa transaktioner frem for én stor (se TX_ROWS). Inden i hver:
-  // faa fler-raekkers INSERTs frem for én runAsync per program. En lille
-  // hentning (nu-og-naeste, ~12 raekker) er stadig én transaktion.
-  for (let start = 0; start < rows.length; start += TX_ROWS) {
-    const txRows = rows.slice(start, start + TX_ROWS);
+  const replaceChannels = new Set(options.replaceChannelIds ?? []);
+  for (const channelId of replaceChannels) {
+    if (!channels.has(channelId)) channels.set(channelId, []);
+  }
+
+  // Giv traaden luft mellem kanaler, men udskift hele kanalens vindue i
+  // samme transaktion. En enkelt stor kanal maa derfor overskride TX_ROWS.
+  let pendingChannels: Array<[string, Programme[]]> = [];
+  let pendingCount = 0;
+  const writeChunk = async (): Promise<void> => {
     await withTransaction(db, async () => {
-      for (let i = 0; i < txRows.length; i += UPSERT_CHUNK) {
-        const slice = txRows.slice(i, i + UPSERT_CHUNK);
+      const chunkRows: Programme[] = [];
+      for (const [channelId, channelRows] of pendingChannels) {
+        if (replaceChannels.has(channelId)) {
+          // En fuld HTTP-succes med nul programmer skal ogsaa kunne rydde
+          // den gamle oversigt. Fejlede HTTP-kald kommer aldrig herind.
+          await db.runAsync('DELETE FROM programmes WHERE channel_id = ?', [channelId]);
+        } else if (options.replaceWindow === true && channelRows.length > 0) {
+          let from = Number.POSITIVE_INFINITY;
+          let to = Number.NEGATIVE_INFINITY;
+          for (const row of channelRows) {
+            from = Math.min(from, row.start.getTime());
+            to = Math.max(to, row.stop.getTime());
+          }
+          await db.runAsync('DELETE FROM programmes WHERE channel_id = ? AND stop_ms > ? AND start_ms < ?', [channelId, from, to]);
+        }
+        for (const row of channelRows) chunkRows.push(row);
+      }
+      for (let i = 0; i < chunkRows.length; i += UPSERT_CHUNK) {
+        const slice = chunkRows.slice(i, i + UPSERT_CHUNK);
         const placeholders = slice.map(() => '(?, ?, ?, ?, ?)').join(', ');
         const args: (string | number | null)[] = [];
-        for (const p of slice) {
-          args.push(p.channelId, p.start.getTime(), p.stop.getTime(), p.title, p.description);
-        }
+        for (const row of slice) args.push(row.channelId, row.start.getTime(), row.stop.getTime(), row.title, row.description);
         await db.runAsync(
           `INSERT INTO programmes (channel_id, start_ms, stop_ms, title, description)
            VALUES ${placeholders}
            ON CONFLICT(channel_id, start_ms) DO UPDATE SET
-             stop_ms     = excluded.stop_ms,
-             title       = excluded.title,
-             description = excluded.description`,
+             stop_ms = excluded.stop_ms, title = excluded.title, description = excluded.description`,
           args,
         );
       }
     });
-    // Luft mellem transaktionerne, saa laesninger kan komme til.
-    if (start + TX_ROWS < rows.length) await new Promise((resolve) => setTimeout(resolve, 0));
+    pendingChannels = [];
+    pendingCount = 0;
+  };
+  for (const entry of channels) {
+    if (pendingChannels.length > 0 && pendingCount + entry[1].length > TX_ROWS) {
+      await writeChunk();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    pendingChannels.push(entry);
+    pendingCount += entry[1].length;
   }
+  if (pendingChannels.length > 0) await writeChunk();
 }
 
 /**

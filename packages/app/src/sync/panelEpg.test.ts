@@ -7,6 +7,7 @@ import { addSource } from '../storage/sources.js';
 import { createTestDatabase } from '../storage/testDb.js';
 import type { SqlDatabase } from '../storage/types.js';
 import { syncPanelEpg } from './panelEpg.js';
+import { panelQueue, withPanel } from './panelGate.js';
 import type { PanelEpgNative } from './panelEpg.js';
 
 const NOW = new Date('2026-09-24T12:00:00.000Z');
@@ -255,4 +256,47 @@ it('henter syv hele arkivdage selv for en ikke-favorit med friske programmer for
   });
   await syncPanelEpg(db, sourceId, creds, { now: NOW, native });
   expect(await programmesFor(key)).toContainEqual({ title: 'Syv dage tilbage', description: null });
+});
+
+
+it('en direkte frisk dagsvisning omgaas timecachen og skriver kun sin egen kanal', async () => {
+  const first = fakeNative();
+  await syncPanelEpg(db, sourceId, creds, { now: NOW, native: first });
+  const next = fakeNative();
+  await syncPanelEpg(db, sourceId, creds, { now: new Date(NOW.getTime()+60_000), native: next, force: true, fresh: true, channelIds: [`${sourceId}:2`] });
+  expect(next.calls).toContain('download');
+  expect(next.asked).toEqual([['DR1.dk']]);
+  expect(await programmesFor(`${sourceId}:1`)).toEqual([{title:'BBC News',description:'Nyheder'}]);
+});
+
+it('starter ikke en XMLTV-download eller cachemarkering efter annullering i panelkoeen', async () => {
+  let release!: () => void;
+  const blocker = withPanel(false, () => new Promise<void>(done => { release=done; }));
+  while (release === undefined) await Promise.resolve();
+  let active = true;
+  const native = fakeNative();
+  const work = syncPanelEpg(db,sourceId,creds,{now:NOW,native,fresh:true,force:true,channelIds:[`${sourceId}:1`],shouldContinue:()=>active});
+  for (let i=0;i<100 && panelQueue().background===0;i++) await Promise.resolve();
+  expect(panelQueue().background).toBe(1);
+  active=false;release();
+  await blocker;
+  expect(await work).toBeNull();
+  expect(native.download).not.toHaveBeenCalled();
+  expect(await db.getFirstAsync("SELECT value FROM settings WHERE key=?",[`last_panel_epg5_ms:${sourceId}`])).toBeNull();
+});
+
+
+it('frisk XMLTV markerer kun kanaler med faktiske programraekker som daekket', async () => {
+  const result=await syncPanelEpg(db,sourceId,creds,{
+    now:NOW,native:fakeNative(),fresh:true,force:true,channelIds:[`${sourceId}:1`,`${sourceId}:2`],
+  });
+  // Feedet matcher begge kanaler, men har kun BBC-programmer, ikke DR1.
+  expect(result).toEqual({matched:2,programmes:1,channelIds:[`${sourceId}:1`]});
+  expect(await programmesFor(`${sourceId}:2`)).toEqual([]);
+});
+
+it('frisk XMLTV uden kanal-match giver en tom liste af daekkede kanaler', async () => {
+  const native=fakeNative();native.channels=vi.fn(async()=>JSON.stringify([]));
+  expect(await syncPanelEpg(db,sourceId,creds,{now:NOW,native,fresh:true,force:true,channelIds:[`${sourceId}:1`]}))
+    .toEqual({matched:0,programmes:0,channelIds:[]});
 });

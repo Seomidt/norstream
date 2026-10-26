@@ -97,6 +97,8 @@ export interface PanelEpgResult {
   matched: number;
   /** Programmer skrevet. */
   programmes: number;
+  /** Kun ved frisk hentning: kanaler med faktisk skrevne programraekker. */
+  channelIds?: string[];
 }
 
 interface FeedProgramme {
@@ -111,12 +113,39 @@ interface FeedProgramme {
  * Henter EPG fra panelets fil for én kilde, hvis det er tid. Svarer med null
  * naar der ikke blev gjort noget (slaaet fra, ingen modul, frisk, intet at hente).
  */
-export async function syncPanelEpg(
+export interface PanelEpgOptions {
+  now?: Date;
+  force?: boolean;
+  native?: PanelEpgNative | null;
+  /** Direkte bruger-aabning: hent en frisk fil uden time/doegn-cachen. */
+  fresh?: boolean;
+  /** Valgfri afgraensning, saa en dagsvisning kun opdaterer sin egen kanal. */
+  channelIds?: readonly string[];
+  shouldContinue?: () => boolean;
+}
+
+// Native bruger et faelles midlertidigt filnavn. Hele laesningen skal vaere
+// afsluttet, inden en ny hentning kan erstatte filen efter et hurtigt skift.
+let fileWork: Promise<void> = Promise.resolve();
+export function syncPanelEpg(
   db: SqlDatabase,
   sourceId: string,
   creds: XtreamCredentials,
-  options: { now?: Date; force?: boolean; native?: PanelEpgNative | null } = {},
+  options: PanelEpgOptions = {},
 ): Promise<PanelEpgResult | null> {
+  const work = fileWork.then(() => readPanelEpg(db, sourceId, creds, options));
+  fileWork = work.then(() => undefined, () => undefined);
+  return work;
+}
+
+async function readPanelEpg(
+  db: SqlDatabase,
+  sourceId: string,
+  creds: XtreamCredentials,
+  options: PanelEpgOptions,
+): Promise<PanelEpgResult | null> {
+  const stopped = (): boolean => options.shouldContinue?.() === false;
+  if (stopped()) return null;
   const native = options.native === undefined ? registered : options.native;
   if (native === null) return null;
   if (!(await getPanelEpgEnabled(db))) return null;
@@ -126,7 +155,7 @@ export async function syncPanelEpg(
   const last = lastRaw === null ? null : Number(lastRaw);
   const age = last !== null && Number.isFinite(last) ? now.getTime() - last : Number.POSITIVE_INFINITY;
   // Aldrig oftere end hver time — heller ikke med "Hent".
-  if (age < FORCE_MIN_MS) return null;
+  if (options.fresh !== true && age < FORCE_MIN_MS) return null;
 
   // Alle favoritter: get_short_epg kan give det aktuelle program uden at
   // getFullEpg giver resten. Et eneste program forude maa derfor ikke
@@ -185,7 +214,23 @@ export async function syncPanelEpg(
       wanted.push(row);
     }
   }
-  if (wanted.length === 0) return null;
+  if (options.channelIds !== undefined) {
+    const ids = [...new Set(options.channelIds)];
+    if (ids.length === 0 || stopped()) return null;
+    const selected: WantedChannel[] = [];
+    // Hold ogsaa store favoritgrupper under Android SQLites variabelgraense.
+    for (let i = 0; i < ids.length; i += 300) {
+      if (stopped()) return null;
+      const slice = ids.slice(i, i + 300);
+      selected.push(...await db.getAllAsync<WantedChannel>(
+        `SELECT c.id AS key, c.name AS name, c.country AS country, c.epg_channel_id AS epgId
+         FROM channels c WHERE c.source_id = ? AND c.id IN (${slice.map(() => '?').join(',')})`,
+        [sourceId, ...slice],
+      ));
+    }
+    wanted.splice(0, wanted.length, ...selected);
+  }
+  if (wanted.length === 0 || stopped()) return null;
 
   // Én gang i doegnet — men er der kommet NYE kanaler at hente for (en ny
   // favorit, et nyt hold i Sport), koeres den igen efter en time i stedet for
@@ -195,13 +240,8 @@ export async function syncPanelEpg(
   // ikke udloese en ny hentning hver time (v346: det gjorde de).
   const tried = new Set(((await getSetting(db, wantedKey(sourceId))) ?? '').split('\n').filter((key) => key.length > 0));
   const fresh = wanted.some((entry) => !tried.has(entry.key));
-  if (options.force !== true && age < PANEL_EPG_INTERVAL_MS && !fresh) return null;
+  if (options.fresh !== true && options.force !== true && age < PANEL_EPG_INTERVAL_MS && !fresh) return null;
   for (const entry of wanted) tried.add(entry.key);
-  await setSetting(db, wantedKey(sourceId), [...tried].sort().join('\n'));
-
-  // Marker foer hentningen: lukkes appen midt i, skal den ikke starte forfra
-  // ved hver aabning (samme laere som XMLTV i v298).
-  await setSetting(db, lastKey(sourceId), String(now.getTime()));
 
   const source = streamSource(buildXmltvUrl(creds));
   const url = typeof source === 'string' ? source : source.uri;
@@ -212,11 +252,17 @@ export async function syncPanelEpg(
   try {
     // Filen er panelets ene forbindelse i flere minutter: i koe bag alt
     // synligt, som de andre baggrundskald (v350).
-    path = await withPanel(true, () => native.download(url, JSON.stringify(headers)));
+    path = await withPanel(true, () => stopped() ? Promise.resolve(null) : native.download(url, JSON.stringify(headers)));
+    if (path === null || stopped()) return null;
+    await setSetting(db, wantedKey(sourceId), [...tried].sort().join('\n'));
+    await setSetting(db, lastKey(sourceId), String(now.getTime()));
+    if (stopped()) return null;
     const feed = JSON.parse(await native.channels(path)) as FeedChannel[];
+    if (stopped()) return null;
     const matches = matchPanelEpg(wanted, feed);
     logEvent('baggrund', `panel-fil: hentet paa ${Math.round((Date.now() - startedAt) / 1000)} s, ${feed.length} kanaler i filen, ${matches.size} af ${wanted.length} fundet`);
-    if (matches.size === 0) return { matched: 0, programmes: 0 };
+    if (matches.size === 0) return options.fresh === true
+      ? { matched: 0, programmes: 0, channelIds: [] } : { matched: 0, programmes: 0 };
 
     const from = panelEpgFrom(now);
     const to = now.getTime() + AFTER_MS;
@@ -224,9 +270,12 @@ export async function syncPanelEpg(
     // JSON-svar paa faa MB, skrevet foer den naeste laeses (v352).
     const feedIds = [...matches.keys()];
     let written = 0;
+    const writtenChannels = new Set<string>();
     for (let i = 0; i < feedIds.length; i += PROGRAMME_CHUNK) {
+      if (stopped()) return null;
       const slice = feedIds.slice(i, i + PROGRAMME_CHUNK);
       const found = JSON.parse(await native.programmes(path, JSON.stringify(slice), from, to)) as FeedProgramme[];
+      if (stopped()) return null;
       const programmes: Programme[] = [];
       for (const entry of found) {
         const keys = matches.get(entry.c);
@@ -245,15 +294,17 @@ export async function syncPanelEpg(
       // daekker — et flyttet program maa ikke blive liggende ved siden af.
       await upsertProgrammes(db, programmes, { replaceWindow: true });
       written += programmes.length;
+      for (const programme of programmes) writtenChannels.add(programme.channelId);
     }
     let matched = 0;
     for (const keys of matches.values()) matched += keys.length;
     logEvent('baggrund', `panel-fil: ${written} programmer skrevet for ${matched} kanaler, i alt ${Math.round((Date.now() - startedAt) / 1000)} s`);
-    return { matched, programmes: written };
+    return options.fresh === true
+      ? { matched, programmes: written, channelIds: [...writtenChannels] } : { matched, programmes: written };
   } catch (cause) {
     // Proev igen om en time frem for om et doegn: en midlertidig netfejl maa
     // ikke holde programoversigten vaek en hel dag.
-    await setSetting(db, lastKey(sourceId), String(now.getTime() - (PANEL_EPG_INTERVAL_MS - RETRY_MS)));
+    if (!stopped()) await setSetting(db, lastKey(sourceId), String(now.getTime() - (PANEL_EPG_INTERVAL_MS - RETRY_MS)));
     throw cause;
   } finally {
     if (path !== null) {

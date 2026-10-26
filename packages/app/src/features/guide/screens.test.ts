@@ -13,6 +13,7 @@ vi.mock('react-native', async () => {
   const React = await import('react');
   return {
     Platform: { isTV: true, OS: 'android' },
+    AppState: {currentState:'active',addEventListener:()=>({remove(){}})},
     View: 'View', Text: 'Text', Pressable: 'Pressable', ScrollView: 'ScrollView',
     TVFocusGuideView: 'TVFocusGuideView', ActivityIndicator: 'ActivityIndicator', Modal: 'Modal',
     StyleSheet: { create: (s: unknown) => s, hairlineWidth: 0.5 },
@@ -44,7 +45,7 @@ vi.mock('../../storage/settings.js', () => ({
 vi.mock('../../storage/favoriteGroups.js', () => ({ listFavoriteGroups: async () => [] }));
 vi.mock('../../storage/reminders.js', () => ({ hasReminder: async () => false, addReminder: async () => {}, removeReminder: async () => {} }));
 vi.mock('../../sync/epgCache.js', () => ({ ensureFullEpg: mocks.full, ensureEpg: async () => ({ failed: 0 }) }));
-vi.mock('../../sync/panelEpg.js', () => ({ panelEpgInFlight: mocks.panel, startPanelEpg: mocks.panel }));
+vi.mock('../../sync/panelEpg.js', () => ({ panelEpgInFlight: mocks.panel, startPanelEpg: mocks.panel, syncPanelEpg: mocks.panel }));
 vi.mock('../../sync/weather.js', () => ({ loadCachedWeather: async () => null, refreshWeather: async () => null }));
 vi.mock('../../sync/news.js', () => ({ loadCachedNews: async () => null, refreshNews: async () => null }));
 vi.mock('../../diagnostics/log.js', () => ({ logEvent: mocks.log, safe: (text: string) => text }));
@@ -92,8 +93,8 @@ async function mount(element: ReactElement, nativeFocus?: (props: any) => void) 
   });
   return rendered!;
 }
-function dayElement(selected = channel) {
-  return createElement(ChannelDayScreen, { session, channel: selected, hasDialect: true, onBack: vi.fn(), onPlay: vi.fn(), onRestart: vi.fn() });
+function dayElement(selected = channel, active = true) {
+  return createElement(ChannelDayScreen, { session, channel: selected, hasDialect: true, active, onBack: vi.fn(), onPlay: vi.fn(), onRestart: vi.fn() });
 }
 async function measureDay(tree: ReactTestRenderer, height = 390) {
   const frame = tree.root.findAllByType(host('View')).find((node) => node.props.style?.minHeight === 0);
@@ -114,7 +115,7 @@ beforeEach(() => {
   mocks.keys.clear();
   mocks.list.mockImplementation(async (_db, id) => programmes(id));
   mocks.channels.mockResolvedValue([channel, second]);
-  mocks.full.mockResolvedValue({ failed: 0 });
+  mocks.full.mockResolvedValue({ fetched: 1, programmes: 1, failed: 0, reason: null });
   mocks.panel.mockReturnValue(null);
 });
 afterEach(async () => {
@@ -138,26 +139,26 @@ describe('dagsoversigt paa TV med faktisk React-livscyklus', () => {
     expect(list.props.onScrollToIndexFailed).toBeUndefined();
   });
 
-  it('viser kanalens nye tabel mens hele panelets fil stadig hentes', async () => {
+  it('venter paa frisk paneltabel og tegner ikke den gamle database foer svaret', async () => {
     const full = deferred<unknown>();
-    const panel = deferred<unknown>();
-    mocks.list.mockResolvedValueOnce([]);
     mocks.full.mockReturnValue(full.promise);
-    mocks.panel.mockReturnValue(panel.promise);
     const tree = await mount(dayElement());
     await measureDay(tree);
-    expect(tree.root.findAllByType(host('NativeList')).filter((node) => node.props.data.length > 0)).toHaveLength(0);
-    await act(async () => full.resolve({ failed: 0 }));
+    expect(mocks.list).not.toHaveBeenCalled();
+    expect(tree.root.findAllByType(host('NativeList'))).toHaveLength(0);
+    expect(mocks.full.mock.calls[0]![5]).toMatchObject({ force: true, shouldContinue: expect.any(Function) });
+    await act(async () => full.resolve({ fetched: 1, programmes: 480, failed: 0, reason: null }));
     expect(tree.root.findByType(host('NativeList')).props.data).toHaveLength(48);
-    expect(tree.root.findAllByType(host('ActivityIndicator')).length).toBeGreaterThan(0);
-    await act(async () => panel.resolve(null));
+    expect(mocks.panel).not.toHaveBeenCalled();
+    expect(tree.root.findAllByType(host('ActivityIndicator'))).toHaveLength(0);
   });
 
   it('supplerer dagsoversigten fra filen ogsaa paa en kanal uden arkiv', async () => {
     const selected = { ...channel, name: 'DNK| V Film Hits', hasArchive: false, archiveDays: 0, epgChannelId: null };
     const all = programmes(selected.id);
-    const current = all.filter(p => p.start.getTime() <= Date.now() && p.stop.getTime() > Date.now());
-    mocks.list.mockResolvedValueOnce(current).mockResolvedValueOnce(current).mockResolvedValueOnce(all);
+    mocks.full.mockResolvedValue({ fetched: 1, programmes: 0, failed: 0, reason: null });
+    mocks.panel.mockResolvedValue({ matched: 1, programmes: all.length });
+    mocks.list.mockResolvedValue(all);
     const tree = await mount(dayElement(selected));
     await measureDay(tree);
     expect(mocks.panel).toHaveBeenCalled();
@@ -166,16 +167,17 @@ describe('dagsoversigt paa TV med faktisk React-livscyklus', () => {
     expect(mocks.log).toHaveBeenCalledWith('epg', expect.stringContaining('fuld tabel 480'));
   });
 
-  it('et sent tomt cache-svar kan ikke slette den frisk hentede tabel', async () => {
+  it('et sent SQL-svar fra en skjult aabning kan ikke overskrive en ny frisk aabning', async () => {
     const cache = deferred<Programme[]>();
-    const panel = deferred<unknown>();
     mocks.list.mockReturnValueOnce(cache.promise);
-    mocks.panel.mockReturnValue(panel.promise);
     const tree = await mount(dayElement());
     await measureDay(tree);
+    await act(async () => tree.update(dayElement(channel, false)));
+    await act(async () => tree.update(dayElement(channel, true)));
+    expect(tree.root.findByType(host('NativeList')).props.data).toHaveLength(48);
+    expect(mocks.full).toHaveBeenCalledTimes(2);
     await act(async () => cache.resolve([]));
     expect(tree.root.findByType(host('NativeList')).props.data).toHaveLength(48);
-    await act(async () => panel.resolve(null));
   });
 
   it('dagsskift viser hele dagen fra midnat, ogsaa syv dage tilbage', async () => {
@@ -200,13 +202,54 @@ describe('dagsoversigt paa TV med faktisk React-livscyklus', () => {
     expect(tree.root.findByType(host('NativeList')).props.data.every((p: Programme) => p.channelId === second.id)).toBe(true);
   });
 
-  it('beholder programmerne ved fejl i den store fil og afslutter hentemarkeringen', async () => {
-    mocks.panel.mockReturnValue(Promise.reject(new Error('test')));
+  it('viser en sikker fejl uden gamle programmer naar frisk panelhentning fejler', async () => {
+    mocks.full.mockResolvedValue({ fetched: 0, programmes: 0, failed: 1, reason: 'https://secret.example/password' });
     const tree = await mount(dayElement());
     await measureDay(tree);
-    expect(tree.root.findByType(host('NativeList')).props.data).toHaveLength(48);
+    expect(mocks.list).not.toHaveBeenCalled();
+    expect(tree.root.findAllByType(host('NativeList'))).toHaveLength(0);
+    expect(textOf(tree.toJSON())).toContain('Programoversigten kunne ikke hentes');
+    expect(textOf(tree.toJSON())).not.toContain('secret.example');
     expect(tree.root.findAllByType(host('ActivityIndicator'))).toHaveLength(0);
   });
+
+  it('starter ikke dags-EPG naar afspilleren daekker den, og stopper koesatte kald ved unmount', async () => {
+    const full = deferred<unknown>();
+    mocks.full.mockReturnValue(full.promise);
+    const tree = await mount(dayElement(channel, false));
+    expect(mocks.full).not.toHaveBeenCalled();
+    await act(async () => tree.update(dayElement(channel, true)));
+    const shouldContinue = mocks.full.mock.calls[0]![5].shouldContinue as () => boolean;
+    expect(shouldContinue()).toBe(true);
+    await act(async () => { tree.unmount(); rendered = null; });
+    expect(shouldContinue()).toBe(false);
+    await act(async () => full.resolve({ fetched: 1, programmes: 10, failed: 0, reason: null }));
+    expect(mocks.list).not.toHaveBeenCalled();
+  });
+
+  it('viser kun den senest begyndte udsendelse som Sendes nu ved overlap', async () => {
+    const ms=Date.now();
+    const items: Programme[] = [
+      {channelId:channel.id,title:'Aeldre overlap',description:null,start:new Date(ms-30*60_000),stop:new Date(ms+30*60_000)},
+      {channelId:channel.id,title:'Aktuelt',description:null,start:new Date(ms),stop:new Date(ms+60*60_000)},
+    ];
+    mocks.list.mockResolvedValue(items);
+    const tree=await mount(dayElement());await measureDay(tree);
+    expect(textOf(tree.toJSON()).split('Sendes nu').length-1).toBe(1);
+    const list=tree.root.findByType(host('NativeList'));
+    expect(list.props.initialScrollIndex).toBe(1);
+    expect(list.props.data[0]).toBe(items[0]);
+    expect(items[0]!.stop.getTime()).toBe(ms+30*60_000);
+  });
+
+  it('viser M3U-kanalens importerede data uden et panelkald', async () => {
+    const imported = { ...session, credsBySource: new Map(), access: () => ({ source: {kind:'m3u'}, creds: null }) } as unknown as AppSession;
+    const tree = await mount(createElement(ChannelDayScreen, {session: imported,channel,hasDialect:false,onBack:vi.fn(),onPlay:vi.fn(),onRestart:vi.fn()}));
+    await measureDay(tree);
+    expect(mocks.full).not.toHaveBeenCalled();
+    expect(tree.root.findByType(host('NativeList')).props.data).toHaveLength(48);
+  });
+
 });
 
 describe('Tilbage fra hele dagen bruger den rigtige TV-guide', () => {

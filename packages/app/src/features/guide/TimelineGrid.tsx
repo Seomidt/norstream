@@ -1,16 +1,18 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, StyleSheet, Text, TVFocusGuideView, View, useTVEventHandler } from 'react-native';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { AppState, FlatList, StyleSheet, Text, TVFocusGuideView, View, useTVEventHandler } from 'react-native';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
+import type { SqlDatabase } from '../../storage/types.js';
 import type { StoredChannel } from '../../storage/channels.js';
-import { listProgrammes } from '../../storage/programmes.js';
-import { ensureEpg, ensureFullEpg } from '../../sync/epgCache.js';
+import { listProgrammes, upsertProgrammes } from '../../storage/programmes.js';
+import { ensureFullEpg } from '../../sync/epgCache.js';
+import { syncPanelEpg } from '../../sync/panelEpg.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
-import { DRAG_MAX_MINUTES, DRAG_MIN_MINUTES, guideAction, layoutRow } from './layout.js';
+import { guideAction, layoutRow } from './layout.js';
 import type { CellState, GuideCell } from './layout.js';
 
 /**
@@ -26,9 +28,8 @@ import type { CellState, GuideCell } from './layout.js';
  * Tiden vaelges med pil venstre/hoejre — som et TASTETRYK (useTVEventHandler),
  * ikke en fokusflytning: der er intet fokuserbart til siderne, saa listen kan
  * ikke "fise ud i menuen". Hvert tryk skubber vinduet en halv time, og HELE
- * gitteret glider med. Fordi programdata hentes ÉN gang og vinduet blot
- * forskydes lokalt (ren layout-regning), foeles det ikke laengere som
- * slowmotion, og der er ingen ny hentning per tryk.
+ * gitteret glider med. Synlige kanaler opfriskes ved hvert guidebesoeg. Pilene laeser kun
+ * tidsvinduet fra den frisk opdaterede database, uden nye netvaerkskald.
  *
  * Forskydningen deles med telefonen (`offsetMinutes` fra GuideScreen), saa
  * hardware-Tilbage stiller vinduet tilbage paa nu.
@@ -41,23 +42,9 @@ const WINDOW_MIN = COL_MIN * COLS;
 const ROW_HEIGHT = 62;
 const CHANNEL_COL = 128;
 const HEADER_HEIGHT = 32;
-/**
- * Hvor mange kommende udsendelser guiden beder panelet om (`get_short_epg`).
- * Standard var 12 — praecis "nu + naeste" = ca. 8-9 timer frem, hvorefter guiden
- * saa ud til at "stoppe". Med et hoejt tal henter den flere dage frem, saa langt
- * panelet har oversigt. `get_short_epg` giver kun fremad; fortiden kommer fra den
- * fulde tabel (`ensureFullEpg`).
- */
-const GUIDE_EPG_LIMIT = 200;
-/**
- * Hvor langt tilbage/frem der hentes programdata til striben. Skal daekke hele
- * det spaend man kan bladre i (samme som traekkets graenser: 7 dage hver vej —
- * arkivet bagud, oversigten fremad). Var foer kun 6 timer tilbage, saa man
- * ramte en mur efter en aften; nu naar man lige saa langt tilbage som arkivet.
- */
-const SPAN_BACK_MIN = -DRAG_MIN_MINUTES;
-const SPAN_FWD_MIN = DRAG_MAX_MINUTES;
 const HALF_HOUR_MS = COL_MIN * 60_000;
+const VISIBLE_BATCH = 12;
+const VIEWABILITY = { itemVisiblePercentThreshold: 1 };
 
 interface Props {
   session: AppSession;
@@ -88,12 +75,26 @@ interface Props {
   onReturnFocus: (restored: boolean) => void;
 }
 
-/**
- * Sidste indlaeste programkort, gemt paa modulniveau (paa tvaers af at guiden
- * af- og genmonteres). Saa staar der ikke "Ingen oversigt" hver gang man aabner
- * guiden — det huskede vises straks, mens en frisk laesning opdaterer det.
- */
-let lastProgMap: Record<string, Programme[]> = {};
+type ProgrammeMap = Record<string, Programme[]>;
+interface FreshEntry {
+  session: AppSession;
+  channelsKey: string;
+  cancelled: boolean;
+  attempted: Set<string>;
+  refreshed: Set<string>;
+  failures: Set<string>;
+  xmlSources: Set<string>;
+  xmlReadySources: Set<string>;
+}
+// Kun igangvaerende arbejde serialiseres. Der gemmes ingen programdata eller
+// faerdige svar mellem guidebesoeg, heller ikke ved hurtig af-/genmontering.
+const activeWork = new WeakMap<SqlDatabase, Promise<void>>();
+function enqueueGuideWork(db: SqlDatabase, work: () => Promise<void>): void {
+  const operation = (activeWork.get(db) ?? Promise.resolve()).then(work);
+  const settled = operation.catch(() => undefined);
+  activeWork.set(db, settled);
+  void settled.then(() => { if (activeWork.get(db) === settled) activeWork.delete(db); });
+}
 
 export function TimelineGrid({
   session,
@@ -141,51 +142,131 @@ export function TimelineGrid({
     onStepTime(event.eventType === 'right' ? COL_MIN : -COL_MIN);
   });
 
-  // Programdata for HELE spanet, hentet én gang. Vinduet forskydes derefter kun
-  // lokalt (layoutRow), saa der ikke hentes ved hvert tidsskridt.
-  const spanStartMs = anchorMs - SPAN_BACK_MIN * 60_000;
-  const spanEndMs = anchorMs + SPAN_FWD_MIN * 60_000;
-  // Start med det der sidst blev vist. Guide-fanen afmonteres naar man forlader
-  // den (HomeScreen), saa hver gang man kom tilbage stod der "Ingen oversigt",
-  // til cachen var laest ind igen ("som om den skal downloade det hver gang").
-  // Det huskede kort vises straks; draw() nedenunder opdaterer det med det samme.
-  const [progMap, setProgMap] = useState<Record<string, Programme[]>>(() => lastProgMap);
-  const draw = useCallback(async () => {
-    if (channels.length === 0) return;
-    const from = new Date(spanStartMs);
-    const to = new Date(spanEndMs);
-    const found = await Promise.all(channels.map((c) => listProgrammes(session.db, c.id, from, to)));
-    const map: Record<string, Programme[]> = {};
-    channels.forEach((c, i) => {
-      map[c.id] = found[i] ?? [];
+  const channelsKey = useMemo(() => channels.map(channel => channel.id).join('\u0000'), [channels]);
+  const [foreground, setForeground] = useState(() => AppState.currentState === null || AppState.currentState === 'active');
+  useEffect(() => {
+    const listener = AppState.addEventListener('change', state => {
+      if (state !== 'active' && entryRef.current !== null) entryRef.current.cancelled = true;
+      setForeground(state === 'active');
     });
-    lastProgMap = map;
-    setProgMap(map);
-  }, [channels, session.db, spanStartMs, spanEndMs]);
+    return () => listener.remove();
+  }, []);
+  const [visibleStart, setVisibleStart] = useState(() => Math.max(0, channels.findIndex(channel => channel.id === returnFocusChannelId)));
+  const metadataStart = Math.min(visibleStart, Math.max(0, channels.length - 1));
+  const visibleChannels = useMemo(() => channels.slice(metadataStart, metadataStart + VISIBLE_BATCH), [channels, metadataStart]);
+  const visibleKey = visibleChannels.map(channel => channel.id).join('\u0000');
+  const visibleIds = useRef(new Set<string>());
+  visibleIds.current = new Set(visibleChannels.map(channel => channel.id));
+  const [entry, setEntry] = useState<FreshEntry | null>(null);
+  const entryRef = useRef<FreshEntry | null>(null);
+  const [revision, setRevision] = useState(0);
+  const windowKey = `${windowStartMs}:${windowEndMs}`;
+  const requestedView = useRef('');
+  requestedView.current = `${windowKey}:${visibleKey}`;
+  const [drawn, setDrawn] = useState<{ entry: FreshEntry | null; windowKey: string; map: ProgrammeMap }>({entry:null,windowKey:'',map:{}});
 
-  // Cachen foerst (hurtigt), saa nu/naeste fra panelet, saa den fulde tabel i
-  // baggrunden. Guiden staar aldrig tom mens der hentes.
+  useLayoutEffect(() => {
+    if (!active || !foreground) return;
+    const next: FreshEntry = {session, channelsKey, cancelled:false, attempted:new Set(), refreshed:new Set(), failures:new Set(), xmlSources:new Set(), xmlReadySources:new Set()};
+    entryRef.current = next;
+    setEntry(next);
+    setDrawn({entry:next,windowKey:'',map:{}});
+    setVisibleStart(Math.max(0, channels.findIndex(channel => channel.id === returnFocusChannelId)));
+    return () => { next.cancelled = true; if (entryRef.current === next) entryRef.current = null; };
+  }, [active, foreground, session, channelsKey]);
+
+  const isCurrent = (run: FreshEntry): boolean => !run.cancelled && entryRef.current === run;
+  const currentEntry = entry !== null && isCurrent(entry) && active && foreground
+    && entry.session === session && entry.channelsKey === channelsKey ? entry : null;
+  const progMap = currentEntry !== null && drawn.entry === currentEntry && drawn.windowKey === windowKey ? drawn.map : {};
+
   useEffect(() => {
-    void draw();
-  }, [draw]);
+    if (entry === null || !isCurrent(entry) || !active || !foreground) return;
+    const run = entry;
+    enqueueGuideWork(session.db, async () => {
+      for (const channel of visibleChannels) {
+        if (!isCurrent(run)) return;
+        if (!visibleIds.current.has(channel.id) || run.attempted.has(channel.id)) continue;
+        run.attempted.add(channel.id);
+        try {
+          const access = session.access?.(channel.sourceId);
+          const isM3u = access?.source.kind === 'm3u' || channel.streamUrl != null;
+          if (!isM3u) {
+            if (!session.credsBySource.has(channel.sourceId)) throw new Error('missing-source');
+            const result = await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, [channel], new Date(), {
+              force:true,
+              shouldContinue: () => isCurrent(run) && visibleIds.current.has(channel.id),
+            });
+            if (!isCurrent(run)) return;
+            if (result.failed > 0) throw new Error('epg-refresh-failed');
+            if (result.fetched < 1) {
+              // Et koekald kan vaere sprunget over efter hurtig rulning.
+              // Det er ingen serverfejl og maa kunne proeves ved genindgang.
+              run.attempted.delete(channel.id);
+              continue;
+            }
+            if (result.programmes === 0 && run.xmlSources.has(channel.sourceId) && !run.xmlReadySources.has(channel.sourceId)) throw new Error('epg-unavailable');
+            if (result.programmes === 0 && !run.xmlSources.has(channel.sourceId)) {
+              // UK/US kan mangle API-EPG. Hent kildens XML-fil frisk én gang,
+              // uden at overskrive kanaler som allerede fik et frisk API-svar.
+              run.xmlSources.add(channel.sourceId);
+              const ids = channels.filter(candidate => candidate.sourceId === channel.sourceId && !run.refreshed.has(candidate.id)).map(candidate => candidate.id);
+              if (!isCurrent(run)) return;
+              await upsertProgrammes(session.db, [], {replaceChannelIds:ids});
+              if (!isCurrent(run)) return;
+              const fallback = await syncPanelEpg(session.db, channel.sourceId, session.credsBySource.get(channel.sourceId)!, {
+                fresh:true, force:true, channelIds:ids, shouldContinue:() => isCurrent(run),
+              });
+              if (!isCurrent(run)) return;
+              if (fallback === null) throw new Error('epg-unavailable');
+              run.xmlReadySources.add(channel.sourceId);
+              for (const id of fallback.channelIds ?? []) {
+                run.refreshed.add(id);
+                run.attempted.add(id);
+                run.failures.delete(id);
+              }
+            }
+          }
+          if (!isCurrent(run)) return;
+          run.refreshed.add(channel.id);
+        } catch {
+          if (!isCurrent(run)) return;
+          run.failures.add(channel.id);
+        }
+        if (isCurrent(run)) setRevision(value => value + 1);
+      }
+    });
+  }, [entry, visibleChannels, active, foreground, session]);
+
+  // En ny pil-bevaegelse laeser kun de synlige 90 minutter fra databasen.
+  // Panelet kontaktes kun én gang per kanal i det aktuelle guidebesoeg.
   useEffect(() => {
-    if (channels.length === 0) return;
+    if (currentEntry === null) return;
+    const run = currentEntry;
+    const view = requestedView.current;
     let cancelled = false;
+    const ready = visibleChannels.filter(channel => run.refreshed.has(channel.id));
+    if (ready.length === 0) return;
     void (async () => {
       try {
-        await ensureEpg(session.db, session.credsBySource, session.fetchImpl, channels.map((c) => c.id), new Date(), GUIDE_EPG_LIMIT);
-        if (!cancelled) void draw();
-        await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, channels);
+        const rows = await Promise.all(ready.map(channel => listProgrammes(session.db, channel.id, new Date(windowStartMs), new Date(windowEndMs))));
+        if (cancelled || !isCurrent(run) || requestedView.current !== view) return;
+        const map: ProgrammeMap = {};
+        ready.forEach((channel, index) => { map[channel.id] = rows[index] ?? []; });
+        setDrawn({entry:run,windowKey,map});
       } catch {
-        // Auth-/netfejl: det cachen har, staar.
+        if (cancelled || !isCurrent(run) || requestedView.current !== view) return;
+        ready.forEach(channel => { run.refreshed.delete(channel.id); run.failures.add(channel.id); });
+        setRevision(value => value + 1);
       }
-      if (!cancelled) void draw();
     })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channels, session]);
+    return () => { cancelled = true; };
+  }, [currentEntry, visibleChannels, windowStartMs, windowEndMs, windowKey, visibleKey, revision, session.db]);
+
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: Array<{index: number | null}> }) => {
+    const indexes = viewableItems.map(item => item.index).filter((index): index is number => index !== null);
+    if (indexes.length > 0) setVisibleStart(Math.max(0, Math.min(...indexes)));
+  }, []);
 
   // Rul listen saa den fokuserede raekke er synlig (som favoritterne).
   const listRef = useRef<FlatList<StoredChannel>>(null);
@@ -197,6 +278,7 @@ export function TimelineGrid({
       focusedRow.current = channel.id;
       onFocusChannel(channel);
       setFocusedId(channel.id);
+      if (!visibleIds.current.has(channel.id)) setVisibleStart(index);
       if (channel.id === requestedChannel.current) {
         requestedChannel.current = null;
         onReturnFocus(true);
@@ -221,6 +303,7 @@ export function TimelineGrid({
     if (!active || returnFocusChannelId === null || listHeight <= 0) return;
     const index = channels.findIndex((channel) => channel.id === returnFocusChannelId);
     if (index < 0) return;
+    setVisibleStart(index);
     listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: false });
     const request = () => {
       if (requestedChannel.current === returnFocusChannelId) rowNodes.current.get(returnFocusChannelId)?.requestTVFocus();
@@ -273,6 +356,8 @@ export function TimelineGrid({
       <ChannelRow
         channel={item}
         programmes={progMap[item.id] ?? EMPTY}
+        loading={currentEntry === null || (!currentEntry.failures.has(item.id) && progMap[item.id] === undefined)}
+        failed={currentEntry?.failures.has(item.id) === true}
         windowStartMs={windowStartMs}
         windowEndMs={windowEndMs}
         nowMs={nowMs}
@@ -285,7 +370,7 @@ export function TimelineGrid({
         onOpen={onOpen}
       />
     ),
-    [progMap, windowStartMs, windowEndMs, nowMs, hasDialectFor, focusPulse, active, returnFocusChannelId, registerRow, onRowFocus, onRowBlur, onOpen],
+    [progMap, currentEntry, windowStartMs, windowEndMs, nowMs, hasDialectFor, focusPulse, active, returnFocusChannelId, registerRow, onRowFocus, onRowBlur, onOpen],
   );
 
   return (
@@ -326,9 +411,11 @@ export function TimelineGrid({
           keyExtractor={(c) => c.id}
           renderItem={renderItem}
           removeClippedSubviews={false}
-          initialNumToRender={Math.max(12, channels.length)}
-          windowSize={Math.max(11, channels.length + 2)}
-          maxToRenderPerBatch={Math.max(12, channels.length)}
+          initialNumToRender={VISIBLE_BATCH}
+          windowSize={5}
+          maxToRenderPerBatch={VISIBLE_BATCH}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={VIEWABILITY}
           getItemLayout={(_, index) => ({ length: ROW_HEIGHT, offset: ROW_HEIGHT * index, index })}
           onScrollToIndexFailed={() => undefined}
           contentContainerStyle={{ paddingBottom: ROW_HEIGHT * 4 }}
@@ -344,6 +431,8 @@ const EMPTY: Programme[] = [];
 const ChannelRow = memo(function ChannelRow({
   channel,
   programmes,
+  loading,
+  failed,
   windowStartMs,
   windowEndMs,
   nowMs,
@@ -357,6 +446,8 @@ const ChannelRow = memo(function ChannelRow({
 }: {
   channel: StoredChannel;
   programmes: readonly Programme[];
+  loading: boolean;
+  failed: boolean;
   windowStartMs: number;
   windowEndMs: number;
   nowMs: number;
@@ -403,7 +494,8 @@ const ChannelRow = memo(function ChannelRow({
         </View>
       </View>
       <View style={styles.strip}>
-        {cells.map((cell, i) => {
+        {(loading || failed) && <Text style={styles.refreshMessage}>{failed ? 'Programoversigten kunne ikke hentes.' : 'Henter programoversigt …'}</Text>}
+        {!loading && !failed && cells.map((cell, i) => {
           // Live-forloeb: hvor langt udsendelsen er naaet (Tablos blaa streg).
           const livePct =
             cell.state === 'live' && cell.programme
@@ -499,6 +591,7 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     backgroundColor: colors.surface,
     overflow: 'hidden',
   },
+  refreshMessage: { color: colors.textMuted, fontSize: 12, alignSelf:'center', paddingHorizontal:8 },
   cellPast: { opacity: 0.5 },
   // Live-forloeb: en tynd blaa streg under, fyldt saa langt udsendelsen er
   // naaet (som Tablos). Svag blaa baggrund + massiv blaa fyld ovenpaa.

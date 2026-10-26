@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from 'react-native';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import { listProgrammes } from '../../storage/programmes.js';
-import { startPanelEpg, panelEpgInFlight } from '../../sync/panelEpg.js';
 import { ensureFullEpg } from '../../sync/epgCache.js';
+import { syncPanelEpg } from '../../sync/panelEpg.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { theme } from '../../ui/theme.js';
 import { useStyles, useTheme } from '../../ui/ThemeContext.js';
 import type { ThemeColors } from '../../ui/theme.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
 import type { CellState } from './layout.js';
+import { nowAndNext } from './nowNext.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { keepInMiddle, useTvListTail } from '../../ui/tvScroll.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
@@ -24,6 +25,8 @@ interface Props {
   session: AppSession;
   channel: StoredChannel;
   hasDialect: boolean;
+  /** Skjult af afspilleren: stop nye EPG-kald med det samme. */
+  active?: boolean;
   onBack: () => void;
   onPlay: (channel: StoredChannel) => void;
   onRestart: (channel: StoredChannel, programme: Programme) => void;
@@ -42,19 +45,34 @@ const PROGRAMME_ROW_HEIGHT = 76;
  * hvad DR1 sendte i gaar aften, skal man ikke traekke guiden baglaens i
  * mange omgange, men bladre til dagen og trykke paa udsendelsen.
  *
- * Programtabellen hentes én gang for kanalen (arkivets fulde tabel), saa
- * dagene bagud er fyldt; derefter laeses hver dag fra cachen.
+ * Programtabellen hentes frisk ved hver aabning. Dagsknapperne vaelger
+ * derefter i denne hentning uden nye panelkald for hvert tryk.
  */
-export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay, onRestart }: Props) {
+export function ChannelDayScreen({ session, channel, hasDialect, active = true, onBack, onPlay, onRestart }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const tail = useTvListTail();
-  // Hele spanet (7 dage tilbage til et par frem) hentes ÉN gang — praecis som
-  // guiden goer — og hver dag skaeres ud lokalt. Saa laeser dagssiden og guiden
-  // GARANTERET det samme: samme kanal, samme listeopslag, samme cache. Foer
-  // laeste dagssiden dag for dag med sit eget opslag, og selv en lille forskel
-  // i timing eller vindue kunne give "guiden har det, men hele dagen er tom".
-  const [allProgrammes, setAllProgrammes] = useState<Programme[] | null>(null);
+  const [data, setData] = useState<{
+    entry: object; programmes: Programme[]; error: string | null;
+  } | null>(null);
+  const appActive = useRef(AppState?.currentState == null || AppState.currentState === 'active');
+  const [foreground, setForeground] = useState(appActive.current);
+  useEffect(() => {
+    const subscription = AppState?.addEventListener?.('change', state => {
+      appActive.current = state === 'active';
+      setForeground(appActive.current);
+    });
+    return () => subscription?.remove();
+  }, []);
+  const current = useRef({ session, channelId: channel.id, active, foreground });
+  if (current.current.session !== session || current.current.channelId !== channel.id
+    || current.current.active !== active || current.current.foreground !== foreground) {
+    current.current = { session, channelId: channel.id, active, foreground };
+  }
+  // En tidligere aabnings tegning maa ikke blinke frem foer effekternes oprydning.
+  const ownData = active && foreground && data?.entry === current.current ? data : null;
+  const allProgrammes = ownData?.programmes ?? null;
+  const error = ownData?.error ?? null;
   const [dayDelta, setDayDelta] = useState(0);
   const [fetching, setFetching] = useState(true);
   const [listHeight, setListHeight] = useState(0);
@@ -110,55 +128,52 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
    * det man kom fra i guiden. De andre dage begynder ved dagens start.
    */
   const listRef = useRef<FlatList<Programme>>(null);
-  const liveIndex =
-    programmes === null || dayDelta !== 0 ? -1 : programmes.findIndex((programme) => programme.stop.getTime() > now.getTime());
-  // Vis cache straks og kanalens nye tabel FOER den store XMLTV-fil er klar.
-  // Et sent cache-svar maa ikke overskrive den friske tabel eller en ny kanal.
+  const currentProgramme = nowAndNext(allProgrammes ?? [], now).now;
+  const liveIndex = programmes === null || dayDelta !== 0 ? -1
+    : currentProgramme !== null ? programmes.indexOf(currentProgramme)
+      : programmes.findIndex(programme => programme.start.getTime() > now.getTime());
+  const todayMs = dayBounds(0).from.getTime();
   useEffect(() => {
+    if (!active || !foreground) return;
     let cancelled = false;
-    let readNumber = 0;
-    const load = async (): Promise<void> => {
-      const own = ++readNumber;
-      const from = dayBounds(-MAX_DAYS_BACK).from;
-      const to = dayBounds(DAYS_FORWARD).to;
-      try {
-        const items = await listProgrammes(session.db, channel.id, from, to);
-        if (!cancelled && own === readNumber) setAllProgrammes(items);
-      } catch {
-        if (!cancelled && own === readNumber) {
-          logEvent('guide', 'hele dagen v386: programtabellen kunne ikke laeses');
-          setAllProgrammes((current) => current ?? []);
-        }
-      }
-    };
-    setAllProgrammes(null);
+    const db = session.db;
+    const channelId = channel.id;
+    const entry = current.current;
+    const stopped = (): boolean => cancelled || !appActive.current || current.current !== entry;
+    setData(null);
     setFetching(true);
-    void load();
-    void ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, [channel])
-      .catch(() => undefined)
-      .then(async () => {
-        if (cancelled) return;
-        await load();
-        if (cancelled) return;
-        const creds = session.credsBySource.get(channel.sourceId);
-        // En fuld guide kraever ikke arkiv. Filen kan have oversigten,
-        // selv naar panelets tabel kun gav nu/naeste eller intet.
-        if (creds !== undefined) {
-          await (panelEpgInFlight() ?? startPanelEpg(session.db, [{ sourceId: channel.sourceId, creds }]));
+    void (async () => {
+      try {
+        const access = session.access?.(channel.sourceId);
+        const isM3u = access?.source.kind === 'm3u';
+        if (!isM3u) {
+          if (!session.credsBySource.has(channel.sourceId)) throw new Error('missing-source');
+          const result = await ensureFullEpg(db, session.credsBySource, session.fetchImpl, [channel], new Date(), {
+            force: true, shouldContinue: () => !stopped(),
+          });
+          if (stopped()) return;
+          if (result.failed > 0 || result.fetched === 0) throw new Error('epg-refresh-failed');
+          if (result.programmes === 0) {
+            const creds = session.credsBySource.get(channel.sourceId)!;
+            await syncPanelEpg(db, channel.sourceId, creds, {
+              force: true, fresh: true, channelIds: [channelId], shouldContinue: () => !stopped(),
+            });
+          }
         }
-        if (cancelled) return;
-        await load();
-      })
-      .catch(() => {
-        if (!cancelled) logEvent('guide', 'hele dagen v386: opdateringen mislykkedes, beholder programtabellen');
-      })
-      .finally(() => {
-        if (!cancelled) setFetching(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [session, channel.id, channel.sourceId, channel.hasArchive, dayBounds]);
+        if (stopped()) return;
+        const items = await listProgrammes(db, channelId, dayBounds(-MAX_DAYS_BACK).from, dayBounds(DAYS_FORWARD).to);
+        if (!stopped()) setData({ entry, programmes: items, error: null });
+      } catch {
+        if (!stopped()) {
+          logEvent('guide', 'hele dagen v421: frisk programoversigt kunne ikke hentes');
+          setData({ entry, programmes: [], error: 'Programoversigten kunne ikke hentes. Gå tilbage, og åbn kanalen igen for at prøve på ny.' });
+        }
+      } finally {
+        if (!stopped()) setFetching(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [session, channel.id, channel.sourceId, active, foreground, dayBounds, todayMs]);
 
   useEffect(() => {
     if (allProgrammes === null) return;
@@ -192,7 +207,8 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
     const ms = now.getTime();
     if (programme.stop.getTime() <= ms) return 'past';
     if (programme.start.getTime() > ms) return 'future';
-    return 'live';
+    // Ved overlap er kun det senest begyndte program aktuelt, som i guiden.
+    return programme === currentProgramme ? 'live' : 'past';
   }
 
   function openSheet(programme: Programme): void {
@@ -247,9 +263,12 @@ export function ChannelDayScreen({ session, channel, hasDialect, onBack, onPlay,
           logEvent('guide', `hele dagen v386: programfelt ${Math.round(layout.width)}x${Math.round(layout.height)}`);
         }}
       >
-      {programmes === null ? (
+      {error !== null ? (
+        <Text style={styles.empty} accessibilityRole="alert">{error}</Text>
+      ) : programmes === null ? (
         <View style={styles.centered}>
           <ActivityIndicator color={colors.accent} />
+          <Text style={styles.empty}>Henter programoversigt …</Text>
         </View>
       ) : programmes.length === 0 ? (
         <Text style={styles.empty}>

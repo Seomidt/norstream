@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   FlatList,
   PanResponder,
   ScrollView,
@@ -15,13 +16,14 @@ import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
-import { listProgrammes } from '../../storage/programmes.js';
+import { listProgrammes, upsertProgrammes } from '../../storage/programmes.js';
+import { syncPanelEpg } from '../../sync/panelEpg.js';
 import { getFavoriteGroup, getGuideInfoMode, setFavoriteGroup, sourcesWithDialect } from '../../storage/settings.js';
 import type { GuideInfoMode } from '../../storage/settings.js';
 import { listFavoriteGroups } from '../../storage/favoriteGroups.js';
 import { addReminder, hasReminder, removeReminder } from '../../storage/reminders.js';
 import type { FavoriteGroup } from '../../storage/favoriteGroups.js';
-import { ensureFullEpg, ensureEpg } from '../../sync/epgCache.js';
+import { ensureFullEpg } from '../../sync/epgCache.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { logEvent } from '../../diagnostics/log.js';
 import { Notice } from '../../ui/Notice.js';
@@ -59,6 +61,28 @@ import type { GuideCell } from './layout.js';
 import { neighbourIndex } from './layout.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
+
+// Kun igangvaerende arbejde serialiseres; ingen programdata huskes her.
+const phoneEpgWork = new WeakMap<object, Promise<void>>();
+function runPhoneEpg(db: object, work: () => Promise<void>): Promise<void> {
+  const operation = (phoneEpgWork.get(db) ?? Promise.resolve()).then(work);
+  const tail = operation.catch(() => undefined);
+  phoneEpgWork.set(db, tail);
+  void tail.then(() => { if (phoneEpgWork.get(db) === tail) phoneEpgWork.delete(db); });
+  return operation;
+}
+interface PhoneEpgEntry {
+  session: AppSession;
+  channels: StoredChannel[];
+  visible: boolean;
+  foregroundEpoch: number;
+  enabled: boolean;
+  id: number;
+  attempted: Set<string>;
+  fresh: Set<string>;
+  fileSources: Set<string>;
+  fileReadySources: Set<string>;
+}
 
 interface Props {
   session: AppSession;
@@ -138,7 +162,12 @@ export const GuideScreen = memo(function GuideScreen({
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const [channels, setChannels] = useState<StoredChannel[]>([]);
-  const [rows, setRows] = useState<Record<string, Programme[]>>({});
+  const [phoneRows, setPhoneRows] = useState<{entry: number; map: Record<string, Programme[]>}>({entry: 0, map: {}});
+  const phoneEntry = useRef<PhoneEpgEntry | null>(null);
+  const phoneEntryNumber = useRef(0);
+  const focusedProgrammeOwner = useRef(0);
+  const [foreground, setForeground] = useState(() => AppState?.currentState == null || AppState.currentState === 'active');
+  const [foregroundEpoch, setForegroundEpoch] = useState(0);
   /**
    * Kilderne der har fundet en timeshift-dialekt.
    *
@@ -386,28 +415,6 @@ export const GuideScreen = memo(function GuideScreen({
   const window = shiftedWindow(now, offsetMinutes);
   const liveRatio = nowRatio(now, window.start, window.end);
 
-  // Boksen laeser fra cachen, som gitteret; den opdateres naar kanalen
-  // skifter, naar minuttet skifter, og naar en hentning har skrevet nye
-  // programmer for kanalen (rows aendrer sig).
-  const previewId = previewChannel?.id ?? null;
-  const previewRows = previewId === null ? undefined : rows[previewId];
-  useEffect(() => {
-    if (previewId === null) {
-      setPreviewProgrammes([]);
-      return;
-    }
-    let cancelled = false;
-    const from = new Date(now.getTime() - 6 * 60 * 60_000);
-    const to = new Date(now.getTime() + 12 * 60 * 60_000);
-    void listProgrammes(session.db, previewId, from, to).then((found) => {
-      if (!cancelled) setPreviewProgrammes(found);
-    });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.db, previewId, now, previewRows]);
-
   /** Favoritgruppen guiden viser (null = alle), og alle grupperne til at skifte imellem. */
   const [group, setGroup] = useState<FavoriteGroup | null>(null);
   const [groups, setGroups] = useState<FavoriteGroup[]>([]);
@@ -448,6 +455,50 @@ export const GuideScreen = memo(function GuideScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, groupTick]);
 
+  useEffect(() => {
+    const subscription = AppState?.addEventListener?.('change', state => {
+      if (state !== 'active') {
+        if (phoneEntry.current !== null) phoneEntry.current.enabled = false;
+        setForeground(false);
+      } else {
+        setNow(new Date());
+        setForeground(true);
+        setForegroundEpoch(value => value + 1);
+      }
+    });
+    return () => { subscription?.remove(); };
+  }, []);
+
+  // Hver guideindgang har sit eget datasvar. Intet gammelt kort vises mens
+  // den nye oversigt hentes, heller ikke ved hurtigt gruppe-/kontoskift.
+  const visible = active && foreground && !loading && dayFor === null && sheet === null;
+  if (phoneEntry.current === null || phoneEntry.current.session !== session || phoneEntry.current.channels !== channels
+      || phoneEntry.current.visible !== visible || phoneEntry.current.foregroundEpoch !== foregroundEpoch) {
+    if (phoneEntry.current !== null) phoneEntry.current.enabled = false;
+    phoneEntry.current = {session, channels, visible, foregroundEpoch, enabled: !isTV && visible,
+      id: ++phoneEntryNumber.current, attempted: new Set(), fresh: new Set(), fileSources: new Set(), fileReadySources: new Set()};
+  }
+  const entry = phoneEntry.current;
+  const rows = phoneRows.entry === entry.id ? phoneRows.map : {};
+  const currentPhoneEntry = (candidate: PhoneEpgEntry): boolean =>
+    candidate.enabled && phoneEntry.current === candidate;
+
+  // TV-boksen drives af den friske fokuserede tidslinje. Paa telefonen kan
+  // databasen kun laeses efter kanalens hentning i den aktuelle indgang.
+  const previewId = previewChannel?.id ?? null;
+  const previewRows = previewId === null ? undefined : rows[previewId];
+  useEffect(() => {
+    setPreviewProgrammes([]);
+    if (isTV || previewId === null || !currentPhoneEntry(entry) || !entry.fresh.has(previewId)) return;
+    let cancelled = false;
+    const from = new Date(now.getTime() - 6 * 60 * 60_000);
+    const to = new Date(now.getTime() + 12 * 60 * 60_000);
+    void listProgrammes(session.db, previewId, from, to).then(found => {
+      if (!cancelled && currentPhoneEntry(entry)) setPreviewProgrammes(found);
+    }).catch(() => { /* Ingen gammel oversigt ved en lokal laesefejl. */ });
+    return () => { cancelled = true; };
+  }, [entry, session.db, previewId, now, previewRows]);
+
   /** Om kanalens kilde kan bygge arkiv-URLer. Uden det: intet ur, ingen optagelse. */
   const hasDialectFor = useCallback(
     (channel: StoredChannel): boolean => dialectSources.has(channel.sourceId),
@@ -471,55 +522,25 @@ export const GuideScreen = memo(function GuideScreen({
     [],
   );
 
-  /**
-   * Det vindue der staar paa skaermen lige nu.
-   *
-   * Hentningerne fletter deres resultater ind i den samme raekke-tabel, og to
-   * kan sagtens vaere i luften ad gangen naar man ruller. De maa bare ikke
-   * skrive programmer fra et *andet* tidsvindue ind — derfor sammenlignes der
-   * med vinduet frem for med et loebenummer, som ville kassere det ene af to
-   * gyldige svar.
-   */
   const currentWindow = useRef({ from: 0, to: 0 });
 
-  /**
-   * Tegner det cachen har for et vindue. Ingen netvaerk.
-   *
-   * Den koeres **uden ventetid** hver gang vinduet flytter sig. Traekker man
-   * gennem aftenen, er det den her der fylder cellerne ud under fingeren;
-   * ventetiden nedenfor gaelder kun turen til panelet, som ikke maa ske paa
-   * hvert femte minut man traekker forbi.
-   */
-  /**
-   * Hvilket vindue hver kanal sidst blev tegnet for. Rulning melder de
-   * synlige raekker igen og igen, og foer blev hver melding til én
-   * forespoergsel per synlig raekke og en omtegning af hele gitteret —
-   * paa en bred skaerm med mange raekker fremme hakkede det. Nu springes
-   * raekker over der allerede staar tegnet for vinduet; kun en hentning
-   * fra panelet tvinger dem laest igen.
-   */
+  /** Laes kun kanaler, som netop er hentet i denne guideindgang. */
   const drawFromCache = useCallback(
-    async (visible: readonly StoredChannel[], from: Date, to: Date, _force = false): Promise<boolean> => {
-      if (visible.length === 0) return false;
-      // Altid genindlaes de synlige kanaler for DETTE vindue fra den lokale
-      // database. Foer sprang den kanaler over der "allerede var tegnet" for
-      // vinduet (drawnFor), men rows holder kun ét vindues programmer ad
-      // gangen og bliver overskrevet naar man ruller til et andet tidspunkt.
-      // Kom man saa tilbage til nu, troede den at nu-vinduet var tegnet og
-      // genindlaeste ikke — cellerne stod tomme ("naar jeg gaar tilbage og
-      // frem er alt vaek"). listProgrammes er en hurtig indekseret opslag.
-      const found = await Promise.all(visible.map((channel) => listProgrammes(session.db, channel.id, from, to)));
-      if (
-        currentWindow.current.from !== from.getTime() ||
-        currentWindow.current.to !== to.getTime()
-      ) {
+    async (visibleChannels: readonly StoredChannel[], from: Date, to: Date, _force = false): Promise<boolean> => {
+      const owner = phoneEntry.current;
+      if (isTV || owner === null || !currentPhoneEntry(owner)) return false;
+      const fresh = visibleChannels.filter(channel => owner.fresh.has(channel.id));
+      if (fresh.length === 0) return true;
+      let found: Programme[][];
+      try { found = await Promise.all(fresh.map(channel => listProgrammes(session.db, channel.id, from, to))); }
+      catch {
+        if (currentPhoneEntry(owner)) setNotice({text: 'Programoversigten kunne ikke indlæses. Åbn guiden igen for at prøve igen.'});
         return false;
       }
+      if (!currentPhoneEntry(owner) || currentWindow.current.from !== from.getTime() || currentWindow.current.to !== to.getTime()) return false;
       const loaded: Record<string, Programme[]> = {};
-      visible.forEach((channel, index) => {
-        loaded[channel.id] = found[index] ?? [];
-      });
-      setRows((previous) => ({ ...previous, ...loaded }));
+      fresh.forEach((channel, index) => { loaded[channel.id] = found[index] ?? []; });
+      setPhoneRows(previous => ({entry: owner.id, map: {...(previous.entry === owner.id ? previous.map : {}), ...loaded}}));
       return true;
     },
     [session.db],
@@ -529,49 +550,63 @@ export const GuideScreen = memo(function GuideScreen({
   drawFromCacheRef.current = drawFromCache;
 
   const loadVisible = useCallback(
-    async (visible: StoredChannel[], from: Date, to: Date): Promise<void> => {
-      if (visible.length === 0) return;
-      const streamIds = visible.map((channel) => channel.id);
-      const draw = (): Promise<boolean> => drawFromCache(visible, from, to, true);
-
-      // **Cachen foerst.** Foer tegnede guiden efter hentningen, saa hver gang
-      // programdata var mere end en halv time gamle, stod skaermen tom mens
-      // panelet svarede — ogsaa naar cachen laa med aftenens programmer klar.
-      // Det man har, skal vises med det samme; hentningen er en opdatering.
-      if (!(await drawFromCache(visible, from, to))) return;
-
-      try {
-        const result = await ensureEpg(session.db, session.credsBySource, session.fetchImpl, streamIds);
-        // v357: fejlede ALLE hentninger, siges det i stedet for en stille tom
-        // guide ("ny boks uden EPG i 20 min"). Fejlteksten er uden adresser.
-        if (result.failed > 0 && result.fetched === 0) {
-          setNotice({ text: `Programoversigten kunne ikke hentes fra panelet: ${result.reason ?? 'ukendt fejl'}` });
+    async (visibleChannels: StoredChannel[], from: Date, to: Date): Promise<void> => {
+      const owner = phoneEntry.current;
+      if (isTV || owner === null || !currentPhoneEntry(owner) || visibleChannels.length === 0) return;
+      await runPhoneEpg(session.db, async () => {
+        for (const channel of visibleChannels) {
+          if (!currentPhoneEntry(owner)) return;
+          if (!owner.attempted.has(channel.id)) {
+            owner.attempted.add(channel.id);
+            if (session.credsBySource.has(channel.sourceId)) {
+              try {
+                const result = await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, [channel], new Date(), {
+                  force: true, shouldContinue: () => currentPhoneEntry(owner),
+                });
+                if (!currentPhoneEntry(owner)) return;
+                if (result.failed > 0 || result.fetched < 1) {
+                  setNotice({text: 'Programoversigten kunne ikke hentes. Åbn guiden igen for at prøve igen.'});
+                  continue;
+                }
+                if (result.programmes === 0) {
+                  if (!owner.fileSources.has(channel.sourceId)) {
+                    owner.fileSources.add(channel.sourceId);
+                    const ids = owner.channels.filter(item => item.sourceId === channel.sourceId && !owner.fresh.has(item.id)).map(item => item.id);
+                    // En frisk XMLTV-fil maa ikke blandes med gamle API-/filraekker.
+                    // API-kanaler der allerede er opdateret i denne indgang bevares.
+                    await upsertProgrammes(session.db, [], {replaceChannelIds: ids});
+                    if (!currentPhoneEntry(owner)) return;
+                    const creds = session.credsBySource.get(channel.sourceId)!;
+                    const file = await syncPanelEpg(session.db, channel.sourceId, creds, {
+                      fresh: true, force: true, channelIds: ids, shouldContinue: () => currentPhoneEntry(owner),
+                    });
+                    if (!currentPhoneEntry(owner)) return;
+                    if (file !== null) {
+                      owner.fileReadySources.add(channel.sourceId);
+                      const written = new Set(file.channelIds ?? []);
+                      for (const id of ids) if (written.has(id)) { owner.fresh.add(id); owner.attempted.add(id); }
+                    }
+                  }
+                  if (!owner.fileReadySources.has(channel.sourceId)) {
+                    setNotice({text: 'Programoversigten kunne ikke hentes. Åbn guiden igen for at prøve igen.'});
+                    continue;
+                  }
+                  // Kun denne kanals API er bekraeftet tomt. Umatchede andre
+                  // kanaler skal stadig kunne proeve deres eget API-svar.
+                  owner.fresh.add(channel.id);
+                }
+              } catch (cause) {
+                if (!currentPhoneEntry(owner)) return;
+                if (cause instanceof XtreamAuthError) { onAuthError(); return; }
+                setNotice({text: 'Programoversigten kunne ikke hentes. Åbn guiden igen for at prøve igen.'});
+                continue;
+              }
+            }
+            owner.fresh.add(channel.id);
+          }
+          if (owner.fresh.has(channel.id)) await drawFromCache([channel], from, to);
         }
-      } catch (cause) {
-        if (cause instanceof XtreamAuthError) {
-          onAuthError();
-          return;
-        }
-        // Panelet kunne ikke naas; det tegnede staar.
-      }
-      if (!(await draw())) return;
-
-      // Foerst nu den fulde programtabel. Den er stoerre og langsommere, og
-      // guiden skal ikke staa tom imens — men uden den er cellerne bag "nu"
-      // tomme, og en udsendelse der allerede er sendt kan ikke startes.
-      try {
-        const result = await ensureFullEpg(
-          session.db,
-          session.credsBySource,
-          session.fetchImpl,
-          visible,
-        );
-        if (result.programmes === 0) return;
-      } catch (cause) {
-        if (cause instanceof XtreamAuthError) onAuthError();
-        return;
-      }
-      await draw();
+      });
     },
     [session, onAuthError, drawFromCache],
   );
@@ -611,9 +646,11 @@ export const GuideScreen = memo(function GuideScreen({
    * dem blive til en tur til panelet — som kun tillader én forbindelse.
    */
   const scheduleLoad = useCallback((): void => {
+    if (isTV || phoneEntry.current?.enabled !== true) return;
     if (scrollTimer.current !== null) clearTimeout(scrollTimer.current);
     scrollTimer.current = setTimeout(() => {
       scrollTimer.current = null;
+      if (isTV || phoneEntry.current?.enabled !== true) return;
       const { start, end } = windowRef.current;
       currentWindow.current = { from: start, to: end };
       void loadVisibleRef.current(visibleChannels.current, new Date(start), new Date(end));
@@ -625,6 +662,7 @@ export const GuideScreen = memo(function GuideScreen({
 
   const onViewableItemsChanged = useRef(
     (info: { viewableItems: { item: StoredChannel }[] }): void => {
+      if (isTV || phoneEntry.current?.enabled !== true) return;
       visibleChannels.current = info.viewableItems
         .map((entry) => entry.item)
         .filter((channel): channel is StoredChannel => channel !== undefined);
@@ -647,16 +685,29 @@ export const GuideScreen = memo(function GuideScreen({
     };
   }, []);
 
-  // Foerste skaermfuld og hver gang vinduet flytter sig: hent for de raekker
-  // der er fremme. Tegningen af det cachen allerede har sker med det samme —
-  // ventetiden gaelder kun turen til panelet.
   useEffect(() => {
+    entry.enabled = !isTV && entry.visible;
+    if (!entry.enabled) return;
+    const retainedVisible = visibleChannels.current.filter(channel => channels.some(current => current.id === channel.id));
+    visibleChannels.current = retainedVisible.length > 0 ? retainedVisible : channels.slice(0, 12);
+    currentWindow.current = {from: windowRef.current.start, to: windowRef.current.end};
+    scheduleLoadRef.current();
+    return () => {
+      entry.enabled = false;
+      if (scrollTimer.current !== null) { clearTimeout(scrollTimer.current); scrollTimer.current = null; }
+    };
+  }, [entry]);
+
+  // Foerste skaermfuld og tidsnavigation: laes kun aktuelle friske raekker.
+  // Hver kanal hentes én gang per indgang, ikke ved hvert piltryk.
+  useEffect(() => {
+    if (isTV || phoneEntry.current?.enabled !== true) return;
     if (visibleChannels.current.length === 0) {
       visibleChannels.current = channels.slice(0, 12);
     }
     currentWindow.current = { from: windowStartMs, to: windowEndMs };
-    // Cachen tegnes med det samme; kun panelet maa vente paa at fingeren
-    // staar stille.
+    // Allerede opdaterede kanaler kan tegnes fra denne indgangs database.
+    // Nye synlige kanaler hentes naar fingeren staar stille.
     void drawFromCacheRef.current(
       visibleChannels.current,
       new Date(windowStartMs),
@@ -664,39 +715,6 @@ export const GuideScreen = memo(function GuideScreen({
     );
     scheduleLoadRef.current();
   }, [channels, windowStartMs, windowEndMs]);
-
-  // Fyld ALLE favoritters programdata i baggrunden, naar listen er laest.
-  //
-  // Ellers staar en raekke laengere nede tom, til man ruller til den — og naar
-  // dens data saa lander mens fjernbetjeningen staar paa den, skifter cellen
-  // fra "Ingen programdata" til udsendelser, den fokuserede celle forsvinder,
-  // og fokus faldt til oeverste raekke ("springer til toppen"). Er dataene der
-  // paa forhaand, sker det skift ikke under fokus. ensureFullEpg springer selv
-  // de friske kanaler over, saa det koster kun det der mangler, og det
-  // blokerer ikke de synlige hentninger. Kun én gang per liste.
-  const prefetchedList = useRef<StoredChannel[] | null>(null);
-  useEffect(() => {
-    if (channels.length === 0 || prefetchedList.current === channels) return;
-    prefetchedList.current = channels;
-    let cancelled = false;
-    void (async () => {
-      try {
-        await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, channels, new Date(), { background: true });
-      } catch {
-        // Auth-/netfejl haandteres af de synlige hentninger.
-      }
-      if (cancelled) return;
-      void drawFromCacheRef.current(
-        visibleChannels.current,
-        new Date(windowRef.current.start),
-        new Date(windowRef.current.end),
-        true,
-      );
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [channels, session]);
 
   /**
    * Traekket i gitteret.
@@ -829,6 +847,7 @@ export const GuideScreen = memo(function GuideScreen({
     dayChannel !== null ? (
       <View style={styles.dayOverlay}>
         <ChannelDayScreen
+          active={active}
           session={session}
           channel={dayChannel}
           hasDialect={hasDialectFor(dayChannel)}
@@ -911,11 +930,11 @@ export const GuideScreen = memo(function GuideScreen({
         )}
         <NowNextBox
           channel={previewChannel}
-          programmes={previewProgrammes}
+          programmes={isTV ? [] : previewProgrammes}
           now={now}
           compact={!sideBySide && !isTV}
           rich={isTV}
-          focus={isTV && focusedProgramme !== null && previewChannel !== null ? focusedProgramme : null}
+          focus={isTV && visible && focusedProgrammeOwner.current === entry.id && focusedProgramme !== null && previewChannel !== null ? focusedProgramme : null}
           onOpen={(channel, programme) =>
             setSheet({
               channel,
@@ -1016,7 +1035,7 @@ export const GuideScreen = memo(function GuideScreen({
           now={now}
           hasDialectFor={hasDialectFor}
           onFocusChannel={onPreviewRow}
-          onFocusProgramme={setFocusedProgramme}
+          onFocusProgramme={programme => { focusedProgrammeOwner.current = entry.id; setFocusedProgramme(programme); }}
           offsetMinutes={offsetMinutes}
           onStepTime={stepGuideTime}
           onOpen={(channel, programme, state) =>
