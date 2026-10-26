@@ -16,7 +16,7 @@ import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
-import { listProgrammes, upsertProgrammes } from '../../storage/programmes.js';
+import { listProgrammes } from '../../storage/programmes.js';
 import { syncPanelEpg } from '../../sync/panelEpg.js';
 import { getFavoriteGroup, getGuideInfoMode, setFavoriteGroup, sourcesWithDialect } from '../../storage/settings.js';
 import type { GuideInfoMode } from '../../storage/settings.js';
@@ -62,7 +62,12 @@ import { neighbourIndex } from './layout.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
 
-// Kun igangvaerende arbejde serialiseres; ingen programdata huskes her.
+/**
+ * Det sidst viste programkort pr. database (v423): guiden aabner med det med
+ * det samme, og SQL og baggrundsfornyelsen tegner ovenpaa. Igangvaerende
+ * arbejde serialiseres, saa to guidebesoeg aldrig spoerger panelet samtidig.
+ */
+const phoneLastDrawn = new WeakMap<object, Record<string, Programme[]>>();
 const phoneEpgWork = new WeakMap<object, Promise<void>>();
 function runPhoneEpg(db: object, work: () => Promise<void>): Promise<void> {
   const operation = (phoneEpgWork.get(db) ?? Promise.resolve()).then(work);
@@ -79,9 +84,7 @@ interface PhoneEpgEntry {
   enabled: boolean;
   id: number;
   attempted: Set<string>;
-  fresh: Set<string>;
   fileSources: Set<string>;
-  fileReadySources: Set<string>;
 }
 
 interface Props {
@@ -162,7 +165,7 @@ export const GuideScreen = memo(function GuideScreen({
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const [channels, setChannels] = useState<StoredChannel[]>([]);
-  const [phoneRows, setPhoneRows] = useState<{entry: number; map: Record<string, Programme[]>}>({entry: 0, map: {}});
+  const [phoneRows, setPhoneRows] = useState<Record<string, Programme[]>>(() => phoneLastDrawn.get(session.db) ?? {});
   const phoneEntry = useRef<PhoneEpgEntry | null>(null);
   const phoneEntryNumber = useRef(0);
   const focusedProgrammeOwner = useRef(0);
@@ -469,27 +472,26 @@ export const GuideScreen = memo(function GuideScreen({
     return () => { subscription?.remove(); };
   }, []);
 
-  // Hver guideindgang har sit eget datasvar. Intet gammelt kort vises mens
-  // den nye oversigt hentes, heller ikke ved hurtigt gruppe-/kontoskift.
+  // Hver guideindgang har sin egen fornyelse; det gemte kort vises imens.
   const visible = active && foreground && !loading && dayFor === null && sheet === null;
   if (phoneEntry.current === null || phoneEntry.current.session !== session || phoneEntry.current.channels !== channels
       || phoneEntry.current.visible !== visible || phoneEntry.current.foregroundEpoch !== foregroundEpoch) {
     if (phoneEntry.current !== null) phoneEntry.current.enabled = false;
     phoneEntry.current = {session, channels, visible, foregroundEpoch, enabled: !isTV && visible,
-      id: ++phoneEntryNumber.current, attempted: new Set(), fresh: new Set(), fileSources: new Set(), fileReadySources: new Set()};
+      id: ++phoneEntryNumber.current, attempted: new Set(), fileSources: new Set()};
   }
   const entry = phoneEntry.current;
-  const rows = phoneRows.entry === entry.id ? phoneRows.map : {};
+  const rows = phoneRows;
   const currentPhoneEntry = (candidate: PhoneEpgEntry): boolean =>
     candidate.enabled && phoneEntry.current === candidate;
 
-  // TV-boksen drives af den friske fokuserede tidslinje. Paa telefonen kan
-  // databasen kun laeses efter kanalens hentning i den aktuelle indgang.
+  // TV-boksen drives af den fokuserede tidslinje. Paa telefonen laeses
+  // previewkanalens udsendelser omkring nu fra databasen.
   const previewId = previewChannel?.id ?? null;
   const previewRows = previewId === null ? undefined : rows[previewId];
   useEffect(() => {
     setPreviewProgrammes([]);
-    if (isTV || previewId === null || !currentPhoneEntry(entry) || !entry.fresh.has(previewId)) return;
+    if (isTV || previewId === null || !currentPhoneEntry(entry)) return;
     let cancelled = false;
     const from = new Date(now.getTime() - 6 * 60 * 60_000);
     const to = new Date(now.getTime() + 12 * 60 * 60_000);
@@ -524,23 +526,25 @@ export const GuideScreen = memo(function GuideScreen({
 
   const currentWindow = useRef({ from: 0, to: 0 });
 
-  /** Laes kun kanaler, som netop er hentet i denne guideindgang. */
+  /** Tegn de synlige kanaler fra SQL. Det gemte vises uden at vente paa panelet. */
   const drawFromCache = useCallback(
-    async (visibleChannels: readonly StoredChannel[], from: Date, to: Date, _force = false): Promise<boolean> => {
+    async (visibleChannels: readonly StoredChannel[], from: Date, to: Date): Promise<boolean> => {
       const owner = phoneEntry.current;
       if (isTV || owner === null || !currentPhoneEntry(owner)) return false;
-      const fresh = visibleChannels.filter(channel => owner.fresh.has(channel.id));
-      if (fresh.length === 0) return true;
+      if (visibleChannels.length === 0) return true;
       let found: Programme[][];
-      try { found = await Promise.all(fresh.map(channel => listProgrammes(session.db, channel.id, from, to))); }
+      try { found = await Promise.all(visibleChannels.map(channel => listProgrammes(session.db, channel.id, from, to))); }
       catch {
         if (currentPhoneEntry(owner)) setNotice({text: 'Programoversigten kunne ikke indlæses. Åbn guiden igen for at prøve igen.'});
         return false;
       }
       if (!currentPhoneEntry(owner) || currentWindow.current.from !== from.getTime() || currentWindow.current.to !== to.getTime()) return false;
-      const loaded: Record<string, Programme[]> = {};
-      fresh.forEach((channel, index) => { loaded[channel.id] = found[index] ?? []; });
-      setPhoneRows(previous => ({entry: owner.id, map: {...(previous.entry === owner.id ? previous.map : {}), ...loaded}}));
+      setPhoneRows(previous => {
+        const next = {...previous};
+        visibleChannels.forEach((channel, index) => { next[channel.id] = found[index] ?? []; });
+        phoneLastDrawn.set(session.db, next);
+        return next;
+      });
       return true;
     },
     [session.db],
@@ -549,62 +553,54 @@ export const GuideScreen = memo(function GuideScreen({
   const drawFromCacheRef = useRef(drawFromCache);
   drawFromCacheRef.current = drawFromCache;
 
+  /**
+   * Forny de synlige kanaler i baggrunden. Hentereglerne (alder, og skift
+   * mellem sommer- og vintertid) afgoer om panelet overhovedet spoerges; er
+   * tabellen frisk, koster det ingen kald. Hver kanal proeves én gang pr. indgang.
+   */
   const loadVisible = useCallback(
     async (visibleChannels: StoredChannel[], from: Date, to: Date): Promise<void> => {
       const owner = phoneEntry.current;
       if (isTV || owner === null || !currentPhoneEntry(owner) || visibleChannels.length === 0) return;
       await runPhoneEpg(session.db, async () => {
+        const empty: StoredChannel[] = [];
+        let failed = false;
         for (const channel of visibleChannels) {
           if (!currentPhoneEntry(owner)) return;
-          if (!owner.attempted.has(channel.id)) {
-            owner.attempted.add(channel.id);
-            if (session.credsBySource.has(channel.sourceId)) {
-              try {
-                const result = await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, [channel], new Date(), {
-                  force: true, shouldContinue: () => currentPhoneEntry(owner),
-                });
-                if (!currentPhoneEntry(owner)) return;
-                if (result.failed > 0 || result.fetched < 1) {
-                  setNotice({text: 'Programoversigten kunne ikke hentes. Åbn guiden igen for at prøve igen.'});
-                  continue;
-                }
-                if (result.programmes === 0) {
-                  if (!owner.fileSources.has(channel.sourceId)) {
-                    owner.fileSources.add(channel.sourceId);
-                    const ids = owner.channels.filter(item => item.sourceId === channel.sourceId && !owner.fresh.has(item.id)).map(item => item.id);
-                    // En frisk XMLTV-fil maa ikke blandes med gamle API-/filraekker.
-                    // API-kanaler der allerede er opdateret i denne indgang bevares.
-                    await upsertProgrammes(session.db, [], {replaceChannelIds: ids});
-                    if (!currentPhoneEntry(owner)) return;
-                    const creds = session.credsBySource.get(channel.sourceId)!;
-                    const file = await syncPanelEpg(session.db, channel.sourceId, creds, {
-                      fresh: true, force: true, channelIds: ids, shouldContinue: () => currentPhoneEntry(owner),
-                    });
-                    if (!currentPhoneEntry(owner)) return;
-                    if (file !== null) {
-                      owner.fileReadySources.add(channel.sourceId);
-                      const written = new Set(file.channelIds ?? []);
-                      for (const id of ids) if (written.has(id)) { owner.fresh.add(id); owner.attempted.add(id); }
-                    }
-                  }
-                  if (!owner.fileReadySources.has(channel.sourceId)) {
-                    setNotice({text: 'Programoversigten kunne ikke hentes. Åbn guiden igen for at prøve igen.'});
-                    continue;
-                  }
-                  // Kun denne kanals API er bekraeftet tomt. Umatchede andre
-                  // kanaler skal stadig kunne proeve deres eget API-svar.
-                  owner.fresh.add(channel.id);
-                }
-              } catch (cause) {
-                if (!currentPhoneEntry(owner)) return;
-                if (cause instanceof XtreamAuthError) { onAuthError(); return; }
-                setNotice({text: 'Programoversigten kunne ikke hentes. Åbn guiden igen for at prøve igen.'});
-                continue;
-              }
-            }
-            owner.fresh.add(channel.id);
+          if (owner.attempted.has(channel.id) || !session.credsBySource.has(channel.sourceId)) continue;
+          owner.attempted.add(channel.id);
+          try {
+            const result = await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, [channel], new Date(), {
+              shouldContinue: () => currentPhoneEntry(owner),
+            });
+            if (!currentPhoneEntry(owner)) return;
+            if (result.failed > 0) failed = true;
+            if (result.fetched > 0 && result.programmes === 0) empty.push(channel);
+            if (result.fetched > 0) await drawFromCache([channel], from, to);
+          } catch (cause) {
+            if (!currentPhoneEntry(owner)) return;
+            if (cause instanceof XtreamAuthError) { onAuthError(); return; }
+            failed = true;
           }
-          if (owner.fresh.has(channel.id)) await drawFromCache([channel], from, to);
+        }
+        // Kanaler uden API-oversigt: panelets XMLTV-fil, én gang pr. kilde.
+        // syncPanelEpg har selv sin doegnregel.
+        for (const channel of empty) {
+          if (!currentPhoneEntry(owner) || owner.fileSources.has(channel.sourceId)) continue;
+          owner.fileSources.add(channel.sourceId);
+          const ids = empty.filter(item => item.sourceId === channel.sourceId).map(item => item.id);
+          try {
+            const file = await syncPanelEpg(session.db, channel.sourceId, session.credsBySource.get(channel.sourceId)!, {
+              channelIds: ids, shouldContinue: () => currentPhoneEntry(owner),
+            });
+            if (!currentPhoneEntry(owner)) return;
+            if (file !== null && file.programmes > 0) await drawFromCache(empty.filter(item => item.sourceId === channel.sourceId), from, to);
+          } catch {
+            // Filen er en reserve; det gemte staar.
+          }
+        }
+        if (failed && currentPhoneEntry(owner)) {
+          setNotice({text: 'Programoversigten kunne ikke opdateres fra panelet. Det sidst hentede vises.'});
         }
       });
     },
@@ -698,7 +694,7 @@ export const GuideScreen = memo(function GuideScreen({
     };
   }, [entry]);
 
-  // Foerste skaermfuld og tidsnavigation: laes kun aktuelle friske raekker.
+  // Foerste skaermfuld og tidsnavigation: tegn det gemte med det samme.
   // Hver kanal hentes én gang per indgang, ikke ved hvert piltryk.
   useEffect(() => {
     if (isTV || phoneEntry.current?.enabled !== true) return;

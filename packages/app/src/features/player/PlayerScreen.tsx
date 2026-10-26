@@ -27,9 +27,6 @@ import {
 import type { SubtitlePreference } from '../../storage/settings.js';
 import { ensureEpg } from '../../sync/epgCache.js';
 import { refreshPanelClock } from '../../sync/panelClock.js';
-import { getArchiveTimeShift, getEpgTimeShift } from '../../storage/epgTiming.js';
-import { archiveRequestTime } from './archiveTiming.js';
-import type { ArchiveTiming } from './archiveTiming.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { liveUrlFor } from '../../sources/access.js';
 import { streamSource } from '../../net/doh.js';
@@ -148,7 +145,6 @@ export function PlayerScreen({
   const refreshArchiveEnd = useRef<() => void>(() => undefined);
   const archiveFormat = useRef<StreamFormat | null>(null);
   const archiveClock = useRef<PanelClock | null>(null);
-  const archiveTiming = useRef<ArchiveTiming | null>(null);
   const requestSource = useCallback((uri: string | null): void => {
     changingSource.current = true;
     // En fejl kan kraeve en ny indlaesning af praecis samme URL.
@@ -255,7 +251,6 @@ export function PlayerScreen({
       playIntent.current = true;
       archiveFormat.current = null;
       archiveClock.current = null;
-      archiveTiming.current = null;
       setChannel(target);
       setStartFrom(undefined);
       setRestarted(false);
@@ -395,7 +390,7 @@ export function PlayerScreen({
       const absolute = positionRef.current + (segment === null ? 0 : (segment.segmentStart - startFrom.start.getTime()) / 1000);
       if (absolute - lastSaved.current < 10 && absolute >= lastSaved.current) return;
       lastSaved.current = absolute;
-      void saveArchiveProgress(session.db, channel.id, startFrom, absolute, Date.now(), archiveTiming.current?.epgMinutes).catch(() => undefined);
+      void saveArchiveProgress(session.db, channel.id, startFrom, absolute, Date.now()).catch(() => undefined);
     });
     return () => { subscription.remove(); closePlaybackSnapshot(); };
   }, [player, connection, restarted, startFrom, session.db, channel.id, isRadio]);
@@ -1040,29 +1035,21 @@ export function PlayerScreen({
         playIntent.current = true;
         archiveFormat.current = null;
         archiveClock.current = null;
-        archiveTiming.current = null;
-      }
+        }
       try {
         // Offsettet fra forbindelsen kan vaere fra foer sommer/vintertid.
         // Hent panelets eget ur ved en ny start, og genbrug det ved stykker
         // og genforsoeg, saa de ikke giver ekstra baggrundskald.
-        const [dialect, clock, timing] = await Promise.all([
+        const [dialect, clock] = await Promise.all([
           getTimeshiftDialect(session.db, channel.sourceId),
           archiveClock.current !== null
             ? Promise.resolve(archiveClock.current)
             : access?.creds == null
               ? getPanelOffsetMinutes(session.db, channel.sourceId).then((offsetMinutes): PanelClock => ({ offsetMinutes }))
               : refreshPanelClock(session.db, channel.sourceId, access.creds, session.fetchImpl),
-          archiveTiming.current !== null
-            ? Promise.resolve(archiveTiming.current)
-            : Promise.all([
-              getEpgTimeShift(session.db, channel.sourceId),
-              getArchiveTimeShift(session.db, channel.sourceId),
-            ]).then(([epgMinutes, archiveMinutes]) => ({ epgMinutes, archiveMinutes })),
         ]);
         if (request !== archiveRequest.current) return;
         archiveClock.current = clock;
-        archiveTiming.current = timing;
         if (dialect === null || access?.creds == null) {
           // Uden dialekt kan arkiv-URLen ikke bygges. Kom vi fra guiden, staar
           // skaermen sort uden dette: fald tilbage paa live frem for ingenting —
@@ -1095,13 +1082,16 @@ export function PlayerScreen({
           setStreamError('Arkivet er ikke klart endnu. Prøv igen om lidt.');
           return;
         }
-        const requestFrom = archiveRequestTime(window.from, timing);
+        // Arkivadressen er panelets lokale tid. Offsettet slaas op for netop
+        // udsendelsens dato i panelets zone, saa en udsendelse fra foer et skift
+        // mellem sommer- og vintertid faar sin egen time (v423: ingen fast +60).
+        const requestFrom = window.from;
         const offset = panelOffsetForDate(clock, requestFrom);
         logEvent(
           'arkiv',
           `beder om ${dialect}-arkiv fra ${clockOf(window.from.getTime())}, ${window.minutes} min (udsendelse ${clockOf(programme.start.getTime())}–${clockOf(programme.stop.getTime())}, offset ${offset} min, spol ${window.seekSeconds.toFixed(3)} s)`,
         );
-        logEvent('arkiv', `paneltid v418: ${formatTimeshiftStart(requestFrom, offset)}, offset ${offset} min; EPG ${timing.epgMinutes}, arkiv ${timing.archiveMinutes} min${clock.timeZone === undefined ? ', maalt fast ur' : ', bekraeftet tidszone'}`);
+        logEvent('arkiv', `paneltid v423: ${formatTimeshiftStart(requestFrom, offset)}, offset ${offset} min${clock.timeZone === undefined ? ', maalt fast ur' : `, zone ${clock.timeZone}`}`);
         logEvent('arkiv', `slutgraense v395: guide ${clockOf(programme.stop.getTime())}, arkiv til ${clockOf(bounds.stop.getTime())}`);
         const format = archiveFormat.current ?? formatForPlatform();
         archiveRef.current = { programme, playbackStop: bounds.stop, segmentStart: window.from.getTime(), seekSeconds: window.seekSeconds, durationSeconds: window.minutes * 60, format, dialect, panelOffsetMinutes: offset };

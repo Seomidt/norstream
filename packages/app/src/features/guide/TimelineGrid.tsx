@@ -1,10 +1,10 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, FlatList, StyleSheet, Text, TVFocusGuideView, View, useTVEventHandler } from 'react-native';
 import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import type { SqlDatabase } from '../../storage/types.js';
 import type { StoredChannel } from '../../storage/channels.js';
-import { listProgrammes, upsertProgrammes } from '../../storage/programmes.js';
+import { listProgrammes } from '../../storage/programmes.js';
 import { ensureEpg, ensureFullEpg } from '../../sync/epgCache.js';
 import { syncPanelEpg } from '../../sync/panelEpg.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
@@ -28,9 +28,8 @@ import type { CellState, GuideCell } from './layout.js';
  * Tiden vaelges med pil venstre/hoejre — som et TASTETRYK (useTVEventHandler),
  * ikke en fokusflytning: der er intet fokuserbart til siderne, saa listen kan
  * ikke "fise ud i menuen". Hvert tryk skubber vinduet en halv time, og HELE
- * gitteret glider med. Synlige kanaler opfriskes ved hvert guidebesoeg.
- * Nu-vinduet bruger det lille svar; tidsbladning henter arkivet én gang.
- * Kort tegnes fra samme svar, uden at blande baggrundsskrivninger ind.
+ * gitteret glider med. Det gemte tegnes med det samme (v423); synlige kanaler
+ * fornys i baggrunden, kun naar hentereglerne siger at de er gamle.
  *
  * Forskydningen deles med telefonen (`offsetMinutes` fra GuideScreen), saa
  * hardware-Tilbage stiller vinduet tilbage paa nu.
@@ -77,21 +76,41 @@ interface Props {
 }
 
 type ProgrammeMap = Record<string, Programme[]>;
-interface FreshEntry {
-  session: AppSession;
-  channelsKey: string;
+
+/**
+ * Det sidst viste programkort pr. database (v423). Guiden aabner med det med
+ * det samme, og SQL tegner straks det gemte ovenpaa uden at vente paa panelet.
+ * I v421-v422 blev intet genbrugt: hver aabning ventede paa ét HTTP-kald pr.
+ * synlig kanal gennem panelets ene forbindelse ("staar og henter hver gang").
+ */
+const lastDrawn = new WeakMap<SqlDatabase, ProgrammeMap>();
+/** Hvor meget ud over vinduet der laeses fra SQL, saa et piltryk har data klar. */
+const DRAW_MARGIN_MS = 3 * 60 * 60_000;
+/** Nu/naeste: faa programmer, hurtigt svar. Den fulde tabel daekker resten. */
+const SHORT_EPG_LIMIT = 12;
+
+/**
+ * Ét guidebesoegs fornyelse. Hvad der skal hentes, afgoer hentereglerne i
+ * `storage/epgFetch.ts` (alder, slut-program og skift mellem sommer- og
+ * vintertid); guiden spoerger kun én gang pr. kanal og halve time.
+ */
+interface RefreshRun {
   cancelled: boolean;
-  attempted: Set<string>;
-  fullAttempted: Set<string>;
+  short: Set<string>;
   full: Set<string>;
-  snapshots: Map<string, Programme[]>;
-  refreshed: Set<string>;
-  failures: Set<string>;
   xmlSources: Set<string>;
-  xmlReadySources: Set<string>;
+  /** Kanaler hvor fornyelsen er faerdig, med eller uden nye data. */
+  done: Set<string>;
+  /** Kanaler hvor panelet ikke svarede. Vises kun hvis der heller intet er gemt. */
+  failed: Set<string>;
+  /** Kanaler hvor panelets API svarede tomt: kandidater til XMLTV-filen. */
+  emptyApi: Set<string>;
 }
-// Kun igangvaerende arbejde serialiseres. Der gemmes ingen programdata eller
-// faerdige svar mellem guidebesoeg, heller ikke ved hurtig af-/genmontering.
+function newRun(): RefreshRun {
+  return {cancelled:false, short:new Set(), full:new Set(), xmlSources:new Set(), done:new Set(), failed:new Set(), emptyApi:new Set()};
+}
+// Kun igangvaerende arbejde serialiseres, saa to guidebesoeg aldrig spoerger
+// panelet samtidig. Selve programmerne ligger i SQL og i lastDrawn.
 const activeWork = new WeakMap<SqlDatabase, Promise<void>>();
 function enqueueGuideWork(db: SqlDatabase, work: () => Promise<void>): void {
   const operation = (activeWork.get(db) ?? Promise.resolve()).then(work);
@@ -150,7 +169,7 @@ export function TimelineGrid({
   const [foreground, setForeground] = useState(() => AppState.currentState === null || AppState.currentState === 'active');
   useEffect(() => {
     const listener = AppState.addEventListener('change', state => {
-      if (state !== 'active' && entryRef.current !== null) entryRef.current.cancelled = true;
+      if (state !== 'active' && runRef.current !== null) runRef.current.cancelled = true;
       setForeground(state === 'active');
     });
     return () => listener.remove();
@@ -161,155 +180,118 @@ export function TimelineGrid({
   const visibleKey = visibleChannels.map(channel => channel.id).join('\u0000');
   const visibleIds = useRef(new Set<string>());
   visibleIds.current = new Set(visibleChannels.map(channel => channel.id));
-  const [entry, setEntry] = useState<FreshEntry | null>(null);
-  const entryRef = useRef<FreshEntry | null>(null);
+
+  // Det gemte vises straks: foerst det sidst viste kort, saa SQL for vinduet.
+  const [progMap, setProgMap] = useState<ProgrammeMap>(() => lastDrawn.get(session.db) ?? {});
   const [revision, setRevision] = useState(0);
-  const windowKey = `${windowStartMs}:${windowEndMs}`;
-  const requestedView = useRef('');
-  requestedView.current = `${windowKey}:${visibleKey}`;
-  const [drawn, setDrawn] = useState<{ entry: FreshEntry | null; windowKey: string; map: ProgrammeMap }>({entry:null,windowKey:'',map:{}});
+  const bump = useCallback(() => setRevision(value => value + 1), []);
+  useEffect(() => {
+    if (visibleChannels.length === 0) return;
+    let cancelled = false;
+    const from = new Date(windowStartMs - DRAW_MARGIN_MS);
+    const to = new Date(windowEndMs + DRAW_MARGIN_MS);
+    const shown = visibleChannels;
+    void Promise.all(shown.map(channel => listProgrammes(session.db, channel.id, from, to))).then(found => {
+      if (cancelled) return;
+      setProgMap(previous => {
+        const next: ProgrammeMap = {...previous};
+        shown.forEach((channel, index) => { next[channel.id] = found[index] ?? []; });
+        lastDrawn.set(session.db, next);
+        return next;
+      });
+    }).catch(() => { /* En lokal laesefejl: det der allerede staar, bliver staaende. */ });
+    return () => { cancelled = true; };
+  }, [session.db, visibleKey, windowStartMs, windowEndMs, revision]);
 
-  useLayoutEffect(() => {
+  // Fornyelse i baggrunden: synlige kanaler, kun det der er gammelt. En ny
+  // runde hver halve time (anchorMs), naar appen kommer frem igen, og ved
+  // nyt kanalsaet. Hentereglerne afgoer om der overhovedet spoerges.
+  const runRef = useRef<RefreshRun | null>(null);
+  const [run, setRun] = useState<RefreshRun | null>(null);
+  useEffect(() => {
     if (!active || !foreground) return;
-    const next: FreshEntry = {session, channelsKey, cancelled:false, attempted:new Set(), fullAttempted:new Set(), full:new Set(), snapshots:new Map(), refreshed:new Set(), failures:new Set(), xmlSources:new Set(), xmlReadySources:new Set()};
-    entryRef.current = next;
-    setEntry(next);
-    setDrawn({entry:next,windowKey:'',map:{}});
-    setVisibleStart(Math.max(0, channels.findIndex(channel => channel.id === returnFocusChannelId)));
-    return () => { next.cancelled = true; if (entryRef.current === next) entryRef.current = null; };
-  }, [active, foreground, session, channelsKey]);
-
-  const isCurrent = (run: FreshEntry): boolean => !run.cancelled && entryRef.current === run;
-  const currentEntry = entry !== null && isCurrent(entry) && active && foreground
-    && entry.session === session && entry.channelsKey === channelsKey ? entry : null;
-  const progMap = currentEntry !== null && drawn.entry === currentEntry && drawn.windowKey === windowKey ? drawn.map : {};
-  // Nu-vinduet behoever kun faa kommende programmer. Hele arkivtabellen
-  // hentes foerst naar brugeren faktisk bladrer vaek fra nu.
-  const needsFullFor = (run: FreshEntry, id: string): boolean => {
-    if (run.full.has(id) || offsetMinutes === 0) return false;
-    const rows = run.snapshots.get(id) ?? [];
-    return offsetMinutes < 0 || rows.length === 0
-      || Math.min(...rows.map(p => p.start.getTime())) > windowStartMs
-      || Math.max(...rows.map(p => p.stop.getTime())) < windowEndMs;
-  };
+    const next = newRun();
+    runRef.current = next;
+    setRun(next);
+    return () => { next.cancelled = true; if (runRef.current === next) runRef.current = null; };
+  }, [active, foreground, session, channelsKey, anchorMs]);
 
   useEffect(() => {
-    if (entry === null || !isCurrent(entry) || !active || !foreground) return;
-    const run = entry;
-    enqueueGuideWork(session.db, async () => {
-      const missing: StoredChannel[] = [];
-      for (const channel of visibleChannels) {
-        if (!isCurrent(run)) return;
-        const needsFull = needsFullFor(run, channel.id);
-        const attempts = needsFull ? run.fullAttempted : run.attempted;
-        const old = run.snapshots.get(channel.id);
-        if (!needsFull && old !== undefined && old.length > 0 && old.every(p => p.stop.getTime() <= windowStartMs)) attempts.delete(channel.id);
-        if (!visibleIds.current.has(channel.id) || attempts.has(channel.id) || run.full.has(channel.id)) continue;
-        attempts.add(channel.id);
-        run.attempted.add(channel.id);
+    if (run === null || run.cancelled || runRef.current !== run) return;
+    const isCurrent = (): boolean => !run.cancelled && runRef.current === run;
+    const wanted = (id: string): boolean => isCurrent() && visibleIds.current.has(id);
+    const db = session.db;
+    const api: StoredChannel[] = [];
+    for (const channel of visibleChannels) {
+      const access = session.access?.(channel.sourceId);
+      const isM3u = access?.source.kind === 'm3u' || channel.streamUrl != null;
+      // M3U har ingen EPG-API; dens oversigt er importeret og ligger i SQL.
+      if (isM3u || !session.credsBySource.has(channel.sourceId)) run.done.add(channel.id);
+      else api.push(channel);
+    }
+    enqueueGuideWork(db, async () => {
+      // 1. Nu/naeste for de synlige. Springes over naar den fulde tabel er frisk.
+      for (const channel of api) {
+        if (!wanted(channel.id) || run.short.has(channel.id)) continue;
+        run.short.add(channel.id);
         try {
-          const access = session.access?.(channel.sourceId);
-          const isM3u = access?.source.kind === 'm3u' || channel.streamUrl != null;
-          if (!isM3u) {
-            if (!session.credsBySource.has(channel.sourceId)) throw new Error('missing-source');
-            const options = {
-              force:true,
-              shouldContinue: () => isCurrent(run) && visibleIds.current.has(channel.id),
-              onProgrammes: (id: string, programmes: Programme[]) => { if (isCurrent(run)) run.snapshots.set(id, programmes); },
-            };
-            const result = needsFull
-              ? await ensureFullEpg(session.db, session.credsBySource, session.fetchImpl, [channel], new Date(), options)
-              : await ensureEpg(session.db, session.credsBySource, session.fetchImpl, [channel.id], new Date(), 12, options);
-            if (!isCurrent(run)) return;
-            if (result.failed > 0) throw new Error('epg-refresh-failed');
-            if (result.fetched < 1) {
-              // Et koekald kan vaere sprunget over efter hurtig rulning.
-              // Det er ingen serverfejl og maa kunne proeves ved genindgang.
-              run.attempted.delete(channel.id);
-              attempts.delete(channel.id);
-              continue;
-            }
-            if (result.programmes === 0) {
-              missing.push(channel);
-              continue;
-            }
-          }
-          if (!isCurrent(run)) return;
-          if (isM3u) {
-            run.snapshots.set(channel.id, await listProgrammes(session.db, channel.id, new Date(nowMs - 7 * 86400_000), new Date(nowMs + 8 * 86400_000)));
-            if (!isCurrent(run)) return;
-          }
-          if (needsFull || isM3u) run.full.add(channel.id);
-          run.failures.delete(channel.id);
-          run.refreshed.add(channel.id);
+          const result = await ensureEpg(db, session.credsBySource, session.fetchImpl, [channel.id], new Date(), SHORT_EPG_LIMIT, {
+            shouldContinue: () => wanted(channel.id),
+          });
+          if (!isCurrent()) return;
+          if (result.failed > 0) run.failed.add(channel.id);
+          if (result.fetched > 0) bump();
         } catch {
-          if (!isCurrent(run)) return;
-          run.failures.add(channel.id);
+          if (!isCurrent()) return;
+          run.failed.add(channel.id);
         }
-        if (isCurrent(run)) setRevision(value => value + 1);
       }
-      // En stor XML-fil maa ikke blokere de andre synlige kanalers smaa
-      // API-svar. Fil-fallback starter foerst naar API-raekkerne er tegnet.
-      for (const channel of missing) {
-        if (!isCurrent(run)) return;
+      // 2. Hele tabellen (fortid og resten af ugen) for de samme kanaler.
+      for (const channel of api) {
+        if (!wanted(channel.id) || run.full.has(channel.id)) continue;
+        run.full.add(channel.id);
         try {
-          if (!run.xmlSources.has(channel.sourceId)) {
-            run.xmlSources.add(channel.sourceId);
-            const ids = channels.filter(candidate => candidate.sourceId === channel.sourceId && !run.refreshed.has(candidate.id)).map(candidate => candidate.id);
-            await upsertProgrammes(session.db, [], {replaceChannelIds:ids});
-            if (!isCurrent(run)) return;
-            const fallback = await syncPanelEpg(session.db, channel.sourceId, session.credsBySource.get(channel.sourceId)!, {
-              fresh:true, force:true, channelIds:ids, shouldContinue:() => isCurrent(run),
-            });
-            if (!isCurrent(run)) return;
-            if (fallback === null) throw new Error('epg-unavailable');
-            run.xmlReadySources.add(channel.sourceId);
-            for (const id of fallback.channelIds ?? []) {
-              run.snapshots.set(id, await listProgrammes(session.db, id, new Date(nowMs - 7 * 86400_000), new Date(nowMs + 8 * 86400_000)));
-              if (!isCurrent(run)) return;
-              run.full.add(id);
-              run.refreshed.add(id);
-              run.attempted.add(id);
-              run.failures.delete(id);
-            }
-          }
-          if (!run.xmlReadySources.has(channel.sourceId)) throw new Error('epg-unavailable');
-          run.refreshed.add(channel.id);
-          run.full.add(channel.id);
-          run.failures.delete(channel.id);
+          const result = await ensureFullEpg(db, session.credsBySource, session.fetchImpl, [channel], new Date(), {
+            shouldContinue: () => wanted(channel.id),
+          });
+          if (!isCurrent()) return;
+          if (result.failed > 0) run.failed.add(channel.id);
+          else if (result.fetched > 0) run.failed.delete(channel.id);
+          if (result.fetched > 0 && result.programmes === 0) run.emptyApi.add(channel.id);
         } catch {
-          if (!isCurrent(run)) return;
-          run.failures.add(channel.id);
+          if (!isCurrent()) return;
+          run.failed.add(channel.id);
         }
-        if (isCurrent(run)) setRevision(value => value + 1);
+        run.done.add(channel.id);
+        bump();
+      }
+      // 3. Kanaler uden API-oversigt: panelets XMLTV-fil, én gang pr. kilde.
+      // Den store fil venter til alle API-svar er tegnet. syncPanelEpg har
+      // selv sin doegnregel og henter kun hvis der er noget nyt at matche.
+      const bySource = new Map<string, string[]>();
+      for (const channel of api) {
+        if (!run.emptyApi.has(channel.id) || run.xmlSources.has(channel.sourceId)) continue;
+        const ids = bySource.get(channel.sourceId) ?? [];
+        ids.push(channel.id);
+        bySource.set(channel.sourceId, ids);
+      }
+      for (const [sourceId, ids] of bySource) {
+        if (!isCurrent()) return;
+        run.xmlSources.add(sourceId);
+        const creds = session.credsBySource.get(sourceId);
+        if (creds === undefined) continue;
+        try {
+          const file = await syncPanelEpg(db, sourceId, creds, {channelIds: ids, shouldContinue: isCurrent});
+          if (!isCurrent()) return;
+          if (file !== null && file.programmes > 0) bump();
+        } catch {
+          // Filen er en reserve; API-svaret (eller det gemte) staar.
+        }
       }
     });
-  }, [entry, visibleChannels, active, foreground, session, offsetMinutes, windowStartMs, windowEndMs]);
-
-  // Tegn udsnittet af dette besoegs eget svar. SQL kan indeholde data fra
-  // baade kort EPG, fuld tabel og XML; de maa ikke blandes i samme raekke.
-  useEffect(() => {
-    if (currentEntry === null) return;
-    const run = currentEntry;
-    const view = requestedView.current;
-    let cancelled = false;
-    const ready = visibleChannels.filter(channel => run.refreshed.has(channel.id) && !needsFullFor(run, channel.id));
-    if (ready.length === 0) return;
-    void (async () => {
-      try {
-        const rows = ready.map(channel => (run.snapshots.get(channel.id) ?? []).filter(p => p.stop.getTime() > windowStartMs && p.start.getTime() < windowEndMs));
-        if (cancelled || !isCurrent(run) || requestedView.current !== view) return;
-        const map: ProgrammeMap = {};
-        ready.forEach((channel, index) => { map[channel.id] = rows[index] ?? []; });
-        setDrawn({entry:run,windowKey,map});
-      } catch {
-        if (cancelled || !isCurrent(run) || requestedView.current !== view) return;
-        ready.forEach(channel => { run.refreshed.delete(channel.id); run.failures.add(channel.id); });
-        setRevision(value => value + 1);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [currentEntry, visibleChannels, windowStartMs, windowEndMs, windowKey, visibleKey, revision, session.db, offsetMinutes]);
+    // visibleKey daekker visibleChannels.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run, visibleKey, session, bump]);
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: Array<{index: number | null}> }) => {
     const indexes = viewableItems.map(item => item.index).filter((index): index is number => index !== null);
@@ -404,8 +386,8 @@ export function TimelineGrid({
       <ChannelRow
         channel={item}
         programmes={progMap[item.id] ?? EMPTY}
-        loading={currentEntry === null || (!currentEntry.failures.has(item.id) && progMap[item.id] === undefined)}
-        failed={currentEntry?.failures.has(item.id) === true}
+        loading={rowEmpty(progMap[item.id], windowStartMs, windowEndMs) && run?.done.has(item.id) !== true && run?.failed.has(item.id) !== true}
+        failed={rowEmpty(progMap[item.id], windowStartMs, windowEndMs) && run?.failed.has(item.id) === true}
         windowStartMs={windowStartMs}
         windowEndMs={windowEndMs}
         nowMs={nowMs}
@@ -418,7 +400,7 @@ export function TimelineGrid({
         onOpen={onOpen}
       />
     ),
-    [progMap, currentEntry, windowStartMs, windowEndMs, nowMs, hasDialectFor, focusPulse, active, returnFocusChannelId, registerRow, onRowFocus, onRowBlur, onOpen],
+    [progMap, run, revision, windowStartMs, windowEndMs, nowMs, hasDialectFor, focusPulse, active, returnFocusChannelId, registerRow, onRowFocus, onRowBlur, onOpen],
   );
 
   return (
@@ -475,6 +457,11 @@ export function TimelineGrid({
 }
 
 const EMPTY: Programme[] = [];
+
+/** Ingen gemte programmer i vinduet. Kun da maa raekken sige "Henter" eller "kunne ikke". */
+function rowEmpty(programmes: readonly Programme[] | undefined, fromMs: number, toMs: number): boolean {
+  return programmes === undefined || !programmes.some(p => p.stop.getTime() > fromMs && p.start.getTime() < toMs);
+}
 
 const ChannelRow = memo(function ChannelRow({
   channel,

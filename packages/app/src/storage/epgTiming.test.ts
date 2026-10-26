@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { migrate } from './schema.js';
 import { createTestDatabase } from './testDb.js';
-import { getEpgTimeShift, getArchiveTimeShift } from './epgTiming.js';
 import { upsertProgrammes, getNowNext, listProgrammes } from './programmes.js';
 
 it('v400-EPG laeser udbyderens UTC-tider uden den senere +60-projektion', async () => {
@@ -16,7 +15,7 @@ it('v400-EPG laeser udbyderens UTC-tider uden den senere +60-projektion', async 
 });
 
 describe('kun EPG tilbage til v400', () => {
-  it.each([31,32])('bevarer brugerdata og arkivindstilling fra skema %i', async version => {
+  it.each([31,32])('bevarer brugerdata og fjerner timekorrektionerne fra skema %i', async version => {
     const db = createTestDatabase(); await migrate(db);
     await db.execAsync(`
       INSERT INTO sources(id,kind,name,url,created_at) VALUES ('panel','xtream','Min kilde','https://example.invalid',1),('list','m3u','Liste','https://example.invalid/list',1);
@@ -34,8 +33,7 @@ describe('kun EPG tilbage til v400', () => {
       PRAGMA user_version=${version};
     `);
     await migrate(db);
-    expect(await getEpgTimeShift(db,'panel')).toBe(0);
-    expect(await getArchiveTimeShift(db,'panel')).toBe(60);
+    expect(await db.getAllAsync("SELECT key FROM settings WHERE key LIKE '%shift_minutes:%'")).toEqual([]);
     expect(await db.getAllAsync('SELECT title FROM programmes')).toEqual([{title:'M3U behold'}]);
     expect(await db.getAllAsync('SELECT * FROM epg_fetch')).toEqual([]);
     expect(await db.getAllAsync('SELECT * FROM epg_archive_fetch')).toEqual([]);
@@ -50,5 +48,32 @@ describe('kun EPG tilbage til v400', () => {
     await migrate(db);
     expect(await db.getFirstAsync("SELECT title FROM programmes WHERE channel_id='panel:dr2'")).toEqual({title:'Frisk oversigt'});
     expect(await db.getFirstAsync('SELECT fetched_at FROM epg_fetch')).toEqual({fetched_at:456});
+  });
+});
+
+describe('v423: arkivets +60 fra v418 fjernes', () => {
+  it('fra skema 33 ryddes kun korrektionerne; EPG, favoritter og indstillinger bliver', async () => {
+    const db = createTestDatabase(); await migrate(db);
+    await db.execAsync(`
+      INSERT INTO sources(id,kind,name,url,created_at) VALUES ('panel','xtream','Min kilde','https://example.invalid',1);
+      INSERT INTO channels(id,source_id,stream_id,name) VALUES ('panel:dr1','panel','1','DR1');
+      INSERT INTO favorites(channel_id) VALUES ('panel:dr1');
+      INSERT INTO programmes VALUES ('panel:dr1',1000,2000,'Gemt EPG',NULL);
+      INSERT INTO epg_archive_fetch VALUES ('panel:dr1',123);
+      INSERT INTO settings VALUES ('archive_shift_minutes:panel','60'),('epg_shift_minutes:panel','60'),('theme_mode','dark'),('panel_offset_minutes:panel','60');
+      PRAGMA user_version=33;
+    `);
+    await migrate(db);
+    expect(await db.getAllAsync("SELECT key FROM settings WHERE key LIKE '%shift_minutes:%'")).toEqual([]);
+    expect(await db.getFirstAsync("SELECT value FROM settings WHERE key='theme_mode'")).toEqual({value:'dark'});
+    expect(await db.getFirstAsync("SELECT value FROM settings WHERE key='panel_offset_minutes:panel'")).toEqual({value:'60'});
+    expect(await db.getAllAsync('SELECT title FROM programmes')).toEqual([{title:'Gemt EPG'}]);
+    expect(await db.getAllAsync('SELECT * FROM epg_archive_fetch')).toEqual([{stream_id:'panel:dr1',fetched_at:123}]);
+    expect(await db.getAllAsync('SELECT channel_id FROM favorites')).toEqual([{channel_id:'panel:dr1'}]);
+  });
+
+  it('en frisk installation og en opgradering fra skema 30 faar ingen korrektion', async () => {
+    const fresh = createTestDatabase(); await migrate(fresh);
+    expect(await fresh.getAllAsync("SELECT key FROM settings WHERE key LIKE '%shift_minutes:%'")).toEqual([]);
   });
 });

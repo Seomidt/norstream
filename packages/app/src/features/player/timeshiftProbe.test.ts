@@ -40,25 +40,22 @@ describe('readPlaylist', () => {
 });
 
 describe('probeTimeshift', () => {
-  it.each([
-    { epg: 60, archive: 60, expected: '2026-10-25:19-00' },
-    { epg: 60, archive: 0, expected: '2026-10-25:18-00' },
-    { epg: 0, archive: 0, expected: '2026-10-25:19-00' },
-  ])('bruger kildekorrektionerne $epg/$archive én gang og holder varigheden paa rigtig tid', async ({ epg, archive, expected }) => {
-    const corrected: Programme = { ...programme, start: new Date('2026-10-25T18:00:00Z'), stop: new Date('2026-10-25T19:00:00Z') };
+  it('beder om arkivet fra udsendelsens egen start, uden timekorrektion (v423)', async () => {
+    const programmeAt: Programme = { ...programme, start: new Date('2026-10-25T18:00:00Z'), stop: new Date('2026-10-25T19:00:00Z') };
     const urls: URL[] = [];
     const fetchProbe: ProbeFetch = async (url, headersOnly) => {
       urls.push(new URL(url));
       return { status: 200, headers: {}, text: headersOnly ? null : playlist(1, true) };
     };
-    const report = await probeTimeshift(fetchProbe, creds, '1', corrected, 'php', 60, {
-      now: Date.parse('2026-10-25T18:17:00Z'), epgShiftMinutes: epg, archiveShiftMinutes: archive,
+    // Panelets ur er vintertid (+60): 18:00 UTC er 19:00 hos panelet.
+    const report = await probeTimeshift(fetchProbe, creds, '1', programmeAt, 'php', 60, {
+      now: Date.parse('2026-10-25T18:17:00Z'),
     });
     expect(urls).toHaveLength(3);
-    expect(urls.map(url => url.searchParams.get('start'))).toEqual([expected, expected, expected]);
+    expect(urls.map(url => url.searchParams.get('start'))).toEqual(['2026-10-25:19-00', '2026-10-25:19-00', '2026-10-25:19-00']);
     expect(urls.map(url => url.searchParams.get('duration'))).toEqual(['60', '16', '60']);
     expect(report).toContain('kun det der findes (16 min)');
-    expect(report).toContain(`Tidskorrektion: EPG ${epg} min, arkiv ${archive} min`);
+    expect(report).not.toContain('Tidskorrektion');
     expect(report).not.toContain('SECRET');
   });
 

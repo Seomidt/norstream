@@ -150,14 +150,15 @@ describe('dagsoversigt paa TV med faktisk React-livscyklus', () => {
     expect(list.props.onScrollToIndexFailed).toBeUndefined();
   });
 
-  it('venter paa frisk paneltabel og tegner ikke den gamle database foer svaret', async () => {
+  it('viser den gemte tabel straks og fornyer den i baggrunden uden at tvinge (v423)', async () => {
     const full = deferred<unknown>();
     mocks.full.mockReturnValue(full.promise);
     const tree = await mount(dayElement());
     await measureDay(tree);
-    expect(mocks.list).not.toHaveBeenCalled();
-    expect(tree.root.findAllByType(host('NativeList'))).toHaveLength(0);
-    expect(mocks.full.mock.calls[0]![5]).toMatchObject({ force: true, shouldContinue: expect.any(Function) });
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+    expect(tree.root.findByType(host('NativeList')).props.data).toHaveLength(48);
+    expect(mocks.full.mock.calls[0]![5]).toMatchObject({ shouldContinue: expect.any(Function) });
+    expect(mocks.full.mock.calls[0]![5].force).toBeUndefined();
     await act(async () => full.resolve({ fetched: 1, programmes: 480, failed: 0, reason: null }));
     expect(tree.root.findByType(host('NativeList')).props.data).toHaveLength(48);
     expect(mocks.panel).not.toHaveBeenCalled();
@@ -186,7 +187,8 @@ describe('dagsoversigt paa TV med faktisk React-livscyklus', () => {
     await act(async () => tree.update(dayElement(channel, false)));
     await act(async () => tree.update(dayElement(channel, true)));
     expect(tree.root.findByType(host('NativeList')).props.data).toHaveLength(48);
-    expect(mocks.full).toHaveBeenCalledTimes(2);
+    // Den skjulte aabning naaede aldrig til panelet; kun den nye spoerger.
+    expect(mocks.full).toHaveBeenCalledTimes(1);
     await act(async () => cache.resolve([]));
     expect(tree.root.findByType(host('NativeList')).props.data).toHaveLength(48);
   });
@@ -213,11 +215,19 @@ describe('dagsoversigt paa TV med faktisk React-livscyklus', () => {
     expect(tree.root.findByType(host('NativeList')).props.data.every((p: Programme) => p.channelId === second.id)).toBe(true);
   });
 
-  it('viser en sikker fejl uden gamle programmer naar frisk panelhentning fejler', async () => {
-    mocks.full.mockResolvedValue({ fetched: 0, programmes: 0, failed: 1, reason: 'https://secret.example/password' });
+  it('en panelfejl skjuler ikke den gemte tabel', async () => {
+    mocks.full.mockResolvedValue({ fetched: 0, programmes: 0, failed: 1, reason: 'x' });
     const tree = await mount(dayElement());
     await measureDay(tree);
-    expect(mocks.list).not.toHaveBeenCalled();
+    expect(tree.root.findByType(host('NativeList')).props.data).toHaveLength(48);
+    expect(textOf(tree.toJSON())).not.toContain('kunne ikke hentes');
+  });
+
+  it('viser en sikker fejl naar intet er gemt og panelhentningen fejler', async () => {
+    mocks.full.mockResolvedValue({ fetched: 0, programmes: 0, failed: 1, reason: 'https://secret.example/password' });
+    mocks.list.mockResolvedValue([]);
+    const tree = await mount(dayElement());
+    await measureDay(tree);
     expect(tree.root.findAllByType(host('NativeList'))).toHaveLength(0);
     expect(textOf(tree.toJSON())).toContain('Programoversigten kunne ikke hentes');
     expect(textOf(tree.toJSON())).not.toContain('secret.example');
@@ -234,8 +244,9 @@ describe('dagsoversigt paa TV med faktisk React-livscyklus', () => {
     expect(shouldContinue()).toBe(true);
     await act(async () => { tree.unmount(); rendered = null; });
     expect(shouldContinue()).toBe(false);
+    const reads = mocks.list.mock.calls.length;
     await act(async () => full.resolve({ fetched: 1, programmes: 10, failed: 0, reason: null }));
-    expect(mocks.list).not.toHaveBeenCalled();
+    expect(mocks.list).toHaveBeenCalledTimes(reads);
   });
 
   it('viser kun den senest begyndte udsendelse som Sendes nu ved overlap', async () => {

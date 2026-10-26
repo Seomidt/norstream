@@ -5,7 +5,7 @@ import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
 import type { Programme } from '@norstream/core';
 
-const m = vi.hoisted(() => ({short:vi.fn(), full:vi.fn(), list:vi.fn(), xml:vi.fn(), write:vi.fn(), listeners:new Set<(s:string)=>void>(), start:0, app:{currentState:'active'}}));
+const m = vi.hoisted(() => ({short:vi.fn(), full:vi.fn(), list:vi.fn(), xml:vi.fn(), write:vi.fn(), listeners:new Set<(s:string)=>void>(), start:0, app:{currentState:'active'}, store:new Map<string, any[]>()}));
 vi.mock('react-native', async () => {
   const React = await import('react');
   return {Platform:{isTV:true,OS:'android'},AppState:{get currentState(){return m.app.currentState;},addEventListener:(_n:string,f:(s:string)=>void)=>{m.listeners.add(f);return{remove:()=>m.listeners.delete(f)};}},View:'View',Text:'Text',TVFocusGuideView:'TVFocusGuideView',StyleSheet:{create:(v:unknown)=>v,hairlineWidth:0.5},useTVEventHandler:()=>{},
@@ -31,32 +31,51 @@ function deferred<T>(){let resolve!:(v:T)=>void;const promise=new Promise<T>(don
 async function foreground(s:string){await act(async()=>{m.app.currentState=s;for(const f of m.listeners)f(s);});}
 beforeEach(()=>{
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('requestAnimationFrame',(f:()=>void)=>setTimeout(f,1));vi.stubGlobal('cancelAnimationFrame',clearTimeout);
-  m.app.currentState='active';m.start=0;m.listeners.clear();
-  m.short.mockReset().mockImplementation(async(_db,_creds,_fetch,ids,_now,_limit,opts)=>{opts.onProgrammes(ids[0],[programme(ids[0])]);return ok;});
-  m.full.mockReset().mockImplementation(async(_db,_creds,_fetch,items,_now,opts)=>{opts.onProgrammes(items[0].id,[programme(items[0].id,'Arkiv')]);return ok;});
-  m.xml.mockReset().mockImplementation(async(_db,_source,_creds,opts)=>({matched:opts.channelIds.length,programmes:opts.channelIds.length,channelIds:opts.channelIds}));
-  m.write.mockReset().mockResolvedValue(undefined);m.list.mockReset().mockImplementation(async(_db,id:string)=>[programme(id,'Importeret XML')]);
+  m.app.currentState='active';m.start=0;m.listeners.clear();m.store.clear();
+  // SQL i hukommelsen: hentningerne skriver, guiden laeser.
+  m.list.mockReset().mockImplementation(async(_db,id:string,from:Date,to:Date)=>(m.store.get(id)??[]).filter((p:Programme)=>p.stop>from&&p.start<to));
+  m.short.mockReset().mockImplementation(async(_db,_creds,_fetch,ids)=>{m.store.set(ids[0],[programme(ids[0])]);return ok;});
+  m.full.mockReset().mockImplementation(async(_db,_creds,_fetch,items)=>{m.store.set(items[0].id,[programme(items[0].id,'Arkiv')]);return ok;});
+  m.xml.mockReset().mockImplementation(async(_db,_source,_creds,opts)=>{for(const id of opts.channelIds)m.store.set(id,[programme(id,'Importeret XML')]);return{matched:opts.channelIds.length,programmes:opts.channelIds.length,channelIds:opts.channelIds};});
+  m.write.mockReset().mockResolvedValue(undefined);
 });
 afterEach(async()=>{if(tree)await act(async()=>{tree!.unmount();tree=null;});expect(m.listeners.size).toBe(0);vi.unstubAllGlobals();});
 
-it('aabner med en lille frisk forespoergsel og ingen arkiv-/SQL-laesning',async()=>{
-  await mount(props({channels:channels.slice(0,2)}));expect(m.short).toHaveBeenCalledTimes(2);expect(m.full).not.toHaveBeenCalled();expect(m.list).not.toHaveBeenCalled();
-  for(const call of m.short.mock.calls){expect(call[5]).toBe(12);expect(call[6].force).toBe(true);}
-  expect(text()).toContain('Friskt program');
+it('viser det gemte straks uden at vente paa panelet (v423)',async()=>{
+  m.store.set(channels[0]!.id,[programme(channels[0]!.id,'Gemt program')]);
+  const wait=deferred<any>();m.short.mockReturnValue(wait.promise);
+  await mount(props({channels:channels.slice(0,1)}));
+  expect(text()).toContain('Gemt program');expect(text()).not.toContain('Henter programoversigt');
+  await act(async()=>wait.resolve({fetched:0,failed:0,programmes:0,reason:null}));
 });
-it('viser foerste kanal uden at vente paa den naeste',async()=>{
-  const wait=deferred<any>();m.short.mockImplementationOnce(async(...args:any[])=>{args[6].onProgrammes(args[3][0],[programme(args[3][0],'Klar straks')]);return ok;}).mockReturnValueOnce(wait.promise);
+it('fornyer i baggrunden efter hentereglerne, uden at tvinge',async()=>{
+  await mount(props({channels:channels.slice(0,2)}));
+  expect(m.short).toHaveBeenCalledTimes(2);expect(m.full).toHaveBeenCalledTimes(2);
+  for(const call of m.short.mock.calls){expect(call[5]).toBe(12);expect(call[6].force).toBeUndefined();}
+  for(const call of m.full.mock.calls)expect(call[5].force).toBeUndefined();
+  expect(text()).toContain('Arkiv');
+});
+it('nu/naeste for alle synlige foer hele tabellerne',async()=>{
+  const order:string[]=[];m.short.mockImplementation(async(_d,_c,_f,ids)=>{order.push(`kort ${ids[0]}`);return ok;});m.full.mockImplementation(async(_d,_c,_f,items)=>{order.push(`fuld ${items[0].id}`);return ok;});
+  await mount(props({channels:channels.slice(0,2)}));
+  expect(order).toEqual(['kort panel:0','kort panel:1','fuld panel:0','fuld panel:1']);
+});
+it('viser "Henter" kun for en kanal uden gemte programmer',async()=>{
+  m.store.set(channels[0]!.id,[programme(channels[0]!.id,'Klar straks')]);
+  const wait=deferred<any>();m.short.mockReturnValue(wait.promise);
   await mount(props({channels:channels.slice(0,2)}));expect(text()).toContain('Klar straks');expect(text()).toContain('Henter programoversigt');
-  await act(async()=>wait.resolve(ok));
+  await act(async()=>wait.resolve({fetched:0,failed:0,programmes:0,reason:null}));
 });
-it('tegner ikke blandede SQL-data efter en frisk forespoergsel eller tidsflytning',async()=>{
-  m.list.mockImplementation(async(_db,id:string)=>[programme(id,'Forkert en time senere','2026-10-26T10:00:00Z','2026-10-26T11:00:00Z')]);
-  await mount(props({channels:channels.slice(0,1)}));await update({now:new Date('2026-10-26T09:31:00Z')});
-  expect(m.list).not.toHaveBeenCalled();expect(text()).toContain('Friskt program');expect(text()).not.toContain('Forkert en time senere');
+it('en ny aabning viser det sidst viste med det samme',async()=>{
+  const session=props().session;await mount(props({session,channels:channels.slice(0,1)}));expect(text()).toContain('Arkiv');
+  await act(async()=>{tree!.unmount();tree=null;});
+  const slow=deferred<any>();m.list.mockReturnValue(slow.promise);m.short.mockReturnValue(deferred<any>().promise);
+  await mount(props({session,channels:channels.slice(0,1)}));expect(text()).toContain('Arkiv');expect(text()).not.toContain('Henter programoversigt');
+  await act(async()=>slow.resolve([]));
 });
 it('15:15-16:15 er én bjælke med samme originaltid i detaljefelt og OK',async()=>{
   const p=programme(channels[0]!.id,'Jordemoderen XV (6:8)','2026-10-26T15:15:00Z','2026-10-26T16:15:00Z');
-  m.short.mockImplementation(async(...args:any[])=>{args[6].onProgrammes(args[3][0],[p]);return ok;});
+  m.store.set(channels[0]!.id,[p]);m.short.mockResolvedValue({fetched:0,failed:0,programmes:0,reason:null});m.full.mockResolvedValue({fetched:0,failed:0,programmes:0,reason:null});
   const onOpen=vi.fn(),onFocusProgramme=vi.fn();await mount(props({channels:channels.slice(0,1),now:new Date('2026-10-26T15:23:00Z'),onOpen,onFocusProgramme}));
   await act(async()=>tree!.root.findByType('TvPressable' as any).props.onFocus());
   expect(text().match(/Jordemoderen/g)).toHaveLength(1);expect(onFocusProgramme).toHaveBeenLastCalledWith(p);
@@ -65,46 +84,44 @@ it('15:15-16:15 er én bjælke med samme originaltid i detaljefelt og OK',async(
   expect(slots).toHaveLength(3);[100/6,100*2/3,100/6].forEach((width,i)=>expect(parseFloat(slots[i]!.props.style.width)).toBeCloseTo(width));
   expect(slots.every(n=>n.props.style.paddingHorizontal===undefined && n.props.style.marginRight===undefined)).toBe(true);
 });
-it('henter hele tabellen foerst ved tidsbladning, én gang pr. kanal og besoeg',async()=>{
-  await mount(props({channels:channels.slice(0,1)}));await update({offsetMinutes:-30});expect(m.full).toHaveBeenCalledTimes(1);expect(m.full.mock.calls[0]![5].force).toBe(true);
-  await update({offsetMinutes:-60});await update({offsetMinutes:0});await update({offsetMinutes:60});expect(m.full).toHaveBeenCalledTimes(1);expect(m.short).toHaveBeenCalledTimes(1);expect(m.list).not.toHaveBeenCalled();
+it('bladring i tiden laeser SQL og spoerger ikke panelet igen',async()=>{
+  await mount(props({channels:channels.slice(0,1)}));await update({offsetMinutes:-30});await update({offsetMinutes:-120});await update({offsetMinutes:60});
+  expect(m.short).toHaveBeenCalledTimes(1);expect(m.full).toHaveBeenCalledTimes(1);expect(m.list.mock.calls.length).toBeGreaterThan(1);
 });
-it('aabner direkte historisk med fuld tabel, uden foerst at hente kort EPG',async()=>{
-  await mount(props({channels:channels.slice(0,1),offsetMinutes:-120}));expect(m.full).toHaveBeenCalledTimes(1);expect(m.short).not.toHaveBeenCalled();
-});
-it('viser intet gammelt kort under ny indgang',async()=>{
-  const session=props().session;await mount(props({session,channels:channels.slice(0,1)}));await act(async()=>{tree!.unmount();tree=null;});
-  const wait=deferred<any>();m.short.mockReturnValueOnce(wait.promise);await mount(props({session,channels:channels.slice(0,1)}));expect(text()).toContain('Henter programoversigt');expect(text()).not.toContain('Friskt program');await act(async()=>wait.resolve(ok));
+it('en halv time senere spoerges hentereglerne igen',async()=>{
+  await mount(props({channels:channels.slice(0,1)}));await update({now:new Date('2026-10-26T09:31:00Z')});
+  expect(m.short).toHaveBeenCalledTimes(2);expect(m.full).toHaveBeenCalledTimes(2);
 });
 it('henter kun synlige kanaler og stopper endnu ikke startede skjulte kald',async()=>{
   const wait=deferred<any>();m.short.mockReturnValueOnce(wait.promise);await mount();const mayContinue=m.short.mock.calls[0]![6].shouldContinue;
   await act(async()=>{m.start=50;tree!.root.findByType('NativeList' as any).props.onViewableItemsChanged({viewableItems:[{index:50}]});});expect(mayContinue()).toBe(false);
   await act(async()=>wait.resolve({fetched:0,failed:0,programmes:0}));expect(m.short).toHaveBeenCalledTimes(13);expect(m.short.mock.calls.slice(1).map(c=>c[3][0])).toEqual(channels.slice(50,62).map(c=>c.id));
+  expect(m.full.mock.calls.map(c=>c[3][0].id)).toEqual(channels.slice(50,62).map(c=>c.id));
 });
-it('ignorerer sent HTTP-svar fra forrige session',async()=>{
-  const wait=deferred<any>();let capture:any;m.short.mockImplementationOnce(async(...args:any[])=>{capture=args[6];await wait.promise;capture.onProgrammes(args[3][0],[programme(args[3][0],'Gammel session')]);return ok;});
-  await mount(props({channels:channels.slice(0,1)}));await update({session:props().session});expect(capture.shouldContinue()).toBe(false);await act(async()=>wait.resolve(ok));expect(text()).not.toContain('Gammel session');expect(text()).toContain('Friskt program');
+it('et forladt besoeg stopper sine endnu ikke startede kald',async()=>{
+  const wait=deferred<any>();let capture:any;m.short.mockImplementationOnce(async(...args:any[])=>{capture=args[6];return wait.promise;});
+  await mount(props({channels:channels.slice(0,1)}));await update({session:props().session});expect(capture.shouldContinue()).toBe(false);await act(async()=>wait.resolve(ok));
 });
-it('henter igen ved appens tilbagekomst',async()=>{await mount(props({channels:channels.slice(0,1)}));await foreground('background');await foreground('active');expect(m.short).toHaveBeenCalledTimes(2);});
-it('viser sikker fejl uden adresser',async()=>{m.short.mockResolvedValue({fetched:0,failed:1,programmes:0,reason:'private-url'});await mount(props({channels:channels.slice(0,1)}));expect(text()).toContain('Programoversigten kunne ikke hentes.');expect(text()).not.toContain('private-url');});
-it('bevarer M3U-import uden panelkald',async()=>{const session=props().session;session.access=()=>({source:{kind:'m3u'}} as any);await mount(props({session,channels:[{...channels[0]!,streamUrl:'https://example.invalid/live'}]}));expect(m.short).not.toHaveBeenCalled();expect(m.full).not.toHaveBeenCalled();expect(text()).toContain('Importeret XML');});
-it('bevarer frisk XMLTV-fallback og fastlaaser resultatet til besoeg',async()=>{
-  m.short.mockResolvedValue({fetched:1,failed:0,programmes:0});await mount(props({channels:channels.slice(0,2)}));expect(m.xml).toHaveBeenCalledTimes(1);expect(m.short).toHaveBeenCalledTimes(2);expect(text()).toContain('Importeret XML');
-  const calls=m.list.mock.calls.length;m.list.mockResolvedValue([]);await update({offsetMinutes:30});expect(m.list).toHaveBeenCalledTimes(calls);expect(m.full).not.toHaveBeenCalled();expect(text()).toContain('Importeret XML');
+it('spoerger igen ved appens tilbagekomst',async()=>{await mount(props({channels:channels.slice(0,1)}));await foreground('background');await foreground('active');expect(m.short).toHaveBeenCalledTimes(2);});
+it('viser sikker fejl uden adresser naar intet er gemt',async()=>{
+  m.short.mockResolvedValue({fetched:0,failed:1,programmes:0,reason:'private-url'});m.full.mockResolvedValue({fetched:0,failed:1,programmes:0,reason:'private-url'});
+  await mount(props({channels:channels.slice(0,1)}));expect(text()).toContain('Programoversigten kunne ikke hentes.');expect(text()).not.toContain('private-url');
 });
-it('XML uden match forhindrer ikke naeste kanals API',async()=>{
-  m.short.mockResolvedValueOnce({fetched:1,failed:0,programmes:0});m.xml.mockResolvedValue({matched:0,programmes:0,channelIds:[]});await mount(props({channels:channels.slice(0,2)}));expect(m.short).toHaveBeenCalledTimes(2);expect(text()).toContain('Friskt program');
+it('en panelfejl skjuler ikke det gemte',async()=>{
+  m.store.set(channels[0]!.id,[programme(channels[0]!.id,'Gemt program')]);
+  m.short.mockResolvedValue({fetched:0,failed:1,programmes:0,reason:'x'});m.full.mockResolvedValue({fetched:0,failed:1,programmes:0,reason:'x'});
+  await mount(props({channels:channels.slice(0,1)}));expect(text()).toContain('Gemt program');expect(text()).not.toContain('kunne ikke hentes');
 });
-
-it('en langsom XML-fil paa foerste kanal blokerer ikke naeste kanals API',async()=>{
-  const wait=deferred<any>();m.short.mockResolvedValueOnce({fetched:1,failed:0,programmes:0});m.xml.mockReturnValueOnce(wait.promise);
-  await mount(props({channels:channels.slice(0,2)}));expect(m.short).toHaveBeenCalledTimes(2);expect(text()).toContain('Friskt program');expect(text()).toContain('Henter programoversigt');
+it('bevarer M3U-import uden panelkald',async()=>{const session=props().session;session.access=()=>({source:{kind:'m3u'}} as any);m.store.set(channels[0]!.id,[programme(channels[0]!.id,'Importeret XML')]);await mount(props({session,channels:[{...channels[0]!,streamUrl:'https://example.invalid/live'}]}));expect(m.short).not.toHaveBeenCalled();expect(m.full).not.toHaveBeenCalled();expect(text()).toContain('Importeret XML');});
+it('kanaler uden API-oversigt faar panelets XMLTV-fil én gang pr. kilde, uden at tvinge',async()=>{
+  m.short.mockResolvedValue({fetched:1,failed:0,programmes:0,reason:null});m.full.mockResolvedValue({fetched:1,failed:0,programmes:0,reason:null});
+  await mount(props({channels:channels.slice(0,2)}));expect(m.xml).toHaveBeenCalledTimes(1);
+  expect(m.xml.mock.calls[0]![3].channelIds).toEqual([channels[0]!.id,channels[1]!.id]);expect(m.xml.mock.calls[0]![3].force).toBeUndefined();expect(m.xml.mock.calls[0]![3].fresh).toBeUndefined();
+  expect(text()).toContain('Importeret XML');
+});
+it('en langsom XML-fil blokerer ikke naeste kanals API',async()=>{
+  const wait=deferred<any>();m.full.mockResolvedValueOnce({fetched:1,failed:0,programmes:0,reason:null});m.xml.mockReturnValueOnce(wait.promise);
+  await mount(props({channels:channels.slice(0,2)}));expect(m.full).toHaveBeenCalledTimes(2);expect(text()).toContain('Arkiv');
   expect(m.xml.mock.calls[0]![3].channelIds).not.toContain(channels[1]!.id);
-  await act(async()=>wait.resolve({matched:0,programmes:0,channelIds:[]}));expect(text()).toContain('Friskt program');
-});
-
-it('bladrer i korte svarets tidsrum straks uden fuld arkivforespoergsel',async()=>{
-  m.short.mockImplementation(async(...args:any[])=>{args[6].onProgrammes(args[3][0],[programme(args[3][0],'Lang frisk oversigt','2026-10-26T09:00:00Z','2026-10-26T16:00:00Z')]);return ok;});
-  await mount(props({channels:channels.slice(0,1)}));await update({offsetMinutes:30});await update({offsetMinutes:60});
-  expect(m.full).not.toHaveBeenCalled();expect(m.short).toHaveBeenCalledTimes(1);expect(text()).toContain('Lang frisk oversigt');
+  await act(async()=>wait.resolve({matched:0,programmes:0,channelIds:[]}));
 });

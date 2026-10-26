@@ -1,3 +1,7 @@
+## v423 — hurtig guide, automatisk sommer-/vintertid og enklere indstillinger (26. oktober 2026)
+
+Guiden viser igen det gemte straks og fornyer kun gamle kanaler i baggrunden (v421–v422 hentede alt ved hvert besøg). Et skift mellem sommer- og vintertid gør gemt EPG gammel af sig selv, og de første tre døgn fornyes tabellen hver time. De faste timekorrektioner er væk, også arkivets +60 fra v418 (skema 34). Indstillinger er samlet i ni foldbare grupper, og EPG-tid er fjernet. Se `docs/EPG-CACHE-OG-TIDSSKIFT-v423.md`. **Lav aldrig en fast timekorrektion igen**: den passer kun til næste skift.
+
 ## v374 — direkte HD-trailere på Google TV (6. oktober 2026)
 
 TV bruger Apple/IMDb og den native afspiller; ingen YouTube-, PO-token- eller

@@ -140,32 +140,47 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
     const channelId = channel.id;
     const entry = current.current;
     const stopped = (): boolean => cancelled || !appActive.current || current.current !== entry;
-    setData(null);
     setFetching(true);
+    const from = dayBounds(-MAX_DAYS_BACK).from;
+    const to = dayBounds(DAYS_FORWARD).to;
     void (async () => {
+      // Det gemte foerst (v423): dagen staar med det samme, ogsaa uden net.
+      let shown = 0;
+      try {
+        const cached = await listProgrammes(db, channelId, from, to);
+        if (stopped()) return;
+        shown = cached.length;
+        setData({ entry, programmes: cached, error: null });
+      } catch {
+        // En lokal laesefejl: fornyelsen nedenfor proever stadig.
+      }
       try {
         const access = session.access?.(channel.sourceId);
         const isM3u = access?.source.kind === 'm3u';
-        if (!isM3u) {
-          if (!session.credsBySource.has(channel.sourceId)) throw new Error('missing-source');
+        if (!isM3u && session.credsBySource.has(channel.sourceId)) {
+          // Kun naar tabellen er gammel (alder eller tidsskift); ellers intet kald.
           const result = await ensureFullEpg(db, session.credsBySource, session.fetchImpl, [channel], new Date(), {
-            force: true, shouldContinue: () => !stopped(),
+            shouldContinue: () => !stopped(),
           });
           if (stopped()) return;
-          if (result.failed > 0 || result.fetched === 0) throw new Error('epg-refresh-failed');
-          if (result.programmes === 0) {
+          if (result.failed > 0 && shown === 0) throw new Error('epg-refresh-failed');
+          if (result.fetched > 0 && result.programmes === 0) {
             const creds = session.credsBySource.get(channel.sourceId)!;
             await syncPanelEpg(db, channel.sourceId, creds, {
-              force: true, fresh: true, channelIds: [channelId], shouldContinue: () => !stopped(),
+              channelIds: [channelId], shouldContinue: () => !stopped(),
             });
           }
+          if (stopped()) return;
+          if (result.fetched > 0 || result.programmes > 0) {
+            const items = await listProgrammes(db, channelId, from, to);
+            if (!stopped()) setData({ entry, programmes: items, error: null });
+          }
+        } else if (shown === 0 && !isM3u) {
+          throw new Error('missing-source');
         }
-        if (stopped()) return;
-        const items = await listProgrammes(db, channelId, dayBounds(-MAX_DAYS_BACK).from, dayBounds(DAYS_FORWARD).to);
-        if (!stopped()) setData({ entry, programmes: items, error: null });
       } catch {
-        if (!stopped()) {
-          logEvent('guide', 'hele dagen v421: frisk programoversigt kunne ikke hentes');
+        if (!stopped() && shown === 0) {
+          logEvent('guide', 'hele dagen v423: programoversigten kunne ikke hentes');
           setData({ entry, programmes: [], error: 'Programoversigten kunne ikke hentes. Gå tilbage, og åbn kanalen igen for at prøve på ny.' });
         }
       } finally {

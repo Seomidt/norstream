@@ -1,7 +1,7 @@
 import { MATCH_KEY_VERSION } from '@norstream/core';
 import type { SqlDatabase } from './types.js';
 import { DISCOVERY_SCHEMA } from './discoverySchema.js';
-import { EPG_TIMING_SCHEMA, seedUpgradedEpgTiming } from './epgTiming.js';
+import { EPG_TIMING_SCHEMA, removeTimeCorrections } from './epgTiming.js';
 
 /**
  * Alle tidsstempler gemmes som epoch-millisekunder i INTEGER-kolonner,
@@ -476,7 +476,7 @@ const TABLES = [
 // v29: lokal fejlfindingsjournal og enkelt outbox; ingen aendring i programdata.
 // v30: filmsamlinger og identitet for afsnit i fulgte serier.
 // v31: kildeopdelt EPG-/arkivkorrektion over uforandrede programraadata.
-const SCHEMA_VERSION = 33;
+const SCHEMA_VERSION = 34;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -817,8 +817,19 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     return;
   }
 
+  // v34 (app v423): de haandrettede timekorrektioner fjernes, ogsaa arkivets
+  // +60 fra v418. Tider foelger udbyderen og panelets ur, ogsaa ved naeste skift
+  // mellem sommer- og vintertid.
+  if (version === 33) {
+    await removeTimeCorrections(db);
+    await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    await refreshChannelsWhenMatchRulesChanged(db);
+    return;
+  }
+
   if (version === 31 || version === 32) {
     await restoreV400Epg(db);
+    await removeTimeCorrections(db);
     await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     await refreshChannelsWhenMatchRulesChanged(db);
     return;
@@ -828,8 +839,8 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     await db.execAsync(DIAGNOSTIC_SCHEMA);
     await db.execAsync(DISCOVERY_SCHEMA);
     await db.execAsync(EPG_TIMING_SCHEMA);
-    await seedUpgradedEpgTiming(db);
     await restoreV400Epg(db);
+    await removeTimeCorrections(db);
     await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     await refreshChannelsWhenMatchRulesChanged(db);
     return;
@@ -876,8 +887,8 @@ export async function migrate(db: SqlDatabase): Promise<void> {
   // i SCHEMA ville stoppe opstarten foer opgraderingstrinnet kan koere.
   await db.execAsync('CREATE INDEX IF NOT EXISTS idx_vod_posters_tmdb ON vod_posters (tmdb_id)');
   await db.execAsync(EPG_TIMING_SCHEMA);
-  if (version > 0 && version < 31) await seedUpgradedEpgTiming(db);
   if (version > 0 && version < 33) await restoreV400Epg(db);
+  if (version > 0 && version < 34) await removeTimeCorrections(db);
   await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   await refreshChannelsWhenMatchRulesChanged(db);
 }

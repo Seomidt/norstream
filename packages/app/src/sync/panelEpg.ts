@@ -2,6 +2,7 @@ import { XtreamClient, buildXmltvUrl, normaliseChannelName } from '@norstream/co
 import type { FetchLike, Programme, XtreamCredentials } from '@norstream/core';
 import { eligibleParts, pinnedIp, streamSource } from '../net/doh.js';
 import { upsertProgrammes } from '../storage/programmes.js';
+import { deviceUtcOffset, nearTimeChange } from '../storage/epgFetch.js';
 import { getPanelEpgEnabled, getSetting, setSetting } from '../storage/settings.js';
 import { sportChannels } from '../storage/sport.js';
 import type { SqlDatabase } from '../storage/types.js';
@@ -388,6 +389,7 @@ export async function diagnosePanelEpg(
   } catch (cause) {
     lines.push(`Kanalkategorier fra panelet: ${safeText(cause)}`);
   }
+  lines.push(...await describeTimes(db, sourceId, client, now));
   const first = wanted[0];
   if (first !== undefined) {
     lines.push(`Første: "${first.name}" → navn ${normaliseChannelName(first.name) || '(tomt)'}, land ${first.country || '(ukendt)'}, EPG-id ${first.epgId ?? '(intet)'}.`);
@@ -468,6 +470,56 @@ export async function diagnosePanelEpg(
     }
   }
   return lines.join('\n');
+}
+
+/** Minutter som "+1" eller "+2:30". */
+function utcText(minutes: number): string {
+  const sign = minutes < 0 ? '−' : '+';
+  const abs = Math.abs(minutes);
+  const rest = abs % 60;
+  return `UTC${sign}${Math.floor(abs / 60)}${rest === 0 ? '' : `:${String(rest).padStart(2, '0')}`}`;
+}
+
+function localClock(date: Date): string {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * v423: tiderne side om side, saa en time forkert kan ses med det samme i
+ * stedet for at blive gaettet: panelets ur og zone, boksens ur og hvad
+ * panelet lige nu siger om den foerste favorits udsendelser (vist i boksens
+ * tid). Ingen adresser.
+ */
+async function describeTimes(db: SqlDatabase, sourceId: string, client: XtreamClient, now: Date): Promise<string[]> {
+  const lines: string[] = [];
+  const device = deviceUtcOffset(now.getTime());
+  try {
+    const clock = await client.getPanelClock();
+    lines.push(clock === null
+      ? `Panelets ur: oplyses ikke. Boksen: ${utcText(device)}.`
+      : `Panelets ur: ${utcText(clock.offsetMinutes)}${clock.timeZone === undefined ? ' (zone ikke bekræftet)' : `, zone ${clock.timeZone}`}. Boksen: ${utcText(device)}.`);
+  } catch (cause) {
+    lines.push(`Panelets ur kunne ikke læses: ${safeText(cause)}`);
+  }
+  if (nearTimeChange(now.getTime())) {
+    lines.push('Uret er skiftet mellem sommer- og vintertid inden for tre døgn: oversigten fornyes hver time, til udbyderen har rettet sin.');
+  }
+  const favourite = await db.getFirstAsync<{ key: string; name: string }>(
+    `SELECT c.id AS key, c.name AS name FROM favorites f JOIN channels c ON c.id = f.channel_id
+     WHERE c.source_id = ? ORDER BY f.position IS NULL, f.position LIMIT 1`,
+    [sourceId],
+  );
+  if (favourite === null) return lines;
+  try {
+    const streamId = favourite.key.slice(favourite.key.indexOf(':') + 1);
+    const batch = await client.getShortEpg(streamId, 3);
+    lines.push(batch.length === 0
+      ? `Tider fra panelet for "${favourite.name}": ingen programmer.`
+      : `Tider fra panelet for "${favourite.name}" (boksens tid): ${batch.map((p) => `${localClock(p.start)}–${localClock(p.stop)} ${p.title}`).join('; ')}.`);
+  } catch (cause) {
+    lines.push(`Tider fra panelet for "${favourite.name}": ${safeText(cause)}`);
+  }
+  return lines;
 }
 
 let running: Promise<void> | null = null;

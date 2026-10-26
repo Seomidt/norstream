@@ -66,8 +66,6 @@ import { TvPressable } from '../../ui/TvPressable.js';
 import { TvTextInput } from '../../ui/TvTextInput.js';
 import { testOpenSubtitles } from '../vod/externalSubtitles.js';
 import { DiagnosticSettings } from './DiagnosticSettings.js';
-import { EpgTimingSettings } from './EpgTimingSettings.js';
-import { getArchiveTimeShift, getEpgTimeShift } from '../../storage/epgTiming.js';
 import { CloudBackup } from './CloudBackup.js';
 import { diagnosePanelEpg } from '../../sync/panelEpg.js';
 import { recentLog } from '../../diagnostics/log.js';
@@ -94,6 +92,37 @@ interface Props {
   onRestored: () => void;
   /** Synkronisér med skyen nu (v340); svarer med hvad der skete. */
   onCloudSync?: () => Promise<CloudSyncOutcome>;
+}
+
+type SettingsGroup = 'channels' | 'guide' | 'playback' | 'vod' | 'look' | 'backup' | 'update' | 'debug' | 'account';
+
+/**
+ * Overskriften paa en foldbar gruppe. Hele raekken er én TvPressable, saa
+ * fjernbetjeningen kan lande paa den; den beholder fokus naar gruppen foldes
+ * ud, fordi den hverken faar ny key eller flytter sig.
+ */
+function GroupHeader({ id, title, hint, open, onToggle }: {
+  id: SettingsGroup;
+  title: string;
+  hint: string;
+  open: boolean;
+  onToggle: (id: SettingsGroup) => void;
+}) {
+  const styles = useStyles(makeStyles);
+  return (
+    <TvPressable
+      style={[styles.groupHeader, open && styles.groupHeaderOpen]}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+      onPress={() => onToggle(id)}
+    >
+      <View style={styles.rowText}>
+        <Text style={styles.groupTitle}>{title}</Text>
+        <Text style={styles.rowHint}>{hint}</Text>
+      </View>
+      <Text style={styles.groupChevron}>{open ? '▴' : '▾'}</Text>
+    </TvPressable>
+  );
 }
 
 const SIGNED_OUT_MESSAGE = 'Du er logget ud. Log ind igen for at fortsætte.';
@@ -208,8 +237,15 @@ export function SettingsScreen({
   const [updateBusy, setUpdateBusy] = useState(false);
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [providersOpen, setProvidersOpen] = useState(false);
-  /** De avancerede fejlfindings-knapper er foldet sammen som standard. */
-  const [advancedOpen, setAdvancedOpen] = useState(false);
+  /**
+   * Den gruppe der er foldet ud (v423). Én ad gangen: siden var blevet en
+   * lang raekke af tyve afsnit, som ingen kunne finde rundt i. Alle er
+   * foldet sammen som udgangspunkt, saa forsiden er ni overskrifter.
+   */
+  const [openGroup, setOpenGroup] = useState<SettingsGroup | null>(null);
+  const toggleGroup = useCallback((id: SettingsGroup) => {
+    setOpenGroup((current) => (current === id ? null : id));
+  }, []);
   /** EPG fra panelets egen fil til favoritter der mangler den (UK, US m.fl.). */
   const [panelEpg, setPanelEpg] = useState(true);
   /** "Test programoversigten": rapporten trin for trin (v345). */
@@ -449,415 +485,414 @@ export function SettingsScreen({
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {UNIFORM_AUDIO_SUPPORTED && (
-        <>
-          <Text style={styles.sectionTitle}>Lyd</Text>
-          <TvPressable style={styles.row} accessibilityRole="switch"
-            accessibilityState={{ checked: uniformAudio }}
-            onPress={() => { void saveUniformAudio(session.db, !uniformAudio).catch(() => undefined); }}>
+      <GroupHeader id="channels" title="Kanaler og kilder" hint="Hent nyt indhold, kilder, logoer, skjulte lande og status" open={openGroup === 'channels'} onToggle={toggleGroup} />
+      {openGroup === 'channels' && (
+        <View style={styles.groupBody}>
+          <Text style={styles.subLabel}>Kilder</Text>
+          <TvPressable style={styles.row} disabled={refreshing} onPress={onRefresh}>
             <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>Ensartet lyd</Text>
-              <Text style={styles.rowHint}>Udjævner lave og høje kanaler og dæmper lydspidser.
-                Gælder TV-kanaler og forhåndsvisning. Lyden behandles i appen i stedet for direkte surround-passthrough.</Text>
+              <Text style={styles.rowTitle}>Hent kanaler, film og serier nu</Text>
+              <Text style={styles.rowHint}>
+                {refreshing
+                  ? 'Henter fra panelet. Tallene nedenfor opdateres, når det er færdigt.'
+                  : isTV
+                    ? 'Henter alt forfra fra panelet. Tager et par minutter på et stort panel.'
+                    : 'Samme som at trække ned under Kanaler.'}
+              </Text>
             </View>
-            <Text style={styles.actionText}>{uniformAudio ? 'Til' : 'Fra'}</Text>
+            <Text style={styles.actionText}>{refreshing ? 'Henter…' : 'Hent'}</Text>
           </TvPressable>
-        </>
-      )}
-
-      <Text style={styles.sectionTitle}>Forhåndsvisning</Text>
-      {/* Hele raekken kan trykkes: paa tv kan fjernbetjeningen ikke lande
-          paa en Switch, og saa kunne den hverken naas eller rulles til. */}
-      <TvPressable style={styles.row} onPress={() => void togglePreview(!previewEnabled)}>
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Vis kanalen mens du bladrer</Text>
-          <Text style={styles.rowHint}>
-            Panelet tillader kun én forbindelse ad gangen. Slå fra, hvis
-            afspilningen driller.
-          </Text>
-        </View>
-        <Switch
-          value={previewEnabled}
-          focusable={false}
-          onValueChange={(value) => {
-            void togglePreview(value);
-          }}
-          trackColor={{ true: colors.accent, false: colors.border }}
-        />
-      </TvPressable>
-
-      {isTV && (
-        <>
-          <Text style={styles.sectionTitle}>Guidens info-område</Text>
+          <TvPressable style={styles.row} onPress={onOpenSources}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Paneler og M3U-lister</Text>
+              <Text style={styles.rowHint}>
+                Tilføj flere udbydere. Kanalerne står side om side, og favoritter
+                kan blandes på tværs.
+              </Text>
+            </View>
+            <Text style={styles.actionText}>Åbn</Text>
+          </TvPressable>
+          <TvPressable style={styles.row} onPress={onOpenCheck}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Tjek forbindelsen til panelet</Text>
+              <Text style={styles.rowHint}>
+                {isTV
+                  ? 'Målingen siger om det er navnet, adressen eller panelet, der afviser.'
+                  : 'Virker appen på mobildata men ikke på Wi-Fi? Målingen siger om det er navnet, adressen eller panelet, der afviser.'}
+              </Text>
+            </View>
+            <Text style={styles.actionText}>Åbn</Text>
+          </TvPressable>
+          {/* Tallet siger om film og serier faktisk kom med ved sidste hentning —
+              det eneste sted man kan se det uden at gaa ind paa fanen. */}
           <Text style={styles.hint}>
-            Ved siden af forhåndsvisningen i guiden: ur med vejr, nyhedsstribe, eller intet.
+            {vod === null
+              ? ''
+              : vod.movies + vod.series === 0
+                ? 'Ingen film eller serier hentet endnu. Tryk på "Hent" ovenfor, eller vent til næste gang kanalerne opdateres.'
+                : `${vod.movies} film og ${vod.series} serier hentet fra dine kilder.`}
+            {radio === null ? '' : ` ${radio} kanaler ser ud til at være radio (kategori eller navn med "radio").`}
           </Text>
-          <View style={styles.choices}>
-            {GUIDE_INFO_CHOICES.map((option) => (
-              <TvPressable
-                key={option.value}
-                style={[styles.choice, guideInfo === option.value && styles.choiceSelected]}
-                onPress={() => {
-                  void chooseGuideInfo(option.value);
-                }}
-              >
-                <Text style={[styles.choiceText, guideInfo === option.value && styles.choiceTextSelected]}>
-                  {option.label}
-                </Text>
-              </TvPressable>
-            ))}
-          </View>
-        </>
-      )}
+          {vodErrors.length > 0 && (
+            <Text style={styles.hint}>Sidste hentning af film og serier fejlede. {vodErrors.join(' · ')}</Text>
+          )}
 
-      <Text style={styles.sectionTitle}>Kilder</Text>
-      <TvPressable style={styles.row} disabled={refreshing} onPress={onRefresh}>
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Hent kanaler, film og serier nu</Text>
-          <Text style={styles.rowHint}>
-            {refreshing
-              ? 'Henter fra panelet. Tallene nedenfor opdateres, når det er færdigt.'
-              : isTV
-                ? 'Henter alt forfra fra panelet. Tager et par minutter på et stort panel.'
-                : 'Samme som at trække ned under Kanaler.'}
-          </Text>
-        </View>
-        <Text style={styles.actionText}>{refreshing ? 'Henter…' : 'Hent'}</Text>
-      </TvPressable>
-      <TvPressable style={styles.row} onPress={onOpenSources}>
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Paneler og M3U-lister</Text>
-          <Text style={styles.rowHint}>
-            Tilføj flere udbydere. Kanalerne står side om side, og favoritter
-            kan blandes på tværs.
-          </Text>
-        </View>
-        <Text style={styles.actionText}>Åbn</Text>
-      </TvPressable>
-      <TvPressable style={styles.row} onPress={onOpenCheck}>
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Tjek forbindelsen til panelet</Text>
-          <Text style={styles.rowHint}>
-            {isTV
-              ? 'Målingen siger om det er navnet, adressen eller panelet, der afviser.'
-              : 'Virker appen på mobildata men ikke på Wi-Fi? Målingen siger om det er navnet, adressen eller panelet, der afviser.'}
-          </Text>
-        </View>
-        <Text style={styles.actionText}>Åbn</Text>
-      </TvPressable>
-      {/* Tallet siger om film og serier faktisk kom med ved sidste hentning —
-          det eneste sted man kan se det uden at gaa ind paa fanen. */}
-      <Text style={styles.hint}>
-        {vod === null
-          ? ''
-          : vod.movies + vod.series === 0
-            ? 'Ingen film eller serier hentet endnu. Tryk på "Hent" ovenfor, eller vent til næste gang kanalerne opdateres.'
-            : `${vod.movies} film og ${vod.series} serier hentet fra dine kilder.`}
-        {radio === null ? '' : ` ${radio} kanaler ser ud til at være radio (kategori eller navn med "radio").`}
-      </Text>
-      {vodErrors.length > 0 && (
-        <Text style={styles.hint}>Sidste hentning af film og serier fejlede. {vodErrors.join(' · ')}</Text>
-      )}
-
-      <Text style={styles.sectionTitle}>Kanallogoer</Text>
-      <TvPressable style={styles.row} onPress={onOpenLogos}>
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Favoritter uden logo</Text>
-          <Text style={styles.rowHint}>
-            {isTV
-              ? 'Dine favoritter som arkiverne ikke har et logo til. Lad appen søge dem alle på nettet på én gang, eller vælg selv på den enkelte kanal.'
-              : 'Logoerne hentes selv, én gang, og gemmes på telefonen. Dem arkiverne ikke kender til dine favoritter, kan appen søge efter på nettet, alle på én gang — eller du vælger selv. Du kan også holde fingeren på en kanal i listerne.'}
-          </Text>
-        </View>
-        <Text style={styles.actionText}>Åbn</Text>
-      </TvPressable>
-      {/* Google-noeglerne tastes paa telefonen; paa tv soeges der kun i
-          Wikidata, som ikke kraever en noegle. */}
-      {!isTV && (
-        <>
-      <Text style={styles.hint}>
-        Søgningen bruger Wikidata, som er gratis og uden nøgle. Vil du også have Googles
-        billedsøgning med, laves en nøgle og en søgemaskine (cx) i Google Cloud Console under
-        "Custom Search JSON API" og programmablesearchengine.google.com. Begge felter skal
-        udfyldes.
-      </Text>
-      <TextInput
-        style={styles.input}
-        value={googleKey}
-        onChangeText={(value) => {
-          setGoogleKey(value);
-          void setGoogleSearchKey(session.db, value);
-        }}
-        placeholder="Google API-nøgle (valgfri)"
-        placeholderTextColor={colors.textMuted}
-        autoCorrect={false}
-        autoCapitalize="none"
-      />
-      <TextInput
-        style={styles.input}
-        value={googleCx}
-        onChangeText={(value) => {
-          setGoogleCx(value);
-          void setGoogleSearchCx(session.db, value);
-        }}
-        placeholder="Søgemaskinens id, cx (valgfri)"
-        placeholderTextColor={colors.textMuted}
-        autoCorrect={false}
-        autoCapitalize="none"
-      />
-
-        </>
-      )}
-
-      <Text style={styles.sectionTitle}>Tema</Text>
-      <Text style={styles.hint}>Følg solen: lyst om dagen, mørkt om aftenen.</Text>
-      <View style={styles.choices}>
-        {THEME_MODES.filter((mode) => mode !== 'system' || !isTV).map((mode) => (
-          <TvPressable
-            key={mode}
-            style={[styles.choice, themeMode === mode && styles.choiceSelected]}
-            onPress={() => chooseTheme(mode)}
-          >
-            <Text style={[styles.choiceText, themeMode === mode && styles.choiceTextSelected]}>{THEME_LABELS[mode]}</Text>
+          <Text style={styles.subLabel}>Kanallogoer</Text>
+          <TvPressable style={styles.row} onPress={onOpenLogos}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Favoritter uden logo</Text>
+              <Text style={styles.rowHint}>
+                {isTV
+                  ? 'Dine favoritter som arkiverne ikke har et logo til. Lad appen søge dem alle på nettet på én gang, eller vælg selv på den enkelte kanal.'
+                  : 'Logoerne hentes selv, én gang, og gemmes på telefonen. Dem arkiverne ikke kender til dine favoritter, kan appen søge efter på nettet, alle på én gang — eller du vælger selv. Du kan også holde fingeren på en kanal i listerne.'}
+              </Text>
+            </View>
+            <Text style={styles.actionText}>Åbn</Text>
           </TvPressable>
-        ))}
-      </View>
-      {themeMode === 'sun' && (
-        <>
-          <Text style={styles.hint}>Stedet solen regnes for.</Text>
-          <View style={styles.choices}>
-            {PLACES.map((place) => (
-              <TvPressable
-                key={place.key}
-                style={[styles.choice, themePlace === place.key && styles.choiceSelected]}
-                onPress={() => choosePlace(place.key)}
-              >
-                <Text style={[styles.choiceText, themePlace === place.key && styles.choiceTextSelected]}>{place.name}</Text>
-              </TvPressable>
-            ))}
+          {/* Google-noeglerne tastes paa telefonen; paa tv soeges der kun i
+              Wikidata, som ikke kraever en noegle. */}
+          {!isTV && (
+            <>
+          <Text style={styles.hint}>
+            Søgningen bruger Wikidata, som er gratis og uden nøgle. Vil du også have Googles
+            billedsøgning med, laves en nøgle og en søgemaskine (cx) i Google Cloud Console under
+            "Custom Search JSON API" og programmablesearchengine.google.com. Begge felter skal
+            udfyldes.
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={googleKey}
+            onChangeText={(value) => {
+              setGoogleKey(value);
+              void setGoogleSearchKey(session.db, value);
+            }}
+            placeholder="Google API-nøgle (valgfri)"
+            placeholderTextColor={colors.textMuted}
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          <TextInput
+            style={styles.input}
+            value={googleCx}
+            onChangeText={(value) => {
+              setGoogleCx(value);
+              void setGoogleSearchCx(session.db, value);
+            }}
+            placeholder="Søgemaskinens id, cx (valgfri)"
+            placeholderTextColor={colors.textMuted}
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+
+            </>
+          )}
+
+          <Text style={styles.subLabel}>Skjulte lande</Text>
+          {hidden.length === 0 ? (
+            <Text style={styles.hint}>
+              {isTV ? 'Ingen. Hold OK nede på et land under Kanaler for at skjule det.' : 'Ingen. Hold fingeren nede på et land under Kanaler for at skjule det.'}
+            </Text>
+          ) : (
+            hidden.map((key) => (
+              <View key={key} style={styles.row}>
+                <Text style={styles.rowTitle}>{countryLabel(key)}</Text>
+                <TvPressable
+                  style={styles.action}
+                  onPress={() => {
+                    void (async () => {
+                      await unhideCountry(session.db, key);
+                      await load();
+                    })();
+                  }}
+                >
+                  <Text style={styles.actionText}>Vis igen</Text>
+                </TvPressable>
+              </View>
+            ))
+          )}
+
+          <Text style={styles.subLabel}>Status</Text>
+          <Text style={styles.hint}>
+            Hvornår appen sidst hentede sit indhold. Ser noget forældet ud, siger det
+            her det — i stedet for at man skal gætte, om noget er gået i stå.
+          </Text>
+          <View style={styles.row}>
+            <Text style={styles.rowTitle}>Kanaler, film og serier</Text>
+            <Text style={styles.actionText}>{relativeTime(status.channels)}</Text>
           </View>
-        </>
+          {isTV && (
+            <>
+              <View style={styles.row}>
+                <Text style={styles.rowTitle}>Vejr</Text>
+                <Text style={styles.actionText}>
+                  {guideInfo === 'off' ? 'Slået fra' : relativeTime(status.weather)}
+                </Text>
+              </View>
+              <View style={styles.row}>
+                <Text style={styles.rowTitle}>Nyheder</Text>
+                <Text style={styles.actionText}>
+                  {guideInfo === 'news' ? relativeTime(status.news) : 'Slået fra'}
+                </Text>
+              </View>
+            </>
+          )}
+          <Text style={styles.hint}>
+            Programoversigten gemmes på enheden og fornyes i baggrunden for de kanaler, du
+            kigger på. Ved skift mellem sommer- og vintertid hentes den forfra af sig selv.
+          </Text>
+        </View>
       )}
 
-      <Text style={styles.sectionTitle}>Undertekster</Text>
-      <Text style={styles.hint}>
-        Sproget der vælges automatisk. Findes det ikke, prøves engelsk. Du kan skifte spor i afspilleren.
-      </Text>
-      <View style={styles.choices}>
-        {SUBTITLE_CHOICES.map((option) => (
+      <GroupHeader id="guide" title="Guide og programoversigt" hint="Forhåndsvisning, info-område og test af programoversigt og start forfra" open={openGroup === 'guide'} onToggle={toggleGroup} />
+      {openGroup === 'guide' && (
+        <View style={styles.groupBody}>
+          <Text style={styles.subLabel}>Forhåndsvisning</Text>
+          {/* Hele raekken kan trykkes: paa tv kan fjernbetjeningen ikke lande
+              paa en Switch, og saa kunne den hverken naas eller rulles til. */}
+          <TvPressable style={styles.row} onPress={() => void togglePreview(!previewEnabled)}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Vis kanalen mens du bladrer</Text>
+              <Text style={styles.rowHint}>
+                Panelet tillader kun én forbindelse ad gangen. Slå fra, hvis
+                afspilningen driller.
+              </Text>
+            </View>
+            <Switch
+              value={previewEnabled}
+              focusable={false}
+              onValueChange={(value) => {
+                void togglePreview(value);
+              }}
+              trackColor={{ true: colors.accent, false: colors.border }}
+            />
+          </TvPressable>
+
+          {isTV && (
+            <>
+              <Text style={styles.subLabel}>Guidens info-område</Text>
+              <Text style={styles.hint}>
+                Ved siden af forhåndsvisningen i guiden: ur med vejr, nyhedsstribe, eller intet.
+              </Text>
+              <View style={styles.choices}>
+                {GUIDE_INFO_CHOICES.map((option) => (
+                  <TvPressable
+                    key={option.value}
+                    style={[styles.choice, guideInfo === option.value && styles.choiceSelected]}
+                    onPress={() => {
+                      void chooseGuideInfo(option.value);
+                    }}
+                  >
+                    <Text style={[styles.choiceText, guideInfo === option.value && styles.choiceTextSelected]}>
+                      {option.label}
+                    </Text>
+                  </TvPressable>
+                ))}
+              </View>
+            </>
+          )}
+
+          <Text style={styles.subLabel}>Programoversigt</Text>
           <TvPressable
-            key={option.value}
-            style={[styles.choice, subtitles === option.value && styles.choiceSelected]}
+            style={styles.row}
             onPress={() => {
-              void chooseSubtitles(option.value);
+              const next = !panelEpg;
+              setPanelEpg(next);
+              void setPanelEpgEnabled(session.db, next);
             }}
           >
-            <Text
-              style={[styles.choiceText, subtitles === option.value && styles.choiceTextSelected]}
-            >
-              {option.value === 'auto' && isTV ? 'Enhedens sprog' : option.label}
-            </Text>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Hent fra panelets store EPG-fil</Text>
+              <Text style={styles.rowHint}>
+                Giver programmer til favoritter, panelet ellers ikke har EPG på (fx UK og US). Hentes i baggrunden
+                én gang i døgnet. Slå fra, hvis boksen bliver langsom.
+              </Text>
+            </View>
+            <Switch
+              value={panelEpg}
+              focusable={false}
+              onValueChange={(value) => {
+                setPanelEpg(value);
+                void setPanelEpgEnabled(session.db, value);
+              }}
+              trackColor={{ true: colors.accent, false: colors.border }}
+            />
           </TvPressable>
-        ))}
-      </View>
-
-      <Text style={styles.sectionTitle}>Danske undertekster fra OpenSubtitles</Text>
-      <Text style={styles.hint}>
-        Mangler en film eller et afsnit undertekster på sproget ovenfor, henter appen dem selv fra
-        OpenSubtitles og viser dem. Kræver en gratis nøgle: opret en konto på opensubtitles.com, gå til
-        din profil → API consumers → New consumer, og kopiér API-nøglen hertil. Brugernavn og kodeord er
-        valgfrie og giver flere hentninger om dagen. Hentede undertekster gemmes, så samme film ikke
-        hentes igen.
-      </Text>
-      <TvTextInput
-        style={styles.input}
-        value={osKey}
-        onChangeText={(value) => {
-          setOsKey(value);
-          setOsStatus(null);
-          void setOpenSubtitlesSetting(session.db, 'apiKey', value);
-        }}
-        placeholder="OpenSubtitles API-nøgle"
-        autoCorrect={false}
-        autoCapitalize="none"
-      />
-      <TvTextInput
-        style={styles.input}
-        value={osUser}
-        onChangeText={(value) => {
-          setOsUser(value);
-          setOsStatus(null);
-          void setOpenSubtitlesSetting(session.db, 'username', value);
-        }}
-        placeholder="Brugernavn (valgfrit)"
-        autoCorrect={false}
-        autoCapitalize="none"
-      />
-      <TvTextInput
-        style={styles.input}
-        value={osPass}
-        onChangeText={(value) => {
-          setOsPass(value);
-          setOsStatus(null);
-          void setOpenSubtitlesSetting(session.db, 'password', value);
-        }}
-        placeholder="Kodeord (valgfrit)"
-        secureTextEntry
-        autoCorrect={false}
-        autoCapitalize="none"
-      />
-      {osKey.trim().length > 0 && (
-        <TvPressable
-          style={styles.row}
-          onPress={() => {
-            setOsStatus('Tester …');
-            void testOpenSubtitles(session.db).then(setOsStatus);
-          }}
-        >
-          <View style={styles.rowText}>
-            <Text style={styles.rowTitle}>Test forbindelsen</Text>
-            <Text style={styles.rowHint}>{osStatus ?? 'Søger danske undertekster til en kendt film.'}</Text>
-          </View>
-          <Text style={styles.actionText}>Test</Text>
-        </TvPressable>
+          <TvPressable
+            style={styles.row}
+            onPress={() => {
+              if (epgReport === 'Tester …') return;
+              setEpgReport('Tester …');
+              void (async () => {
+                const parts: string[] = [];
+                for (const access of session.sources) {
+                  if (access.source.kind !== 'xtream' || access.creds === null) continue;
+                  parts.push(`${access.source.name}:\n${await diagnosePanelEpg(session.db, access.source.id, access.creds, session.fetchImpl)}`);
+                }
+                setEpgReport(parts.length === 0 ? 'Ingen panel-kilder (kun M3U-lister).' : parts.join('\n\n'));
+                onRestored();
+              })();
+            }}
+          >
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Test programoversigten</Text>
+              <Text style={styles.rowHint} selectable>
+                {epgReport ?? 'Henter filen nu og viser trin for trin, hvorfor favoritter står uden programmer.'}
+              </Text>
+            </View>
+            <Text style={styles.actionText}>Test</Text>
+          </TvPressable>
+          <TvPressable
+            style={styles.row}
+            onPress={() => {
+              if (restartReport !== null && restartReport.startsWith('Tester')) return;
+              setRestartReport('Tester … (tager op mod et minut)');
+              void (async () => {
+                try {
+                  const lastId = await getLastChannelId(session.db);
+                  const channel = lastId === null ? null : await getChannel(session.db, lastId);
+                  if (channel === null) {
+                    setRestartReport('Se en kanal først: testen bruger den kanal, du så sidst.');
+                    return;
+                  }
+                  const access = session.access(channel.sourceId);
+                  if (access?.creds == null) {
+                    setRestartReport(`${channel.name}: kanalens kilde er ikke et panel (kun M3U-liste), så der er intet arkiv at måle.`);
+                    return;
+                  }
+                  const dialect = await getTimeshiftDialect(session.db, channel.sourceId);
+                  if (dialect === null) {
+                    setRestartReport(`${channel.name}: panelet har ingen kendt start-forfra-adresse endnu. Åbn kanalen og tryk start forfra én gang, så findes den.`);
+                    return;
+                  }
+                  const offset = await getPanelOffsetMinutes(session.db, channel.sourceId);
+                  const programme = (await getNowNext(session.db, channel.id, new Date())).now;
+                  if (programme === null) {
+                    setRestartReport(`${channel.name}: ingen programdata for kanalen lige nu, så testen ved ikke hvornår udsendelsen begyndte.`);
+                    return;
+                  }
+                  const report = await probeTimeshift(probeFetch, access.creds, channel.streamId, programme, dialect, offset, {
+                    onProgress: (text) => setRestartReport(`Tester ${channel.name} · ${programme.title}\n${text}`),
+                  });
+                  setRestartReport(`${channel.name} · ${programme.title}\n${report}`);
+                } catch (cause) {
+                  setRestartReport(`Testen fejlede: ${cause instanceof Error ? cause.message.replace(/https?:\/\/\S+/g, '[adresse]') : 'ukendt fejl'}`);
+                }
+              })();
+            }}
+          >
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Test start forfra</Text>
+              <Text style={styles.rowHint} selectable>
+                {restartReport ??
+                  'Måler om panelet kan levere arkivet som en strøm, der vokser, mens udsendelsen sendes (løbende buffer). Bruger den kanal, du så sidst; afspilleren skal være lukket.'}
+              </Text>
+            </View>
+            <Text style={styles.actionText}>Test</Text>
+          </TvPressable>
+        </View>
       )}
 
-      <Text style={styles.sectionTitle}>Programoversigt</Text>
-      <TvPressable
-        style={styles.row}
-        onPress={() => {
-          const next = !panelEpg;
-          setPanelEpg(next);
-          void setPanelEpgEnabled(session.db, next);
-        }}
-      >
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Hent fra panelets store EPG-fil</Text>
-          <Text style={styles.rowHint}>
-            Giver programmer til favoritter, panelet ellers ikke har EPG på (fx UK og US). Hentes i baggrunden
-            én gang i døgnet. Slå fra, hvis boksen bliver langsom.
-          </Text>
-        </View>
-        <Switch
-          value={panelEpg}
-          focusable={false}
-          onValueChange={(value) => {
-            setPanelEpg(value);
-            void setPanelEpgEnabled(session.db, value);
-          }}
-          trackColor={{ true: colors.accent, false: colors.border }}
-        />
-      </TvPressable>
-      <TvPressable
-        style={styles.row}
-        onPress={() => {
-          if (epgReport === 'Tester …') return;
-          setEpgReport('Tester …');
-          void (async () => {
-            const parts: string[] = [];
-            for (const access of session.sources) {
-              if (access.source.kind !== 'xtream' || access.creds === null) continue;
-              parts.push(`${access.source.name}:\n${await diagnosePanelEpg(session.db, access.source.id, access.creds, session.fetchImpl)}`);
-            }
-            setEpgReport(parts.length === 0 ? 'Ingen panel-kilder (kun M3U-lister).' : parts.join('\n\n'));
-            onRestored();
-          })();
-        }}
-      >
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Test programoversigten</Text>
-          <Text style={styles.rowHint} selectable>
-            {epgReport ?? 'Henter filen nu og viser trin for trin, hvorfor favoritter står uden programmer.'}
-          </Text>
-        </View>
-        <Text style={styles.actionText}>Test</Text>
-      </TvPressable>
-      <TvPressable
-        style={styles.row}
-        onPress={() => {
-          if (restartReport !== null && restartReport.startsWith('Tester')) return;
-          setRestartReport('Tester … (tager op mod et minut)');
-          void (async () => {
-            try {
-              const lastId = await getLastChannelId(session.db);
-              const channel = lastId === null ? null : await getChannel(session.db, lastId);
-              if (channel === null) {
-                setRestartReport('Se en kanal først: testen bruger den kanal, du så sidst.');
-                return;
-              }
-              const access = session.access(channel.sourceId);
-              if (access?.creds == null) {
-                setRestartReport(`${channel.name}: kanalens kilde er ikke et panel (kun M3U-liste), så der er intet arkiv at måle.`);
-                return;
-              }
-              const dialect = await getTimeshiftDialect(session.db, channel.sourceId);
-              if (dialect === null) {
-                setRestartReport(`${channel.name}: panelet har ingen kendt start-forfra-adresse endnu. Åbn kanalen og tryk start forfra én gang, så findes den.`);
-                return;
-              }
-              const [offset, epgShiftMinutes, archiveShiftMinutes] = await Promise.all([
-                getPanelOffsetMinutes(session.db, channel.sourceId),
-                getEpgTimeShift(session.db, channel.sourceId),
-                getArchiveTimeShift(session.db, channel.sourceId),
-              ]);
-              const programme = (await getNowNext(session.db, channel.id, new Date())).now;
-              if (programme === null) {
-                setRestartReport(`${channel.name}: ingen programdata for kanalen lige nu, så testen ved ikke hvornår udsendelsen begyndte.`);
-                return;
-              }
-              const report = await probeTimeshift(probeFetch, access.creds, channel.streamId, programme, dialect, offset, {
-                epgShiftMinutes,
-                archiveShiftMinutes,
-                onProgress: (text) => setRestartReport(`Tester ${channel.name} · ${programme.title}\n${text}`),
-              });
-              setRestartReport(`${channel.name} · ${programme.title}\n${report}`);
-            } catch (cause) {
-              setRestartReport(`Testen fejlede: ${cause instanceof Error ? cause.message.replace(/https?:\/\/\S+/g, '[adresse]') : 'ukendt fejl'}`);
-            }
-          })();
-        }}
-      >
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Test start forfra</Text>
-          <Text style={styles.rowHint} selectable>
-            {restartReport ??
-              'Måler om panelet kan levere arkivet som en strøm, der vokser, mens udsendelsen sendes (løbende buffer). Bruger den kanal, du så sidst; afspilleren skal være lukket.'}
-          </Text>
-        </View>
-        <Text style={styles.actionText}>Test</Text>
-      </TvPressable>
+      <GroupHeader id="playback" title="Afspilning og lyd" hint="Ensartet lyd, undertekster, streamformat og videogengivelse" open={openGroup === 'playback'} onToggle={toggleGroup} />
+      {openGroup === 'playback' && (
+        <View style={styles.groupBody}>
+          {UNIFORM_AUDIO_SUPPORTED && (
+            <>
+              <Text style={styles.subLabel}>Lyd</Text>
+              <TvPressable style={styles.row} accessibilityRole="switch"
+                accessibilityState={{ checked: uniformAudio }}
+                onPress={() => { void saveUniformAudio(session.db, !uniformAudio).catch(() => undefined); }}>
+                <View style={styles.rowText}>
+                  <Text style={styles.rowTitle}>Ensartet lyd</Text>
+                  <Text style={styles.rowHint}>Udjævner lave og høje kanaler og dæmper lydspidser.
+                    Gælder TV-kanaler og forhåndsvisning. Lyden behandles i appen i stedet for direkte surround-passthrough.</Text>
+                </View>
+                <Text style={styles.actionText}>{uniformAudio ? 'Til' : 'Fra'}</Text>
+              </TvPressable>
+            </>
+          )}
 
-      <EpgTimingSettings db={session.db} onChanged={onRestored} showEpg={false} />
-
-      <Text style={styles.sectionTitle}>Avanceret</Text>
-      <TvPressable style={styles.row} onPress={() => setAdvancedOpen((open) => !open)}>
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Streamformat og videogengivelse</Text>
-          <Text style={styles.rowHint}>Til fejlfinding. Brug kun, hvis billede eller undertekster driller.</Text>
-        </View>
-        <Text style={styles.actionText}>{advancedOpen ? '▴ Skjul' : '▾ Vis'}</Text>
-      </TvPressable>
-      {advancedOpen && (
-        <>
-          <Text style={styles.subLabel}>Log fra afspilleren og guiden</Text>
+          <Text style={styles.subLabel}>Undertekster</Text>
           <Text style={styles.hint}>
-            De sidste linjer om hvad afspilleren bad om og svarede (start forfra, genforbindelser) og guidens
-            bladring. Gemmes lokalt i op til et døgn, også efter genstart. Ingen adresser skrives her.
+            Sproget der vælges automatisk. Findes det ikke, prøves engelsk. Du kan skifte spor i afspilleren.
           </Text>
-          <TvPressable style={styles.row} onPress={() => setLogLines(recentLog(40))}>
-            <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>Vis loggen</Text>
-              {logLines !== null && (
-                <Text style={styles.rowHint} selectable>
-                  Udgave {currentVersionCode()}{'\n'}
-                  {logLines.length === 0 ? 'Loggen er tom endnu.' : logLines.join('\n')}
+          <View style={styles.choices}>
+            {SUBTITLE_CHOICES.map((option) => (
+              <TvPressable
+                key={option.value}
+                style={[styles.choice, subtitles === option.value && styles.choiceSelected]}
+                onPress={() => {
+                  void chooseSubtitles(option.value);
+                }}
+              >
+                <Text
+                  style={[styles.choiceText, subtitles === option.value && styles.choiceTextSelected]}
+                >
+                  {option.value === 'auto' && isTV ? 'Enhedens sprog' : option.label}
                 </Text>
-              )}
-            </View>
-            <Text style={styles.actionText}>Vis</Text>
-          </TvPressable>
+              </TvPressable>
+            ))}
+          </View>
 
-          <DiagnosticSettings />
+          <Text style={styles.subLabel}>Danske undertekster fra OpenSubtitles</Text>
+          <Text style={styles.hint}>
+            Mangler en film eller et afsnit undertekster på sproget ovenfor, henter appen dem selv fra
+            OpenSubtitles og viser dem. Kræver en gratis nøgle: opret en konto på opensubtitles.com, gå til
+            din profil → API consumers → New consumer, og kopiér API-nøglen hertil. Brugernavn og kodeord er
+            valgfrie og giver flere hentninger om dagen. Hentede undertekster gemmes, så samme film ikke
+            hentes igen.
+          </Text>
+          <TvTextInput
+            style={styles.input}
+            value={osKey}
+            onChangeText={(value) => {
+              setOsKey(value);
+              setOsStatus(null);
+              void setOpenSubtitlesSetting(session.db, 'apiKey', value);
+            }}
+            placeholder="OpenSubtitles API-nøgle"
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          <TvTextInput
+            style={styles.input}
+            value={osUser}
+            onChangeText={(value) => {
+              setOsUser(value);
+              setOsStatus(null);
+              void setOpenSubtitlesSetting(session.db, 'username', value);
+            }}
+            placeholder="Brugernavn (valgfrit)"
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          <TvTextInput
+            style={styles.input}
+            value={osPass}
+            onChangeText={(value) => {
+              setOsPass(value);
+              setOsStatus(null);
+              void setOpenSubtitlesSetting(session.db, 'password', value);
+            }}
+            placeholder="Kodeord (valgfrit)"
+            secureTextEntry
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          {osKey.trim().length > 0 && (
+            <TvPressable
+              style={styles.row}
+              onPress={() => {
+                setOsStatus('Tester …');
+                void testOpenSubtitles(session.db).then(setOsStatus);
+              }}
+            >
+              <View style={styles.rowText}>
+                <Text style={styles.rowTitle}>Test forbindelsen</Text>
+                <Text style={styles.rowHint}>{osStatus ?? 'Søger danske undertekster til en kendt film.'}</Text>
+              </View>
+              <Text style={styles.actionText}>Test</Text>
+            </TvPressable>
+          )}
 
           <Text style={styles.subLabel}>Streamformat</Text>
           <Text style={styles.hint}>
@@ -895,278 +930,304 @@ export function SettingsScreen({
               </TvPressable>
             ))}
           </View>
-        </>
+        </View>
       )}
 
-      <Text style={styles.sectionTitle}>Plakater</Text>
-      <Text style={styles.hint}>
-        Med en gratis TMDB-nøgle henter appen de plakater panelet mangler, én gang hver.
-      </Text>
-      {tmdbLocked && tmdbKey.trim().length > 0 ? (
-        <TvPressable style={styles.row} onPress={() => setTmdbLocked(false)}>
-          <View style={styles.rowText}>
-            <Text style={styles.rowTitle}>Nøglen er låst</Text>
-            <Text style={styles.rowHint}>{maskKey(tmdbKey)} · virker. Lås op for at ændre den.</Text>
-          </View>
-          <Text style={styles.actionText}>Lås op</Text>
-        </TvPressable>
-      ) : (
-        <>
-          <TextInput
-            style={styles.input}
-            value={tmdbKey}
-            onChangeText={(value) => {
-              // Gemmes ved hvert tastetryk. Kun ved tab af fokus var ikke nok:
-              // gaar man ud af skaermen med tastaturet aabent, mister feltet
-              // aldrig fokus, og noeglen stod der uden at vaere gemt.
-              setTmdbKey(value);
-              void setTmdbApiKey(session.db, value);
-              setPosterApiKey(value);
-            }}
-            placeholder="TMDB API-nøgle (valgfri)"
-            placeholderTextColor={colors.textMuted}
-            autoCorrect={false}
-            autoCapitalize="none"
-          />
-          {tmdbKey.trim().length > 0 && (
-            <TvPressable style={styles.row} onPress={() => setTmdbLocked(true)}>
+      <GroupHeader id="vod" title="Film og serier" hint="Plakater, filmdata, tjenester på forsiden og trailere" open={openGroup === 'vod'} onToggle={toggleGroup} />
+      {openGroup === 'vod' && (
+        <View style={styles.groupBody}>
+          <Text style={styles.subLabel}>Plakater</Text>
+          <Text style={styles.hint}>
+            Med en gratis TMDB-nøgle henter appen de plakater panelet mangler, én gang hver.
+          </Text>
+          {tmdbLocked && tmdbKey.trim().length > 0 ? (
+            <TvPressable style={styles.row} onPress={() => setTmdbLocked(false)}>
               <View style={styles.rowText}>
-                <Text style={styles.rowTitle}>Lås nøglen</Text>
-                <Text style={styles.rowHint}>Så kan den ikke ændres ved et uheld.</Text>
+                <Text style={styles.rowTitle}>Nøglen er låst</Text>
+                <Text style={styles.rowHint}>{maskKey(tmdbKey)} · virker. Lås op for at ændre den.</Text>
               </View>
-              <Text style={styles.actionText}>Lås</Text>
+              <Text style={styles.actionText}>Lås op</Text>
             </TvPressable>
-          )}
-        </>
-      )}
-      <Text style={styles.hint}>
-        Nøglen laves gratis på themoviedb.org: opret en konto, gå til Settings → API, og kopiér
-        enten "API Key" eller "API Read Access Token". Begge virker; du skal kun bruge én.
-        {isTV ? ' Den gemmes kun på denne enhed.' : ' Den gemmes kun på telefonen og i din sikkerhedskopi.'}
-      </Text>
-
-      <Text style={styles.sectionTitle}>Ekstra filmdata</Text>
-      <Text style={styles.hint}>Valgfri OMDb-nøgle fra omdbapi.com. Udfylder manglende genre og år via filmens bekræftede IMDb-id. TMDB-data bevares.</Text>
-      <TvTextInput style={styles.input} value={omdbKey} secureTextEntry autoCorrect={false} autoCapitalize="none"
-        placeholder="OMDb API-nøgle (valgfri)" placeholderTextColor={colors.textMuted}
-        onChangeText={(value) => { setOmdbKey(value); void setSetting(session.db, 'omdb_api_key', value.trim()); }} />
-
-      <Text style={styles.sectionTitle}>Forside</Text>
-      <Text style={styles.hint}>
-        Vælg de streamingtjenester du har. Forsiden viser populære titler fra hver. Kræver TMDB-nøglen ovenfor.
-      </Text>
-      {tmdbKey.trim().length === 0 ? null : providers === null ? (
-        <Text style={styles.hint}>Henter tjenesterne …</Text>
-      ) : (
-        <>
-          {/* Foldet sammen som standard: over hundrede tjenester fyldte
-              hele skaermen nedad. Raekken siger hvad der er valgt. */}
-          <TvPressable style={styles.row} onPress={() => setProvidersOpen((open) => !open)}>
-            <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>
-                Streamingtjenester{chosenProviders.length > 0 ? ` · ${chosenProviders.length} valgt` : ''}
-              </Text>
-              <Text style={styles.rowHint} numberOfLines={2}>
-                {chosenProviders.length === 0
-                  ? 'Ingen valgt endnu. Tryk for at vælge.'
-                  : chosenProviders.map((entry) => entry.name).join(', ')}
-              </Text>
-            </View>
-            <Text style={styles.actionText}>{providersOpen ? '▴ Luk' : '▾ Vælg'}</Text>
-          </TvPressable>
-          {providersOpen && (
+          ) : (
             <>
               <TextInput
                 style={styles.input}
-                value={providerSearch}
-                onChangeText={setProviderSearch}
-                placeholder="Find en tjeneste, fx SkyShowtime"
+                value={tmdbKey}
+                onChangeText={(value) => {
+                  // Gemmes ved hvert tastetryk. Kun ved tab af fokus var ikke nok:
+                  // gaar man ud af skaermen med tastaturet aabent, mister feltet
+                  // aldrig fokus, og noeglen stod der uden at vaere gemt.
+                  setTmdbKey(value);
+                  void setTmdbApiKey(session.db, value);
+                  setPosterApiKey(value);
+                }}
+                placeholder="TMDB API-nøgle (valgfri)"
                 placeholderTextColor={colors.textMuted}
                 autoCorrect={false}
                 autoCapitalize="none"
               />
+              {tmdbKey.trim().length > 0 && (
+                <TvPressable style={styles.row} onPress={() => setTmdbLocked(true)}>
+                  <View style={styles.rowText}>
+                    <Text style={styles.rowTitle}>Lås nøglen</Text>
+                    <Text style={styles.rowHint}>Så kan den ikke ændres ved et uheld.</Text>
+                  </View>
+                  <Text style={styles.actionText}>Lås</Text>
+                </TvPressable>
+              )}
+            </>
+          )}
+          <Text style={styles.hint}>
+            Nøglen laves gratis på themoviedb.org: opret en konto, gå til Settings → API, og kopiér
+            enten "API Key" eller "API Read Access Token". Begge virker; du skal kun bruge én.
+            {isTV ? ' Den gemmes kun på denne enhed.' : ' Den gemmes kun på telefonen og i din sikkerhedskopi.'}
+          </Text>
+
+          <Text style={styles.subLabel}>Ekstra filmdata</Text>
+          <Text style={styles.hint}>Valgfri OMDb-nøgle fra omdbapi.com. Udfylder manglende genre og år via filmens bekræftede IMDb-id. TMDB-data bevares.</Text>
+          <TvTextInput style={styles.input} value={omdbKey} secureTextEntry autoCorrect={false} autoCapitalize="none"
+            placeholder="OMDb API-nøgle (valgfri)" placeholderTextColor={colors.textMuted}
+            onChangeText={(value) => { setOmdbKey(value); void setSetting(session.db, 'omdb_api_key', value.trim()); }} />
+
+          <Text style={styles.subLabel}>Forside</Text>
+          <Text style={styles.hint}>
+            Vælg de streamingtjenester du har. Forsiden viser populære titler fra hver. Kræver TMDB-nøglen ovenfor.
+          </Text>
+          {tmdbKey.trim().length === 0 ? null : providers === null ? (
+            <Text style={styles.hint}>Henter tjenesterne …</Text>
+          ) : (
+            <>
+              {/* Foldet sammen som standard: over hundrede tjenester fyldte
+                  hele skaermen nedad. Raekken siger hvad der er valgt. */}
+              <TvPressable style={styles.row} onPress={() => setProvidersOpen((open) => !open)}>
+                <View style={styles.rowText}>
+                  <Text style={styles.rowTitle}>
+                    Streamingtjenester{chosenProviders.length > 0 ? ` · ${chosenProviders.length} valgt` : ''}
+                  </Text>
+                  <Text style={styles.rowHint} numberOfLines={2}>
+                    {chosenProviders.length === 0
+                      ? 'Ingen valgt endnu. Tryk for at vælge.'
+                      : chosenProviders.map((entry) => entry.name).join(', ')}
+                  </Text>
+                </View>
+                <Text style={styles.actionText}>{providersOpen ? '▴ Luk' : '▾ Vælg'}</Text>
+              </TvPressable>
+              {providersOpen && (
+                <>
+                  <TextInput
+                    style={styles.input}
+                    value={providerSearch}
+                    onChangeText={setProviderSearch}
+                    placeholder="Find en tjeneste, fx SkyShowtime"
+                    placeholderTextColor={colors.textMuted}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                  />
+                  <View style={styles.choices}>
+                    {[...chosenProviders.filter((c) => !providers.some((p) => p.id === c.id)), ...providers]
+                      .filter((provider) => {
+                        const needle = providerSearch.trim().toLowerCase();
+                        // De valgte staar der altid, saa man kan tage dem fra igen.
+                        return (
+                          needle.length === 0 ||
+                          provider.name.toLowerCase().includes(needle) ||
+                          chosenProviders.some((c) => c.id === provider.id)
+                        );
+                      })
+                      .map((provider) => {
+                        const selected = chosenProviders.some((entry) => entry.id === provider.id);
+                        return (
+                          <TvPressable
+                            key={provider.id}
+                            style={[styles.choice, selected && styles.choiceSelected]}
+                            onPress={() => {
+                              void toggleProvider(provider);
+                            }}
+                          >
+                            <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>
+                              {provider.region === 'DK' ? provider.name : `${provider.name} (UK)`}
+                            </Text>
+                          </TvPressable>
+                        );
+                      })}
+                  </View>
+                </>
+              )}
+            </>
+          )}
+
+          {/* Ikke paa tv: YouTube-noeglen er kun til soegningen, som tv'et ikke viser, og filvaelgeren findes ikke paa Google TV. */}
+          {!isTV && (
+            <>
+          <Text style={styles.subLabel}>Trailere</Text>
+          <Text style={styles.hint}>
+            Med TMDB-nøglen ovenfor er TMDB's officielle trailer altid første valg. Kender TMDB
+            ikke titlen, spilles udbyderens egen trailer, og er den under et minut, ledes der
+            videre: med en YouTube-nøgle her vælger appen selv en lang nok, og ellers åbnes
+            YouTubes søgning inde i appen. Har du TMDB-nøglen, kan dette felt roligt stå tomt.
+          </Text>
+          <TextInput
+            style={styles.input}
+            value={youtubeKey}
+            onChangeText={(value) => {
+              setYoutubeKey(value);
+              void setYoutubeApiKey(session.db, value);
+            }}
+            placeholder="YouTube API-nøgle (valgfri)"
+            placeholderTextColor={colors.textMuted}
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          <Text style={styles.hint}>
+            Nøglen laves gratis i Google Cloud Console: opret et projekt, slå "YouTube Data API v3"
+            til, og opret en API-nøgle under Legitimationsoplysninger. Den gemmes kun på telefonen.
+          </Text>
+
+            </>
+          )}
+        </View>
+      )}
+
+      <GroupHeader id="look" title="Udseende" hint="Lyst, mørkt eller følg solen" open={openGroup === 'look'} onToggle={toggleGroup} />
+      {openGroup === 'look' && (
+        <View style={styles.groupBody}>
+          <Text style={styles.subLabel}>Tema</Text>
+          <Text style={styles.hint}>Følg solen: lyst om dagen, mørkt om aftenen.</Text>
+          <View style={styles.choices}>
+            {THEME_MODES.filter((mode) => mode !== 'system' || !isTV).map((mode) => (
+              <TvPressable
+                key={mode}
+                style={[styles.choice, themeMode === mode && styles.choiceSelected]}
+                onPress={() => chooseTheme(mode)}
+              >
+                <Text style={[styles.choiceText, themeMode === mode && styles.choiceTextSelected]}>{THEME_LABELS[mode]}</Text>
+              </TvPressable>
+            ))}
+          </View>
+          {themeMode === 'sun' && (
+            <>
+              <Text style={styles.hint}>Stedet solen regnes for.</Text>
               <View style={styles.choices}>
-                {[...chosenProviders.filter((c) => !providers.some((p) => p.id === c.id)), ...providers]
-                  .filter((provider) => {
-                    const needle = providerSearch.trim().toLowerCase();
-                    // De valgte staar der altid, saa man kan tage dem fra igen.
-                    return (
-                      needle.length === 0 ||
-                      provider.name.toLowerCase().includes(needle) ||
-                      chosenProviders.some((c) => c.id === provider.id)
-                    );
-                  })
-                  .map((provider) => {
-                    const selected = chosenProviders.some((entry) => entry.id === provider.id);
-                    return (
-                      <TvPressable
-                        key={provider.id}
-                        style={[styles.choice, selected && styles.choiceSelected]}
-                        onPress={() => {
-                          void toggleProvider(provider);
-                        }}
-                      >
-                        <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>
-                          {provider.region === 'DK' ? provider.name : `${provider.name} (UK)`}
-                        </Text>
-                      </TvPressable>
-                    );
-                  })}
+                {PLACES.map((place) => (
+                  <TvPressable
+                    key={place.key}
+                    style={[styles.choice, themePlace === place.key && styles.choiceSelected]}
+                    onPress={() => choosePlace(place.key)}
+                  >
+                    <Text style={[styles.choiceText, themePlace === place.key && styles.choiceTextSelected]}>{place.name}</Text>
+                  </TvPressable>
+                ))}
               </View>
             </>
           )}
-        </>
-      )}
-
-      {/* Ikke paa tv: YouTube-noeglen er kun til soegningen, som tv'et ikke viser, og filvaelgeren findes ikke paa Google TV. */}
-      {!isTV && (
-        <>
-      <Text style={styles.sectionTitle}>Trailere</Text>
-      <Text style={styles.hint}>
-        Med TMDB-nøglen ovenfor er TMDB's officielle trailer altid første valg. Kender TMDB
-        ikke titlen, spilles udbyderens egen trailer, og er den under et minut, ledes der
-        videre: med en YouTube-nøgle her vælger appen selv en lang nok, og ellers åbnes
-        YouTubes søgning inde i appen. Har du TMDB-nøglen, kan dette felt roligt stå tomt.
-      </Text>
-      <TextInput
-        style={styles.input}
-        value={youtubeKey}
-        onChangeText={(value) => {
-          setYoutubeKey(value);
-          void setYoutubeApiKey(session.db, value);
-        }}
-        placeholder="YouTube API-nøgle (valgfri)"
-        placeholderTextColor={colors.textMuted}
-        autoCorrect={false}
-        autoCapitalize="none"
-      />
-      <Text style={styles.hint}>
-        Nøglen laves gratis i Google Cloud Console: opret et projekt, slå "YouTube Data API v3"
-        til, og opret en API-nøgle under Legitimationsoplysninger. Den gemmes kun på telefonen.
-      </Text>
-
-        </>
-      )}
-
-      <Text style={styles.sectionTitle}>Opdatering</Text>
-      <View style={styles.row}>
-        <View style={styles.rowText}>
-          <Text style={styles.versionValue}>Udgave {currentVersionCode()}</Text>
-          <Text style={styles.rowHint}>
-            {isTV
-              ? 'Det er den udgave, boksen kører nu. En nyere hentes af sig selv og installeres fra bjælken "Ny udgave klar".'
-              : 'Det er den udgave, du kører nu.'}
-          </Text>
         </View>
-      </View>
-      <Text style={styles.hint}>
-        Appen kommer ikke fra Play Store — den henter selv nye udgaver.
-        Første gang skal enheden tillade “installér ukendte apps” for NorStream.
-      </Text>
-      <TvPressable style={styles.row} disabled={updateBusy} onPress={() => void lookForUpdate()}>
-        <View style={styles.rowText}>
-          <Text style={styles.rowTitle}>Søg efter opdatering</Text>
-          <Text style={styles.rowHint}>Se om der er en nyere udgave end {currentVersionCode()}.</Text>
+      )}
+
+      <GroupHeader id="backup" title="Sikkerhedskopi" hint="Gem og hent favoritter og indstillinger" open={openGroup === 'backup'} onToggle={toggleGroup} />
+      {openGroup === 'backup' && (
+        <View style={styles.groupBody}>
+          <CloudBackup
+            session={session}
+            onRestore={async (json) => {
+              await restoreFromText(json);
+            }}
+            onSync={onCloudSync}
+          />
         </View>
-        <Text style={styles.actionText}>Søg</Text>
-      </TvPressable>
-      {update !== null && update.available && (
-        <TvPressable style={styles.row} disabled={updateBusy} onPress={() => void installUpdate()}>
-          <View style={styles.rowText}>
-            <Text style={styles.rowTitle}>Hent og installér udgave {update.versionCode}</Text>
-            <Text style={styles.rowHint}>Henter APK’en og starter installationen.</Text>
-          </View>
-          <Text style={styles.actionText}>Hent</Text>
-        </TvPressable>
       )}
-      {updateMessage !== null && <Text style={styles.hint}>{updateMessage}</Text>}
 
-      <CloudBackup
-        session={session}
-        onRestore={async (json) => {
-          await restoreFromText(json);
-        }}
-        onSync={onCloudSync}
-      />
-
-      <Text style={styles.sectionTitle}>Status</Text>
-      <Text style={styles.hint}>
-        Hvornår appen sidst hentede sit indhold. Ser noget forældet ud, siger det
-        her det — i stedet for at man skal gætte, om noget er gået i stå.
-      </Text>
-      <View style={styles.row}>
-        <Text style={styles.rowTitle}>Kanaler, film og serier</Text>
-        <Text style={styles.actionText}>{relativeTime(status.channels)}</Text>
-      </View>
-      {isTV && (
-        <>
+      <GroupHeader id="update" title="Opdatering" hint="Din udgave og søg efter en nyere" open={openGroup === 'update'} onToggle={toggleGroup} />
+      {openGroup === 'update' && (
+        <View style={styles.groupBody}>
+          <Text style={styles.subLabel}>Opdatering</Text>
           <View style={styles.row}>
-            <Text style={styles.rowTitle}>Vejr</Text>
-            <Text style={styles.actionText}>
-              {guideInfo === 'off' ? 'Slået fra' : relativeTime(status.weather)}
-            </Text>
+            <View style={styles.rowText}>
+              <Text style={styles.versionValue}>Udgave {currentVersionCode()}</Text>
+              <Text style={styles.rowHint}>
+                {isTV
+                  ? 'Det er den udgave, boksen kører nu. En nyere hentes af sig selv og installeres fra bjælken "Ny udgave klar".'
+                  : 'Det er den udgave, du kører nu.'}
+              </Text>
+            </View>
           </View>
-          <View style={styles.row}>
-            <Text style={styles.rowTitle}>Nyheder</Text>
-            <Text style={styles.actionText}>
-              {guideInfo === 'news' ? relativeTime(status.news) : 'Slået fra'}
-            </Text>
-          </View>
-        </>
-      )}
-      <Text style={styles.hint}>
-        Program­oversigten (EPG) hentes løbende for de kanaler, du kigger på i guiden, og
-        vises ikke her.
-      </Text>
-
-      <Text style={styles.sectionTitle}>Skjulte lande</Text>
-      {hidden.length === 0 ? (
-        <Text style={styles.hint}>
-          {isTV ? 'Ingen. Hold OK nede på et land under Kanaler for at skjule det.' : 'Ingen. Hold fingeren nede på et land under Kanaler for at skjule det.'}
-        </Text>
-      ) : (
-        hidden.map((key) => (
-          <View key={key} style={styles.row}>
-            <Text style={styles.rowTitle}>{countryLabel(key)}</Text>
-            <TvPressable
-              style={styles.action}
-              onPress={() => {
-                void (async () => {
-                  await unhideCountry(session.db, key);
-                  await load();
-                })();
-              }}
-            >
-              <Text style={styles.actionText}>Vis igen</Text>
-            </TvPressable>
-          </View>
-        ))
-      )}
-
-      <Text style={styles.sectionTitle}>Konto</Text>
-      {confirmingSignOut ? (
-        <View style={styles.confirmBox}>
-          <Text style={styles.confirmText}>
-            Dine adgangsoplysninger slettes fra enheden.
+          <Text style={styles.hint}>
+            Appen kommer ikke fra Play Store — den henter selv nye udgaver.
+            Første gang skal enheden tillade “installér ukendte apps” for NorStream.
           </Text>
-          <View style={styles.confirmActions}>
-            <TvPressable style={styles.action} onPress={() => setConfirmingSignOut(false)}>
-              <Text style={styles.actionText}>Annullér</Text>
+          <TvPressable style={styles.row} disabled={updateBusy} onPress={() => void lookForUpdate()}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Søg efter opdatering</Text>
+              <Text style={styles.rowHint}>Se om der er en nyere udgave end {currentVersionCode()}.</Text>
+            </View>
+            <Text style={styles.actionText}>Søg</Text>
+          </TvPressable>
+          {update !== null && update.available && (
+            <TvPressable style={styles.row} disabled={updateBusy} onPress={() => void installUpdate()}>
+              <View style={styles.rowText}>
+                <Text style={styles.rowTitle}>Hent og installér udgave {update.versionCode}</Text>
+                <Text style={styles.rowHint}>Henter APK’en og starter installationen.</Text>
+              </View>
+              <Text style={styles.actionText}>Hent</Text>
             </TvPressable>
-            <TvPressable
-              style={styles.action}
-              onPress={() => {
-                void signOut();
-              }}
-            >
+          )}
+          {updateMessage !== null && <Text style={styles.hint}>{updateMessage}</Text>}
+        </View>
+      )}
+
+      <GroupHeader id="debug" title="Fejlfinding" hint="Loggen og diagnosedata, hvis noget driller" open={openGroup === 'debug'} onToggle={toggleGroup} />
+      {openGroup === 'debug' && (
+        <View style={styles.groupBody}>
+          <Text style={styles.subLabel}>Log fra afspilleren og guiden</Text>
+          <Text style={styles.hint}>
+            De sidste linjer om hvad afspilleren bad om og svarede (start forfra, genforbindelser) og guidens
+            bladring. Gemmes lokalt i op til et døgn, også efter genstart. Ingen adresser skrives her.
+          </Text>
+          <TvPressable style={styles.row} onPress={() => setLogLines(recentLog(40))}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Vis loggen</Text>
+              {logLines !== null && (
+                <Text style={styles.rowHint} selectable>
+                  Udgave {currentVersionCode()}{'\n'}
+                  {logLines.length === 0 ? 'Loggen er tom endnu.' : logLines.join('\n')}
+                </Text>
+              )}
+            </View>
+            <Text style={styles.actionText}>Vis</Text>
+          </TvPressable>
+
+          <DiagnosticSettings />
+        </View>
+      )}
+
+      <GroupHeader id="account" title="Konto" hint="Log ud af panelet" open={openGroup === 'account'} onToggle={toggleGroup} />
+      {openGroup === 'account' && (
+        <View style={styles.groupBody}>
+          <Text style={styles.subLabel}>Konto</Text>
+          {confirmingSignOut ? (
+            <View style={styles.confirmBox}>
+              <Text style={styles.confirmText}>
+                Dine adgangsoplysninger slettes fra enheden.
+              </Text>
+              <View style={styles.confirmActions}>
+                <TvPressable style={styles.action} onPress={() => setConfirmingSignOut(false)}>
+                  <Text style={styles.actionText}>Annullér</Text>
+                </TvPressable>
+                <TvPressable
+                  style={styles.action}
+                  onPress={() => {
+                    void signOut();
+                  }}
+                >
+                  <Text style={styles.dangerText}>Log ud</Text>
+                </TvPressable>
+              </View>
+            </View>
+          ) : (
+            <TvPressable style={styles.dangerButton} onPress={() => setConfirmingSignOut(true)}>
               <Text style={styles.dangerText}>Log ud</Text>
             </TvPressable>
-          </View>
+          )}
         </View>
-      ) : (
-        <TvPressable style={styles.dangerButton} onPress={() => setConfirmingSignOut(true)}>
-          <Text style={styles.dangerText}>Log ud</Text>
-        </TvPressable>
       )}
     </ScrollView>
   );
@@ -1218,6 +1279,22 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
     paddingTop: theme.spacing.md,
     borderTopColor: colors.border,
     borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  groupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: theme.radius,
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
+    marginTop: theme.spacing.sm,
+  },
+  groupHeaderOpen: { backgroundColor: colors.surfaceRaised },
+  groupTitle: { color: colors.text, fontSize: 17, fontWeight: '700' },
+  groupChevron: { color: colors.textMuted, fontSize: 18 },
+  groupBody: {
+    paddingHorizontal: theme.spacing.xs,
+    paddingBottom: theme.spacing.md,
   },
   /** Underoverskrift inde i en sektion (fx Tema, Undertekster under Udseende). */
   subLabel: {

@@ -77,13 +77,23 @@ it('TV-foraelderen starter ingen skjulte EPG-hentninger eller gammel preview-lae
   expect(tree!.root.findByType('NowNextBox' as any).props.focus).toBeNull();
 });
 
-it('telefonen laeser ikke gammel EPG foer den tvungne fulde hentning er klar',async()=>{
+it('telefonen viser det gemte straks og fornyer i baggrunden uden at tvinge (v423)',async()=>{
   const pending=deferred<any>();f.full.mockReturnValue(pending.promise);
   await mount();await advance();
-  expect(f.list).not.toHaveBeenCalled();expect(f.full).toHaveBeenCalledTimes(1);expect(f.short).not.toHaveBeenCalled();
-  expect(f.full.mock.calls[0]![5]).toMatchObject({force:true});
-  await act(async()=>pending.resolve({failed:0,fetched:1,programmes:1}));
   expect(f.list).toHaveBeenCalled();expect(text(tree!.toJSON())).toContain('Frisk udsendelse');
+  expect(f.full).toHaveBeenCalledTimes(1);expect(f.short).not.toHaveBeenCalled();
+  expect(f.full.mock.calls[0]![5].force).toBeUndefined();
+  await act(async()=>pending.resolve({failed:0,fetched:1,programmes:1}));
+  expect(text(tree!.toJSON())).toContain('Frisk udsendelse');
+});
+
+it('telefonen genaabner med det sidst viste, ogsaa mens SQL stadig laeser',async()=>{
+  const options=props();await mount(options);await advance();
+  await act(async()=>{tree!.unmount();tree=null;});
+  const slow=deferred<Programme[]>();f.list.mockReturnValue(slow.promise);
+  await mount(options);
+  expect(text(tree!.toJSON())).toContain('Frisk udsendelse');
+  await act(async()=>slow.resolve([programme()]));await advance();
 });
 
 it('telefonens gentagne synligheds-events genhenter ikke samme kanal i indgangen',async()=>{
@@ -100,8 +110,9 @@ it('skjult telefon-guide stopper koearbejde og genhenter ved ny indgang',async()
   const shouldContinue=f.full.mock.calls[0]![5].shouldContinue;
   await act(async()=>tree!.update(createElement(GuideScreen,{...options,active:false})));
   expect(shouldContinue()).toBe(false);
+  const reads=f.list.mock.calls.length;
   await act(async()=>pending.resolve({failed:0,fetched:1,programmes:1}));
-  expect(f.list).not.toHaveBeenCalled();
+  expect(f.list).toHaveBeenCalledTimes(reads);
   await act(async()=>tree!.update(createElement(GuideScreen,{...options,active:true})));await advance();
   expect(f.full).toHaveBeenCalledTimes(2);expect(text(tree!.toJSON())).toContain('Frisk udsendelse');
 });
@@ -126,7 +137,7 @@ it('telefonen genhenter efter baggrund og begrænser foerste hentning til synlig
 });
 
 
-it('UK/US bruger én frisk XMLTV-fil per kilde og genviser ikke gamle raekker efter tomt API',async()=>{
+it('UK/US uden API-oversigt faar panelets XMLTV-fil én gang pr. kilde, uden at tvinge',async()=>{
   const uk={...channel,id:'source:uk',name:'UK Channel'}, us={...channel,id:'source:us',name:'US Channel'};
   f.channels.mockResolvedValue([uk,us]);
   const records=new Map<string,Programme[]>([
@@ -135,22 +146,23 @@ it('UK/US bruger én frisk XMLTV-fil per kilde og genviser ikke gamle raekker ef
   ]);
   f.list.mockImplementation(async(_db,id)=>records.get(id)??[]);
   f.full.mockResolvedValue({failed:0,fetched:1,programmes:0});
-  f.clear.mockImplementation(async(_db,_rows,options)=>{for(const id of options.replaceChannelIds)records.delete(id);});
   f.file.mockImplementation(async(_db,_source,_creds,options)=>{
-    expect(records.size).toBe(0);
     for(const id of options.channelIds)records.set(id,[{...programme(`Frisk ${id}`),channelId:id}]);
     return {matched:2,programmes:2,channelIds:[uk.id,us.id]};
   });
   await mount();await advance();
-  expect(f.full).toHaveBeenCalledTimes(1);
+  // Begge kanalers API spoerges; filen hentes bagefter, én gang for begge.
+  expect(f.full).toHaveBeenCalledTimes(2);
   expect(f.file).toHaveBeenCalledTimes(1);
-  expect(f.file.mock.calls[0]![3]).toMatchObject({fresh:true,force:true,channelIds:[uk.id,us.id]});
+  expect(f.file.mock.calls[0]![3]).toMatchObject({channelIds:[uk.id,us.id]});
+  expect(f.file.mock.calls[0]![3].force).toBeUndefined();expect(f.file.mock.calls[0]![3].fresh).toBeUndefined();
+  expect(f.clear).not.toHaveBeenCalled();
   expect(text(tree!.toJSON())).toContain('Frisk source:uk');
   expect(text(tree!.toJSON())).toContain('Frisk source:us');
   expect(text(tree!.toJSON())).not.toContain('Gammel');
   const list=tree!.root.findByType('NativeList' as any);
   await act(async()=>list.props.onViewableItemsChanged({viewableItems:[{item:uk},{item:us}]}));await advance();
-  expect(f.file).toHaveBeenCalledTimes(1);expect(f.full).toHaveBeenCalledTimes(1);
+  expect(f.file).toHaveBeenCalledTimes(1);expect(f.full).toHaveBeenCalledTimes(2);
 });
 
 
@@ -162,7 +174,6 @@ it('en XMLTV-fil uden match blokerer ikke naeste kanals fungerende API',async()=
     [us.id,[{...programme('Gammel US'),channelId:us.id}]],
   ]);
   f.list.mockImplementation(async(_db,id)=>records.get(id)??[]);
-  f.clear.mockImplementation(async(_db,_rows,options)=>{for(const id of options.replaceChannelIds)records.delete(id);});
   f.full.mockImplementation(async(_db,_creds,_fetch,selected)=>{
     if(selected[0].id===uk.id)return {failed:0,fetched:1,programmes:0};
     records.set(us.id,[{...programme('Frisk US API'),channelId:us.id}]);
@@ -172,5 +183,7 @@ it('en XMLTV-fil uden match blokerer ikke naeste kanals fungerende API',async()=
   await mount();await advance();
   expect(f.full).toHaveBeenCalledTimes(2);expect(f.file).toHaveBeenCalledTimes(1);
   expect(text(tree!.toJSON())).toContain('Frisk US API');
-  expect(text(tree!.toJSON())).not.toContain('Gammel');
+  // Den gemte UK-oversigt bliver staaende, naar filen intet nyt havde.
+  expect(text(tree!.toJSON())).toContain('Gammel UK');
+  expect(text(tree!.toJSON())).not.toContain('Gammel US');
 });

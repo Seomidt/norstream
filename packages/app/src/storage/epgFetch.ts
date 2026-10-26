@@ -3,6 +3,36 @@ import type { SqlDatabase } from './types.js';
 /** Spec sec.4: en kanals EPG fornys naar hentningen er aeldre end 30 minutter. */
 export const EPG_MAX_AGE_MS = 30 * 60_000;
 
+/** Minutter foran UTC paa et givet tidspunkt (sommertid i Danmark: 120). */
+export type UtcOffsetAt = (ms: number) => number;
+
+/** Boksens egen zone. Hermes og Node laeser begge enhedens tidszone. */
+export const deviceUtcOffset: UtcOffsetAt = (ms) => -new Date(ms).getTimezoneOffset();
+
+/**
+ * Hvor laenge efter et skift mellem sommer- og vintertid EPG holdes ekstra frisk.
+ * Udbydernes oversigter har efter skiftet ofte en time forkert i et doegn
+ * eller to, til de selv retter den. Den rettelse skal med uden en haandrettet
+ * timekorrektion i appen (v418-v420 viste hvor galt det gaar).
+ */
+export const TIME_CHANGE_WINDOW_MS = 3 * 24 * 60 * 60_000;
+/** Inden for vinduet ovenfor fornys den fulde tabel efter én time i stedet for seks. */
+export const TIME_CHANGE_MAX_AGE_MS = 60 * 60_000;
+
+/**
+ * Er uret skiftet mellem sommer- og vintertid siden `fromMs`? Saa er alt der
+ * blev hentet foer skiftet mistaenkt: det kom fra en oversigt der maaske stadig
+ * regnede med den gamle tid.
+ */
+export function crossedTimeChange(fromMs: number, toMs: number, offsetAt: UtcOffsetAt = deviceUtcOffset): boolean {
+  return offsetAt(fromMs) !== offsetAt(toMs);
+}
+
+/** Er der skiftet tid inden for de seneste tre doegn? */
+export function nearTimeChange(nowMs: number, offsetAt: UtcOffsetAt = deviceUtcOffset): boolean {
+  return crossedTimeChange(nowMs - TIME_CHANGE_WINDOW_MS, nowMs, offsetAt);
+}
+
 export interface EpgFreshness {
   /** Hvornaar der sidst blev *hentet* for kanalen — ikke hvornaar der sidst blev gemt noget. */
   fetchedAt: number | null;
@@ -43,6 +73,7 @@ export async function getEpgFreshness(
  * 1. Der er aldrig hentet for kanalen.
  * 2. Hentningen er mere end 30 minutter gammel.
  * 3. Det nyeste gemte program er allerede slut.
+ * 4. Uret er skiftet mellem sommer- og vintertid siden hentningen.
  *
  * **Regel 1 er "der er ikke hentet", ikke "der er ingen programmer."** Laest paa
  * den anden maade ville enhver kanal panelet ikke har EPG for blive hentet igen
@@ -50,11 +81,12 @@ export async function getEpgFreshness(
  * forhindre. Et vellykket kald der gav nul programmer saetter derfor ogsaa
  * `fetched_at`, og regel 2 daekker kanalen bagefter.
  */
-export function needsEpgFetch(freshness: EpgFreshness, now: Date): boolean {
+export function needsEpgFetch(freshness: EpgFreshness, now: Date, offsetAt: UtcOffsetAt = deviceUtcOffset): boolean {
   if (freshness.fetchedAt === null) return true;
 
   const ms = now.getTime();
   if (ms - freshness.fetchedAt >= EPG_MAX_AGE_MS) return true;
+  if (crossedTimeChange(freshness.fetchedAt, ms, offsetAt)) return true;
 
   // Regel 3 kan ikke udloeses uden data; regel 2 daekker det tilfaelde.
   if (freshness.latestStopMs !== null && freshness.latestStopMs <= ms) return true;
@@ -99,9 +131,17 @@ export async function getArchiveFetchedAt(
   return row?.fetched_at ?? null;
 }
 
-export function needsArchiveFetch(fetchedAt: number | null, now: Date): boolean {
+/**
+ * Seks timer som udgangspunkt. Ved et tidsskift er en tabel hentet foer
+ * skiftet altid gammel, og de foerste tre doegn efter skiftet fornyes den hver
+ * time, saa udbyderens egen rettelse kommer frem uden at nogen roerer appen.
+ */
+export function needsArchiveFetch(fetchedAt: number | null, now: Date, offsetAt: UtcOffsetAt = deviceUtcOffset): boolean {
   if (fetchedAt === null) return true;
-  return now.getTime() - fetchedAt >= ARCHIVE_EPG_MAX_AGE_MS;
+  const ms = now.getTime();
+  if (crossedTimeChange(fetchedAt, ms, offsetAt)) return true;
+  const maxAge = nearTimeChange(ms, offsetAt) ? TIME_CHANGE_MAX_AGE_MS : ARCHIVE_EPG_MAX_AGE_MS;
+  return ms - fetchedAt >= maxAge;
 }
 
 export async function markArchiveFetched(
@@ -132,7 +172,8 @@ export function needsShortEpg(
   freshness: EpgFreshness,
   archiveFetchedAt: number | null,
   now: Date,
+  offsetAt: UtcOffsetAt = deviceUtcOffset,
 ): boolean {
-  if (!needsArchiveFetch(archiveFetchedAt, now)) return false;
-  return needsEpgFetch(freshness, now);
+  if (!needsArchiveFetch(archiveFetchedAt, now, offsetAt)) return false;
+  return needsEpgFetch(freshness, now, offsetAt);
 }

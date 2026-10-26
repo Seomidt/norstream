@@ -100,9 +100,10 @@ const SETTING_KEYS = [
   'sport_auto_remind',
 ];
 /** Indstillinger per kilde: noeglen ender paa kildens id. */
+// Arkivets timekorrektion (archive_shift_minutes:) er fjernet i v423 og
+// hverken gemmes eller gendannes; en gammel kopi kan ikke bringe den tilbage.
 const SCOPED_SETTING_PREFIXES = [
   'timeshift_dialect:', 'panel_offset_minutes:',
-  'archive_shift_minutes:',
 ];
 
 /**

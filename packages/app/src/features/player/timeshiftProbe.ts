@@ -2,7 +2,6 @@ import { buildTimeshiftUrl } from '@norstream/core';
 import type { Programme, TimeshiftDialect, XtreamCredentials } from '@norstream/core';
 import { safe } from '../../diagnostics/log.js';
 import { LIVE_EDGE_LAG_MS } from './archiveContinuation.js';
-import { archiveRequestTime } from './archiveTiming.js';
 
 /**
  * "Test start forfra" (v355): kan panelet levere arkivet som en stroem der
@@ -77,10 +76,6 @@ export function resolveVariant(base: string, variant: string): string {
 
 export interface ProbeOptions {
   now?: number;
-  /** Programmets tider er allerede korrigeret i EPG-laesevisningen. */
-  epgShiftMinutes?: number;
-  /** Kildens arkivkorrektion holdes adskilt fra EPG og serverens tidszone. */
-  archiveShiftMinutes?: number;
   /** Hvor laenge der ventes mellem de to laesninger af spillelisten. */
   waitMs?: number;
   sleep?: (ms: number) => Promise<void>;
@@ -142,14 +137,10 @@ export async function probeTimeshift(
   };
   const startMs = programme.start.getTime();
   const endMs = programme.stop.getTime();
-  const timing = {
-    epgMinutes: options.epgShiftMinutes ?? 0,
-    archiveMinutes: options.archiveShiftMinutes ?? 0,
-  };
-  const archiveStart = archiveRequestTime(programme.start, timing);
+  const archiveStart = programme.start;
   const stillOn = endMs > now;
   say(`Udsendelse ${clock(startMs)}–${clock(endMs)}, nu ${clock(now)}${stillOn ? '' : ' (slut — testen siger mest om igangværende udsendelser)'}. Dialekt ${dialect}, offset ${offsetMinutes} min.`);
-  say(`Tidskorrektion: EPG ${timing.epgMinutes} min, arkiv ${timing.archiveMinutes} min; arkivadresse fra ${clock(archiveStart.getTime())}.`);
+  say(`Arkivadresse fra ${clock(archiveStart.getTime())} (udsendelsens start, panelets tidszone).`);
 
   const toEndMinutes = Math.max(1, Math.ceil((endMs - startMs) / 60_000));
   const existingMinutes = Math.max(1, Math.ceil((Math.min(endMs, now - LIVE_EDGE_LAG_MS) - startMs) / 60_000));
