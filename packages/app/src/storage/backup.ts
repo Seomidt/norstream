@@ -102,7 +102,7 @@ const SETTING_KEYS = [
 /** Indstillinger per kilde: noeglen ender paa kildens id. */
 const SCOPED_SETTING_PREFIXES = [
   'timeshift_dialect:', 'panel_offset_minutes:',
-  'epg_shift_minutes:', 'archive_shift_minutes:',
+  'archive_shift_minutes:',
 ];
 
 /**

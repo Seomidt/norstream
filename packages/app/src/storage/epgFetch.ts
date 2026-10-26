@@ -10,16 +10,6 @@ export interface EpgFreshness {
   latestStopMs: number | null;
 }
 
-function validFetchedAt(value: number | null, nowMs: number): value is number {
-  return value !== null && Number.isFinite(value) && value <= nowMs;
-}
-
-/** Udbyderens fremtidige oversigt kan vaere rettet efter et ur-skift.
- * Forny data én gang; programmets epoch-tider flyttes aldrig lokalt. */
-function crossedClockChange(fetchedAt: number, now: Date): boolean {
-  return new Date(fetchedAt).getTimezoneOffset() !== now.getTimezoneOffset();
-}
-
 interface FreshnessRow {
   fetched_at: number | null;
   latest_stop: number | null;
@@ -37,7 +27,7 @@ export async function getEpgFreshness(
   const row = await db.getFirstAsync<FreshnessRow>(
     `SELECT
        (SELECT fetched_at FROM epg_fetch  WHERE stream_id  = ?) AS fetched_at,
-       (SELECT MAX(stop_ms) FROM programmes_effective WHERE channel_id = ?) AS latest_stop`,
+       (SELECT MAX(stop_ms) FROM programmes WHERE channel_id = ?) AS latest_stop`,
     [streamId, streamId],
   );
   return {
@@ -61,9 +51,9 @@ export async function getEpgFreshness(
  * `fetched_at`, og regel 2 daekker kanalen bagefter.
  */
 export function needsEpgFetch(freshness: EpgFreshness, now: Date): boolean {
+  if (freshness.fetchedAt === null) return true;
+
   const ms = now.getTime();
-  if (!validFetchedAt(freshness.fetchedAt, ms)) return true;
-  if (crossedClockChange(freshness.fetchedAt, now)) return true;
   if (ms - freshness.fetchedAt >= EPG_MAX_AGE_MS) return true;
 
   // Regel 3 kan ikke udloeses uden data; regel 2 daekker det tilfaelde.
@@ -110,8 +100,7 @@ export async function getArchiveFetchedAt(
 }
 
 export function needsArchiveFetch(fetchedAt: number | null, now: Date): boolean {
-  if (!validFetchedAt(fetchedAt, now.getTime())) return true;
-  if (crossedClockChange(fetchedAt, now)) return true;
+  if (fetchedAt === null) return true;
   return now.getTime() - fetchedAt >= ARCHIVE_EPG_MAX_AGE_MS;
 }
 
@@ -132,8 +121,8 @@ export async function markArchiveFetched(
  *
  * `get_short_epg` giver de naeste tolv programmer. `get_simple_data_table`
  * giver hele tabellen — dage frem og tilbage — og guiden henter den for hver
- * synlig kanal. Begge kald kan holde nu/naeste frisk i 30 minutter. Arkivets
- * seks timers levetid maa ikke fastholde dagens aendrede programoversigt.
+ * synlig kanal. Er den fulde tabel frisk, tilfoejer de tolv **ingenting**, og
+ * et kald per kanal hver halve time er ren spild af panelets ene forbindelse.
  *
  * Reglen staar her frem for inde i hente-lagets loekke, saa den kan proeves
  * for sig: en fejl her koster enten et hav af overfloedige kald eller en guide
@@ -144,8 +133,6 @@ export function needsShortEpg(
   archiveFetchedAt: number | null,
   now: Date,
 ): boolean {
-  const ms = now.getTime();
-  const fetched = [freshness.fetchedAt, archiveFetchedAt].filter((at): at is number => validFetchedAt(at, ms));
-  const fetchedAt = fetched.length === 0 ? null : Math.max(...fetched);
-  return needsEpgFetch({ ...freshness, fetchedAt }, now);
+  if (!needsArchiveFetch(archiveFetchedAt, now)) return false;
+  return needsEpgFetch(freshness, now);
 }

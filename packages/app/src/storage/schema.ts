@@ -476,7 +476,7 @@ const TABLES = [
 // v29: lokal fejlfindingsjournal og enkelt outbox; ingen aendring i programdata.
 // v30: filmsamlinger og identitet for afsnit i fulgte serier.
 // v31: kildeopdelt EPG-/arkivkorrektion over uforandrede programraadata.
-const SCHEMA_VERSION = 32;
+const SCHEMA_VERSION = 33;
 
 /**
  * Foerste version der kan opgraderes additivt.
@@ -791,6 +791,21 @@ async function clearEpgFetchTimes(db: SqlDatabase): Promise<void> {
   }
 }
 
+/** Engangs-oprydning af afledt EPG ved tilbagefoersel til v400. */
+async function restoreV400Epg(db: SqlDatabase): Promise<void> {
+  await db.execAsync("DELETE FROM settings WHERE key LIKE 'epg_shift_minutes:%'");
+  await clearEpgFetchTimes(db);
+  await db.execAsync("DELETE FROM settings WHERE key LIKE 'last_panel_epg5_ms:%' OR key LIKE 'panel_epg_wanted:%'");
+  const tables = await db.getAllAsync<{name: string}>("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('programmes','channels','sources')");
+  if (tables.length === 3) {
+    // Kun panelets afledte oversigt. M3U-programmer og brugerens historik bevares.
+    await db.execAsync(`DELETE FROM programmes WHERE channel_id IN
+      (SELECT c.id FROM channels c JOIN sources s ON s.id=c.source_id WHERE s.kind='xtream')`);
+  }
+  await db.execAsync('DROP VIEW IF EXISTS programmes_effective');
+  await db.execAsync(EPG_TIMING_SCHEMA);
+}
+
 export async function migrate(db: SqlDatabase): Promise<void> {
   const version = await readUserVersion(db);
 
@@ -802,11 +817,9 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     return;
   }
 
-  if (version === 31) {
-    // Genhent synlige kanaler én gang efter rettelsen af sammenflettede
-    // EPG-svar. Behold data indtil en ny oversigt er klar.
-    await clearEpgFetchTimes(db);
-    await db.execAsync('PRAGMA user_version = 32;');
+  if (version === 31 || version === 32) {
+    await restoreV400Epg(db);
+    await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     await refreshChannelsWhenMatchRulesChanged(db);
     return;
   }
@@ -816,7 +829,7 @@ export async function migrate(db: SqlDatabase): Promise<void> {
     await db.execAsync(DISCOVERY_SCHEMA);
     await db.execAsync(EPG_TIMING_SCHEMA);
     await seedUpgradedEpgTiming(db);
-    await clearEpgFetchTimes(db);
+    await restoreV400Epg(db);
     await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     await refreshChannelsWhenMatchRulesChanged(db);
     return;
@@ -864,7 +877,7 @@ export async function migrate(db: SqlDatabase): Promise<void> {
   await db.execAsync('CREATE INDEX IF NOT EXISTS idx_vod_posters_tmdb ON vod_posters (tmdb_id)');
   await db.execAsync(EPG_TIMING_SCHEMA);
   if (version > 0 && version < 31) await seedUpgradedEpgTiming(db);
-  if (version > 0 && version < 32) await clearEpgFetchTimes(db);
+  if (version > 0 && version < 33) await restoreV400Epg(db);
   await db.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION}`);
   await refreshChannelsWhenMatchRulesChanged(db);
 }

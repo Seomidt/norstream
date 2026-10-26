@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FetchLike, XtreamCredentials } from '@norstream/core';
 import { XtreamAuthError, channelKey } from '@norstream/core';
 import { getEpgFreshness, markEpgFetched } from '../storage/epgFetch.js';
-import { getNowNext, listProgrammes, upsertProgrammes } from '../storage/programmes.js';
+import { listProgrammes, upsertProgrammes } from '../storage/programmes.js';
 import { migrate } from '../storage/schema.js';
 import { createTestDatabase } from '../storage/testDb.js';
 import type { SqlDatabase } from '../storage/types.js';
@@ -401,54 +401,18 @@ describe('oprydningen og arkivet', () => {
 
 describe('cachen sparer turene til panelet', () => {
   it('henter ikke "nu og naeste" naar den fulde tabel lige er hentet', async () => {
-    // En nylig fuld hentning holder ogsaa nu/naeste frisk i 30 minutter.
+    // Den fulde tabel daekker dage. Uden den her regel ville guiden hente tolv
+    // programmer per kanal hver halve time oveni — paa et panel der kun
+    // tillader én forbindelse.
     const full = archivePanel({ '247634': [listing(-60), listing(0), listing(60)] });
     await ensureFullEpg(db, sources, full, [{ id: key('247634') }], NOW);
 
     const short = panel({ listings: { '247634': [listing(0)] } });
-    const later = new Date(NOW.getTime() + 10 * 60_000);
+    const later = new Date(NOW.getTime() + 45 * 60_000);
     const result = await ensureEpg(db, sources, short, [key('247634')], later);
 
     expect(result.fetched).toBe(0);
     expect((short as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
-  });
-
-  it('henter en rettet programoversigt efter 45 minutter selv om den fulde tabel stadig er frisk', async () => {
-    const full = archivePanel({ '247634': [listing(0, 120)] });
-    await ensureFullEpg(db, sources, full, [WITH_ARCHIVE], NOW);
-    const short = panel({ listings: { '247634': [{ ...listing(30, 90), title: 'QWt0dWVsdA==' }] } });
-    const later = new Date(NOW.getTime() + 45 * 60_000);
-    expect((await ensureEpg(db, sources, short, [key('247634')], later)).fetched).toBe(1);
-    expect((await getNowNext(db, key('247634'), later)).now?.title).toBe('Aktuelt');
-    expect((await listProgrammes(db, key('247634'), NOW, new Date(NOW.getTime() + 2 * HOUR_MS))).map(p => p.title)).toEqual(['Aktuelt']);
-    expect((await ensureFullEpg(db, sources, full, [WITH_ARCHIVE], later)).fetched).toBe(0);
-  });
-
-  it('erstatter foer-vintertidens fremtidige programdata med panelets rettelse uden lokal tidsforskydning', async () => {
-    const fetched = new Date('2026-10-25T00:30:00Z');
-    const later = new Date('2026-10-25T03:00:00Z');
-    const oldStart = new Date('2026-10-25T01:30:00Z');
-    const start = new Date('2026-10-25T02:30:00Z');
-    const stop = new Date('2026-10-25T04:00:00Z');
-    const raw = (title: string, from: Date, to: Date) => ({ title, start_timestamp: String(from.getTime() / 1000), stop_timestamp: String(to.getTime() / 1000) });
-    await ensureFullEpg(db, sources, archivePanel({ '247634': [raw('R2FtbWVs', oldStart, stop)] }), [WITH_ARCHIVE], fetched);
-    const otherSource = channelKey('another-source', '247634');
-    await upsertProgrammes(db, [{ channelId: otherSource, title: 'Anden kilde', description: null, start: oldStart, stop }]);
-    const short = panel({ listings: { '247634': [raw('QWt0dWVsdA==', start, stop)] } });
-    expect((await ensureEpg(db, sources, short, [key('247634')], later)).fetched).toBe(1);
-    const current = (await getNowNext(db, key('247634'), later)).now;
-    expect(current).toMatchObject({ title: 'Aktuelt', start, stop });
-    expect((await getNowNext(db, otherSource, later)).now?.title).toBe('Anden kilde');
-    expect((await getEpgFreshness(db, key('247634'))).fetchedAt).toBe(later.getTime());
-  });
-
-  it('en tom fuld og kort hentning faar stadig 30 minutters pause mellem forsoeg', async () => {
-    await ensureFullEpg(db, sources, archivePanel(), [WITH_ARCHIVE], NOW);
-    const short = panel();
-    expect((await ensureEpg(db, sources, short, [key('247634')], new Date(NOW.getTime() + 10 * 60_000))).fetched).toBe(0);
-    expect((await ensureEpg(db, sources, short, [key('247634')], new Date(NOW.getTime() + 31 * 60_000))).fetched).toBe(1);
-    expect((await ensureEpg(db, sources, short, [key('247634')], new Date(NOW.getTime() + 32 * 60_000))).fetched).toBe(0);
-    expect(short).toHaveBeenCalledTimes(1);
   });
 
   it('henter igen naar den fulde tabel er blevet gammel', async () => {

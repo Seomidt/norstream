@@ -152,3 +152,13 @@ describe('kildens EPG-tid og arkivtid', () => {
     expect(f.save).toHaveBeenLastCalledWith(otherDb, panelA.id, { epgMinutes: 60, archiveMinutes: 0 });
   });
 });
+
+
+it('v400-EPG skjuler Programtider men bevarer arkivets eksisterende knapper', async () => {
+  f.epg.mockResolvedValue(0);
+  await act(async () => { tree = create(createElement(EpgTimingSettings, {db, showEpg:false, onChanged:f.changed})); });
+  expect(texts()).not.toContain('Programtider');
+  expect(texts()).toContain('Arkivtid: +1 time');
+  await press('Mit panel: Arkivtid, +1 time');
+  expect(f.save).toHaveBeenLastCalledWith(db,panelA.id,{epgMinutes:0,archiveMinutes:120});
+});

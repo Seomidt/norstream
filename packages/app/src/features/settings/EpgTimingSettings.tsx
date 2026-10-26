@@ -10,7 +10,7 @@ import { TvPressable } from '../../ui/TvPressable.js';
 const LIMIT_MINUTES = 12 * 60;
 interface TimingSource { id: string; name: string; hasArchive: boolean; epgMinutes: number; archiveMinutes: number }
 interface TimingState { db: SqlDatabase; sources: TimingSource[] }
-interface Props { db: SqlDatabase; onChanged?: () => void }
+interface Props { db: SqlDatabase; onChanged?: () => void; showEpg?: boolean }
 
 function timingText(minutes: number): string {
   if (minutes === 0) return '0 minutter';
@@ -22,7 +22,7 @@ function timingText(minutes: number): string {
 }
 
 /** Kildens programtid og arkivtid kan rettes hver for sig uden genstart. */
-export function EpgTimingSettings({ db, onChanged }: Props) {
+export function EpgTimingSettings({ db, onChanged, showEpg = true }: Props) {
   const styles = useStyles(makeStyles);
   const [state, setState] = useState<TimingState | null>(null);
   const stateRef = useRef(state);
@@ -86,15 +86,15 @@ export function EpgTimingSettings({ db, onChanged }: Props) {
     }
   }
 
-  const sources = state?.db === db ? state.sources : null;
+  const sources = state?.db === db ? state.sources.filter(source => showEpg || source.hasArchive) : null;
   if (sources?.length === 0 && error === null) return null;
   return <View>
-    <Text style={styles.sectionTitle}>EPG-tid</Text>
-    <Text style={styles.hint}>Viser guiden kl. 18 for en udsendelse, der begynder kl. 19, skal Programtider være +1 time. Gælder med det samme.</Text>
+    <Text style={styles.sectionTitle}>{showEpg ? 'EPG-tid' : 'Arkivtid'}</Text>
+    {showEpg && <Text style={styles.hint}>Viser guiden kl. 18 for en udsendelse, der begynder kl. 19, skal Programtider være +1 time. Gælder med det samme.</Text>}
     {sources === null && error === null && <Text style={styles.hint}>Henter tidsindstillinger …</Text>}
     {sources?.map(source => <View key={source.id} style={styles.source}>
       <Text style={styles.sourceName}>{source.name}</Text>
-      {(source.hasArchive ? ['epgMinutes', 'archiveMinutes'] as const : ['epgMinutes'] as const).map(field => {
+      {(source.hasArchive ? ['epgMinutes', 'archiveMinutes'] as const : ['epgMinutes'] as const).filter(field => showEpg || field !== 'epgMinutes').map(field => {
         const label = field === 'epgMinutes' ? 'Programtider' : 'Arkivtid';
         return <View key={field} style={styles.field}>
           <Text style={styles.value}>{label}: {timingText(source[field])}</Text>

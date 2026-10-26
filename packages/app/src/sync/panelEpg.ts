@@ -2,7 +2,6 @@ import { XtreamClient, buildXmltvUrl, normaliseChannelName } from '@norstream/co
 import type { FetchLike, Programme, XtreamCredentials } from '@norstream/core';
 import { eligibleParts, pinnedIp, streamSource } from '../net/doh.js';
 import { upsertProgrammes } from '../storage/programmes.js';
-import { getEpgTimeShift } from '../storage/epgTiming.js';
 import { getPanelEpgEnabled, getSetting, setSetting } from '../storage/settings.js';
 import { sportChannels } from '../storage/sport.js';
 import type { SqlDatabase } from '../storage/types.js';
@@ -177,7 +176,7 @@ export async function syncPanelEpg(
        FROM channels c
        WHERE c.id IN (${placeholders})
          AND NOT EXISTS (
-           SELECT 1 FROM programmes_effective p WHERE p.channel_id = c.id AND p.stop_ms > ? AND p.start_ms < ?
+           SELECT 1 FROM programmes p WHERE p.channel_id = c.id AND p.stop_ms > ? AND p.start_ms < ?
          )`,
       [...slice, nowMs, nowMs + HAS_EPG_AHEAD_MS],
     );
@@ -219,11 +218,8 @@ export async function syncPanelEpg(
     logEvent('baggrund', `panel-fil: hentet paa ${Math.round((Date.now() - startedAt) / 1000)} s, ${feed.length} kanaler i filen, ${matches.size} af ${wanted.length} fundet`);
     if (matches.size === 0) return { matched: 0, programmes: 0 };
 
-    const shiftMs = await getEpgTimeShift(db, sourceId) * 60_000;
-    // Native laeser raadata. Det synlige vindue flyttes tilbage til kildens
-    // koordinat foer filtrering, saa foerste/sidste dag ikke mister kanten.
-    const from = panelEpgFrom(now) - shiftMs;
-    const to = now.getTime() + AFTER_MS - shiftMs;
+    const from = panelEpgFrom(now);
+    const to = now.getTime() + AFTER_MS;
     // I klumper: hver klump er ét gennemloeb af filen i native kode og et
     // JSON-svar paa faa MB, skrevet foer den naeste laeses (v352).
     const feedIds = [...matches.keys()];
@@ -311,7 +307,7 @@ export async function diagnosePanelEpg(
     `SELECT c.id AS key, c.name AS name, c.country AS country, c.epg_channel_id AS epgId
      FROM favorites f JOIN channels c ON c.id = f.channel_id
      WHERE c.source_id = ?
-       AND NOT EXISTS (SELECT 1 FROM programmes_effective p WHERE p.channel_id = c.id AND p.stop_ms > ? AND p.start_ms < ?)
+       AND NOT EXISTS (SELECT 1 FROM programmes p WHERE p.channel_id = c.id AND p.stop_ms > ? AND p.start_ms < ?)
      ORDER BY f.position IS NULL, f.position LIMIT ${MAX_WANTED}`,
     [sourceId, nowMs, nowMs + HAS_EPG_AHEAD_MS],
   );
@@ -397,9 +393,8 @@ export async function diagnosePanelEpg(
       }
     }
     if (matches.size === 0) return lines.join('\n');
-    const shiftMs = await getEpgTimeShift(db, sourceId) * 60_000;
     const found = JSON.parse(
-      await native.programmes(path, JSON.stringify([...matches.keys()]), panelEpgFrom(now) - shiftMs, nowMs + AFTER_MS - shiftMs),
+      await native.programmes(path, JSON.stringify([...matches.keys()]), panelEpgFrom(now), nowMs + AFTER_MS),
     ) as FeedProgramme[];
     const programmes: Programme[] = [];
     for (const entry of found) {

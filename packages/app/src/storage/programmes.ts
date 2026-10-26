@@ -1,7 +1,5 @@
 import type { Programme } from '@norstream/core';
 import { withTransaction } from './transaction.js';
-import { invalidateProgrammeData } from './programmeRevision.js';
-import { EPG_TIME_SHIFT_MINUTES_LIMIT } from './epgTiming.js';
 import type { SqlDatabase } from './types.js';
 
 interface ProgrammeRow {
@@ -50,26 +48,7 @@ export interface UpsertOptions {
   replaceWindow?: boolean;
 }
 
-// To asynkrone hentninger maa ikke flette sletning og indsaettelse. Koen
-// gaelder kun EPG-skrivere paa denne database; laesninger venter ikke i koen.
-const programmeWrites = new WeakMap<SqlDatabase, Promise<void>>();
-
-export function upsertProgrammes(
-  db: SqlDatabase,
-  programmes: Programme[],
-  options: UpsertOptions = {},
-): Promise<void> {
-  if (programmes.length === 0) return Promise.resolve();
-  const previous = programmeWrites.get(db) ?? Promise.resolve();
-  const work = previous.then(() => writeProgrammes(db, programmes, options));
-  const tail = work.catch(() => undefined);
-  programmeWrites.set(db, tail);
-  void tail.then(() => { if (programmeWrites.get(db) === tail) programmeWrites.delete(db); });
-  return work;
-}
-
-async function writeProgrammes(
-
+export async function upsertProgrammes(
   db: SqlDatabase,
   programmes: Programme[],
   options: UpsertOptions = {},
@@ -84,55 +63,52 @@ async function writeProgrammes(
   for (const p of programmes) byKey.set(`${p.channelId}\u0000${p.start.getTime()}`, p);
   const rows = [...byKey.values()];
 
-  const channels = new Map<string, Programme[]>();
-  for (const row of rows) {
-    const list = channels.get(row.channelId);
-    if (list === undefined) channels.set(row.channelId, [row]);
-    else list.push(row);
-  }
-  // Hele kanalens nye vindue skrives atomisk. Giv traaden luft mellem
-  // kanaler, men aldrig mellem sletning og indsaettelse for samme kanal.
-  let txRows: Programme[] = [];
-  const writeChunk = async () => {
-    const sliceRows = txRows;
-    await withTransaction(db, async () => {
-      if (options.replaceWindow === true) {
-        const windows = new Map<string, { from: number; to: number }>();
-        for (const p of sliceRows) {
-          const window = windows.get(p.channelId);
-          if (window === undefined) windows.set(p.channelId, { from: p.start.getTime(), to: p.stop.getTime() });
-          else { window.from = Math.min(window.from, p.start.getTime()); window.to = Math.max(window.to, p.stop.getTime()); }
-        }
-        for (const [channelId, window] of windows) {
-          await db.runAsync('DELETE FROM programmes WHERE channel_id = ? AND stop_ms > ? AND start_ms < ?', [channelId, window.from, window.to]);
-        }
+  if (options.replaceWindow === true) {
+    const windows = new Map<string, { from: number; to: number }>();
+    for (const p of rows) {
+      const window = windows.get(p.channelId);
+      const start = p.start.getTime();
+      const stop = p.stop.getTime();
+      if (window === undefined) windows.set(p.channelId, { from: start, to: stop });
+      else {
+        window.from = Math.min(window.from, start);
+        window.to = Math.max(window.to, stop);
       }
-      for (let i = 0; i < sliceRows.length; i += UPSERT_CHUNK) {
-        const slice = sliceRows.slice(i, i + UPSERT_CHUNK);
+    }
+    await withTransaction(db, async () => {
+      for (const [channelId, window] of windows) {
+        await db.runAsync('DELETE FROM programmes WHERE channel_id = ? AND stop_ms > ? AND start_ms < ?', [channelId, window.from, window.to]);
+      }
+    });
+  }
+
+  // Flere smaa transaktioner frem for én stor (se TX_ROWS). Inden i hver:
+  // faa fler-raekkers INSERTs frem for én runAsync per program. En lille
+  // hentning (nu-og-naeste, ~12 raekker) er stadig én transaktion.
+  for (let start = 0; start < rows.length; start += TX_ROWS) {
+    const txRows = rows.slice(start, start + TX_ROWS);
+    await withTransaction(db, async () => {
+      for (let i = 0; i < txRows.length; i += UPSERT_CHUNK) {
+        const slice = txRows.slice(i, i + UPSERT_CHUNK);
         const placeholders = slice.map(() => '(?, ?, ?, ?, ?)').join(', ');
         const args: (string | number | null)[] = [];
-        for (const p of slice) args.push(p.channelId, p.start.getTime(), p.stop.getTime(), p.title, p.description);
+        for (const p of slice) {
+          args.push(p.channelId, p.start.getTime(), p.stop.getTime(), p.title, p.description);
+        }
         await db.runAsync(
           `INSERT INTO programmes (channel_id, start_ms, stop_ms, title, description)
            VALUES ${placeholders}
            ON CONFLICT(channel_id, start_ms) DO UPDATE SET
-             stop_ms = excluded.stop_ms, title = excluded.title, description = excluded.description`,
+             stop_ms     = excluded.stop_ms,
+             title       = excluded.title,
+             description = excluded.description`,
           args,
         );
       }
     });
-    // En varm guide maa ikke beholde den tidligere oversigt efter en skrivning.
-    invalidateProgrammeData(db);
-    txRows = [];
-  };
-  for (const channelRows of channels.values()) {
-    if (txRows.length > 0 && txRows.length + channelRows.length > TX_ROWS) {
-      await writeChunk();
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
-    txRows.push(...channelRows);
+    // Luft mellem transaktionerne, saa laesninger kan komme til.
+    if (start + TX_ROWS < rows.length) await new Promise((resolve) => setTimeout(resolve, 0));
   }
-  if (txRows.length > 0) await writeChunk();
 }
 
 /**
@@ -160,7 +136,7 @@ export async function nowTitlesFor(
     const slice = channelIds.slice(i, i + CHUNK);
     const placeholders = slice.map(() => '?').join(', ');
     const rows = await db.getAllAsync<{ channel_id: string; title: string; start_ms: number }>(
-      `SELECT channel_id, title, start_ms FROM programmes_effective
+      `SELECT channel_id, title, start_ms FROM programmes
        WHERE channel_id IN (${placeholders}) AND start_ms <= ? AND stop_ms > ?`,
       [...slice, ms, ms],
     );
@@ -186,7 +162,7 @@ export async function listProgrammes(
   to: Date,
 ): Promise<Programme[]> {
   const rows = await db.getAllAsync<ProgrammeRow>(
-    `SELECT * FROM programmes_effective
+    `SELECT * FROM programmes
      WHERE channel_id = ? AND stop_ms > ? AND start_ms < ?
      ORDER BY start_ms`,
     [epgChannelId, from.getTime(), to.getTime()],
@@ -209,7 +185,7 @@ export async function getNowNext(
   const ms = now.getTime();
 
   const current = await db.getFirstAsync<ProgrammeRow>(
-    `SELECT * FROM programmes_effective
+    `SELECT * FROM programmes
      WHERE channel_id = ? AND start_ms <= ? AND stop_ms > ?
      ORDER BY start_ms DESC LIMIT 1`,
     [epgChannelId, ms, ms],
@@ -218,7 +194,7 @@ export async function getNowNext(
   if (current) {
     // Der sendes noget nu: naeste program er det foerste der starter ved eller efter sluttidspunktet
     const following = await db.getFirstAsync<ProgrammeRow>(
-      `SELECT * FROM programmes_effective
+      `SELECT * FROM programmes
        WHERE channel_id = ? AND start_ms >= ?
        ORDER BY start_ms LIMIT 1`,
       [epgChannelId, current.stop_ms],
@@ -232,7 +208,7 @@ export async function getNowNext(
 
   // Intet program nu: find det foerste program der starter i fremtiden
   const following = await db.getFirstAsync<ProgrammeRow>(
-    `SELECT * FROM programmes_effective
+    `SELECT * FROM programmes
      WHERE channel_id = ? AND start_ms > ?
      ORDER BY start_ms LIMIT 1`,
     [epgChannelId, ms],
@@ -263,7 +239,7 @@ export async function listProgrammesFor(
     const slice = unique.slice(i, i + CHUNK);
     const placeholders = slice.map(() => '?').join(', ');
     const rows = await db.getAllAsync<ProgrammeRow>(
-      `SELECT channel_id, start_ms, stop_ms, title, description FROM programmes_effective
+      `SELECT channel_id, start_ms, stop_ms, title, description FROM programmes
        WHERE channel_id IN (${placeholders}) AND stop_ms > ? AND start_ms < ?
        ORDER BY start_ms`,
       [...slice, from.getTime(), to.getTime()],
@@ -285,7 +261,7 @@ export async function nowProgrammesFor(
   for (let i = 0; i < ids.length; i += 400) {
     const chunk = ids.slice(i, i + 400);
     const rows = await db.getAllAsync<ProgrammeRow>(
-      `SELECT * FROM programmes_effective WHERE channel_id IN (${chunk.map(() => '?').join(', ')})
+      `SELECT * FROM programmes WHERE channel_id IN (${chunk.map(() => '?').join(', ')})
        AND start_ms <= ? AND stop_ms > ?`,
       [...chunk, ms, ms],
     );
@@ -343,11 +319,5 @@ export async function deleteProgrammesBefore(
   db: SqlDatabase,
   cutoff: Date,
 ): Promise<void> {
-  const cutoffMs = cutoff.getTime();
-  // Den effektive tid kan hoejst flyttes tolv timer. Indekset indskraenker
-  // derfor raadata foer korrektionen kontrolleres paa de gamle kandidater.
-  await db.runAsync(`DELETE FROM programmes WHERE stop_ms <= ? AND EXISTS
-    (SELECT 1 FROM programmes_effective e
-     WHERE e.channel_id = programmes.channel_id AND e.source_start_ms = programmes.start_ms
-       AND e.stop_ms <= ?)`, [cutoffMs + EPG_TIME_SHIFT_MINUTES_LIMIT * 60_000, cutoffMs]);
+  await db.runAsync('DELETE FROM programmes WHERE stop_ms <= ?', [cutoff.getTime()]);
 }

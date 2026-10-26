@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  AppState,
   FlatList,
   PanResponder,
   ScrollView,
@@ -16,7 +15,6 @@ import type { Programme } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { listChannels } from '../../storage/channels.js';
 import type { StoredChannel } from '../../storage/channels.js';
-import { guideSnapshotRevision, peekGuideSnapshot, saveGuideSnapshot } from '../../storage/guideSnapshot.js';
 import { listProgrammes } from '../../storage/programmes.js';
 import { getFavoriteGroup, getGuideInfoMode, setFavoriteGroup, sourcesWithDialect } from '../../storage/settings.js';
 import type { GuideInfoMode } from '../../storage/settings.js';
@@ -57,7 +55,7 @@ import {
   shiftedWindow,
   stateOf,
 } from './layout.js';
-import type { CellState, GuideCell } from './layout.js';
+import type { GuideCell } from './layout.js';
 import { neighbourIndex } from './layout.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
@@ -139,10 +137,7 @@ export const GuideScreen = memo(function GuideScreen({
 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
-  // Sidste gyldige kanalliste tegnes i foerste render. SQLite validerer den
-  // bagefter, saa et nyt guidebesoeg ikke venter paa alle metadataopslagene.
-  const [initialSnapshot] = useState(() => peekGuideSnapshot(session.db, reloadToken));
-  const [channels, setChannels] = useState<StoredChannel[]>(() => initialSnapshot?.channels ?? []);
+  const [channels, setChannels] = useState<StoredChannel[]>([]);
   const [rows, setRows] = useState<Record<string, Programme[]>>({});
   /**
    * Kilderne der har fundet en timeshift-dialekt.
@@ -152,7 +147,7 @@ export const GuideScreen = memo(function GuideScreen({
    * nogen kanal, uanset hvor mange af dem der havde arkiv.
    */
   const [dialectSources, setDialectSources] = useState<ReadonlySet<string>>(
-    () => initialSnapshot?.dialectSources ?? new Set<string>(),
+    () => new Set<string>(),
   );
   /** Hvor mange minutter vinduet er forskudt fra nu. Negativt er bagud. */
   const [offsetMinutes, setOffsetMinutes] = useState(0);
@@ -234,8 +229,6 @@ export const GuideScreen = memo(function GuideScreen({
   // af alle dagsknapperne, saa det kan ikke bruges til denne tilbage-vej.
   const dayOrigin = useRef<{ channelId: string; key: string; atMs: number | null } | null>(null);
   const [returnFocusChannelId, setReturnFocusChannelId] = useState<string | null>(null);
-  const cancelTimelineFocus = useRef<(() => void) | null>(null);
-  const sheetReturnFocusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeDay = useCallback(() => {
     const origin = dayOrigin.current;
     dayOrigin.current = null;
@@ -262,20 +255,11 @@ export const GuideScreen = memo(function GuideScreen({
       // som om foerste tryk ikke gjorde noget ("et par sekunder, i tvivl om man
       // har trykket"). Vinduet stilles i stedet paa nu, naar man kommer ind i
       // guiden fra menuen igen (se focusFirstSignal nedenfor).
-      // En hurtig Tilbage efter dagssiden/arket skal kunne naa menuen uden
-      // at en ventende native gendannelse bagefter stjaeler fokus tilbage.
-      cancelTimelineFocus.current?.();
-      setReturnFocusChannelId(null);
-      setFocusTarget(null);
-      if (sheetReturnFocusTimer.current !== null) {
-        clearTimeout(sheetReturnFocusTimer.current);
-        sheetReturnFocusTimer.current = null;
-      }
       return false;
     };
   }
   /** Kanalen previewet viser, eller null. Foelger den oeverste synlige raekke. */
-  const [previewChannel, setPreviewChannel] = useState<StoredChannel | null>(() => initialSnapshot?.channels[0] ?? null);
+  const [previewChannel, setPreviewChannel] = useState<StoredChannel | null>(null);
   /**
    * Kanalen brugeren selv har valgt til previewet, ved et tryk paa navnet.
    * Saa laenge den er sat, foelger previewet ikke rulningen: de nederste
@@ -355,7 +339,7 @@ export const GuideScreen = memo(function GuideScreen({
   }, [session, showNews]);
   // Laerredets bredde, ikke vinduets: paa tv er de ikke ens (se ui/tv.ts).
   const sideBySide = guideTopLayout(useCanvasSize().width) === 'side';
-  const [loading, setLoading] = useState(initialSnapshot === null);
+  const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<NoticeState | null>(null);
   /** Den celle bladet er aabnet for, eller null naar det er lukket. */
   const [sheet, setSheet] = useState<{
@@ -374,15 +358,8 @@ export const GuideScreen = memo(function GuideScreen({
     sheetWasOpen.current = false;
     // Naar arket aabner hele dagen, skal fokus blive paa dagssiden.
     if (dayFor !== null) return;
-    const timer = setTimeout(() => {
-      sheetReturnFocusTimer.current = null;
-      refocusLastPressed();
-    }, 80);
-    sheetReturnFocusTimer.current = timer;
-    return () => {
-      clearTimeout(timer);
-      if (sheetReturnFocusTimer.current === timer) sheetReturnFocusTimer.current = null;
-    };
+    const timer = setTimeout(() => refocusLastPressed(), 80);
+    return () => clearTimeout(timer);
   }, [sheet, dayFor]);
   /** Om der er sat paamindelse paa bladets udsendelse; null mens det slaas op. */
   const [sheetReminder, setSheetReminder] = useState<boolean | null>(null);
@@ -402,14 +379,8 @@ export const GuideScreen = memo(function GuideScreen({
   // hopper mellem tilstande midt i et tryk. Det opdateres hvert minut.
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const refresh = () => setNow(new Date());
-    const timer = setInterval(refresh, 60_000);
-    // JS-timere kan vaere sat paa pause mens boksen sover. Stil straks
-    // vindue og nu/naeste paa nutiden naar appen kommer frem igen.
-    const wake = AppState.addEventListener('change', (state) => {
-      if (state === 'active') refresh();
-    });
-    return () => { clearInterval(timer); wake.remove(); };
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
   }, []);
 
   const window = shiftedWindow(now, offsetMinutes);
@@ -419,9 +390,7 @@ export const GuideScreen = memo(function GuideScreen({
   // skifter, naar minuttet skifter, og naar en hentning har skrevet nye
   // programmer for kanalen (rows aendrer sig).
   const previewId = previewChannel?.id ?? null;
-  // TV-gitteret ejer sine egne data. Dets valgte program er revisionen,
-  // saa nu/naeste opdateres uden telefon-guidens ekstra EPG-hentninger.
-  const previewRows = isTV ? focusedProgramme : previewId === null ? undefined : rows[previewId];
+  const previewRows = previewId === null ? undefined : rows[previewId];
   useEffect(() => {
     if (previewId === null) {
       setPreviewProgrammes([]);
@@ -440,39 +409,26 @@ export const GuideScreen = memo(function GuideScreen({
   }, [session.db, previewId, now, previewRows]);
 
   /** Favoritgruppen guiden viser (null = alle), og alle grupperne til at skifte imellem. */
-  const [group, setGroup] = useState<FavoriteGroup | null>(() => initialSnapshot?.group ?? null);
-  const [groups, setGroups] = useState<FavoriteGroup[]>(() => initialSnapshot?.groups ?? []);
+  const [group, setGroup] = useState<FavoriteGroup | null>(null);
+  const [groups, setGroups] = useState<FavoriteGroup[]>([]);
   const [groupTick, setGroupTick] = useState(0);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        while (!cancelled) {
-          const revision = guideSnapshotRevision(session.db);
-          const [chosen, groupList, withDialect] = await Promise.all([
-            getFavoriteGroup(session.db),
-            listFavoriteGroups(session.db),
-            sourcesWithDialect(session.db),
-          ]);
-          if (cancelled) return;
-          const current = groupList.find((entry) => entry.id === chosen) ?? null;
-          const favourites = await listChannels(session.db, { favouritesOnly: true, groupId: current?.id ?? null });
-          if (cancelled) return;
-          // En favorit/kilde kan vaere aendret under laesningen. Proev igen,
-          // saa det gamle svar hverken bliver tegnet eller varmer cachen.
-          if (revision !== guideSnapshotRevision(session.db)) continue;
-          saveGuideSnapshot(session.db, reloadToken, revision, {
-            channels: favourites, group: current, groups: groupList, dialectSources: withDialect,
-          });
-          setGroups(groupList);
-          setGroup(current);
-          setChannels(favourites);
-          setDialectSources(withDialect);
-          setPreviewChannel((current) => favourites.find(c => c.id === current?.id) ?? favourites[0] ?? null);
-          return;
-        }
-      } catch {
-        // En laesefejl fjerner ikke den visning, der allerede er gemt.
+        const [chosen, groupList, withDialect] = await Promise.all([
+          getFavoriteGroup(session.db),
+          listFavoriteGroups(session.db),
+          sourcesWithDialect(session.db),
+        ]);
+        const current = groupList.find((entry) => entry.id === chosen) ?? null;
+        const favourites = await listChannels(session.db, { favouritesOnly: true, groupId: current?.id ?? null });
+        if (cancelled) return;
+        setGroups(groupList);
+        setGroup(current);
+        setChannels(favourites);
+        setDialectSources(withDialect);
+        setPreviewChannel((current) => favourites.find(c => c.id === current?.id) ?? favourites[0] ?? null);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -695,7 +651,6 @@ export const GuideScreen = memo(function GuideScreen({
   // der er fremme. Tegningen af det cachen allerede har sker med det samme —
   // ventetiden gaelder kun turen til panelet.
   useEffect(() => {
-    if (isTV) return;
     if (visibleChannels.current.length === 0) {
       visibleChannels.current = channels.slice(0, 12);
     }
@@ -721,7 +676,6 @@ export const GuideScreen = memo(function GuideScreen({
   // blokerer ikke de synlige hentninger. Kun én gang per liste.
   const prefetchedList = useRef<StoredChannel[] | null>(null);
   useEffect(() => {
-    if (isTV) return;
     if (channels.length === 0 || prefetchedList.current === channels) return;
     prefetchedList.current = channels;
     let cancelled = false;
@@ -810,16 +764,6 @@ export const GuideScreen = memo(function GuideScreen({
   // saa hardware-Tilbage (backRef ovenfor) stadig stiller vinduet paa nu.
   const stepGuideTime = useCallback((deltaMin: number): void => {
     setOffsetMinutes((value) => Math.min(DRAG_MAX_MINUTES, Math.max(DRAG_MIN_MINUTES, value + deltaMin)));
-  }, []);
-  // Stabil paa tvaers af fokus/preview, saa alle TV-raekker ikke tegnes igen.
-  const onOpenTimeline = useCallback((channel: StoredChannel, programme: Programme | null, state: CellState): void => {
-    setSheet({
-      channel,
-      cell: programme === null ? CHANNEL_CELL : {
-        key: `p-${programme.start.getTime()}`, programme, state, weight: 0,
-        clippedStart: false, clippedEnd: false,
-      },
-    });
   }, []);
   const onMeasureCells = useCallback((width: number): void => {
     gridWidth.current = width;
@@ -1075,12 +1019,26 @@ export const GuideScreen = memo(function GuideScreen({
           onFocusProgramme={setFocusedProgramme}
           offsetMinutes={offsetMinutes}
           onStepTime={stepGuideTime}
-          onOpen={onOpenTimeline}
+          onOpen={(channel, programme, state) =>
+            setSheet({
+              channel,
+              cell:
+                programme === null
+                  ? CHANNEL_CELL
+                  : {
+                      key: `p-${programme.start.getTime()}`,
+                      programme,
+                      state,
+                      weight: 0,
+                      clippedStart: false,
+                      clippedEnd: false,
+                    },
+            })
+          }
           focusFirstSignal={focusFirstSignal}
           active={active && dayFor === null && sheet === null}
           returnFocusChannelId={returnFocusChannelId}
           onReturnFocus={onDayFocusRestored}
-          cancelFocusRef={cancelTimelineFocus}
         />
       )}
       {!isTV && (

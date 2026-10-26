@@ -69,7 +69,7 @@ describe('migrate paa en frisk database', () => {
   it('stempler skemaversion 11', async () => {
     const db = createTestDatabase();
     await migrate(db);
-    expect(await userVersion(db)).toBe(32);
+    expect(await userVersion(db)).toBe(33);
   });
 
   it('er idempotent og sletter ikke data ved anden koersel', async () => {
@@ -94,7 +94,7 @@ describe('migrate paa en frisk database', () => {
     };
     await migrate(readOnly);
     expect(await db.getFirstAsync("SELECT value FROM settings WHERE key = 'last_sync_ms:s1'")).toEqual({ value: '222' });
-    expect(await userVersion(db)).toBe(32);
+    expect(await userVersion(db)).toBe(33);
   });
 
   it('opretter indekset paa programmernes tidsvindue', async () => {
@@ -162,7 +162,7 @@ describe('migrate til v13', () => {
       'SELECT channel_id FROM favorites ORDER BY position',
     );
     expect(rows.map((row) => row.channel_id)).toEqual(['s:2', 's:1', 's:3']);
-    expect(await userVersion(db)).toBe(32);
+    expect(await userVersion(db)).toBe(33);
   });
 });
 
@@ -237,7 +237,7 @@ describe('migrate fra v1', () => {
   it('stempler den nuvaerende version og opretter de nye tabeller', async () => {
     const db = await createV1Database();
     await migrate(db);
-    expect(await userVersion(db)).toBe(32);
+    expect(await userVersion(db)).toBe(33);
     const names = await tableNames(db);
     expect(names).toContain('epg_fetch');
     expect(names).toContain('hidden_countries');
@@ -251,7 +251,7 @@ describe('migrate fra v1', () => {
     await db.execAsync('PRAGMA user_version = 1');
 
     await expect(migrate(db)).resolves.toBeUndefined();
-    expect(await userVersion(db)).toBe(32);
+    expect(await userVersion(db)).toBe(33);
     expect(await tableNames(db)).toContain('favorites');
   });
 });
@@ -296,7 +296,7 @@ describe('migrate fra v2', () => {
 
     await migrate(db);
 
-    expect(await userVersion(db)).toBe(32);
+    expect(await userVersion(db)).toBe(33);
     expect(await tableNames(db)).toContain('epg_archive_fetch');
 
     // v2 -> v3 tilfoejer kun en tabel. Bygger den om alligevel, mister
@@ -374,7 +374,7 @@ PRAGMA user_version = 4;
     const db = await createV4();
     await migrate(db);
 
-    expect(await userVersion(db)).toBe(32);
+    expect(await userVersion(db)).toBe(33);
     expect(await tableNames(db)).toContain('sources');
 
     const channelColumns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(channels)');
@@ -429,7 +429,7 @@ PRAGMA user_version = 4;
     const db = await createV4();
     await db.execAsync("ALTER TABLE channels ADD COLUMN source_id TEXT NOT NULL DEFAULT ''");
     await expect(migrate(db)).resolves.toBeUndefined();
-    expect(await userVersion(db)).toBe(32);
+    expect(await userVersion(db)).toBe(33);
   });
 });
 
@@ -511,7 +511,7 @@ describe('opgradering af en eksisterende plakatcache', () => {
     `);
     await migrate(db);
     await migrate(db);
-    expect(await userVersion(db)).toBe(32);
+    expect(await userVersion(db)).toBe(33);
     const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(vod_posters)');
     expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining(['genres', 'year', 'tmdb_id', 'providers', 'metadata_version']));
     expect(await db.getFirstAsync('SELECT metadata_version FROM vod_posters')).toEqual({ metadata_version: 0 });
@@ -523,7 +523,7 @@ describe('opgradering af en eksisterende plakatcache', () => {
   });
 });
 
-it('v31 til v32 genhenter EPG én gang uden at slette programmer eller flytte tider', async () => {
+it('genhenter EPG én gang ved tilbagefoersel og bevarer ukendte kanaldata', async () => {
   const db = createTestDatabase();
   await migrate(db);
   await db.execAsync(`
@@ -537,7 +537,7 @@ it('v31 til v32 genhenter EPG én gang uden at slette programmer eller flytte ti
   expect(await db.getAllAsync('SELECT * FROM epg_fetch')).toEqual([]);
   expect(await db.getAllAsync('SELECT * FROM epg_archive_fetch')).toEqual([]);
   expect(await db.getFirstAsync('SELECT start_ms,title FROM programmes')).toEqual({ start_ms: 1000, title: 'Behold' });
-  expect(await db.getFirstAsync("SELECT value FROM settings WHERE key='epg_shift_minutes:panel'")).toEqual({ value: '60' });
+  expect(await db.getFirstAsync("SELECT value FROM settings WHERE key='epg_shift_minutes:panel'")).toBeNull();
   await db.execAsync("INSERT INTO epg_fetch VALUES ('panel:dr2', 456)");
   await migrate(db);
   expect(await db.getFirstAsync('SELECT fetched_at FROM epg_fetch')).toEqual({ fetched_at: 456 });

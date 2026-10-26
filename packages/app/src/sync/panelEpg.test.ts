@@ -3,11 +3,10 @@ import type { Channel, XtreamCredentials } from '@norstream/core';
 import { replaceCategories, replaceChannels, setFavorite } from '../storage/channels.js';
 import { migrate } from '../storage/schema.js';
 import { setPanelEpgEnabled } from '../storage/settings.js';
-import { setEpgTimeShifts } from '../storage/epgTiming.js';
 import { addSource } from '../storage/sources.js';
 import { createTestDatabase } from '../storage/testDb.js';
 import type { SqlDatabase } from '../storage/types.js';
-import { diagnosePanelEpg, panelEpgFrom, syncPanelEpg } from './panelEpg.js';
+import { syncPanelEpg } from './panelEpg.js';
 import type { PanelEpgNative } from './panelEpg.js';
 
 const NOW = new Date('2026-09-24T12:00:00.000Z');
@@ -73,59 +72,6 @@ async function programmesFor(key: string): Promise<{ title: string; description:
 }
 
 describe('syncPanelEpg', () => {
-  it.each([60, -60])('laeser XMLTV-vinduets kanter i raakoordinaten ved %i minutters EPG-rettelse', async (shift) => {
-    await setEpgTimeShifts(db, sourceId, { epgMinutes: shift, archiveMinutes: shift });
-    const native = fakeNative();
-    const canonicalFrom = panelEpgFrom(NOW);
-    const canonicalTo = NOW.getTime() + 48 * 3_600_000;
-    const rawStart = shift > 0 ? canonicalFrom - shift * 60_000 + 30 * 60_000 : canonicalTo - shift * 60_000 - 30 * 60_000;
-    native.programmes = vi.fn(async (_path, _ids, from, to) => {
-      expect(from).toBe(canonicalFrom - shift * 60_000);
-      expect(to).toBe(canonicalTo - shift * 60_000);
-      return JSON.stringify([{ c: 'DR1.dk', s: rawStart, e: rawStart + 15 * 60_000, t: 'Ved vinduets kant' }]);
-    });
-    await syncPanelEpg(db, sourceId, creds, { now: NOW, native });
-    expect(await db.getFirstAsync('SELECT start_ms,stop_ms FROM programmes WHERE channel_id=?', [`${sourceId}:2`]))
-      .toEqual({ start_ms: rawStart, stop_ms: rawStart + 15 * 60_000 });
-    expect(await db.getFirstAsync('SELECT start_ms,stop_ms FROM programmes_effective WHERE channel_id=?', [`${sourceId}:2`]))
-      .toEqual({ start_ms: rawStart + shift * 60_000, stop_ms: rawStart + (shift + 15) * 60_000 });
-  });
-
-  it.each([
-    { shift: 60, rawFrom: -30, rawTo: 0, shouldAsk: false },
-    { shift: -60, rawFrom: 0, rawTo: 30, shouldAsk: true },
-  ])('sportdaekning bruger korrigerede tider ved $shift minutter', async ({ shift, rawFrom, rawTo, shouldAsk }) => {
-    await replaceCategories(db, sourceId, [{ id: 'c1', name: 'Blandet' }, { id: 'c2', name: 'UK| SPORTS' }]);
-    await replaceChannels(db, sourceId, [ch('1', 'UK| BBC ONE HD'), { ...ch('3', 'UK| SKY SPORTS F1 HD'), categoryId: 'c2' }]);
-    await setEpgTimeShifts(db, sourceId, { epgMinutes: shift, archiveMinutes: 0 });
-    await db.runAsync('INSERT INTO programmes(channel_id,start_ms,stop_ms,title) VALUES(?,?,?,?)',
-      [`${sourceId}:3`, NOW.getTime() + rawFrom * 60_000, NOW.getTime() + rawTo * 60_000, 'Kampen']);
-    const native = fakeNative();
-    native.channels = vi.fn(async () => JSON.stringify([{ id: 'BBCOne.uk', n: ['BBC One'] }, { id: 'SkySportsF1.uk', n: ['Sky Sports F1'] }]));
-    native.programmes = vi.fn(async (_path, ids) => { native.asked.push(JSON.parse(ids)); return '[]'; });
-    await syncPanelEpg(db, sourceId, creds, { now: NOW, native });
-    expect(native.asked.flat().includes('SkySportsF1.uk')).toBe(shouldAsk);
-  });
-
-  it('diagnosen bruger rettet daekning og flytter kun native laesevindue, ikke indskrevne tider', async () => {
-    await setEpgTimeShifts(db, sourceId, { epgMinutes: 60, archiveMinutes: 0 });
-    // BBC ligger kun forude EFTER EPG-rettelsen og skal ikke hentes igen.
-    await db.runAsync('INSERT INTO programmes(channel_id,start_ms,stop_ms,title) VALUES(?,?,?,?)',
-      [`${sourceId}:1`, NOW.getTime() - 30 * 60_000, NOW.getTime(), 'Nyheder']);
-    const native = fakeNative();
-    const rawStart = panelEpgFrom(NOW) - 60 * 60_000;
-    native.programmes = vi.fn(async (_path, ids, from, to) => {
-      expect(JSON.parse(ids)).toEqual(['DR1.dk']);
-      expect(from).toBe(rawStart);
-      expect(to).toBe(NOW.getTime() + 47 * 3_600_000);
-      return JSON.stringify([{ c: 'DR1.dk', s: rawStart, e: rawStart + 60_000, t: 'Raadata' }]);
-    });
-    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}), text: async () => '{}' }));
-    const report = await diagnosePanelEpg(db, sourceId, creds, fetchImpl, { now: NOW, native });
-    expect(report).toContain('uden programmer forude: 1');
-    expect(await db.getFirstAsync('SELECT start_ms FROM programmes WHERE channel_id=?', [`${sourceId}:2`])).toEqual({ start_ms: rawStart });
-  });
-
   it('giver en britisk favorit programmer fra panelets fil — fra det rigtige land', async () => {
     const native = fakeNative();
     const result = await syncPanelEpg(db, sourceId, creds, { now: NOW, native });

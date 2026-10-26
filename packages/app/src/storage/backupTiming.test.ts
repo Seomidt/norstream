@@ -23,7 +23,6 @@ describe('sikkerhedskopi af kildeopdelte EPG- og arkivtider', () => {
     await db.runAsync("INSERT INTO settings (key,value) VALUES ('last_sync_ms:old','123')");
     const backup = parseBackup(serialiseBackup(await createBackup(db, 1000)));
     expect(backup.settings).toEqual({
-      'epg_shift_minutes:old': '60',
       'archive_shift_minutes:old': '30',
     });
     expect(backup.sources[0].password).toBeUndefined();
@@ -44,7 +43,7 @@ describe('sikkerhedskopi af kildeopdelte EPG- og arkivtider', () => {
     await restoreBackup(fresh, backup);
     expect(epgTimingRevision(fresh)).toBeGreaterThan(revision);
     await restoreBackup(fresh, backup);
-    expect(await getEpgTimeShift(fresh, 'new')).toBe(60);
+    expect(await getEpgTimeShift(fresh, 'new')).toBe(0);
     expect(await getArchiveTimeShift(fresh, 'new')).toBe(60);
     expect(await getEpgTimeShift(fresh, 'other')).toBe(-60);
     expect(await getArchiveTimeShift(fresh, 'other')).toBe(0);

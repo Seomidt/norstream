@@ -19,25 +19,12 @@ export function epgTimeShiftSql(sourceIdExpression: string): string {
     WHERE epg_timing.key = 'epg_shift_minutes:' || (${sourceIdExpression})), 0)`;
 }
 
-/** Raadata bevares. Kun laesevisningen flytter programtiderne, saa en ny
- * hentning, genstart eller aendring af rettelsen aldrig kan laegge den til igen. */
+/** Kompatibilitetsvisning for v418/v419. EPG bruger igen v400-raatider. */
 export const EPG_TIMING_SCHEMA = `
 CREATE VIEW IF NOT EXISTS programmes_effective AS
-SELECT channel_id,
-       start_ms + shift_ms AS start_ms,
-       stop_ms + shift_ms AS stop_ms,
-       title, description,
+SELECT channel_id, start_ms, stop_ms, title, description,
        start_ms AS source_start_ms, stop_ms AS source_stop_ms
-FROM (
-  SELECT p.channel_id, p.start_ms, p.stop_ms, p.title, p.description,
-         ${minutesSql('timing.value')} * 60000 AS shift_ms
-  FROM programmes p
-  LEFT JOIN channels c ON c.id = p.channel_id
-  LEFT JOIN settings timing ON timing.key = 'epg_shift_minutes:' ||
-    COALESCE(NULLIF(c.source_id, ''),
-      CASE WHEN INSTR(p.channel_id, ':') > 0
-           THEN SUBSTR(p.channel_id, 1, INSTR(p.channel_id, ':') - 1) ELSE '' END)
-);
+FROM programmes;
 `;
 
 function parseMinutes(value: string | null | undefined): number {
@@ -91,10 +78,9 @@ export async function setEpgTimeShifts(
   invalidateEpgTiming(db);
 }
 
-/** Kun allerede tilsluttede paneler faar den godkendte +60-rettelse ved
- * opgradering. Nye installationer/kilder starter neutralt; egne valg bevares. */
+/** Bevar arkivets eksisterende opgraderingsadfaerd; EPG forskydes ikke. */
 export async function seedUpgradedEpgTiming(db: SqlDatabase): Promise<void> {
-  for (const prefix of [EPG_TIME_SHIFT_PREFIX, ARCHIVE_TIME_SHIFT_PREFIX]) {
+  for (const prefix of [ARCHIVE_TIME_SHIFT_PREFIX]) {
     await db.runAsync(
       `INSERT OR IGNORE INTO settings (key, value)
        SELECT ? || id, '60' FROM sources WHERE kind = 'xtream'`,

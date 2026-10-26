@@ -21,7 +21,7 @@ for (const version of [28, 29]) {
     await db.execAsync(HISTORICAL + `PRAGMA user_version=${version};`);
     await migrate(db);
     await migrate(db);
-    expect(await db.getFirstAsync('PRAGMA user_version')).toEqual({ user_version: 32 });
+    expect(await db.getFirstAsync('PRAGMA user_version')).toEqual({ user_version: 33 });
     expect(await db.getFirstAsync('SELECT * FROM favorites')).toEqual({ channel_id: 'source:us-favourite', position: 3 });
     expect(await db.getFirstAsync('SELECT position_s FROM vod_progress')).toEqual({ position_s: 402 });
     expect(await db.getFirstAsync('SELECT * FROM followed_series')).toEqual({ series_key: 'source:series', followed_ms: 99, seen_episodes: 8 });

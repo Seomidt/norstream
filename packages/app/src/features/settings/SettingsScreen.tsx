@@ -827,7 +827,7 @@ export function SettingsScreen({
         <Text style={styles.actionText}>Test</Text>
       </TvPressable>
 
-      <EpgTimingSettings db={session.db} onChanged={onRestored} />
+      <EpgTimingSettings db={session.db} onChanged={onRestored} showEpg={false} />
 
       <Text style={styles.sectionTitle}>Avanceret</Text>
       <TvPressable style={styles.row} onPress={() => setAdvancedOpen((open) => !open)}>

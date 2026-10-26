@@ -94,8 +94,6 @@ export interface EnsureEpgOptions {
    * alt det man kan se paa skaermen, og tager koeen én kanal ad gangen.
    */
   background?: boolean;
-  /** Stop resten naar skaermen skjules, ogsaa hvis et kald stadig venter i koeen. */
-  shouldContinue?: () => boolean;
 }
 
 /**
@@ -151,7 +149,6 @@ export async function ensureEpg(
   options: EnsureEpgOptions = {},
 ): Promise<EnsureEpgResult> {
   const background = options.background === true;
-  const stopped = () => options.shouldContinue?.() === false;
   const unique = [...new Set(channelKeys)].filter((id) => id.length > 0);
 
   // Friskheds-tjekket for alle kanaler paa én gang. Foer var det en seriel
@@ -181,18 +178,16 @@ export async function ensureEpg(
   // det andets kanaler, ville svaret vaere tomt og ikke til at skelne fra
   // "ingen programdata".
   for (const [sourceId, keys] of groupBySource(stale)) {
-    if (stopped()) break;
     const creds = credsBySource.get(sourceId);
     // M3U-kilder har ingen EPG-API. Deres programdata kommer fra XMLTV.
     if (creds === undefined) continue;
     const client = new XtreamClient(creds, fetchImpl);
 
-  await runBounded(keys, MAX_PARALLEL, () => authFailure !== null || stopped(), async (key) => {
+  await runBounded(keys, MAX_PARALLEL, () => authFailure !== null, async (key) => {
     const streamId = parseChannelKey(key)?.streamId ?? key;
     let batch;
     try {
-      // Skaermen kan vaere skjult mens vi ventede bag et andet panelkald.
-      batch = await withPanel(background, () => stopped() ? Promise.resolve(null) : client.getShortEpg(streamId, limit));
+      batch = await withPanel(background, () => client.getShortEpg(streamId, limit));
     } catch (cause) {
       if (cause instanceof XtreamAuthError) authFailure = cause;
       // Netvaerksfejl paa én kanal er ikke fatalt: de oevrige skal stadig
@@ -203,7 +198,6 @@ export async function ensureEpg(
       if (reason === null) reason = reasonOf(cause);
       return;
     }
-    if (batch === null) return;
 
     // Programmerne gemmes under den sammensatte noegle, ikke under panelets
     // eget id: to paneler har begge en kanal 1.
@@ -256,7 +250,6 @@ export async function ensureFullEpg(
   options: EnsureEpgOptions = {},
 ): Promise<EnsureEpgResult> {
   const background = options.background === true;
-  const stopped = () => options.shouldContinue?.() === false;
   // Samme som i ensureEpg: distinkte id'er, og friskheds-tjekket sideloebende
   // frem for ét ad gangen. Raekkefoelgen bevares (Set + Promise.all), saa
   // grupperingen per kilde er uaendret.
@@ -274,23 +267,21 @@ export async function ensureFullEpg(
   let reason: string | null = null;
 
   for (const [sourceId, keys] of groupBySource(candidates)) {
-    if (stopped()) break;
     const creds = credsBySource.get(sourceId);
     if (creds === undefined) continue;
     const client = new XtreamClient(creds, fetchImpl);
 
-    await runBounded(keys, MAX_PARALLEL, () => authFailure !== null || stopped(), async (key) => {
+    await runBounded(keys, MAX_PARALLEL, () => authFailure !== null, async (key) => {
       const streamId = parseChannelKey(key)?.streamId ?? key;
       let batch;
       try {
-        batch = await withPanel(background, () => stopped() ? Promise.resolve(null) : client.getFullEpg(streamId));
+        batch = await withPanel(background, () => client.getFullEpg(streamId));
       } catch (cause) {
         if (cause instanceof XtreamAuthError) authFailure = cause;
         failed += 1;
         if (reason === null) reason = reasonOf(cause);
         return;
       }
-      if (batch === null) return;
 
       await upsertProgrammes(db, batch.map((p) => ({ ...p, channelId: key })), { replaceWindow: true });
       await markArchiveFetched(db, key, now);
