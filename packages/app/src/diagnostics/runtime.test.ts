@@ -21,8 +21,37 @@ describe('automatisk opsamling uden koder', () => {
   it('udloeb forlaenges ikke ved genstart og laver ingen tilmelding', async () => {
     vi.useFakeTimers(); const db = createTestDatabase(); await migrate(db);
     await db.runAsync("INSERT INTO settings(key,value) VALUES('diagnostic_auto_until',?)", [String(Date.now()-1)]);
+    await db.runAsync("INSERT INTO settings(key,value) VALUES('diagnostic_auto_version','382')");
     const fetch = vi.fn(); vi.stubGlobal('fetch',fetch); vi.resetModules();
     const runtime = await import('./runtime.js'); runtime.startDiagnostics(db); await runtime.diagnosticState(); await runtime.sendDiagnosticReport();
     expect(fetch).not.toHaveBeenCalled(); expect((await runtime.diagnosticState()).phase).toBe('expired'); vi.clearAllTimers();
+  });
+  it('en ny udgave aabner et nyt syvdages vindue, men ikke mens det gamle er aabent (v424)', async () => {
+    vi.useFakeTimers(); const db = createTestDatabase(); await migrate(db);
+    await db.runAsync("INSERT INTO settings(key,value) VALUES('diagnostic_auto_until',?)", [String(Date.now()-1)]);
+    await db.runAsync("INSERT INTO settings(key,value) VALUES('diagnostic_auto_version','381')");
+    const fetch = vi.fn(async (_url: string, init: any) => ({ status: 200, json: async () => JSON.parse(init.body).action === 'enrol' ? { ok: true, token: 'a'.repeat(64), supportCode: 'A123456789AB', expiresAt: new Date(Date.now()+7*86400000).toISOString() } : { ok: true } }));
+    vi.stubGlobal('fetch', fetch); vi.resetModules();
+    const runtime = await import('./runtime.js'); runtime.startDiagnostics(db); await runtime.diagnosticState(); await runtime.sendDiagnosticReport();
+    expect(fetch.mock.calls.some(c => JSON.parse(c[1].body).action === 'enrol')).toBe(true);
+    expect((await runtime.diagnosticState()).phase).toBe('active');
+    expect((await db.getFirstAsync<{ value: string }>("SELECT value FROM settings WHERE key='diagnostic_auto_version'"))?.value).toBe('382');
+    vi.clearAllTimers();
+    // Samme udgave igen, vinduet stadig aabent: intet nyt vindue, ingen ny tilmelding.
+    const open = createTestDatabase(); await migrate(open);
+    await open.runAsync("INSERT INTO settings(key,value) VALUES('diagnostic_auto_until',?)", [String(Date.now()+86400000)]);
+    await open.runAsync("INSERT INTO settings(key,value) VALUES('diagnostic_auto_version','300')");
+    vi.resetModules(); const again = await import('./runtime.js'); again.startDiagnostics(open); await again.diagnosticState();
+    expect((await open.getFirstAsync<{ value: string }>("SELECT value FROM settings WHERE key='diagnostic_auto_until'"))?.value).toBe(String(Date.now()+86400000));
+    vi.clearAllTimers();
+  });
+  it('et fravalg bevares ogsaa naar en ny udgave aabner vinduet', async () => {
+    vi.useFakeTimers(); const db = createTestDatabase(); await migrate(db);
+    await db.runAsync("INSERT INTO settings(key,value) VALUES('diagnostic_auto_until',?)", [String(Date.now()-1)]);
+    await db.runAsync("INSERT INTO settings(key,value) VALUES('diagnostic_auto_version','381')");
+    await db.runAsync("INSERT INTO settings(key,value) VALUES('diagnostic_disabled','1')");
+    const fetch = vi.fn(); vi.stubGlobal('fetch', fetch); vi.resetModules();
+    const runtime = await import('./runtime.js'); runtime.startDiagnostics(db); await runtime.diagnosticState(); await runtime.sendDiagnosticReport();
+    expect(fetch).not.toHaveBeenCalled(); expect((await runtime.diagnosticState()).phase).toBe('off'); vi.clearAllTimers();
   });
 });

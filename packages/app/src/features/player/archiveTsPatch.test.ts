@@ -15,6 +15,9 @@ it('installerer afgraenset sekventiel TS-patch og afviser ukendte native version
   expect(installed).toContain('else dataSourceFactory');
   expect(installed).toContain('extractor.underlyingImplementation !is androidx.media3.extractor.ts.TsExtractor');
   expect(installed).toContain('androidx.media3.extractor.SeekPoint.START');
-  expect(installed).toContain('override fun getDurationUs() = seekMap.durationUs');
+  expect(installed).toContain('override fun getDurationUs() = if (archiveDurationUs == androidx.media3.common.C.TIME_UNSET) seekMap.durationUs else archiveDurationUs');
+  expect(installed).toContain('uri.getQueryParameter("duration")');
+  expect(installed).toContain('segments.indexOf("timeshift")');
+  expect(installed).toContain('(it * 60L + 5L) * 1_000_000L');
   expect(installed).toContain('extractor.seek(position, if (position == 0L) 0L else timeUs)');
 });

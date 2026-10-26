@@ -4,7 +4,7 @@ import { useUniformAudio } from './uniformAudio.js';
 import { watchArchivePreparation } from './archivePreparation.js';
 import { setPlaybackSnapshot, closePlaybackSnapshot } from '../../diagnostics/reporter.js';
 import { channelEpgSummary } from '../../diagnostics/channelEpg.js';
-import { TV_CODEC_OPTIONS, TV_UNIFORM_AUDIO_OPTIONS, videoFrameSummary } from './tvCodec.js';
+import { TV_CODEC_OPTIONS, TV_UNIFORM_AUDIO_OPTIONS, netSummary, videoFrameSummary } from './tvCodec.js';
 import type { VideoFrameSample } from './tvCodec.js';
 import { ArchiveWatchdog, ArchiveVideoClock, nativeFailureDetails, playbackClock, playbackFailureKind } from './archiveWatchdog.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -12,7 +12,7 @@ import { ActivityIndicator, AppState, Platform, Pressable, StyleSheet, Text, Vie
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import type { SubtitleTrack } from 'expo-video';
-import { buildTimeshiftUrl, detectTimeshiftDialect, formatTimeshiftStart, panelOffsetForDate } from '@norstream/core';
+import { XtreamClient, buildTimeshiftUrl, detectTimeshiftDialect, formatTimeshiftStart, panelOffsetForDate } from '@norstream/core';
 import type { PanelClock, Programme, StreamFormat, TimeshiftDialect } from '@norstream/core';
 import type { AppSession } from '../../session.js';
 import { listChannels } from '../../storage/channels.js';
@@ -26,6 +26,7 @@ import {
 } from '../../storage/settings.js';
 import type { SubtitlePreference } from '../../storage/settings.js';
 import { ensureEpg } from '../../sync/epgCache.js';
+import { withPanel } from '../../sync/panelGate.js';
 import { refreshPanelClock } from '../../sync/panelClock.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
 import { liveUrlFor } from '../../sources/access.js';
@@ -81,6 +82,8 @@ const CHANNEL_BANNER_MS = isTV ? 10_000 : 3_000;
 
 const MAX_RETRIES = 2;
 const RETRY_BACKOFF_MS = 1500;
+/** Efter gentagne korte live-forbindelser: laengere pause, saa panelet naar at slippe den gamle (v424). */
+const ESCALATED_BACKOFF_MS = 5000;
 /** Hvor laenge afspilleren maa haenge i buffering MIDT i afspilningen foer vi
  *  kalder det et udfald og genforbinder. Laengere, saa en kort genbuffring
  *  ikke river billedet ned. */
@@ -143,13 +146,35 @@ export function PlayerScreen({
   const playbackStatus = useRef<(status: string) => void>(() => undefined);
   const playIntent = useRef(true);
   const refreshArchiveEnd = useRef<() => void>(() => undefined);
+  /** Stykket sluttede foer spoletiden: vent paa panelets naeste minut (v424). */
+  const archiveEndedShort = useRef<() => void>(() => undefined);
+  /** Hvornaar et stykkeskift begyndte (EOF), til loglinjen om hvor laenge det tog. */
+  const archiveSwitchStartedAt = useRef<number | null>(null);
   const archiveFormat = useRef<StreamFormat | null>(null);
   const archiveClock = useRef<PanelClock | null>(null);
-  const requestSource = useCallback((uri: string | null): void => {
+  /** Hvorfor kilden sidst blev skiftet: staar i loggen, saa appens egne genindlaesninger kan skelnes fra panelets (v424). */
+  const sourceReason = useRef('start');
+  const requestSource = useCallback((uri: string | null, reason = 'ukendt'): void => {
     changingSource.current = true;
+    sourceReason.current = reason;
     // En fejl kan kraeve en ny indlaesning af praecis samme URL.
     setStreamRequest((request) => ({ uri, revision: request.revision + 1 }));
   }, []);
+  /**
+   * Appen i baggrunden (v424): kilden slippes helt, saa panelets ene
+   * forbindelse er fri til en anden enhed, og tages igen ved tilbagevenden.
+   * Foer blev afspilleren kun pauset, og forbindelsen stod aaben i timer.
+   */
+  const [suspended, setSuspended] = useState(false);
+  const suspendedRef = useRef(false);
+  /** En live-genforbindelse er i gang: vis "Forbinder …" i stedet for et frosset billede. */
+  const [reconnecting, setReconnecting] = useState(false);
+  /** Sidste native tal fra timeUpdate (billeder, buffer, netvaerk), til diagnoselinjerne. */
+  const lastFrameSample = useRef<VideoFrameSample | null>(null);
+  /** Efter et udfald: det foerste timeUpdate baerer netvaerkstallene fra den afsluttede indlaesning. */
+  const pendingNetLog = useRef(false);
+  /** Hoejst ét opslag af kontoens forbindelser i minuttet. */
+  const lastConnectionsCheck = useRef(0);
   const [now, setNow] = useState<Programme | null>(null);
   const [next, setNext] = useState<Programme | null>(null);
   /**
@@ -262,8 +287,9 @@ export function PlayerScreen({
       setRestartBlock(undefined);
       setNow(null);
       setNext(null);
+      setReconnecting(false);
       setBannerUntil(Date.now() + CHANNEL_BANNER_MS);
-      requestSource(liveUrlFor(session.access(target.sourceId), target, formatForPlatform()));
+      requestSource(liveUrlFor(session.access(target.sourceId), target, formatForPlatform()), 'zap');
     },
     [channel, session, requestSource],
   );
@@ -310,6 +336,11 @@ export function PlayerScreen({
     p.timeUpdateEventInterval = 1;
   }, isTV ? (uniformAudio ? TV_UNIFORM_AUDIO_OPTIONS : TV_CODEC_OPTIONS) : undefined);
   const connection = useMemo(() => new PlaybackConnection(player), [player]);
+  // onBack er en ny funktion ved hver tegning af App (tema-timeren tegner
+  // mindst hver time). Gik den ind i finishArchive's afhaengigheder, genstartede
+  // afspillerens effekter og tabte ventende genforsoeg (v424).
+  const onBackRef = useRef(onBack);
+  onBackRef.current = onBack;
   const finishArchive = useCallback((): void => {
     // Efter 15 min slutmargen afsluttes automatisk til oversigten.
     // Intet slutvalg og ingen genstart af den samme faerdige udsendelse.
@@ -319,8 +350,8 @@ export function PlayerScreen({
     cancelPendingRetry.current();
     try { player.pause(); } catch { /* Afspilleren kan vaere lukket. */ }
     logEvent('arkiv', 'slutgraense v395: 15 min slutmargen naaet; tilbage til oversigten');
-    onBack();
-  }, [connection, player, onBack]);
+    onBackRef.current();
+  }, [connection, player]);
   const changePlaybackIntent = useCallback((desired: boolean): boolean => {
     playIntent.current = desired;
     connection.setPlayingIntent(desired);
@@ -333,7 +364,7 @@ export function PlayerScreen({
       liveHealth.current.reset();
       const segment = archiveRef.current;
       if (segment !== null) segment.seekSeconds = positionRef.current;
-      requestSource(source);
+      requestSource(source, 'genoptag efter fejl');
       return false;
     } else if (player.status === 'idle' && archiveRef.current !== null && connection.committed) {
       refreshArchiveEnd.current();
@@ -368,12 +399,17 @@ export function PlayerScreen({
       positionRef.current = isTV && context !== null
         ? archiveVideoClock.current.observe(currentTime, sample.videoRenderedFrames)
         : currentTime;
+      lastFrameSample.current = sample;
+      if (pendingNetLog.current) {
+        pendingNetLog.current = false;
+        logEvent('afspiller', netSummary(sample, currentTime));
+      }
       // Native videofremdrift: et fremadgaaende lydur beviser ikke nye billeder.
-      // Kun arkiv paa TV, hoejst hver 30 s og aldrig under kilde/seek-skift.
-      if (isTV && archiveRef.current !== null && connection.active && !changingSource.current && player.playing && Date.now() - lastVideoLog >= 30_000) {
+      // TV, baade arkiv og live (v424), hoejst hver 30 s og aldrig under kilde/seek-skift.
+      if (isTV && connection.active && !changingSource.current && player.playing && Date.now() - lastVideoLog >= 30_000) {
         const summary = videoFrameSummary(sample, currentTime);
         if (summary !== null) {
-          logEvent('arkiv', summary);
+          logEvent(context === null ? 'afspiller' : 'arkiv', summary);
           lastVideoLog = Date.now();
         }
       }
@@ -508,6 +544,12 @@ export function PlayerScreen({
       if (Number.isFinite(endedAt) && endedAt > positionRef.current) positionRef.current = endedAt;
       const nowMs = Date.now();
       const next = archiveContinuation(archivePlaybackBounds(airing, segment.playbackStop.getTime()), segment.segmentStart, positionRef.current, nowMs);
+      // Leverede panelet maerkbart mindre end bestilt, skal det kunne ses:
+      // ligger kanten ved EPG-slut gemmer panelet arkiv pr. udsendelse;
+      // vandrer den, halter panelets arkiv efter live (v424).
+      if (segment.durationSeconds - positionRef.current > 5) {
+        logEvent('arkiv', `panelet leverede ${positionRef.current.toFixed(3)} af ${segment.durationSeconds} s (kant ${clockOf(segment.segmentStart + positionRef.current * 1000)}, EPG-slut ${clockOf(airing.stop.getTime())})`);
+      }
       logEvent(
         'arkiv',
         `stroemmen sluttede ved ${positionRef.current.toFixed(3)} s (stykke fra ${clockOf(segment.segmentStart)}) → ${next.kind}${next.kind === 'continue' ? ` fra ${clockOf(next.from.getTime())} +${next.seekSeconds.toFixed(3)} s` : ''}`,
@@ -535,6 +577,7 @@ export function PlayerScreen({
         // Arkivet sluttede midt i udsendelsen: hent det igen fra det punkt man
         // naaede. Kom der intet nyt to gange i traek, har panelet ikke mere.
         if (recovery.current.ended(segment.segmentStart / 1000 + positionRef.current)) {
+          archiveSwitchStartedAt.current = nowMs;
           void playFromStartRef.current(airing, next.from, next.seekSeconds, true);
           return;
         }
@@ -553,7 +596,7 @@ export function PlayerScreen({
       setBannerUntil(Date.now() + CHANNEL_BANNER_MS);
       recovery.current.reset();
       liveHealth.current.reset();
-      requestSource(liveUrlFor(access, channel, formatForPlatform()));
+      requestSource(liveUrlFor(access, channel, formatForPlatform()), 'indhentet live');
     };
     refreshArchiveEnd.current = continueArchive;
     const subscription = player.addListener('playToEnd', continueArchive);
@@ -633,12 +676,19 @@ export function PlayerScreen({
 
   useEffect(() => {
     if (source === null) return;
+    if (suspended) {
+      // Baggrund (v424): slip panelets ene forbindelse helt. Pause alene holdt
+      // den aaben, og en anden enhed paa kontoen kunne ikke komme til.
+      void connection.release();
+      return;
+    }
     let cancelled = false;
     changingSource.current = true;
     recovery.current.beginLoad();
     const segment = archiveRef.current;
     if (segment === null) liveHealth.current.beginLoad();
     const seek = segment?.seekSeconds ?? 0;
+    logEvent('afspiller', `indlaeser kilde ${sourceRevision}: ${segment === null ? 'live' : 'arkiv'}, ${/\.m3u8(\?|$)/.test(source) ? 'hls' : 'ts'}, aarsag ${sourceReason.current}`);
     positionRef.current = seek;
     archiveVideoClock.current.reset(seek, segment?.durationSeconds);
     const linear = Platform.OS === 'android' && segment !== null && (segment.dialect === 'php' || segment.format === 'ts');
@@ -652,13 +702,24 @@ export function PlayerScreen({
         if (cancelled) return;
         stopObserving?.('klar');
         changingSource.current = false;
-        if (archiveRef.current !== null) logEvent('arkiv', `nyt stykke klargjort efter metadata, buffer og bekraeftet spoling; spol ${seek.toFixed(3)} s`);
+        if (archiveRef.current !== null) {
+          const started = archiveSwitchStartedAt.current;
+          archiveSwitchStartedAt.current = null;
+          logEvent('arkiv', `nyt stykke klargjort efter metadata, buffer og bekraeftet spoling; spol ${seek.toFixed(3)} s${started === null ? '' : `; arkivskift tog ${((Date.now() - started) / 1000).toFixed(1)} s`}`);
+        }
         playbackStatus.current(player.status);
       })
       .catch(() => {
         if (cancelled) return;
         stopObserving?.('fejl');
         changingSource.current = false;
+        if (connection.endedBeforeSeek && segment !== null && archiveRef.current !== null) {
+          // Panelets fil var kortere end spoletiden. Ingen genforsoeg paa
+          // samme minut nu; vent paa at panelet har det naeste (v424).
+          logEvent('arkiv', `stykket sluttede foer spoletiden v424: maal ${seek.toFixed(3)} s i stykket fra ${clockOf(segment.segmentStart)}; venter paa panelets naeste minut`);
+          archiveEndedShort.current();
+          return;
+        }
         logEvent('afspiller', `indlaesning afbrudt i fase ${connection.preparationPhase}`);
         nativeFailure.current();
       });
@@ -667,7 +728,29 @@ export function PlayerScreen({
       stopObserving?.('afbrudt');
       connection.cancel();
     };
-  }, [player, connection, source, sourceRevision]);
+  }, [player, connection, source, sourceRevision, suspended]);
+
+  // Baggrund og forgrund (v424). Kun 'background' taeller: Android melder det
+  // naar aktiviteten pauses (HOME, slukket skaerm, en anden app). Radio
+  // spiller videre i baggrunden med vilje og roeres ikke.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (isRadio) return;
+      if (state === 'background' && !suspendedRef.current) {
+        const segment = archiveRef.current;
+        if (segment !== null) segment.seekSeconds = positionRef.current;
+        logEvent('afspiller', `appen i baggrunden: panelets forbindelse slippes (${segment === null ? 'live' : `arkiv ved ${positionRef.current.toFixed(1)} s`})`);
+        suspendedRef.current = true;
+        setSuspended(true);
+      } else if (state === 'active' && suspendedRef.current) {
+        logEvent('afspiller', 'tilbage i forgrunden: forbindelsen tages igen');
+        sourceReason.current = 'tilbage fra baggrund';
+        suspendedRef.current = false;
+        setSuspended(false);
+      }
+    });
+    return () => subscription.remove();
+  }, [isRadio]);
 
   // Har afspilleren vist det foerste billede for DENNE stream endnu? Nulstilles
   // ved hvert kildeskift (ny kanal/format), saa den foerste forbindelse
@@ -684,7 +767,7 @@ export function PlayerScreen({
   // haenger midt i. Uden det opfoerer appen sig som de Norlys-anmeldelser
   // der klagede over konstante udfald.
   useEffect(() => {
-    if (source === null) return;
+    if (source === null || suspended) return;
 
     let cancelled = false;
     let gaveUp = false;
@@ -719,15 +802,46 @@ export function PlayerScreen({
       recovery.current.reset();
       liveHealth.current.reset();
       logEvent('afspiller', `skifter til det andet format (${FALLBACK_FORMAT})`);
-      requestSource(alternate);
+      requestSource(alternate, 'skift til hls');
       return true;
     }
 
+    /**
+     * Efter et live-EOF: hvor mange stroemme holder kontoen lige nu? Ét
+     * player_api.php-kald i panel-koeen, ingen stroem. Staar der 1 af 1 mens
+     * denne boks netop har tabt sin, holder en anden enhed forbindelsen (v424).
+     */
+    const reportPanelConnections = async (): Promise<void> => {
+      const creds = access?.creds;
+      if (creds == null || Date.now() - lastConnectionsCheck.current < 60_000) return;
+      lastConnectionsCheck.current = Date.now();
+      try {
+        const info = await withPanel(false, () => new XtreamClient(creds, session.fetchImpl).getAccountInfo());
+        if (cancelled) return;
+        const active = info.activeConnections;
+        const max = info.maxConnections;
+        logEvent('panel', active === null
+          ? 'forbindelser i brug: panelet oplyser det ikke'
+          : `forbindelser i brug lige efter udfaldet: ${active}${max === null ? '' : ` af ${max}`}${max !== null && active >= max ? ' – en anden enhed holder kontoens forbindelse' : ''}`);
+      } catch {
+        if (!cancelled) logEvent('panel', 'forbindelser i brug: opslaget fejlede');
+      }
+    };
+
     // Faelles vej for baade haarde fejl og stall.
     function handleFailure(reason: LiveFailureReason = 'native'): void {
-      if (cancelled || gaveUp || retryTimer !== null || preparingArchive.current || changingSource.current) return;
+      if (cancelled) return;
+      // Et udfald der ignoreres skal kunne ses i loggen (v424): foer stod en
+      // EOF-linje alene, uden et ord om hvorfor der ikke blev genforbundet.
+      if (gaveUp || retryTimer !== null || preparingArchive.current || changingSource.current) {
+        logEvent('afspiller', `fejl ignoreret (${reason}): ${gaveUp ? 'opgivet' : retryTimer !== null ? 'genforsoeg venter' : preparingArchive.current ? 'arkiv klargoeres' : 'kildeskift i gang'}`);
+        return;
+      }
       clearStallTimer();
-      if (!mayPlay()) return;
+      if (!mayPlay()) {
+        logEvent('afspiller', `fejl ignoreret (${reason}): ${playIntent.current ? 'appen i baggrunden' : 'pause'}`);
+        return;
+      }
 
       // Under buffering kan sidste READY-timeUpdate ligge bag native uret.
       // Et bekraeftet stykke har stadig et gyldigt ur, selv om active er
@@ -736,18 +850,21 @@ export function PlayerScreen({
         try { positionRef.current = isTV ? archiveVideoClock.current.read(player.currentTime) : playbackClock(positionRef.current, player.currentTime, true); } catch { /* Afspilleren er vaek. */ }
       }
 
-      let repeatedShortLive = false;
+      let escalatedShortLive = false;
       if (archiveRef.current === null && !isRadio) {
         const health = liveHealth.current.failure(reason, player.currentTime, Date.now());
         if (health.escalate) {
           logEvent('afspiller', `live korte forbindelser v415: ${health.shortEnds} afslutninger efter hver 10-120 s, ${/\.m3u8(\?|$)/.test(source ?? '') ? 'hls' : 'ts'}`);
           if (tryLiveFallback()) return;
-          repeatedShortLive = true;
+          // v424: en stroem der spiller 10-120 s mellem hver afslutning er
+          // ikke doed. Foer gav v415 op her og viste "Streamen kunne ikke
+          // afspilles"; nu genforbindes der videre med laengere pause.
+          escalatedShortLive = true;
         }
+        if (reason === 'eof' || reason === 'idle') void reportPanelConnections();
       }
       const failure = recovery.current.failure();
-      const { attempt } = failure;
-      const retry = failure.retry && !repeatedShortLive;
+      const { attempt, retry } = failure;
       const unseeked = archiveRef.current;
       if (retry && unseeked !== null && unseeked.seekSeconds > 0 && unseeked.format === 'ts' && unseeked.dialect === 'path' && (connection.committed || connection.seekTimedOut) && !connection.active && (player.status === 'readyToPlay' || connection.seekTimedOut)) {
         // Et panel kan sende TS uden laengde/seek-map. Det er klar data,
@@ -755,12 +872,24 @@ export function PlayerScreen({
         archiveFormat.current = 'm3u8';
         logEvent('arkiv', 'TS naaede ikke spoletiden: proever HLS fra samme position');
       }
-      if (archiveRef.current === null) logEvent('afspiller', liveFailureSnapshot(player, reason, /\.m3u8(\?|$)/.test(source ?? '') ? 'hls' : 'ts'));
-      logEvent('afspiller', `fejl/haengt ved ${Math.round(positionRef.current)} s, forsoeg ${attempt} af ${MAX_RETRIES}${restarted ? ' (arkiv)' : ''}`);
+      if (archiveRef.current === null) logEvent('afspiller', liveFailureSnapshot(player, reason, /\.m3u8(\?|$)/.test(source ?? '') ? 'hls' : 'ts', lastFrameSample.current));
+      logEvent('afspiller', netSummary(lastFrameSample.current, positionRef.current));
+      pendingNetLog.current = true;
+      logEvent('afspiller', `fejl/haengt ved ${Math.round(positionRef.current)} s, forsoeg ${attempt} af ${MAX_RETRIES}${restarted ? ' (arkiv)' : ''}${escalatedShortLive ? `; genforbinder videre om ${ESCALATED_BACKOFF_MS / 1000} s` : ''}`);
       if (retry) {
+        if (archiveRef.current === null) {
+          // Et frosset sidste billede ligner en app der er gaaet i staa (v424).
+          setReconnecting(true);
+          setRadioState('connecting');
+          setAudioState('Forbinder …');
+        }
         const reconnect = (): void => {
           retryTimer = null;
-          if (cancelled || source === null || !mayPlay()) return;
+          if (cancelled || source === null || !mayPlay()) {
+            logEvent('afspiller', `genforbindelse sprunget over: ${cancelled ? 'afbrudt' : source === null ? 'ingen kilde' : playIntent.current ? 'appen i baggrunden' : 'pause'}`);
+            return;
+          }
+          logEvent('afspiller', `genforbinder nu, forsoeg ${attempt}`);
           // Start-forfra: genforbind fra det punkt man naaede, ikke fra
           // udsendelsens begyndelse (samme URL ville starte forfra).
           const segment = archiveRef.current;
@@ -782,9 +911,9 @@ export function PlayerScreen({
             // af samme URL faar en ny revision og nulstiller ikke budgettet.
             segment.seekSeconds = positionRef.current;
           }
-          requestSource(source);
+          requestSource(source, `genforsoeg ${attempt}`);
         };
-        retryTimer = setTimeout(reconnect, attempt * RETRY_BACKOFF_MS);
+        retryTimer = setTimeout(reconnect, escalatedShortLive ? ESCALATED_BACKOFF_MS : attempt * RETRY_BACKOFF_MS);
         return;
       }
 
@@ -805,6 +934,30 @@ export function PlayerScreen({
 
     const failPreparation = (): void => handleFailure('klargoering');
     nativeFailure.current = failPreparation;
+    // Kort fil: samme absolutte punkt om 15 s, uden at bruge genforsoegsbudgettet.
+    // Kommer der heller intet nyt anden gang, har panelet ikke mere lige nu.
+    const endedShort = (): void => {
+      if (cancelled || retryTimer !== null) return;
+      const segment = archiveRef.current;
+      if (segment === null) return;
+      if (!recovery.current.ended(segment.segmentStart / 1000 + positionRef.current)) {
+        logEvent('arkiv', 'to korte stykker ved samme sekund: stopper gentagelsen');
+        setStreamError('Arkivet leverer ikke mere lige nu. Prøv igen.');
+        return;
+      }
+      setRadioState('connecting');
+      setAudioState('Venter på næste arkivstykke …');
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (cancelled || !mayPlay()) return;
+        const current = archiveRef.current;
+        if (current === null) return;
+        logEvent('arkiv', `beder igen om arkivet fra ${clockOf(current.segmentStart + positionRef.current * 1000)} efter 15 s`);
+        archiveSwitchStartedAt.current = Date.now();
+        void playFromStartRef.current(current.programme, new Date(current.segmentStart + positionRef.current * 1000), 0, true);
+      }, 15_000);
+    };
+    archiveEndedShort.current = endedShort;
     const handleStatus = (status: string): void => {
       if (cancelled) return;
 
@@ -813,6 +966,7 @@ export function PlayerScreen({
         if (!connection.active) return; // connection ejer hele seek-deadlinen
         if (!everReady.current) logEvent('afspiller', `klar (${restarted ? 'arkiv' : 'live'}, ${/\.m3u8(\?|$)/.test(source) ? 'hls' : 'ts'})`);
         everReady.current = true;
+        setReconnecting(false);
         if (archiveRef.current === null && !isRadio) liveHealth.current.ready(player.currentTime, Date.now());
         clearStallTimer();
         try {
@@ -870,7 +1024,10 @@ export function PlayerScreen({
       }
       if (status === 'loading') {
         if (everReady.current && Date.now() - lastBufferLog >= 5000) {
-          logEvent('afspiller', `buffrer ved ${Math.round(positionRef.current)} s`);
+          // expo's bufferedPosition er 0 her; den ufiltrerede native buffer siger om det er sult.
+          const native = lastFrameSample.current?.nativeBufferedPosition;
+          const ahead = typeof native === 'number' && Number.isFinite(native) ? ` (native buffer foran ${Math.max(0, native - positionRef.current).toFixed(1)} s)` : '';
+          logEvent('afspiller', `buffrer ved ${Math.round(positionRef.current)} s${ahead}`);
           lastBufferLog = Date.now();
         }
         setAudioState('Forbinder …');
@@ -944,6 +1101,7 @@ export function PlayerScreen({
             let buffered = -1;
             try { buffered = player.bufferedPosition; } catch { /* Buffermaaling maa ikke blokere genforbindelse. */ }
             logEvent('afspiller', `arkiv uden fremdrift v384: ${position.toFixed(3)} s, ${status}, buffer til ${Number.isFinite(buffered) && buffered >= 0 ? Math.round(buffered) : '?'} s: genforbinder`);
+            logEvent('afspiller', netSummary(lastFrameSample.current, position));
             handleFailure();
           }
         } catch {
@@ -1004,7 +1162,7 @@ export function PlayerScreen({
         'afspiller',
         `afspilningsuret staar stille ved ${position.toFixed(3)} s i ${Math.round(FROZEN_AFTER_MS / 1000)} s (buffer til ${buffered < 0 ? '?' : Math.round(buffered)} s): genforbinder`,
       );
-      handleFailure();
+      handleFailure('ur-stoppet');
     }, FROZEN_CHECK_MS);
 
     return () => {
@@ -1017,9 +1175,10 @@ export function PlayerScreen({
       appState.remove();
       if (cancelPendingRetry.current === cancelRetry) cancelPendingRetry.current = () => undefined;
       if (nativeFailure.current === failPreparation) nativeFailure.current = () => undefined;
+      if (archiveEndedShort.current === endedShort) archiveEndedShort.current = () => undefined;
       if (playbackStatus.current === handleStatus) playbackStatus.current = () => undefined;
     };
-  }, [player, connection, source, sourceRevision, triedFallback, restarted, access, channel, autoSelectSubtitle, requestSource, finishArchive, isRadio]);
+  }, [player, connection, source, sourceRevision, suspended, triedFallback, restarted, access, channel, autoSelectSubtitle, requestSource, finishArchive, isRadio, session.fetchImpl]);
 
   const playFromStart = useCallback(
     async (programme: Programme, from: Date = programme.start, seekSeconds = 0, reconnect = false, untilMs?: number): Promise<void> => {
@@ -1055,7 +1214,7 @@ export function PlayerScreen({
           // skaermen sort uden dette: fald tilbage paa live frem for ingenting —
           // men sig det, i stedet for at lade folk tro at trykket ikke virkede.
           archiveRef.current = null;
-          requestSource(liveUrlFor(access, channel, formatForPlatform()));
+          requestSource(liveUrlFor(access, channel, formatForPlatform()), 'arkiv uden dialekt');
           setRestarted(false);
           setFellBackToLive(true);
           setRestartBlock(restartBlockFor(channel.hasArchive, false, true));
@@ -1109,6 +1268,7 @@ export function PlayerScreen({
             offset,
             format,
           ),
+          reconnect ? 'arkiv fortsaettelse' : 'start forfra',
         );
         setStreamError(null);
         setStartFrom(programme);
@@ -1140,16 +1300,23 @@ export function PlayerScreen({
     try {
       if (restartBlock === 'no-dialect') {
         const offset = await getPanelOffsetMinutes(session.db, channel.sourceId);
-        const found =
-          access?.creds == null
-            ? null
-            : await detectTimeshiftDialect(
-                access.creds,
-                channel.streamId,
-                session.fetchImpl,
-                new Date(),
-                offset,
-              );
+        let found: TimeshiftDialect | null = null;
+        if (access?.creds != null) {
+          // Proben aabner op til fire arkivadresser. Slip live-stroemmen foerst,
+          // saa der aldrig er to stroemme mod et panel med én (v424).
+          logEvent('arkiv', 'dialekt-probe: live slippes imens');
+          sourceReason.current = 'efter dialekt-probe';
+          suspendedRef.current = true;
+          setSuspended(true);
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          try {
+            found = await detectTimeshiftDialect(access.creds, channel.streamId, session.fetchImpl, new Date(), offset);
+          } finally {
+            suspendedRef.current = false;
+            setSuspended(false);
+          }
+          logEvent('arkiv', `dialekt-probe: ${found ?? 'ingen dialekt fundet'}`);
+        }
         await setTimeshiftDialect(session.db, found, channel.sourceId);
       } else {
         try {
@@ -1321,7 +1488,7 @@ export function PlayerScreen({
   // sin egen skaerm) og kun til billedet er klart (radioState skifter til
   // 'playing'); en fejl viser sin egen tekst i stedet.
   const connectingOverlay =
-    !isRadio && radioState === 'connecting' && (hasVideo !== true || restarted) && streamError === null ? (
+    !isRadio && radioState === 'connecting' && (hasVideo !== true || restarted || reconnecting) && streamError === null ? (
       <View style={styles.connecting} pointerEvents="none">
         <ChannelLogo uris={channel.logoUrls} name={channel.name} memoryKey={channel.id} size={48} />
         <Text style={styles.connectingName} numberOfLines={1}>
@@ -1343,7 +1510,14 @@ export function PlayerScreen({
         if (segment !== null) {
           archiveClock.current = null;
           void playFromStart(segment.programme, new Date(segment.segmentStart + positionRef.current * 1000), 0, true);
-        } else if (source !== null) { setStreamError(null); requestSource(source); }
+        } else {
+          // Tilbage til standardformatet (v424): foer blev kanalen haengende
+          // paa HLS efter et formatskift, indtil man zappede.
+          setTriedFallback(false);
+          setStreamError(null);
+          setReconnecting(false);
+          requestSource(liveUrlFor(access, channel, formatForPlatform()), 'proev igen');
+        }
       }}>
         <Text style={styles.connectingName}>Prøv igen</Text>
       </TvPressable>

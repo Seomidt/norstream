@@ -49,8 +49,10 @@ export function startDiagnostics(db: SqlDatabase): void {
       flushTimer = null;
       void journal!.flush().catch(() => undefined);
     }, 500);
-    // Fejl/EOF fastholdes hurtigt i outbox; kvoten gaelder stadig ved upload.
-    if (/sluttede|fejl\/haengt|opgiver|native fej|status: error/i.test(entry.line)) {
+    // Fejl fastholdes hurtigt i outbox; kvoten gaelder stadig ved upload.
+    // Ikke 'sluttede' (v424): et almindeligt stykkeskift i arkivet var en
+    // "fejl" og skubbede de rigtige fejlrapporter ud af serverens 30 pladser.
+    if (/fejl\/haengt|opgiver|native fej|status: error|uden fremdrift|live stoppet|korte forbindelser|to fortsaettelser|to korte stykker|indlaesning afbrudt|sluttede foer spoletiden/i.test(entry.line)) {
       failureRevision++;
       if (reportTimer !== null) return;
       reportTimer = setTimeout(() => { reportTimer = null; void sendDiagnosticReport(); }, 500);
@@ -76,8 +78,19 @@ export function startDiagnostics(db: SqlDatabase): void {
     }, post, Number(Application.nativeBuildVersion) || 382);
     await reporter.init();
     const deadline = await db.getFirstAsync<{ value: string }>("SELECT value FROM settings WHERE key='diagnostic_auto_until'");
-    automaticUntil = deadline === null ? Date.now() + 7 * 86400000 : Number(deadline.value);
-    if (deadline === null) await db.runAsync("INSERT INTO settings(key,value) VALUES('diagnostic_auto_until',?)", [String(automaticUntil)]);
+    const seenVersion = await db.getFirstAsync<{ value: string }>("SELECT value FROM settings WHERE key='diagnostic_auto_version'");
+    const version = Number(Application.nativeBuildVersion) || 0;
+    // Et nyt vindue pr. ny udgave (v424): foer fik en installation ét vindue
+    // for altid, saa ingen senere udgave kunne sende beviser. Et vindue der
+    // stadig er aabent, fortsaetter; brugerens eget fravalg bevares.
+    const reopen = deadline !== null && Number(seenVersion?.value) !== version && Date.now() >= Number(deadline.value);
+    automaticUntil = deadline === null || reopen ? Date.now() + 7 * 86400000 : Number(deadline.value);
+    if (deadline === null || reopen) {
+      await db.runAsync("INSERT OR REPLACE INTO settings(key,value) VALUES('diagnostic_auto_until',?)", [String(automaticUntil)]);
+      await db.runAsync("INSERT OR REPLACE INTO settings(key,value) VALUES('diagnostic_auto_version',?)", [String(version)]);
+    } else if (seenVersion === null) {
+      await db.runAsync("INSERT OR REPLACE INTO settings(key,value) VALUES('diagnostic_auto_version',?)", [String(version)]);
+    }
     disabled = (await db.getFirstAsync<{ value: string }>("SELECT value FROM settings WHERE key='diagnostic_disabled'"))?.value === '1';
     await journal!.flush().catch(() => undefined);
     // Aflever foerst en eventuel rapport, som ikke naaede frem foer genstart.

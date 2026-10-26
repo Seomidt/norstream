@@ -1,3 +1,7 @@
+## v424 — live-udfald, start forfra og beviser (26. oktober 2026)
+
+30 efterprøvede fund (`docs/UDFALD-OG-START-FORFRA-v424.md`). Live-EOF er panelets lukning, men appens reaktion gav fejlskærm og HLS-fastlåsning; nu genforbindes der videre, "Prøv igen" går til TS, og baggrunden slipper forbindelsen. Start forfra frøs på appens egen stykkeskifte-logik (58 s overlap + skjult længde → genlæsning fra byte 0); stykker fortsætter nu fra det hele minut, Media3 får varigheden oplyst, og "slut før spoletid" venter 15 s. Loggen har nu `active_cons` efter udfald, årsag ved hvert kildeskift og native netværkstal. Diagnostikken er genåbnet i 7 dage pr. udgave. **Send "Vis loggen" efter næste udfald.**
+
 ## v423 — hurtig guide, automatisk sommer-/vintertid og enklere indstillinger (26. oktober 2026)
 
 Guiden viser igen det gemte straks og fornyer kun gamle kanaler i baggrunden (v421–v422 hentede alt ved hvert besøg). Et skift mellem sommer- og vintertid gør gemt EPG gammel af sig selv, og de første tre døgn fornyes tabellen hver time. De faste timekorrektioner er væk, også arkivets +60 fra v418 (skema 34). Indstillinger er samlet i ni foldbare grupper, og EPG-tid er fjernet. Se `docs/EPG-CACHE-OG-TIDSSKIFT-v423.md`. **Lav aldrig en fast timekorrektion igen**: den passer kun til næste skift.

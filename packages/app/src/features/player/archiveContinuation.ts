@@ -40,6 +40,18 @@ export function archivePlaybackBounds(
 /** De sidste sekunder af en udsendelse regnes som set til ende. */
 const END_SLACK_MS = 2000;
 
+/**
+ * Panelets arkivstykke slutter typisk 1-2 s foer det bestilte hele minut
+ * (v419-loggen: 478,290 s for 8 min; TV2-loggen: 179,340 s for 3 min).
+ * Foer blev de sidste sekunder til et overlap paa 58-59 s: naeste stykke
+ * blev bestilt fra det forrige minut med spoling, og Media3 maatte hente
+ * og kassere et helt minut igen ved hvert stykkeskift (v424). Et stykke
+ * der slutter inden for denne margen regnes for at have naaet minuttet,
+ * saa det naeste begynder dér uden spoling. Hoejst fem sekunder indhold
+ * springes over, og det er sekunder panelet alligevel ikke leverede.
+ */
+export const MINUTE_SHORTFALL_TOLERANCE_MS = 5000;
+
 /** Panelet accepterer kun starttid og varighed i HELE minutter. */
 export function archiveWindow(
   programme: { start: Date; stop: Date },
@@ -77,12 +89,14 @@ export function archiveContinuation(
 ): ArchiveNext {
   const position = Number.isFinite(positionSeconds) && positionSeconds > 0 ? positionSeconds : 0;
   const rawReached = segmentStartMs + position * 1000;
-  // Native tid kan ligge 1 ms under et helt minut, mens loggen viser 120 s.
-  // Date trunkerer og gjorde det til forrige minut + 59.999 s: unoedigt seek
-  // gennem et helt overlap. Kun 1 ms normaliseres; reelle 154/179/596 s fra
-  // TV-loggen bevares, ogsaa naar panelet leverer mindre end bestilt.
-  const nearestMinute = Math.round(rawReached / 60_000) * 60_000;
-  const reached = Math.abs(rawReached - nearestMinute) <= 1 ? nearestMinute : rawReached;
+  // Et stykke der slutter lige foer et helt minut (op til fem sekunder, se
+  // MINUTE_SHORTFALL_TOLERANCE_MS) eller 1 ms efter det, regnes som naaet
+  // til minuttet. Reelle 154 s fra TV-loggen (26 s foer minuttet) bevares,
+  // ogsaa naar panelet leverer mindre end bestilt.
+  const nextMinute = Math.ceil(rawReached / 60_000) * 60_000;
+  const previousMinute = Math.floor(rawReached / 60_000) * 60_000;
+  const reached = nextMinute - rawReached <= MINUTE_SHORTFALL_TOLERANCE_MS ? nextMinute
+    : rawReached - previousMinute <= 1 ? previousMinute : rawReached;
   const end = programme.stop.getTime();
   if (reached >= end - END_SLACK_MS) return { kind: 'done' };
   // Slutmargenen maa ikke faa en faerdig udsendelse til at ligne en der

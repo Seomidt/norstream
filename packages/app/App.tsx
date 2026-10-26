@@ -2,7 +2,7 @@ import { logEvent } from './src/diagnostics/log.js';
 import { logPreviousExits } from './src/diagnostics/processExit.js';
 import { processDiagnosticsNative } from './modules/process-diagnostics/index.js';
 import { deferredScreen } from './src/ui/deferredScreen.js';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, Linking, StyleSheet, Text, View } from 'react-native';
 // Ikke react-natives egen SafeAreaView: den gør **ingenting paa Android**.
 // Telefonens navigationslinje laa derfor oven i appens fanelinje, og det saa
@@ -101,6 +101,9 @@ function AppInner() {
   const [route, setRoute] = useState<Route>({ name: 'loading' });
   const [session, setSession] = useState<AppSession | null>(null);
   const [bootAttempt, setBootAttempt] = useState(0);
+  // Samme funktion hver gang: en ny onBack ved hver tegning af App (tema-
+  // timeren tegner mindst hver time) genstartede afspillerens effekter (v424).
+  const goHome = useCallback(() => setRoute({ name: 'home' }), []);
   /**
    * Hvor brugeren stod i Hjem, loeftet herop.
    *
@@ -353,7 +356,7 @@ function AppInner() {
             startFrom={route.startFrom}
             zap={route.zap}
             resumeAtSeconds={route.resumeAtSeconds}
-            onBack={() => setRoute({ name: 'home' })}
+            onBack={goHome}
           />
         </View>
         </ThemeProvider>

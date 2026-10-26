@@ -74,7 +74,7 @@ describe('XtreamClient.getAccountInfo', () => {
       creds,
       respondWith({ user_info: { exp_date: '1774000000', status: 'Active' } }),
     );
-    expect(await client.getAccountInfo()).toEqual({ expDate: 1774000000, status: 'Active' });
+    expect(await client.getAccountInfo()).toEqual({ expDate: 1774000000, status: 'Active', activeConnections: null, maxConnections: null });
   });
 
   it('giver null udloeb for ubegraenset (0/tom/mangler)', async () => {
@@ -86,7 +86,14 @@ describe('XtreamClient.getAccountInfo', () => {
 
   it('taaler et svar helt uden user_info', async () => {
     const client = new XtreamClient(creds, respondWith({}));
-    expect(await client.getAccountInfo()).toEqual({ expDate: null, status: null });
+    expect(await client.getAccountInfo()).toEqual({ expDate: null, status: null, activeConnections: null, maxConnections: null });
+  });
+
+  it('laeser aktive forbindelser og loft som tal eller talstreng (v424)', async () => {
+    const client = new XtreamClient(creds, respondWith({ user_info: { active_cons: '1', max_connections: 1 } }));
+    expect(await client.getAccountInfo()).toMatchObject({ activeConnections: 1, maxConnections: 1 });
+    const zero = new XtreamClient(creds, respondWith({ user_info: { active_cons: 0, max_connections: '-1' } }));
+    expect(await zero.getAccountInfo()).toMatchObject({ activeConnections: 0, maxConnections: null });
   });
 });
 

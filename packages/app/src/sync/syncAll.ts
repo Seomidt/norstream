@@ -23,6 +23,7 @@ import { syncLogoRegistry } from './syncLogoRegistry.js';
 import { forgetLogoMisses } from '../ui/logoCache.js';
 import { syncXmltv } from './syncXmltv.js';
 import { startPanelEpg } from './panelEpg.js';
+import { logEvent } from '../diagnostics/log.js';
 
 /** Kanallisten hentes hoejst én gang i doegnet af sig selv. */
 export const CHANNEL_SYNC_INTERVAL_MS = 24 * 60 * 60_000;
@@ -123,11 +124,15 @@ export async function syncAllSources(
     // Ekstra sikkerhed, ikke en forudsaetning.
   }
 
+  const syncStartedAt = Date.now();
   for (const access of sources) {
     // Hver kilde har sin egen doegnrytme. Med én faelles ville en nyligt
     // tilfoejet kilde arve de andres hentetid og staa tom i op til et doegn.
     const last = await getLastSyncMs(db, access.source.id);
     const fresh = last !== null && now.getTime() - last < CHANNEL_SYNC_INTERVAL_MS;
+    // Hentningen bruger panelets baandbredde i flere minutter. Starten skal
+    // kunne ses i loggen ved siden af et live-udfald (v424).
+    if (force || !fresh) logEvent('baggrund', `kanaler/film hentes fra ${access.source.name}${force ? ' (manuelt)' : ''}`);
     if (!force && fresh) {
       result.skipped += 1;
       await maybeXmltv(db, access, fetchImpl, now, force);
@@ -159,6 +164,10 @@ export async function syncAllSources(
       if (cause instanceof XtreamAuthError) result.rejected.push(access.source.name);
       else result.failed.push(access.source.name);
     }
+  }
+
+  if (result.synced + result.failed.length + result.rejected.length > 0) {
+    logEvent('baggrund', `kanaler/film hentet paa ${Math.round((Date.now() - syncStartedAt) / 1000)} s: ${result.synced} kilder, ${result.failed.length} fejlede`);
   }
 
   // Kanalerne er friske nu: gen-haegt favoritter hvis et panel har givet sine

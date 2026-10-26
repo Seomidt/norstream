@@ -65,6 +65,16 @@ export interface XtreamAccountInfo {
   expDate: number | null;
   /** Panelets status, fx `Active`, `Expired`, `Banned` — eller `null`. */
   status: string | null;
+  /** Stroemme kontoen holder aabne lige nu (`active_cons`), eller `null` naar panelet ikke oplyser det. */
+  activeConnections: number | null;
+  /** Kontoens loft (`max_connections`), eller `null`. */
+  maxConnections: number | null;
+}
+
+/** active_cons og max_connections kommer som tal eller talstreng; 0 er et gyldigt tal. */
+function parseCount(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+  return Number.isInteger(n) && n >= 0 ? n : null;
 }
 
 /** exp_date kan komme som tal eller talstreng; 0/""/null betyder ubegraenset. */
@@ -147,12 +157,16 @@ export class XtreamClient {
    */
   async getAccountInfo(): Promise<XtreamAccountInfo> {
     const body = (await this.request()) as {
-      user_info?: { exp_date?: unknown; status?: unknown };
+      user_info?: { exp_date?: unknown; status?: unknown; active_cons?: unknown; max_connections?: unknown };
     };
     const info = body?.user_info;
     return {
       expDate: parseExpDate(info?.exp_date),
       status: typeof info?.status === 'string' ? info.status : null,
+      // Efter et live-EOF afgoer disse to tal om en anden enhed paa samme
+      // konto holdt den ene forbindelse (v424). Ét API-kald, ingen stroem.
+      activeConnections: parseCount(info?.active_cons),
+      maxConnections: parseCount(info?.max_connections),
     };
   }
 

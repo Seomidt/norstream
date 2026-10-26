@@ -38,6 +38,7 @@ alter table norstream_diagnostics.enrolment enable row level security;
 revoke all on norstream_diagnostics.enrolment from public,anon,authenticated;
 grant all on norstream_diagnostics.enrolment to service_role;
 insert into norstream_diagnostics.enrolment(singleton,closes_at,capacity) values(true,now()+interval '14 days',100);
+-- Genaabnes manuelt foer en udgave der skal samle beviser (v424: update ... set closes_at = now()+interval '21 days').
 create or replace function public.ns_diagnostic_enrol(p_token_hash text)
 returns jsonb language plpgsql security invoker set search_path='' as $$
 declare s norstream_diagnostics.sessions; gate norstream_diagnostics.enrolment; attempts integer;
@@ -78,13 +79,16 @@ revoke all on function public.ns_diagnostic_enrol(text) from public,anon,authent
 revoke all on function public.ns_diagnostic_upload(text,uuid,jsonb) from public,anon,authenticated;
 grant execute on function public.ns_diagnostic_enrol(text) to service_role;
 grant execute on function public.ns_diagnostic_upload(text,uuid,jsonb) to service_role;
--- Slet udloebne rapporter/sessioner. Sky-backup beroeres ikke.
+-- Slet udloebne sessioner 14 dage efter udloeb (v424): rapporterne skal kunne
+-- laeses efter de syv dages indsamling. Upload til en udloebet session afvises
+-- stadig. Sky-backup beroeres ikke.
 select cron.schedule('norstream-diagnostics-retention','17 * * * *',
- $$delete from norstream_diagnostics.sessions where expires_at<now() or (claim_id is null and activate_before<now());$$);
+ $$delete from norstream_diagnostics.sessions where (claim_id is not null and expires_at < now() - interval '14 days') or (claim_id is null and activate_before < now());$$);
+-- Brugerens eget fravalg sletter straks, ogsaa med opbevaring efter udloeb.
 create or replace function public.ns_diagnostic_stop(p_token_hash text)
 returns jsonb language plpgsql security invoker set search_path='' as $$
 begin
- update norstream_diagnostics.sessions set expires_at=now() where token_hash=p_token_hash;
+ delete from norstream_diagnostics.sessions where token_hash=p_token_hash;
  return jsonb_build_object('status',case when found then 'ok' else 'invalid' end);
 end $$;
 revoke all on function public.ns_diagnostic_stop(text) from public,anon,authenticated;

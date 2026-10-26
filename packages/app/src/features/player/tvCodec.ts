@@ -18,6 +18,28 @@ export interface VideoFrameSample {
   videoRenderedFrames?: number | null;
   videoDroppedFrames?: number | null;
   bufferedPosition?: number;
+  /** Ufiltreret native buffer (v424); expo's bufferedPosition melder 0 under buffering. */
+  nativeBufferedPosition?: number | null;
+  netLoads?: number | null;
+  netErrors?: number | null;
+  netLastKilobytes?: number | null;
+  netLastDurationMs?: number | null;
+  netLastHttpStatus?: number | null;
+  netLastLengthKnown?: boolean | null;
+}
+
+/**
+ * Netvaerket set fra Media3, som tal (v424): hvor mange indlaesninger og fejl,
+ * hvad den sidste gav, og hvor langt den ufiltrerede buffer naar. Skelner
+ * "panelet lukkede efter N kB" fra "netfejl" og "sultet". Ingen adresser.
+ */
+export function netSummary(sample: VideoFrameSample | null, position: number): string {
+  if (sample === null) return 'net: ingen native tal endnu';
+  const int = (value: number | null | undefined): string => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? String(Math.round(value)) : '?';
+  const ahead = typeof sample.nativeBufferedPosition === 'number' && Number.isFinite(sample.nativeBufferedPosition) && Number.isFinite(position)
+    ? Math.max(0, sample.nativeBufferedPosition - position).toFixed(1) : '?';
+  const known = sample.netLastLengthKnown === true ? 'ja' : sample.netLastLengthKnown === false ? 'nej' : '?';
+  return `net v424: indlaesninger ${int(sample.netLoads)}, fejl ${int(sample.netErrors)}; sidste ${int(sample.netLastKilobytes)} kB paa ${int(sample.netLastDurationMs)} ms, http ${int(sample.netLastHttpStatus)}, laengde kendt ${known}; native buffer foran ${ahead} s`;
 }
 
 // Kun faste navne og sikre tal; ingen native fejltekst, URL eller credentials.

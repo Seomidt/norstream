@@ -14,6 +14,7 @@ import { liveUrlFor } from '../../sources/access.js';
 import { streamSource } from '../../net/doh.js';
 import { formatForPlatform } from '../player/format.js';
 import { TvPressable } from '../../ui/TvPressable.js';
+import { logEvent } from '../../diagnostics/log.js';
 
 /**
  * Giver forælderen mulighed for at frigive streamen og vente paa det.
@@ -110,6 +111,9 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
       release: async () => {
         const wasActive = targetRef.current !== null;
         setTarget(null);
+        // Forhaandsvisningen er en rigtig stroem paa kontoens ene forbindelse.
+        // Den skal kunne ses i loggen ved siden af afspillerens udfald (v424).
+        logEvent('forhaandsvisning', wasActive ? 'slipper forbindelsen foer afspilleren' : 'slipper (ingen forbindelse)');
         await releaseQuietly(() => player.replaceAsync(null));
         return wasActive;
       },
@@ -134,6 +138,7 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
       // Uden adresse er der intet at vise. Et forsoeg paa at aabne null ville
       // efterlade et sort felt der ligner en stream der ikke ville starte.
       if (url === null) return;
+      logEvent('forhaandsvisning', `aabner ${target.name}`);
       await player.replaceAsync(streamSource(url));
       if (cancelled) return;
       player.muted = muted;
@@ -151,6 +156,7 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
     function handleFailure(): void {
       if (cancelled) return;
       attempt += 1;
+      logEvent('forhaandsvisning', `afvist, forsoeg ${attempt}`);
       if (attempt === 1) {
         if (retryTimer !== null) clearTimeout(retryTimer);
         retryTimer = setTimeout(() => {
@@ -183,6 +189,7 @@ export function MiniPreview({ session, channel, enabled, onOpen, handle }: Props
       cancelled = true;
       if (retryTimer !== null) clearTimeout(retryTimer);
       subscription.remove();
+      if (target !== null) logEvent('forhaandsvisning', 'slipper ved skift');
       void releaseQuietly(() => player.replaceAsync(null));
     };
     // `muted` staar med vilje ikke i afhaengighederne: den saettes af sin egen

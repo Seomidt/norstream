@@ -39,6 +39,7 @@ export class PlaybackConnection {
   private seekConfirmed = false;
   private failed = false;
   private timedOut = false;
+  private endedShort = false;
   private expectedUri: string | null = null;
   private seekSeconds = 0;
   private archive = false;
@@ -82,6 +83,11 @@ export class PlaybackConnection {
     return this.timedOut && this.seekApplied && !this.seekConfirmed;
   }
 
+  /** Arkivstykket sluttede foer spoletiden blev naaet: panelet havde ikke saa meget (v424). */
+  get endedBeforeSeek(): boolean {
+    return this.endedShort;
+  }
+
   /** Kun fase-navne, aldrig en kilde-URL eller en native fejlbesked. */
   get preparationPhase(): string {
     if (this.preroll !== null) return 'sekventielt overlap';
@@ -103,6 +109,7 @@ export class PlaybackConnection {
     this.seekConfirmed = false;
     this.failed = false;
     this.timedOut = false;
+    this.endedShort = false;
     this.started = false;
     const nextUri = uriOf(source);
     if (archive || nextUri !== this.expectedUri) this.liveRebuffered = false;
@@ -121,7 +128,9 @@ export class PlaybackConnection {
         this.failed = true;
         this.timedOut = true;
         this.finishPreparation(new Error(`preparation-timeout:${this.preparationPhase}`));
-      }, this.linear && this.seekSeconds > 0 ? 45_000 : archive ? 30_000 : 8000);
+      // Live efter et udfald skal ogsaa naa 4 s buffer (LIVE_REBUFFER) inden
+      // deadline; et frisk zap beholder de 8 s (v424).
+      }, this.linear && this.seekSeconds > 0 ? 45_000 : archive ? 30_000 : this.liveRebuffered ? 12_000 : 8000);
       this.preparation = { resolve, reject, timer };
     });
     const run = async (): Promise<void> => {
@@ -135,8 +144,11 @@ export class PlaybackConnection {
       // Media3 maatte saa hente ved en TS-byteposition, som PHP-arkivet kan
       // levere forkert. Startup stiler mod overlap + 5 s, stadig med samme
       // 64 MiB loft; efter bekraeftelse bruges normal genbuffring igen.
+      // v424: med oplyst varighed kan Media3 spole i sample-koeerne, saa et
+      // overlap over 5 s buffres FOER seek i stedet for at blive genlaest fra
+      // byte 0. Smaa spolinger og spoling 0 beholder 5 s.
       this.player.bufferOptions = archive
-        ? { ...ARCHIVE_BUFFER, minBufferForPlayback: (this.linear || this.replay) ? 5 : Math.min(90, this.seekSeconds + 5) }
+        ? { ...ARCHIVE_BUFFER, minBufferForPlayback: this.linear || this.seekSeconds <= 5 ? 5 : Math.min(90, this.seekSeconds + 5) }
         : this.liveRebuffered ? LIVE_REBUFFER : LIVE_BUFFER;
       // Android frigiver den gamle MediaSource foer den nye forberedes.
       // iOS' asynkrone forberedelse afsluttes foer naeste replace starter.
@@ -166,6 +178,16 @@ export class PlaybackConnection {
   }
 
   status(status: string): void {
+    // Et arkivstykke der melder slut mens spolingen stadig venter paa sin
+    // position, indeholdt ikke spoletiden: panelets fil var kortere end
+    // bestilt. Foer stod det i 30 s til deadline og brugte to genforsoeg paa
+    // praecis samme minut (v424). Live har seekSeconds 0 og rammes ikke.
+    if (status === 'idle' && this.archive && this.committed && this.seekApplied && !this.seekConfirmed && this.seekSeconds > 0) {
+      this.failed = true;
+      this.endedShort = true;
+      this.finishPreparation(new Error('ended-before-seek'));
+      return;
+    }
     // Kun en allerede startet live-stream: foerste opstart og arkiv bevares.
     // Ingen replace(), ekstra forbindelse eller gentagne buffer-omstillinger.
     if (status === 'loading' && !this.archive && this.prepared && this.started && !this.liveRebuffered) {
@@ -270,6 +292,18 @@ export class PlaybackConnection {
 
   private restoreBuffer(): void {
     if (this.archive) this.player.bufferOptions = ARCHIVE_BUFFER;
+  }
+
+  /**
+   * Slip kilden helt, i koe efter et eventuelt igangvaerende kildeskift (v424).
+   * Appen i baggrunden holdt foer forbindelsen aaben med en pauset afspiller;
+   * paa et panel med én forbindelse spaerrede den for alle andre enheder.
+   */
+  release(): Promise<void> {
+    this.cancel();
+    const operation = this.tail.then(() => this.player.replaceAsync(null));
+    this.tail = operation.catch(() => undefined);
+    return this.tail;
   }
 
   dispose(): void {

@@ -603,7 +603,8 @@ it('springer v418-loggens 58.290 s over uden 17 s afspilning i 4x', async () => 
   const f = fixture();
   const loaded = f.connection.load('php.ts', true, 58.290, true, 'replay');
   await Promise.resolve();
-  expect(f.player.bufferOptions.minBufferForPlayback).toBe(5);
+  // v424: overlappet skal ligge i bufferen foer seek, saa Media3 ikke genlaeser fra byte 0.
+  expect(f.player.bufferOptions.minBufferForPlayback).toBeCloseTo(63.29);
   f.pending[0]!.resolve();
   f.connection.sourceLoaded('php.ts'); f.connection.status('readyToPlay');
   await Promise.resolve(); await Promise.resolve();
@@ -635,4 +636,78 @@ it('bevarer brugerens pause og lyd ved hurtigt arkiv-overlap', async () => {
   expect(f.player.playbackRate).toBe(1.25);
   expect(f.player.muted).toBe(true);
   expect(f.calls.filter(c => c.startsWith('play@'))).toEqual([]);
+});
+
+it('afviser straks et arkivstykke der slutter foer spoletiden, og ikke et med spoling 0 (v424)', async () => {
+  const f = fixture();
+  const loaded = f.connection.load('php.ts', true, 58.290, true, 'replay');
+  await Promise.resolve(); f.pending[0]!.resolve();
+  f.connection.sourceLoaded('php.ts'); f.connection.status('readyToPlay');
+  await Promise.resolve(); await Promise.resolve();
+  expect(f.player.currentTime).toBe(58.290);
+  f.connection.status('loading');
+  f.connection.status('idle');
+  await expect(loaded).rejects.toThrow('ended-before-seek');
+  expect(f.connection.endedBeforeSeek).toBe(true);
+  expect(f.connection.prepared).toBe(false);
+  expect(f.calls.filter(c => c.startsWith('play@'))).toEqual([]);
+
+  const g = fixture();
+  const plain = g.connection.load('php.ts', true, 0, true, 'replay');
+  await Promise.resolve(); g.pending[0]!.resolve();
+  g.connection.sourceLoaded('php.ts'); g.connection.status('readyToPlay');
+  await plain;
+  g.connection.status('idle');
+  expect(g.connection.endedBeforeSeek).toBe(false);
+  expect(g.connection.committed).toBe(true);
+});
+
+it('et idle foer metadata er ikke en kort fil', async () => {
+  const f = fixture();
+  const loaded = f.connection.load('php.ts', true, 30, true, 'replay');
+  await Promise.resolve(); f.pending[0]!.resolve();
+  f.connection.status('idle');
+  expect(f.connection.endedBeforeSeek).toBe(false);
+  f.connection.sourceLoaded('php.ts'); f.connection.status('readyToPlay');
+  await Promise.resolve(); await Promise.resolve();
+  f.connection.status('readyToPlay');
+  expect(f.connection.position(30)).toBe(true);
+  await loaded;
+});
+
+it('slipper kilden i koe efter et kildeskift og giver et nyt load fuld ventetid (v424)', async () => {
+  const f = fixture();
+  const loaded = f.connection.load('live.ts', false);
+  await Promise.resolve();
+  const released = f.connection.release();
+  f.pending[0]!.resolve();
+  await loaded;
+  for (let i = 0; i < 4 && f.pending.length < 2; i += 1) await Promise.resolve();
+  f.pending[1]!.resolve();
+  await released;
+  expect(f.calls.filter(c => c.startsWith('replace:'))).toEqual(['replace:live.ts', 'replace:object']);
+  expect(f.connection.committed).toBe(false);
+  const again = f.connection.load('live.ts', false);
+  await Promise.resolve();
+  f.pending[2]!.resolve(); f.connection.sourceLoaded('live.ts'); f.connection.status('readyToPlay');
+  await again;
+  expect(f.connection.prepared).toBe(true);
+});
+
+it('giver live 12 s efter et udfald, 8 s ved et frisk zap', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  const first = f.connection.load('live.ts', false);
+  await Promise.resolve(); f.pending[0]!.resolve(); f.connection.sourceLoaded('live.ts'); f.connection.status('readyToPlay');
+  await first;
+  f.connection.status('loading');
+  const retry = f.connection.load('live.ts', false);
+  await Promise.resolve(); f.pending[1]!.resolve();
+  vi.advanceTimersByTime(8000);
+  f.connection.sourceLoaded('live.ts'); f.connection.status('readyToPlay');
+  await retry;
+  const zap = f.connection.load('other.ts', false);
+  await Promise.resolve(); f.pending[2]!.resolve();
+  vi.advanceTimersByTime(8000);
+  await expect(zap).rejects.toThrow('preparation-timeout');
 });

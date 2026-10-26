@@ -14,7 +14,10 @@ function number(read: () => unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1e8 ? value : null;
   } catch { return null; }
 }
-export function liveFailureSnapshot(player: SamplePort, reason: LiveFailureReason, format: 'ts' | 'hls'): string {
+/** Sidste videotaellere fra timeUpdate (kun TV i dag): skiller "ur gaar, billede staar" fra sult. */
+export interface FrameCounters { videoQueuedFrames?: number | null; videoRenderedFrames?: number | null; videoDroppedFrames?: number | null }
+
+export function liveFailureSnapshot(player: SamplePort, reason: LiveFailureReason, format: 'ts' | 'hls', frames: FrameCounters | null = null): string {
   const position = number(() => player.currentTime), buffered = number(() => player.bufferedPosition);
   const ahead = position === null || buffered === null ? null : Math.max(0, buffered - position);
   let status = '?', playing = '?', nativeLive = '?';
@@ -28,5 +31,7 @@ export function liveFailureSnapshot(player: SamplePort, reason: LiveFailureReaso
   } catch { /* Native metadata kan vaere frigivet. */ }
   const duration = number(() => player.duration);
   const text = (value: number | null): string => value === null ? '?' : value.toFixed(1);
-  return `live-diagnose v417: ${reason}, ${format}, ${status}, spiller ${playing}; ur ${text(position)} s, buffer til ${text(buffered)} s, foran ${text(ahead)} s; native live ${nativeLive}, varighed ${text(duration)} s`;
+  const count = (value: number | null | undefined): string => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? String(value) : '?';
+  const counters = frames === null ? '' : `; billeder ind ${count(frames.videoQueuedFrames)}, vist ${count(frames.videoRenderedFrames)}, tabt ${count(frames.videoDroppedFrames)}`;
+  return `live-diagnose v417: ${reason}, ${format}, ${status}, spiller ${playing}; ur ${text(position)} s, buffer til ${text(buffered)} s, foran ${text(ahead)} s; native live ${nativeLive}, varighed ${text(duration)} s${counters}`;
 }

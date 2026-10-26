@@ -25,3 +25,10 @@ it('skelner native live metadata fra endelig varighed uden at gaette paa aarsage
   expect(liveFailureSnapshot(player, 'eof', 'hls')).toContain('native live nej, varighed 77.6 s');
   expect(liveFailureSnapshot({ ...player, duration: Infinity, isLive: true }, 'buffer-timeout', 'hls')).toContain('native live ja, varighed ? s');
 });
+it('tager videotaellerne med naar de findes, og udelader dem ellers', () => {
+  const player = { currentTime: 100, bufferedPosition: 130, status: 'readyToPlay', playing: true };
+  expect(liveFailureSnapshot(player, 'ur-stoppet', 'ts', { videoQueuedFrames: 2500, videoRenderedFrames: 2400, videoDroppedFrames: 3 }))
+    .toContain('billeder ind 2500, vist 2400, tabt 3');
+  expect(liveFailureSnapshot(player, 'ur-stoppet', 'ts', { videoQueuedFrames: null })).toContain('billeder ind ?, vist ?, tabt ?');
+  expect(liveFailureSnapshot(player, 'ur-stoppet', 'ts')).not.toContain('billeder');
+});

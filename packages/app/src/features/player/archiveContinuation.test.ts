@@ -23,15 +23,29 @@ describe('archiveContinuation', () => {
     }
   });
 
-  it('bevarer reelle sekunder fra TV-loggen og springer ikke til stykkets bestilte slutminut', () => {
-    expect(archiveContinuation(show, at('20:00'), 119.75, at('20:06')))
-      .toMatchObject({ kind: 'continue', from: new Date(at('20:01')), seekSeconds: 59.75 });
+  it('et stykke der slutter op til 5 s foer minuttet fortsaetter fra minuttet uden overlap (v424)', () => {
+    // v419-loggen: 8 min bestilt fra 20:00, stroemmen sluttede ved 478,290 s.
+    // Foer: fra 20:07 med 58,290 s spoling og et helt minut hentet igen.
+    expect(archiveContinuation(show, at('20:00'), 478.29, at('20:18') + 20_000))
+      .toEqual({ kind: 'continue', from: new Date(at('20:08')), seekSeconds: 0, minutes: 8 });
+    for (const seconds of [119.75, 119, 115, 120, 119.999, 120.000001]) {
+      expect(archiveContinuation(show, at('20:00'), seconds, at('20:06')))
+        .toEqual({ kind: 'continue', from: new Date(at('20:02')), seekSeconds: 0, minutes: 2 });
+    }
+    // TV2-loggen: 179,340 s af 3 min -> 20:06 uden spoling; 596 s af 10 min -> 20:10.
+    expect(archiveContinuation(show, at('20:03'), 179.34, at('20:10')))
+      .toMatchObject({ kind: 'continue', from: new Date(at('20:06')), seekSeconds: 0 });
+    expect(archiveContinuation(show, at('20:00'), 596, at('20:22')))
+      .toMatchObject({ kind: 'continue', from: new Date(at('20:10')), seekSeconds: 0 });
+  });
+
+  it('bevarer reelle sekunder naar stykket sluttede mere end 5 s foer minuttet', () => {
+    expect(archiveContinuation(show, at('20:00'), 114.9, at('20:06')))
+      .toMatchObject({ kind: 'continue', from: new Date(at('20:01')), seekSeconds: 54.9 });
     expect(archiveContinuation(show, at('20:01'), 154, at('20:08')))
       .toMatchObject({ kind: 'continue', from: new Date(at('20:03')), seekSeconds: 34 });
-    expect(archiveContinuation(show, at('20:03'), 179, at('20:10')))
-      .toMatchObject({ kind: 'continue', from: new Date(at('20:05')), seekSeconds: 59 });
-    expect(archiveContinuation(show, at('20:00'), 596, at('20:22')))
-      .toMatchObject({ kind: 'continue', from: new Date(at('20:09')), seekSeconds: 56 });
+    expect(archiveContinuation(show, at('20:00'), 30 * 60 + 42, at('21:10')))
+      .toMatchObject({ kind: 'continue', from: new Date(at('20:30')), seekSeconds: 42 });
   });
 
   it('beder aldrig om arkiv ud i fremtiden paa en udsendelse der stadig sendes (v347)', () => {
@@ -136,8 +150,9 @@ describe('slutmargen efter programguiden', () => {
       .toEqual({ from: news.start, seekSeconds: 0, minutes: 17 });
     expect(archiveContinuation(bounds, at('18:00'), 1020.379, at('18:36') + 10171))
       .toMatchObject({ kind: 'continue', from: new Date(at('18:17')), seekSeconds: 0.379, minutes: 17 });
+    // 179,340 s er 0,66 s foer 18:20: naeste stykke begynder 18:20 uden spoling (v424).
     expect(archiveContinuation(bounds, at('18:17'), 179.340, at('18:39') + 8451))
-      .toEqual({ kind: 'continue', from: new Date(at('18:19')), seekSeconds: 59.34, minutes: 16 });
+      .toEqual({ kind: 'continue', from: new Date(at('18:20')), seekSeconds: 0, minutes: 15 });
     expect(archiveContinuation(bounds, at('18:19'), 960 - 0.66, at('18:55')))
       .toEqual({ kind: 'done' });
     expect(news.stop.getTime()).toBe(at('18:20'));

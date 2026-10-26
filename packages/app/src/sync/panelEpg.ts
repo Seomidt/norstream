@@ -253,7 +253,11 @@ async function readPanelEpg(
   try {
     // Filen er panelets ene forbindelse i flere minutter: i koe bag alt
     // synligt, som de andre baggrundskald (v350).
-    path = await withPanel(true, () => stopped() ? Promise.resolve(null) : native.download(url, JSON.stringify(headers)));
+    path = await withPanel(true, () => {
+      if (stopped()) return Promise.resolve(null);
+      logEvent('baggrund', 'panel-fil: hentning starter (stor fil, i koe bag alt synligt)');
+      return native.download(url, JSON.stringify(headers));
+    });
     if (path === null || stopped()) return null;
     await setSetting(db, wantedKey(sourceId), [...tried].sort().join('\n'));
     await setSetting(db, lastKey(sourceId), String(now.getTime()));
