@@ -244,6 +244,7 @@ describe('layoutRow', () => {
 
 describe('guideAction', () => {
   const NOW = new Date('2026-09-05T19:15:00.000Z');
+  const NOW_MS = NOW.getTime();
   const withArchive = { hasArchive: true };
   const withoutArchive = { hasArchive: false };
 
@@ -256,93 +257,138 @@ describe('guideAction', () => {
 
   it('sendes nu: afspil kanalen', () => {
     const cell = cellFor('2026-09-05T19:00:00.000Z', '2026-09-05T19:30:00.000Z');
-    expect(guideAction(cell, withArchive, true)).toBe('play');
+    expect(guideAction(cell, withArchive, true, NOW_MS)).toBe('play');
     // Uden arkiv og uden dialekt er live stadig live.
-    expect(guideAction(cell, withoutArchive, false)).toBe('play');
+    expect(guideAction(cell, withoutArchive, false, NOW_MS)).toBe('play');
   });
 
-  it('er slut, og kanalen har arkiv: start forfra', () => {
+  it('er slut og helt i arkivet, og kanalen har arkiv: start forfra', () => {
     const cell = cellFor('2026-09-05T19:00:00.000Z', '2026-09-05T19:10:00.000Z');
-    expect(guideAction(cell, withArchive, true)).toBe('restart');
+    expect(guideAction(cell, withArchive, true, NOW_MS)).toBe('restart');
+  });
+
+  it('er lige slut: ingenting, foer arkivet har de sidste minutter (v425)', () => {
+    // Sluttede for 60 s siden: det sidste minut er endnu ikke lukket i
+    // arkivet, og et stykke op til kanten ville ende i et stykkeskift.
+    const justEnded = cellFor('2026-09-05T19:00:00.000Z', '2026-09-05T19:14:00.000Z');
+    expect(justEnded.state).toBe('past');
+    expect(guideAction(justEnded, withArchive, true, NOW_MS)).toBe('none');
+    // Praecis to minutter efter slut er graensen naaet.
+    const settled = cellFor('2026-09-05T19:00:00.000Z', '2026-09-05T19:13:00.000Z');
+    expect(guideAction(settled, withArchive, true, NOW_MS)).toBe('restart');
+    // Og med et aeldre nu er den samme udsendelse ikke klar endnu.
+    expect(guideAction(settled, withArchive, true, NOW_MS - 1)).toBe('none');
   });
 
   it('er slut, uden arkiv: ingenting', () => {
     const cell = cellFor('2026-09-05T19:00:00.000Z', '2026-09-05T19:10:00.000Z');
-    expect(guideAction(cell, withoutArchive, true)).toBe('none');
+    expect(guideAction(cell, withoutArchive, true, NOW_MS)).toBe('none');
   });
 
   it('er slut, men panelets dialekt er ukendt: ingenting', () => {
     // Uden dialekt kan der ikke bygges en arkiv-URL, uanset hvad kanalen
     // paastaar om sit arkiv.
     const cell = cellFor('2026-09-05T19:00:00.000Z', '2026-09-05T19:10:00.000Z');
-    expect(guideAction(cell, withArchive, false)).toBe('none');
+    expect(guideAction(cell, withArchive, false, NOW_MS)).toBe('none');
   });
 
   it('kommer senere: ingenting, ogsaa med arkiv', () => {
     const cell = cellFor('2026-09-05T20:00:00.000Z', '2026-09-05T20:30:00.000Z');
-    expect(guideAction(cell, withArchive, true)).toBe('none');
+    expect(guideAction(cell, withArchive, true, NOW_MS)).toBe('none');
   });
 
   it('kommer senere, uden arkiv: ingenting', () => {
     // Der findes ingen vej til udsendelsen bagefter, saa der er intet at love.
     const cell = cellFor('2026-09-05T20:00:00.000Z', '2026-09-05T20:30:00.000Z');
-    expect(guideAction(cell, withoutArchive, true)).toBe('none');
+    expect(guideAction(cell, withoutArchive, true, NOW_MS)).toBe('none');
   });
 
   it('kommer senere, men dialekten er ukendt: ingenting', () => {
     const cell = cellFor('2026-09-05T20:00:00.000Z', '2026-09-05T20:30:00.000Z');
-    expect(guideAction(cell, withArchive, false)).toBe('none');
+    expect(guideAction(cell, withArchive, false, NOW_MS)).toBe('none');
   });
 
+  it('markerer i en raekke kun de udsendelser der er helt i arkivet', () => {
+    const cells = layoutRow(
+      [
+        programme('2026-09-05T19:00:00.000Z', '2026-09-05T19:05:00.000Z', 'Helt i arkivet'),
+        programme('2026-09-05T19:05:00.000Z', '2026-09-05T19:14:30.000Z', 'Lige slut'),
+        programme('2026-09-05T19:14:30.000Z', '2026-09-05T19:45:00.000Z', 'Sendes nu'),
+        programme('2026-09-05T19:45:00.000Z', '2026-09-05T20:00:00.000Z', 'Senere'),
+      ],
+      WINDOW_START,
+      WINDOW_END,
+      NOW,
+    );
+    expect(cells.slice(0, 4).map((c) => guideAction(c, withArchive, true, NOW_MS))).toEqual(['restart', 'none', 'play', 'none']);
+  });
 
   it('hul: ingenting', () => {
     const [gap] = layoutRow([], WINDOW_START, WINDOW_END, NOW);
     expect(gap).toBeDefined();
-    expect(guideAction(gap as NonNullable<typeof gap>, withArchive, true)).toBe('none');
+    expect(guideAction(gap as NonNullable<typeof gap>, withArchive, true, NOW_MS)).toBe('none');
   });
 });
 
 describe('programmeOptions', () => {
+  const NOW_MS = new Date('2026-09-05T19:15:00.000Z').getTime();
   const withArchive = { hasArchive: true };
   const withoutArchive = { hasArchive: false };
+  const ended = programme('2026-09-05T19:00:00.000Z', '2026-09-05T19:10:00.000Z');
+  const justEnded = programme('2026-09-05T19:00:00.000Z', '2026-09-05T19:14:00.000Z');
+  const live = programme('2026-09-05T19:00:00.000Z', '2026-09-05T19:30:00.000Z');
+  const later = programme('2026-09-05T20:00:00.000Z', '2026-09-05T20:30:00.000Z');
 
   it('giver en afsluttet udsendelse kun start forfra', () => {
-    // Man har rullet tilbage til noget bestemt. Kanalen live og optagelse
-    // hoerer til den der sendes nu.
-    expect(programmeOptions('past', withArchive, true)).toEqual({
+    // Man har rullet tilbage til noget bestemt. Kanalen live hoerer til den
+    // der sendes nu.
+    expect(programmeOptions('past', withArchive, true, ended, NOW_MS)).toEqual({
       play: false,
       restart: true,
     });
   });
 
-  it('giver den der sendes nu alle tre', () => {
-    expect(programmeOptions('live', withArchive, true)).toEqual({
+  it('giver den der sendes nu kun kanalen: start forfra venter til den er slut (v425)', () => {
+    // Arkiv i stykker op til den levende kant froes ved hvert stykkeskift.
+    expect(programmeOptions('live', withArchive, true, live, NOW_MS)).toEqual({
       play: true,
+      restart: false,
+    });
+  });
+
+  it('giver en udsendelse der lige er slut kun kanalen, indtil arkivet er helt', () => {
+    expect(programmeOptions('past', withArchive, true, justEnded, NOW_MS)).toEqual({
+      play: true,
+      restart: false,
+    });
+    // To minutter efter slut er den klar, og saa er det kun start forfra.
+    expect(programmeOptions('past', withArchive, true, justEnded, NOW_MS + 60_000)).toEqual({
+      play: false,
       restart: true,
     });
   });
 
   it('kan ikke starte fremtiden forfra', () => {
-    expect(programmeOptions('future', withArchive, true).restart).toBe(false);
+    expect(programmeOptions('future', withArchive, true, later, NOW_MS).restart).toBe(false);
   });
 
   it('tilbyder kun live naar kanalen ingen arkiv har', () => {
-    expect(programmeOptions('past', withoutArchive, true)).toEqual({
+    expect(programmeOptions('past', withoutArchive, true, ended, NOW_MS)).toEqual({
       play: true,
       restart: false,
     });
   });
 
   it('tilbyder kun live naar dialekten mangler', () => {
-    expect(programmeOptions('live', withArchive, false)).toEqual({
+    expect(programmeOptions('past', withArchive, false, ended, NOW_MS)).toEqual({
       play: true,
       restart: false,
     });
   });
 
   it('tilbyder ingenting ud over live i et hul i programdata', () => {
-    const options = programmeOptions('gap', withArchive, true);
-    expect(options.restart).toBe(false);
+    const options = programmeOptions('gap', withArchive, true, null, NOW_MS);
+    expect(options).toEqual({ play: true, restart: false });
   });
 });
 

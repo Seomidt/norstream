@@ -71,6 +71,7 @@ import { ChannelDayScreen } from './ChannelDayScreen.js';
 import { GuideScreen } from './GuideScreen.js';
 import { TimelineGrid } from './TimelineGrid.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
+import type { CellState } from './layout.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 
 function deferred<T>() {
@@ -285,20 +286,27 @@ describe('Tilbage fra hele dagen bruger den rigtige TV-guide', () => {
     await measureTimeline(tree);
     const row = tree.root.findByType(TimelineGrid).findAllByType(TvPressable).find(n => textOf(n).includes(channel.name))!;
     await act(async () => row.props.onPress());
+    // Raekkens OK aabner den udsendelse der sendes nu (18:00-18:30). Den kan
+    // ikke startes forfra mens den sendes (v425), saa arkivet ses i bladets
+    // forklaring og ikke i en knap.
     let sheet = tree.root.findByType(ProgrammeSheet);
     expect(sheet.props.channel.hasArchive).toBe(false);
+    expect(sheet.props.state).toBe('live');
     expect(sheet.findAllByType(TvPressable).some(n => textOf(n).includes('Start forfra'))).toBe(false);
+    expect(textOf(tree.toJSON())).toContain('Kanalen har intet arkiv');
     mocks.channels.mockResolvedValue([channel, second]);
     await act(async () => tree.update(createElement(GuideScreen, { ...props, reloadToken: 1 })));
     sheet = tree.root.findByType(ProgrammeSheet);
     expect(sheet.props.channel.hasArchive).toBe(true);
-    const button = sheet.findAllByType(TvPressable).find(n => textOf(n).includes('Start forfra'))!;
-    expect(button).toBeDefined();
+    expect(sheet.findAllByType(TvPressable).some(n => textOf(n).includes('Start forfra'))).toBe(false);
+    expect(textOf(tree.toJSON())).toContain('Start forfra bliver muligt, når udsendelsen er slut (kl. 18:30).');
+    expect(textOf(tree.toJSON())).not.toContain('intet arkiv');
     mocks.channels.mockResolvedValue([without, second]);
     await act(async () => tree.update(createElement(GuideScreen, { ...props, reloadToken: 2 })));
     sheet = tree.root.findByType(ProgrammeSheet);
     expect(sheet.props.channel.hasArchive).toBe(false);
     expect(sheet.findAllByType(TvPressable).some(n => textOf(n).includes('Start forfra'))).toBe(false);
+    expect(textOf(tree.toJSON())).toContain('Kanalen har intet arkiv');
     expect(restart).not.toHaveBeenCalled();
   });
   async function openDay(nativeFocus?: (props: any) => void) {
@@ -359,5 +367,120 @@ describe('Tilbage fra hele dagen bruger den rigtige TV-guide', () => {
     expect(tree.root.findByType(TimelineGrid).props.returnFocusChannelId).toBe(null);
     expect(mocks.log).toHaveBeenCalledWith('guide', expect.stringContaining('ikke bekraeftet'));
     expect(mocks.log).not.toHaveBeenCalledWith('guide', expect.stringContaining(': fokus bekraeftet'));
+  });
+});
+
+describe('Start forfra kun naar udsendelsen er slut og helt i arkivet (v425)', () => {
+  // Klokken er 18:00:00 (beforeEach). Tiderne herunder er lokal tid.
+  function at(hour: number, minute: number, second = 0): Date {
+    return new Date(2026, 9, 12, hour, minute, second);
+  }
+  function programmeAt(start: Date, stop: Date, title = 'Udsendelse'): Programme {
+    return { channelId: channel.id, title, description: null, start, stop };
+  }
+  function sheetElement(programme: Programme, state: CellState, overrides: Record<string, unknown> = {}) {
+    return createElement(ProgrammeSheet, {
+      channel, programme, state, hasDialect: true, nowMs: Date.now(),
+      onPlay: vi.fn(), onRestart: vi.fn(), onClose: vi.fn(), ...overrides,
+    });
+  }
+  const buttons = (tree: ReactTestRenderer) => tree.root.findAllByType(TvPressable);
+  const restartButton = (tree: ReactTestRenderer) => buttons(tree).find(n => textOf(n).includes('Start forfra'));
+  const playButton = (tree: ReactTestRenderer) => buttons(tree).find(n => textOf(n).includes(`Se ${channel.name}`));
+
+  it('en udsendelse der sendes nu: ingen knap, og forklaringen naevner sluttidspunktet', async () => {
+    const tree = await mount(sheetElement(programmeAt(at(17, 30), at(18, 30)), 'live'));
+    expect(restartButton(tree)).toBeUndefined();
+    expect(textOf(tree.toJSON())).toContain('Start forfra bliver muligt, når udsendelsen er slut (kl. 18:30).');
+    // Fjernbetjeningen lander paa "Se kanalen", naar start forfra ikke er der.
+    expect(playButton(tree)?.props.hasTVPreferredFocus).toBe(true);
+  });
+
+  it('en udsendelse der sluttede for 60 s siden: ingen knap, arkivet faar de sidste minutter', async () => {
+    const programme = programmeAt(at(17, 0), at(17, 59));
+    const tree = await mount(sheetElement(programme, 'past'));
+    expect(restartButton(tree)).toBeUndefined();
+    expect(textOf(tree.toJSON())).toContain('Start forfra bliver muligt om et øjeblik: arkivet får udsendelsens sidste minutter.');
+    expect(playButton(tree)?.props.hasTVPreferredFocus).toBe(true);
+    // To minutter efter slut (naeste minuttik i guiden) kommer knappen frem.
+    await act(async () => tree.update(sheetElement(programme, 'past', { nowMs: at(18, 1).getTime() })));
+    expect(restartButton(tree)).toBeDefined();
+    expect(textOf(tree.toJSON())).not.toContain('bliver muligt');
+  });
+
+  it('en udsendelse der sluttede for 3 min siden: knappen er der og starter netop den', async () => {
+    const restart = vi.fn();
+    const programme = programmeAt(at(17, 0), at(17, 57));
+    const tree = await mount(sheetElement(programme, 'past', { onRestart: restart }));
+    const button = restartButton(tree)!;
+    expect(button).toBeDefined();
+    expect(button.props.hasTVPreferredFocus).toBe(true);
+    expect(playButton(tree)).toBeUndefined();
+    expect(textOf(tree.toJSON())).not.toContain('bliver muligt');
+    await act(async () => button.props.onPress());
+    expect(restart).toHaveBeenCalledTimes(1);
+  });
+
+  it('en kommende udsendelse faar ingen arkivforklaring', async () => {
+    const tree = await mount(sheetElement(programmeAt(at(19, 0), at(19, 30)), 'future'));
+    expect(restartButton(tree)).toBeUndefined();
+    const text = textOf(tree.toJSON());
+    expect(text).not.toContain('arkiv');
+    expect(text).not.toContain('Start forfra');
+  });
+
+  it('uden dialekt eller arkiv staar den gamle forklaring, ogsaa for den der sendes nu', async () => {
+    const live = programmeAt(at(17, 30), at(18, 30));
+    let tree = await mount(sheetElement(live, 'live', { hasDialect: false }));
+    expect(textOf(tree.toJSON())).toContain('Appen har ikke fundet vejen til udbyderens arkiv endnu');
+    await act(async () => { tree.unmount(); rendered = null; });
+    tree = await mount(sheetElement(live, 'live', { channel: { ...channel, hasArchive: false, archiveDays: 0 } }));
+    expect(textOf(tree.toJSON())).toContain('Kanalen har intet arkiv hos udbyderen');
+    expect(restartButton(tree)).toBeUndefined();
+  });
+
+  it('dagsoversigten maerker kun udsendelser der er helt i arkivet, og foelger klokken', async () => {
+    const tree = await mount(dayElement());
+    await measureDay(tree);
+    const row = (title: string) => tree.root.findByType(host('NativeList')).findAllByType(TvPressable)
+      .find(n => textOf(n).includes(title))!;
+    // Program 370: 17:00-17:30, helt i arkivet. Program 371: 17:30-18:00, lige
+    // slut. Program 372: 18:00-18:30, sendes nu.
+    expect(textOf(row('Program 370'))).toContain('⏱ Start forfra');
+    expect(textOf(row('Program 371'))).not.toContain('Start forfra');
+    expect(textOf(row('Program 372'))).toContain('Sendes nu');
+    expect(textOf(row('Program 372'))).not.toContain('Start forfra');
+    // Klokken tikker til 18:02: nu er de sidste minutter af 371 i arkivet.
+    await act(async () => { vi.advanceTimersByTime(120_000); });
+    expect(textOf(row('Program 371'))).toContain('⏱ Start forfra');
+    expect(textOf(row('Program 372'))).not.toContain('Start forfra');
+  });
+
+  it('et tryk paa en udsendelse der lige er slut aabner bladet med forklaringen og starter ikke arkivet', async () => {
+    const restart = vi.fn();
+    const tree = await mount(createElement(ChannelDayScreen, {
+      session, channel, hasDialect: true, onBack: vi.fn(), onPlay: vi.fn(), onRestart: restart,
+    }));
+    await measureDay(tree);
+    const rows = () => tree.root.findByType(host('NativeList')).findAllByType(TvPressable);
+    const justEnded = rows().find(n => textOf(n).includes('Program 371'))!;
+    await act(async () => justEnded.props.onPress());
+    let sheet = tree.root.findByType(ProgrammeSheet);
+    expect(sheet.props.programme.title).toBe('Program 371');
+    expect(sheet.findAllByType(TvPressable).some(n => textOf(n).includes('Start forfra'))).toBe(false);
+    expect(textOf(tree.toJSON())).toContain('om et øjeblik');
+    expect(restart).not.toHaveBeenCalled();
+    await act(async () => sheet.props.onClose());
+    // Den der er helt i arkivet starter forfra fra bladet, med netop den udsendelse.
+    const settled = rows().find(n => textOf(n).includes('Program 370'))!;
+    await act(async () => settled.props.onPress());
+    sheet = tree.root.findByType(ProgrammeSheet);
+    const button = sheet.findAllByType(TvPressable).find(n => textOf(n).includes('Start forfra'))!;
+    expect(button).toBeDefined();
+    await act(async () => button.props.onPress());
+    expect(restart).toHaveBeenCalledTimes(1);
+    expect(restart.mock.calls[0]![0]).toBe(channel);
+    expect(restart.mock.calls[0]![1].title).toBe('Program 370');
+    expect(tree.root.findAllByType(ProgrammeSheet)).toHaveLength(0);
   });
 });

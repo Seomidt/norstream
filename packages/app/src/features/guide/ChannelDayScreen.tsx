@@ -13,6 +13,7 @@ import type { ThemeColors } from '../../ui/theme.js';
 import { ProgrammeSheet } from './ProgrammeSheet.js';
 import type { CellState } from './layout.js';
 import { nowAndNext } from './nowNext.js';
+import { archiveComplete } from '../player/archiveContinuation.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { keepInMiddle, useTvListTail } from '../../ui/tvScroll.js';
 import { refocusLastPressed } from '../../ui/refocus.js';
@@ -103,7 +104,15 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
       cancelled = true;
     };
   }, [session.db, channel.id, sheet]);
-  const now = new Date();
+  // Nu tikker hvert minut mens siden staar aaben (v425): "Sendes nu" og
+  // Start forfra-maerket foelger klokken, saa en udsendelse der lige er slut
+  // faar sit maerke saa snart arkivet har de sidste minutter, uden at man
+  // skal trykke paa noget. Samme nu bruges til tilstand, maerke og blad.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const dayBounds = useCallback((delta: number): { from: Date; to: Date } => {
     const from = new Date();
@@ -307,7 +316,10 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
           windowSize={9}
           renderItem={({ item, index }) => {
             const state = stateOf(item);
-            const restartable = state === 'past' && channel.hasArchive && hasDialect;
+            // Kun en udsendelse der er slut OG helt i arkivet maerkes (v425).
+            // En der lige er slut aabner stadig bladet, som forklarer at det
+            // kommer om et oejeblik; den starter ikke arkivet fra raekken.
+            const restartable = state === 'past' && channel.hasArchive && hasDialect && archiveComplete(item, now.getTime());
             return (
               <TvPressable
                 style={[styles.row, state === 'live' && styles.rowLive]}
@@ -347,6 +359,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
           programme={sheet.programme}
           state={sheet.state}
           hasDialect={hasDialect}
+          nowMs={now.getTime()}
           reminder={
             sheetReminder === null
               ? undefined

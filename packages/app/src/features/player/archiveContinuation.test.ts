@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { archiveContinuation, archivePlaybackBounds, archiveWindow, LIVE_EDGE_LAG_MS } from './archiveContinuation.js';
+import { archiveComplete, archiveCompleteAt, archiveContinuation, archivePlaybackBounds, archiveWindow, LIVE_EDGE_LAG_MS, RESTART_SETTLE_MS } from './archiveContinuation.js';
 
 const at = (hhmm: string): number => new Date(`2026-09-24T${hhmm}:00.000Z`).getTime();
 const show = { start: new Date(at('20:00')), stop: new Date(at('21:00')) };
@@ -144,33 +144,38 @@ describe('archiveContinuation', () => {
 describe('slutmargen efter programguiden', () => {
   const news = { start: new Date(at('18:00')), stop: new Date(at('18:20')) };
 
-  it('fortsaetter TV2-loggens 17 min + 179.340 s forbi EPG-slut i stedet for done', () => {
+  it('TV2-loggens 17 min + 179.340 s naar EPG-slut og stopper der uden et nyt stykke (v425)', () => {
     const bounds = archivePlaybackBounds(news);
     expect(archiveWindow(bounds, news.start, 0, at('18:19') + 8546))
       .toEqual({ from: news.start, seekSeconds: 0, minutes: 17 });
     expect(archiveContinuation(bounds, at('18:00'), 1020.379, at('18:36') + 10171))
       .toMatchObject({ kind: 'continue', from: new Date(at('18:17')), seekSeconds: 0.379, minutes: 17 });
-    // 179,340 s er 0,66 s foer 18:20: naeste stykke begynder 18:20 uden spoling (v424).
+    // 179,340 s er 0,66 s foer 18:20 og regnes som 18:20 (v424). Foer v425 blev
+    // slutmargenen hentet som et nyt stykke fra 18:20; det stykkeskift efter
+    // udsendelsens slutning var det der froes. Nu er udsendelsen set til ende.
     expect(archiveContinuation(bounds, at('18:17'), 179.340, at('18:39') + 8451))
-      .toEqual({ kind: 'continue', from: new Date(at('18:20')), seekSeconds: 0, minutes: 15 });
+      .toEqual({ kind: 'done' });
     expect(archiveContinuation(bounds, at('18:19'), 960 - 0.66, at('18:55')))
       .toEqual({ kind: 'done' });
     expect(news.stop.getTime()).toBe(at('18:20'));
   });
 
-  it('stopper ikke fordi udsendelsen slutter mens man ser den forsinket', () => {
+  it('stopper ikke fordi udsendelsen slutter mens man ser den forsinket, kun naar stroemmen naar EPG-slut', () => {
     const bounds = archivePlaybackBounds(news);
+    // Stykket sluttede 18:01, laenge foer EPG-slut: fortsaet, selv om klokken nu er 18:20.
     expect(archiveContinuation(bounds, at('18:00'), 60, at('18:20')))
       .toMatchObject({ kind: 'continue', from: new Date(at('18:01')) });
+    // Stroemmen naaede EPG-slut (eller lidt forbi): set til ende, ingen slutmargen hentes (v425).
     expect(archiveContinuation(bounds, at('18:00'), 20 * 60, at('18:40')))
-      .toMatchObject({ kind: 'continue', from: new Date(at('18:20')), minutes: 15 });
+      .toEqual({ kind: 'done' });
     expect(archiveContinuation(bounds, at('18:00'), 21 * 60, at('18:21')))
-      .toEqual({ kind: 'wait' });
+      .toEqual({ kind: 'done' });
   });
 
-  it('venter paa den sidste del af slutmargenen og bestiller aldrig fremtidige minutter', () => {
+  it('et stykke inde i slutmargenen afsluttes, og der bestilles aldrig fremtidige minutter', () => {
     const bounds = archivePlaybackBounds(news);
-    expect(archiveContinuation(bounds, at('18:34'), 0, at('18:35'))).toEqual({ kind: 'wait' });
+    // Foer v425: vent paa panelets naeste minut. Nu er udsendelsen set til ende ved EPG-slut.
+    expect(archiveContinuation(bounds, at('18:34'), 0, at('18:35'))).toEqual({ kind: 'done' });
     for (let second = 0; second < 60; second += 1) {
       const now = at('18:22') + second * 1000;
       const window = archiveWindow(bounds, new Date(at('18:19')), 59.34, now);
@@ -183,8 +188,102 @@ describe('slutmargen efter programguiden', () => {
     const window = archiveWindow(bounds, new Date(at('18:24')), 59.34, at('18:50'))!;
     expect(window).toEqual({ from: new Date(at('18:24')), seekSeconds: 59.34, minutes: 16 });
     expect(archivePlaybackBounds(news, bounds.stop.getTime()).stop.getTime()).toBe(at('18:40'));
-    expect(archiveContinuation(bounds, at('18:24'), 60, at('18:50')).kind).toBe('continue');
+    // Et stykke der sluttede foer EPG-slut fortsaetter til den bevarede graense 18:40, ikke 18:35.
+    expect(archiveContinuation(bounds, at('18:10'), 60, at('18:50')))
+      .toMatchObject({ kind: 'continue', from: new Date(at('18:11')), seekSeconds: 0, minutes: 29 });
     expect(archivePlaybackBounds(news, NaN).stop.getTime()).toBe(at('18:35'));
     expect(news.stop.getTime()).toBe(at('18:20'));
+  });
+});
+
+describe('start forfra kun for afsluttede udsendelser (v425)', () => {
+  const news = { start: new Date(at('18:00')), stop: new Date(at('18:20')) };
+  const bounds = archivePlaybackBounds(news);
+
+  it('en faerdig udsendelse hvis stroem slutter praecis ved EPG-slut er set til ende', () => {
+    expect(archiveContinuation(bounds, at('18:00'), 20 * 60, at('18:40'))).toEqual({ kind: 'done' });
+    // Panelets stykke slutter 1-2 s foer det bestilte minut (v424): regnes stadig som EPG-slut.
+    expect(archiveContinuation(bounds, at('18:00'), 20 * 60 - 1.5, at('18:40'))).toEqual({ kind: 'done' });
+    // Men 7 s foer EPG-slut leverede panelet for lidt: de sidste sekunder hentes som hidtil.
+    expect(archiveContinuation(bounds, at('18:00'), 20 * 60 - 7, at('18:40')))
+      .toMatchObject({ kind: 'continue', from: new Date(at('18:19')), seekSeconds: 53 });
+  });
+
+  it('et stykke der ramte den levende kant inde i slutmargenen afsluttes uden et nyt stykke', () => {
+    // Startet forfra kl. 18:22:30, lige efter at udsendelsen blev komplet: stykket gaar til 18:21.
+    expect(archiveWindow(bounds, news.start, 0, at('18:22') + 30_000))
+      .toEqual({ from: news.start, seekSeconds: 0, minutes: 21 });
+    expect(archiveContinuation(bounds, at('18:00'), 21 * 60, at('18:44'))).toEqual({ kind: 'done' });
+    // Ogsaa naar stykket sluttede foer margenens egen slutning kl. 18:35.
+    expect(archiveContinuation(bounds, at('18:00'), 30 * 60, at('18:50'))).toEqual({ kind: 'done' });
+    expect(archiveContinuation(bounds, at('18:19'), 960 - 0.66, at('18:55'))).toEqual({ kind: 'done' });
+  });
+
+  it('en udsendelse der stadig sendes skifter til live ved kanten som hidtil', () => {
+    expect(archiveContinuation(bounds, at('18:00'), 10 * 60, at('18:10'))).toEqual({ kind: 'live' });
+    expect(archiveContinuation(show, at('20:00'), 40 * 60, at('20:40'))).toEqual({ kind: 'live' });
+  });
+
+  it('et stykke der slutter midt i udsendelsen fortsaetter eller venter som hidtil', () => {
+    expect(archiveContinuation(bounds, at('18:00'), 10 * 60, at('18:40')))
+      .toEqual({ kind: 'continue', from: new Date(at('18:10')), seekSeconds: 0, minutes: 25 });
+    expect(archiveContinuation(bounds, at('18:00'), 18 * 60 + 40, at('18:20'))).toEqual({ kind: 'wait' });
+    expect(archiveContinuation(bounds, at('18:00'), 18 * 60 + 40, at('18:21')))
+      .toEqual({ kind: 'continue', from: new Date(at('18:18')), seekSeconds: 40, minutes: 1 });
+  });
+
+  it('archiveComplete: slut og 120 s senere helt i arkivet', () => {
+    expect(RESTART_SETTLE_MS).toBe(120_000);
+    expect(archiveComplete(news, at('18:19'))).toBe(false);
+    expect(archiveComplete(news, at('18:20'))).toBe(false);
+    expect(archiveComplete(news, at('18:22') - 1)).toBe(false);
+    expect(archiveComplete(news, at('18:22'))).toBe(true);
+    expect(archiveComplete(news, at('18:40'))).toBe(true);
+  });
+
+  it('archiveComplete runder en sluttid midt i et minut op, saa ét stykke daekker udsendelsen', () => {
+    const odd = { start: new Date(at('18:00')), stop: new Date(at('18:20') + 20_000) };
+    expect(archiveComplete(odd, at('18:22') + 20_000)).toBe(false);
+    expect(archiveComplete(odd, at('18:23') - 1)).toBe(false);
+    expect(archiveComplete(odd, at('18:23'))).toBe(true);
+    // Ved graensen bestilles et stykke der naar forbi EPG-slut, og det afsluttes dér.
+    const odds = archivePlaybackBounds(odd);
+    expect(archiveWindow(odds, odd.start, 0, at('18:23'))).toEqual({ from: odd.start, seekSeconds: 0, minutes: 21 });
+    expect(archiveContinuation(odds, at('18:00'), 21 * 60, at('18:44'))).toEqual({ kind: 'done' });
+    // Regnet fra den raa sluttid (18:22:20) ville stykket ende 18:20:00, 20 s
+    // foer EPG-slut, og de sidste sekunder blev hentet som et nyt stykke ved kanten.
+    expect(archiveWindow(odds, odd.start, 0, at('18:22') + 20_000)).toEqual({ from: odd.start, seekSeconds: 0, minutes: 20 });
+    expect(archiveContinuation(odds, at('18:00'), 20 * 60, at('18:42')).kind).toBe('continue');
+  });
+
+  it('en fejl inde i slutmargenen genforbinder fra det naaede punkt i stedet for at afslutte', () => {
+    // Kampen 20:00-21:00 startet forfra kl. 22:00: ét stykke 20:00-21:15.
+    const match = archivePlaybackBounds(show);
+    expect(archiveWindow(match, show.start, 0, at('22:00'))).toEqual({ from: show.start, seekSeconds: 0, minutes: 75 });
+    // Et haeng kl. 21:05 i indholdet (kampen traekker over): fortsaet derfra, som foer v425.
+    expect(archiveContinuation(match, at('20:00'), 65 * 60, at('23:05'), false))
+      .toEqual({ kind: 'continue', from: new Date(at('21:05')), seekSeconds: 0, minutes: 10 });
+    // Sluttede stykket selv dér, er udsendelsen set til ende (standard).
+    expect(archiveContinuation(match, at('20:00'), 65 * 60, at('23:05'))).toEqual({ kind: 'done' });
+    expect(archiveContinuation(match, at('20:00'), 65 * 60, at('23:05'), true)).toEqual({ kind: 'done' });
+    // Selve slutgraensen gaelder ogsaa ved en fejl.
+    expect(archiveContinuation(match, at('20:00'), 75 * 60 - 1, at('23:05'), false)).toEqual({ kind: 'done' });
+    // Og foer EPG-slut aendrer flaget intet.
+    expect(archiveContinuation(match, at('20:00'), 30 * 60, at('23:05'), false))
+      .toEqual({ kind: 'continue', from: new Date(at('20:30')), seekSeconds: 0, minutes: 45 });
+  });
+});
+
+describe('archiveCompleteAt', () => {
+  it('giver praecis det tidspunkt hvor archiveComplete bliver sand, ogsaa midt i et minut', () => {
+    const whole = { stop: new Date('2026-10-25T18:20:00Z') };
+    const mid = { stop: new Date('2026-10-25T18:20:20Z') };
+    expect(archiveCompleteAt(whole)).toBe(new Date('2026-10-25T18:22:00Z').getTime());
+    expect(archiveCompleteAt(mid)).toBe(new Date('2026-10-25T18:23:00Z').getTime());
+    for (const programme of [whole, mid]) {
+      const at = archiveCompleteAt(programme);
+      expect(archiveComplete(programme, at - 1)).toBe(false);
+      expect(archiveComplete(programme, at)).toBe(true);
+    }
   });
 });

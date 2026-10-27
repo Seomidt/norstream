@@ -555,7 +555,7 @@ const ChannelRow = memo(function ChannelRow({
                   <Text style={styles.cellTime} numberOfLines={1}>
                     {cell.clippedStart ? '‹ ' : ''}
                     {clock(cell.programme.start)}
-                    {guideAction(cell, channel, hasDialect) === 'restart' ? ' ▶' : ''}
+                    {guideAction(cell, channel, hasDialect, nowMs) === 'restart' ? ' ▶' : ''}
                   </Text>
                   <Text style={styles.cellTitle} numberOfLines={2}>
                     {cell.programme.title}

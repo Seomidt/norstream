@@ -15,7 +15,7 @@ export type ArchiveNext =
   | { kind: 'live' }
   /** Panelet mangler det naeste faerdige minut; behold positionen og vent. */
   | { kind: 'wait' }
-  /** Udsendelse og slutmargen er naaet; afslut automatisk. */
+  /** Udsendelsen er slut (EPG-slut eller slutmargen naaet); afslut automatisk. */
   | { kind: 'done' };
 
 /** Arkivet halter lidt efter live; tættere paa end det er der intet at hente. */
@@ -23,6 +23,35 @@ export const LIVE_EDGE_LAG_MS = 90_000;
 /** EPG-tider er planlagte tider, ikke en garanti for sidste billede. */
 export const ARCHIVE_END_MARGIN_MINUTES = 15;
 export const ARCHIVE_END_MARGIN_MS = ARCHIVE_END_MARGIN_MINUTES * 60_000;
+
+/**
+ * Hvor laenge en udsendelse skal have vaeret slut, foer hele den ligger i
+ * arkivet: kanten halter 90 s efter live, og panelet lukker det sidste minut
+ * et par sekunder senere. Start forfra tilbydes kun naar det er tilfaeldet
+ * (v425): saa daekker ét arkivstykke hele udsendelsen, og der skal ikke
+ * hentes et nyt stykke ved kanten midt i det man ser.
+ */
+export const RESTART_SETTLE_MS = 120_000;
+
+/**
+ * Er udsendelsen slut og helt gemt i arkivet, saa den kan startes forfra?
+ *
+ * Panelet gemmer i hele minutter, saa en sluttid midt i et minut (18:20:20)
+ * er foerst i arkivet naar minuttet 18:20-18:21 er lukket. Regnes der fra
+ * den raa sluttid, kan stykket der bestilles ved graensen ende 18:20:00, og
+ * de sidste 20 s skulle hentes som et nyt stykke ved kanten: netop det
+ * stykkeskift v425 fjerner. Derfor rundes sluttiden op til et helt minut.
+ */
+export function archiveComplete(programme: { stop: Date }, nowMs: number): boolean {
+  return archiveCompleteAt(programme) <= nowMs;
+}
+
+/** Tidspunktet (ms) hvor `archiveComplete` bliver sand: samme afrunding, saa
+ *  afspillerens timer og reglen aldrig er uenige om et minut midt i et minut. */
+export function archiveCompleteAt(programme: { stop: Date }): number {
+  const lastMinuteClosed = Math.ceil(programme.stop.getTime() / 60_000) * 60_000;
+  return lastMinuteClosed + RESTART_SETTLE_MS;
+}
 
 /** Afspilningsgraensen holdes adskilt fra programmets titel og EPG-tider.
  * Graensen bevares ved genforbindelse og spoling. */
@@ -81,11 +110,17 @@ export function archiveWindow(
   };
 }
 
+/**
+ * `streamEnded` er om stykket selv sluttede (playToEnd). Falsk ved en fejl
+ * eller et haeng midt i stykket: saa er EPG-slut ikke et tegn paa at der
+ * ikke er mere, kun paa hvor man var naaet til, og der genforbindes derfra.
+ */
 export function archiveContinuation(
   programme: { start: Date; stop: Date; liveStop?: Date },
   segmentStartMs: number,
   positionSeconds: number,
   nowMs: number,
+  streamEnded = true,
 ): ArchiveNext {
   const position = Number.isFinite(positionSeconds) && positionSeconds > 0 ? positionSeconds : 0;
   const rawReached = segmentStartMs + position * 1000;
@@ -101,7 +136,19 @@ export function archiveContinuation(
   if (reached >= end - END_SLACK_MS) return { kind: 'done' };
   // Slutmargenen maa ikke faa en faerdig udsendelse til at ligne en der
   // stadig sendes og dermed udloese et utilsigtet spring til live.
-  if (reached >= nowMs && (programme.liveStop?.getTime() ?? end) > nowMs) return { kind: 'live' };
+  const liveStop = programme.liveStop?.getTime() ?? end;
+  if (reached >= nowMs && liveStop > nowMs) return { kind: 'live' };
+  // Selve udsendelsen er set til ende (v425): naaede stroemmen EPG-slut, er
+  // der ikke mere at hente. Et nyt stykke her var det der froes paa tv'et
+  // (v373-v424): panelet gemmer arkiv pr. udsendelse eller stykket ramte den
+  // levende kant inde i slutmargenen, og begge dele endte i et stykkeskift
+  // efter at udsendelsen var slut. Prisen er, at en udsendelse der traekker
+  // over, mister resten af de 15 min, men kun hvis panelet selv lukkede
+  // stroemmen efter EPG-slut. Slutter stykket FOER EPG-slut (panelet leverede
+  // for lidt midt i udsendelsen), fortsaettes eller ventes der som hidtil.
+  // Og et haeng eller en fejl inde i slutmargenen (kampen traekker over, man
+  // ser stadig) er ikke en slut: der genforbindes fra det naaede punkt.
+  if (streamEnded && reached >= liveStop - END_SLACK_MS) return { kind: 'done' };
   const window = archiveWindow(programme, new Date(reached), 0, nowMs);
   if (window === null || window.seekSeconds >= window.minutes * 60 - 1) return { kind: 'wait' };
   return {

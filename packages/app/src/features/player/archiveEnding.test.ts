@@ -3,6 +3,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
+import type { Programme } from '@norstream/core';
 
 // Native afspilning er daekket af playbackConnection.test. Her afproeves
 // skaermens rigtige EOF-lyttere, kildevalg, genforsoeg og unmount med TV2-loggen.
@@ -23,6 +24,10 @@ const f = vi.hoisted(() => ({
     entries.add(fn); return { remove: () => entries!.delete(fn) };
   } },
   setting: vi.fn(async () => 'php'),
+  /** Landscapes fjernbetjeningslytter, saa en test kan trykke pil op og faa bjaelken frem. */
+  tvKey: null as null | ((event: { eventType: string; eventKeyAction?: number }) => void),
+  /** Programoversigtens nu/naeste for live-skaermen; null som standard (ingen EPG). */
+  nowNext: { now: null, next: null } as { now: Programme | null; next: Programme | null },
   player: {
     currentTime: 0, bufferedPosition: 90, duration: 1020, playing: true,
     status: 'readyToPlay', playbackRate: 1, volume: 1, muted: false,
@@ -44,7 +49,7 @@ vi.mock('react-native', () => ({
   AppState: f.appState,
   Platform: { isTV: true, OS: 'android' }, StyleSheet: { create: (v: unknown) => v, absoluteFill: {} },
   View: 'View', Text: 'Text', Pressable: 'Pressable', ActivityIndicator: 'ActivityIndicator',
-  useWindowDimensions: () => ({ width: 864, height: 486 }), useTVEventHandler: () => {},
+  useWindowDimensions: () => ({ width: 864, height: 486 }), useTVEventHandler: (fn: (event: any) => void) => { f.tvKey = fn; },
 }));
 vi.mock('expo-video', () => ({ VideoView: 'VideoView', useVideoPlayer: () => f.player }));
 vi.mock('expo-status-bar', () => ({ StatusBar: () => null }));
@@ -76,7 +81,7 @@ vi.mock('../../storage/settings.js', () => ({
   getPanelOffsetMinutes: async () => 120, getSubtitlePreference: async () => null,
   setTimeshiftDialect: async () => {}, setLastChannelId: async () => {},
 }));
-vi.mock('../../storage/programmes.js', () => ({ getNowNext: async () => ({ now: null, next: null }) }));
+vi.mock('../../storage/programmes.js', () => ({ getNowNext: async () => f.nowNext }));
 vi.mock('../../storage/channels.js', () => ({ listChannels: async () => [] }));
 vi.mock('../../storage/history.js', () => ({ recordChannelWatch: async () => {}, saveArchiveProgress: f.saveProgress }));
 vi.mock('../../sync/epgCache.js', () => ({ ensureEpg: async () => {} }));
@@ -114,6 +119,7 @@ beforeEach(() => {
   f.player.duration = 1020; f.seekImmediately = true;
   f.setting.mockReset().mockResolvedValue('php');
   f.back.mockReset(); f.appState.currentState = 'active'; f.endBeforeSeek = false; f.released = 0;
+  f.nowNext = { now: null, next: null }; f.tvKey = null;
   applyStreamFormatSetting('auto');
   tree = null;
 });
@@ -368,51 +374,89 @@ describe('TV2: igangvaerende udsendelse slutter under forsinket afspilning', () 
     expect(f.loads).toHaveLength(1);
   });
 
-  it('fortsaetter automatisk 15 min efter EPG-slut og gaar derefter til oversigten uden slutvalg', async () => {
+  it('stopper ved EPG-slut naar stroemmen naar dertil, og henter ikke flere stykker (v425)', async () => {
     await mount();
     expect(f.requests[0]).toEqual({ from: news.start, minutes: 17 });
     await end(1020.379, '18:36:10.171');
     expect(f.requests[1]).toEqual({ from: at('18:17:00'), minutes: 17 });
     expect(f.loads[1]!.seek).toBeCloseTo(0.379);
+    // 179,340 s fra 18:17 er 0,66 s foer 18:20 og regnes som EPG-slut (v424).
+    // Foer v425 blev slutmargenen hentet som et tredje stykke fra 18:20, og
+    // det stykkeskift efter udsendelsens slutning var det der froes. Nu er
+    // udsendelsen set til ende: intet slutvalg, tilbage til oversigten.
     await end(179.340, '18:39:08.451');
-    // 0,66 s foer 18:20 regnes som 18:20 (v424): intet overlap, ingen spoling.
-    expect(f.requests[2]).toEqual({ from: at('18:20:00'), minutes: 15 });
-    expect(f.loads[2]!.seek).toBe(0);
-    // Hverken EPG-slut eller den tidligere femminutters graense maa stoppe.
-    await end(300, '18:44:08.451');
-    expect(f.back).not.toHaveBeenCalled();
-    expect(f.requests[3]).toEqual({ from: at('18:25:00'), minutes: 10 });
-    expect(tree!.root.findByType(LandscapePlayer).props.suspended).toBe(false);
+    expect(f.requests).toHaveLength(2);
+    expect(f.loads).toHaveLength(2);
+    expect(f.back).toHaveBeenCalledTimes(1);
+    expect(f.player.playing).toBe(false);
     const texts = tree!.root.findAllByType('Text' as any).map(n => n.children.join('')).join(' ');
     expect(texts).not.toContain('Hent 5 min mere');
     expect(texts).not.toContain('Hent 15 min mere');
     expect(texts).not.toContain('Arkivstykket er slut');
-    await end(600, '18:54:08.451');
+    await act(async () => { vi.advanceTimersByTime(60_000); });
+    expect(f.requests).toHaveLength(2);
+    expect(f.loads.map(load => load.source)).not.toContain('https://example.invalid/live.ts');
+  });
+
+  it('et stykke der ramte den levende kant inde i slutmargenen afsluttes uden et nyt stykke (v425)', async () => {
+    // Startet forfra kl. 18:22:30, lige efter at udsendelsen blev komplet (18:20 + 120 s):
+    // stykket gaar fra 18:00 til 18:21, forbi EPG-slut men foer margenens 18:35.
+    vi.setSystemTime(at('18:22:30'));
+    f.player.duration = 1260;
+    await mount();
+    expect(f.requests).toEqual([{ from: news.start, minutes: 21 }]);
+    await end(1260, '18:44:00');
+    expect(f.requests).toHaveLength(1);
+    expect(f.loads).toHaveLength(1);
     expect(f.back).toHaveBeenCalledTimes(1);
     expect(f.player.playing).toBe(false);
-    await act(async () => { vi.advanceTimersByTime(60_000); });
-    expect(f.requests).toHaveLength(4);
   });
 
   it('genforbinder fra det seneste viste sekund efter flere arkivskift uden at aabne live', async () => {
     await mount();
     await end(1020.379, '18:36:10.171');
-    await end(179.340, '18:39:08.451');
-    // Tiden er lokal for det tredje stykke, som begynder kl. 18.20 (v424).
-    // En fejl efter yderligere ti sekunder maa ikke starte udsendelsen om.
+    // Panelet leverede kun ét minut af det andet stykke: kanten 18:18 ligger
+    // foer EPG-slut, saa der fortsaettes (v425 stopper kun ved EPG-slut).
+    await end(60, '18:37:10.171');
+    expect(f.requests[2]).toEqual({ from: at('18:18:00'), minutes: 17 });
+    expect(f.loads[2]!.seek).toBe(0);
+    // Tiden er lokal for det tredje stykke, som begynder kl. 18.18.
+    // En fejl efter yderligere 69 s maa ikke starte udsendelsen om.
     await act(async () => {
       f.player.currentTime = 69.34;
       for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 69.34, videoRenderedFrames: 2000, bufferedPosition: 159.34 });
     });
     await status('error');
     await advance(1500);
-    expect(f.requests[3]).toEqual({ from: at('18:21:00'), minutes: 14 });
+    expect(f.requests[3]).toEqual({ from: at('18:19:00'), minutes: 16 });
     expect(f.loads[3]!.seek).toBeCloseTo(9.34);
     expect(f.loads.map(load => load.source)).toEqual([
       'https://example.invalid/archive/1.ts', 'https://example.invalid/archive/2.ts',
       'https://example.invalid/archive/3.ts', 'https://example.invalid/archive/4.ts',
     ]);
     expect(f.back).not.toHaveBeenCalled();
+  });
+
+  it('en fejl inde i slutmargenen, efter EPG-slut, genforbinder fra det naaede punkt og gaar ikke til oversigten (v425)', async () => {
+    await mount();
+    await end(1020.379, '18:36:10.171');
+    // Andet stykke: 18:17-18:34 (17 min). Kl. 18:21:09 i indholdet, forbi
+    // EPG-slut 18:20 men foer slutgraensen 18:35, haenger afspilleren. Det er
+    // ikke en slut paa stykket, saa EPG-slut maa ikke sende brugeren tilbage.
+    expect(f.requests[1]).toEqual({ from: at('18:17:00'), minutes: 17 });
+    await act(async () => {
+      f.player.currentTime = 249.34;
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 249.34, videoRenderedFrames: 6000, bufferedPosition: 339.34 });
+    });
+    vi.setSystemTime(at('18:40:20'));
+    await status('error');
+    await advance(1500);
+    expect(f.back).not.toHaveBeenCalled();
+    expect(f.requests[2]).toEqual({ from: at('18:21:00'), minutes: 14 });
+    expect(f.loads[2]!.seek).toBeCloseTo(9.34);
+    expect(f.loads.map(load => load.source)).not.toContain('https://example.invalid/live.ts');
+    const texts = tree!.root.findAllByType('Text' as any).map(n => n.children.join('')).join(' ');
+    expect(texts).not.toContain('kunne ikke afspilles');
   });
 
   it('venter 15 s naar panelets fil slutter foer spoletiden, i stedet for to genforsoeg paa samme minut (v424)', async () => {
@@ -646,5 +690,93 @@ describe('Live: baade lyd og billede stopper uden native fejl', () => {
     expect(f.loads).toHaveLength(6);
     const texts = tree!.root.findAllByType('Text' as any).map(n => n.children.join('')).join(' ');
     expect(texts).toContain('Streamen kunne ikke afspilles. Prøv igen.');
+  });
+});
+
+describe('Start forfra i bjaelken (v425)', () => {
+  // Lokal tid som skaermen viser den, uanset testmaskinens tidszone.
+  const hhmm = (date: Date) => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  const texts = () => tree!.root.findAllByType('Text' as any).map(node => node.children.join(''));
+
+  it.each(['18:19:08.546', '18:21:59.999'])('viser hvornaar Start forfra kommer, og ingen knap, mens udsendelsen sendes eller lige er slut (kl. %s)', async (now) => {
+    vi.setSystemTime(at(now));
+    f.nowNext = { now: news, next: null };
+    await mountLive();
+    const shown = texts();
+    expect(shown).not.toContain('Start forfra');
+    expect(shown).toContain(`Start forfra bliver muligt, når udsendelsen er slut (kl. ${hhmm(news.stop)})`);
+    expect(shown.join(' ')).not.toContain('Start forfra er ikke klar');
+    // Linjen er ingen knap: intet tryk og ingen fokusfaelde paa tv.
+    const hint = tree!.root.findAllByType('Text' as any).find(node => node.children.join('').startsWith('Start forfra bliver muligt'));
+    expect(hint!.parent!.props.onPress).toBeUndefined();
+    expect(f.requests).toHaveLength(0);
+    expect(f.loads.map(load => load.source)).toEqual(['https://example.invalid/live.ts']);
+  });
+
+  /** Rolig live-afspilning i `ms`: uret gaar og billedet bevaeger sig, saa vagthunden er tavs; ingen anden tilstand aendres. */
+  async function playLive(ms: number) {
+    for (let left = ms; left > 0; left -= Math.min(left, 1000)) {
+      const step = Math.min(left, 1000);
+      f.player.currentTime += step / 1000;
+      await advance(step);
+    }
+  }
+
+  /** Pil op paa fjernbetjeningen: bjaelken kommer frem igen, med PlayerScreens seneste tegning. */
+  const pressUp = async () => act(async () => { f.tvKey!({ eventType: 'up', eventKeyAction: 1 }); });
+
+  it('knappen kommer af sig selv praecis naar udsendelsen er slut og helt i arkivet, uden andet tryk', async () => {
+    // Kl. 18:19:08 under nyhederne. Bjaelken gemmer sig, og under rolig
+    // afspilning tegnes PlayerScreen ikke igen af andet (timeUpdate skriver
+    // kun refs); pil op viser bjaelken fra sidste tegning. Saa det er timeren
+    // ved sluttid + 120 s der skal faa knappen frem.
+    f.nowNext = { now: news, next: null };
+    await mountLive();
+    expect(texts()).not.toContain('Start forfra');
+    await playLive(at('18:22:00').getTime() - at('18:19:08.546').getTime() - 1);
+    expect(texts()).not.toContain('Start forfra bliver muligt');
+    await pressUp();
+    expect(texts()).not.toContain('Start forfra');
+    expect(texts().join(' ')).toContain('Start forfra bliver muligt');
+    await advance(1);
+    expect(texts()).toContain('Start forfra');
+    expect(texts().join(' ')).not.toContain('bliver muligt');
+    // Og efter at bjaelken har gemt sig igen, viser pil op stadig knappen.
+    await playLive(30_000);
+    expect(texts()).not.toContain('Start forfra');
+    await pressUp();
+    expect(texts()).toContain('Start forfra');
+    expect(f.loads.map(load => load.source)).toEqual(['https://example.invalid/live.ts']);
+  });
+
+  it('knappen gaelder den udsendelse man sad og saa, ogsaa naar den naeste er begyndt', async () => {
+    // Bjaelken laeser ikke programdata igen hen over et programskift, med
+    // vilje: det er 18-Nyhederne man sad med, der skal kunne startes forfra
+    // naar de er slut, ikke den udsendelse der er begyndt i mellemtiden.
+    const following = { ...news, title: 'Vejret', start: news.stop, stop: at('18:30:00') };
+    f.nowNext = { now: news, next: following };
+    await mountLive();
+    f.nowNext = { now: following, next: null };
+    await playLive(at('18:22:00').getTime() - at('18:19:08.546').getTime());
+    await pressUp();
+    const restart = tree!.root.findAllByType('Text' as any).find(node => node.children.join('') === 'Start forfra');
+    expect(restart).toBeDefined();
+    expect(restart!.parent!.props.hasTVPreferredFocus).toBe(true);
+    await act(async () => restart!.parent!.props.onPress());
+    expect(f.requests).toEqual([{ from: news.start, minutes: 20 }]);
+    expect(f.loads.at(-1)!.source).toBe('https://example.invalid/archive/1.ts');
+  });
+
+  it('viser Start forfra for den udsendelse der er slut og helt i arkivet, og henter den i ét stykke', async () => {
+    vi.setSystemTime(at('18:22:00'));
+    f.nowNext = { now: news, next: null };
+    await mountLive();
+    const shown = texts();
+    expect(shown).toContain('Start forfra');
+    expect(shown.join(' ')).not.toContain('når udsendelsen er slut');
+    const restart = tree!.root.findAllByType('Text' as any).find(node => node.children.join('') === 'Start forfra');
+    await act(async () => restart!.parent!.props.onPress());
+    expect(f.requests).toEqual([{ from: news.start, minutes: 20 }]);
+    expect(f.loads.at(-1)!.source).toBe('https://example.invalid/archive/1.ts');
   });
 });

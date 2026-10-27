@@ -1183,6 +1183,7 @@ export const GuideScreen = memo(function GuideScreen({
           programme={sheet.cell.programme}
           state={sheet.cell.state}
           hasDialect={hasDialectFor(sheetChannel)}
+          nowMs={now.getTime()}
           reminder={
             sheetReminder === null
               ? undefined
@@ -1376,7 +1377,7 @@ const GuideRow = memo(function GuideRow({
         destinations={isTV && liveNode !== null ? [liveNode] : undefined}
       >
         {cells.map((cell, index) => {
-          const action = guideAction(cell, channel, hasDialect);
+          const action = guideAction(cell, channel, hasDialect, nowMs);
           return (
             <TvPressable
               ref={isTV && cell.state === 'live' ? setLiveNode : undefined}

@@ -94,7 +94,10 @@ describe('syncAllSources', () => {
     await syncAllSources(db, accesses, world({ archive: false }), { now });
     let channel = (await listChannels(db))[0]!;
     expect(channel.hasArchive).toBe(false);
-    expect(programmeOptions('live', channel, true).restart).toBe(false);
+    // Guiden tilbyder kun start forfra for en udsendelse der er slut og helt i
+    // arkivet (v425); her er det arkiv-flaget fra synkroniseringen der proeves.
+    const ended = { stop: new Date(now.getTime() - 3 * 60_000) };
+    expect(programmeOptions('past', channel, true, ended, now.getTime()).restart).toBe(false);
     const added = world({ archive: true });
     // Et friskt katalog maa ikke hentes ved hvert resume.
     await syncAllSources(db, accesses, added, { now: new Date(now.getTime() + 60_000) });
@@ -102,7 +105,7 @@ describe('syncAllSources', () => {
     await syncAllSources(db, accesses, added, { now: new Date(now.getTime() + 24 * 3600_000) });
     channel = (await listChannels(db))[0]!;
     expect(channel.hasArchive).toBe(true); expect(channel.archiveDays).toBe(7);
-    expect(programmeOptions('live', channel, true).restart).toBe(true);
+    expect(programmeOptions('past', channel, true, ended, now.getTime()).restart).toBe(true);
     await syncAllSources(db, accesses, world({ dead: ['panel.example:8080'] }), { now: new Date(now.getTime() + 48 * 3600_000) });
     expect((await listChannels(db))[0]!.hasArchive).toBe(true);
     await syncAllSources(db, accesses, world({ archive: false }), { now: new Date(now.getTime() + 48 * 3600_000 + 60_000) });

@@ -38,7 +38,7 @@ import { isTV } from '../../ui/tv.js';
 import { TvPressable } from '../../ui/TvPressable.js';
 import { setLastChannelId } from '../../storage/settings.js';
 import { recordChannelWatch, saveArchiveProgress } from '../../storage/history.js';
-import { archiveContinuation, archivePlaybackBounds, archiveWindow } from './archiveContinuation.js';
+import { archiveComplete, archiveCompleteAt, archiveContinuation, archivePlaybackBounds, archiveWindow, MINUTE_SHORTFALL_TOLERANCE_MS } from './archiveContinuation.js';
 import { PlaybackConnection } from './playbackConnection.js';
 import { LivePlaybackHealth, PlaybackRecovery } from './playbackRecovery.js';
 import { clockOf, logEvent } from '../../diagnostics/log.js';
@@ -342,14 +342,15 @@ export function PlayerScreen({
   const onBackRef = useRef(onBack);
   onBackRef.current = onBack;
   const finishArchive = useCallback((): void => {
-    // Efter 15 min slutmargen afsluttes automatisk til oversigten.
-    // Intet slutvalg og ingen genstart af den samme faerdige udsendelse.
+    // Naar udsendelsen er set til ende (EPG-slut naaet, v425, eller de 15 min
+    // slutmargen, v395) afsluttes automatisk til oversigten. Intet slutvalg
+    // og ingen genstart af den samme faerdige udsendelse.
     playIntent.current = false;
     archiveRequest.current += 1;
     connection.setPlayingIntent(false);
     cancelPendingRetry.current();
     try { player.pause(); } catch { /* Afspilleren kan vaere lukket. */ }
-    logEvent('arkiv', 'slutgraense v395: 15 min slutmargen naaet; tilbage til oversigten');
+    logEvent('arkiv', 'slutgraense v425: udsendelsen er slut (EPG-slut eller slutmargen naaet); tilbage til oversigten');
     onBackRef.current();
   }, [connection, player]);
   const changePlaybackIntent = useCallback((desired: boolean): boolean => {
@@ -586,6 +587,10 @@ export function PlayerScreen({
         return;
       }
       if (next.kind === 'done') {
+        // Kanten naaede EPG-slut (eller slutmargenen): der hentes ikke flere
+        // stykker. Et stykkeskift efter at udsendelsen var slut, var det der
+        // froes paa tv'et (v425).
+        logEvent('arkiv', `udsendelsen er slut v425: kanten ${clockOf(segment.segmentStart + positionRef.current * 1000)}; EPG-slut ${clockOf(airing.stop.getTime())}, slutgraense ${clockOf(segment.playbackStop.getTime())}; henter ikke flere stykker`);
         finishArchive();
         return;
       }
@@ -894,7 +899,13 @@ export function PlayerScreen({
           // udsendelsens begyndelse (samme URL ville starte forfra).
           const segment = archiveRef.current;
           if (restarted && segment !== null) {
-            const next = archiveContinuation(archivePlaybackBounds(segment.programme, segment.playbackStop.getTime()), segment.segmentStart, positionRef.current, Date.now());
+            // En fejl midt i stykket er ikke en slut: EPG-slut afslutter kun
+            // naar stykket selv naaede sin bestilte laengde (panelets stykke
+            // slutter op til fem sekunder foer det bestilte minut, v424).
+            // Ellers ville et haeng inde i slutmargenen, mens kampen
+            // traekker over, sende brugeren tilbage til oversigten (v425).
+            const streamEnded = positionRef.current >= segment.durationSeconds - MINUTE_SHORTFALL_TOLERANCE_MS / 1000;
+            const next = archiveContinuation(archivePlaybackBounds(segment.programme, segment.playbackStop.getTime()), segment.segmentStart, positionRef.current, Date.now(), streamEnded);
             if (next.kind === 'continue') {
               void playFromStartRef.current(segment.programme, next.from, next.seekSeconds, true);
               return;
@@ -1355,11 +1366,42 @@ export function PlayerScreen({
     startFromHandled.current = false;
   }, []);
 
+  // Bjaelken lover "Start forfra bliver muligt kl. X". Intet andet tegner
+  // skaermen igen under rolig live-afspilning (timeUpdate skriver kun refs),
+  // og paa tv ejer Landscape bjaelkens synlighed: pil op viste ellers den
+  // gamle linje laenge efter at udsendelsen var slut. Én timer ved
+  // archiveCompleteAt (sluttid rundet op til helt minut + RESTART_SETTLE_MS)
+  // tegner igen netop naar knappen kan komme.
+  const [, setRestartTick] = useState(0);
+  useEffect(() => {
+    if (now === null) return;
+    const wait = archiveCompleteAt(now) - Date.now();
+    if (wait <= 0) return;
+    const timer = setTimeout(() => setRestartTick((value) => value + 1), wait);
+    return () => clearTimeout(timer);
+  }, [now]);
+
   // Bjaelken bygges op forfra hver gang den kommer frem, og paa tv skal
   // en knap have fokus med det samme: ellers skulle man trykke sig ned til
   // den ("skal trykke en masse gange"). Spoler man, er det 30 s frem;
-  // ellers Start forfra; og er den der ikke, Tilbage.
-  const canRestart = !restarted && restartBlock === null && now !== null;
+  // ellers Start forfra; og er den der ikke, Tekst (Tilbage paa telefonen).
+  //
+  // Start forfra tilbydes kun naar udsendelsen er slut og helt i arkivet
+  // (v425). Startet forfra midt i en udsendelse maatte arkivet hentes i
+  // stykker op til den levende kant, og hvert stykkeskift froes eller
+  // hakkede paa tv'et (v373-v424). Saa laenge den sendes, staar der i
+  // stedet en linje om hvornaar den kan startes forfra. Afspilleren kan
+  // stadig spille ethvert program den faar som startFrom; det er kun
+  // knappen der venter.
+  //
+  // Knappen gaelder den udsendelse bjaelken selv naevner: `now`, som den
+  // blev laest da kanalen blev aabnet (eller zappet til). Den laeses ikke
+  // igen hen over et programskift, med vilje: det er den udsendelse man
+  // sad og saa, der skal kunne startes forfra naar den er slut, ogsaa mens
+  // den naeste er begyndt. Sluttede den foer man kom, naas den fra guiden
+  // eller "Hele dagen", som kender den.
+  const canRestart = !restarted && restartBlock === null && now !== null && archiveComplete(now, Date.now());
+  const restartLater = !restarted && restartBlock === null && now !== null && !canRestart;
   // Raekkefoelgen er Googles: den primaere handling foerst, for det er den
   // fokus lander paa. Start forfra eller spoling, saa tekst, saa zap.
   const actions = (
@@ -1382,6 +1424,12 @@ export function PlayerScreen({
         >
           <Text style={styles.buttonText}>Start forfra</Text>
         </TvPressable>
+      )}
+      {/* Udsendelsen sendes stadig: sig hvornaar knappen kommer. Ikke en
+          deaktiveret knap, for den kan ikke faa fokus paa tv og bliver en
+          faelde (docs/ANDROID-TV.md); en tekst uden fokus siger det samme. */}
+      {restartLater && (
+        <Text style={styles.restartLaterText}>Start forfra bliver muligt, når udsendelsen er slut (kl. {hhmm(now.stop)})</Text>
       )}
       {/* Startet forfra paa tv: pause og spoling, saa reklamerne kan
           springes over. Paa telefonen har afspillerens egne knapper det. */}
@@ -1569,7 +1617,7 @@ export function PlayerScreen({
         playing={playing}
         // Paa tv: staar man og spoler (start-forfra/arkiv), skjules bjaelken fra
         // start, saa pil venstre/hoejre spoler med det samme. Paa en direkte
-        // live-kanal bliver bjaelken fremme, saa "Start forfra" kan ses.
+        // live-kanal bliver bjaelken fremme, saa "Start forfra" (eller hvornaar den kommer) kan ses.
         initialBarShown={!isTV || !restarted}
         selectShowsControls={restarted}
         suspended={showingChannels}
@@ -1713,12 +1761,16 @@ function RestartBlocked({
   );
 }
 
+/** Lokal tid som "14:30" til bjaelken (clockOf i loggen har sekunder med). */
+function hhmm(date: Date): string {
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 /** "13:30 – 14:30", som paa afspillerens tidslinje hos de store udbydere. */
 function airtime(programme: Programme | null | undefined): string {
   if (programme === null || programme === undefined) return '';
-  const pad = (value: number): string => String(value).padStart(2, '0');
-  const clock = (date: Date): string => `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  return `${clock(programme.start)} – ${clock(programme.stop)}`;
+  return `${hhmm(programme.start)} – ${hhmm(programme.stop)}`;
 }
 
 /** Kanalnavnet uden panelets praefiks og kvalitetsmaerke, til en lille knap. */
@@ -1793,6 +1845,8 @@ const makeStyles = (colors: ThemeColors) => StyleSheet.create({
   },
   buttonAccent: { backgroundColor: colors.accent },
   videoInfo: { color: colors.textMuted, fontSize: 12, alignSelf: 'center', paddingHorizontal: theme.spacing.sm },
+  // Hvornaar Start forfra kommer, der hvor knappen ellers staar (v425).
+  restartLaterText: { color: colors.textMuted, fontSize: 12, alignSelf: 'center', paddingHorizontal: theme.spacing.sm },
   buttonDone: { backgroundColor: colors.surface },
   buttonText: { color: colors.text, fontSize: 15, fontWeight: '600' },
 });

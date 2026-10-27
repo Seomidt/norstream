@@ -17,6 +17,8 @@ interface Props {
   programme: Programme | null;
   state: CellState;
   hasDialect: boolean;
+  /** Guidens nu: afgoer om udsendelsen er slut og helt i arkivet (v425). */
+  nowMs: number;
   onPlay: () => void;
   onRestart: () => void;
   onClose: () => void;
@@ -41,6 +43,7 @@ export function ProgrammeSheet({
   programme,
   state,
   hasDialect,
+  nowMs,
   onPlay,
   onRestart,
   onClose,
@@ -49,7 +52,8 @@ export function ProgrammeSheet({
 }: Props) {
   const styles = useStyles(makeStyles);
   const insets = useSafeAreaInsets();
-  const options = programmeOptions(state, channel, hasDialect);
+  const options = programmeOptions(state, channel, hasDialect, programme, nowMs);
+  const hint = restartHint(channel, hasDialect, programme, state, options.restart, nowMs);
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -110,13 +114,8 @@ export function ProgrammeSheet({
               <Text style={styles.buttonText}>{reminder.set ? '✓ Påmindelse sat' : '🔔 Mind mig om det'}</Text>
             </TvPressable>
           )}
-          {!options.restart && programme !== null && (
-            <Text style={styles.hint}>
-              {channel.hasArchive
-                ? 'Appen har ikke fundet vejen til udbyderens arkiv endnu, så udsendelsen kan ikke startes forfra.'
-                : 'Kanalen har intet arkiv hos udbyderen, så kun direkte visning er mulig.'}
-            </Text>
-          )}
+          {/* Forklaringen er en Text uden fokus, saa den aldrig er en fokusfaelde paa tv. */}
+          {hint !== null && <Text style={styles.hint}>{hint}</Text>}
         </View>
 
         {onDay !== undefined && (
@@ -132,6 +131,32 @@ export function ProgrammeSheet({
       </View>
     </Modal>
   );
+}
+
+/**
+ * Hvorfor Start forfra ikke tilbydes, med ord der passer til tilstanden.
+ *
+ * Null naar knappen er der, paa et hul og paa en kommende udsendelse: for
+ * den sidste er arkivet ikke emnet, og en arkivforklaring ville paastaa at
+ * noget mangler. Om udsendelsen er slut afgoeres af klokken, ikke af cellens
+ * tilstand: bladet kan staa aabent hen over sluttidspunktet, og i
+ * dagsoversigten regnes en overlappet udsendelse for slut foer sin sluttid.
+ */
+function restartHint(
+  channel: StoredChannel,
+  hasDialect: boolean,
+  programme: Programme | null,
+  state: CellState,
+  restart: boolean,
+  nowMs: number,
+): string | null {
+  if (restart || programme === null || state === 'future' || state === 'gap') return null;
+  if (!channel.hasArchive) return 'Kanalen har intet arkiv hos udbyderen, så kun direkte visning er mulig.';
+  if (!hasDialect) return 'Appen har ikke fundet vejen til udbyderens arkiv endnu, så udsendelsen kan ikke startes forfra.';
+  // Sendes stadig: at hente arkivet i stykker op til den levende kant froes
+  // ved hvert stykkeskift (v373-v424), saa knappen venter til slut (v425).
+  if (programme.stop.getTime() > nowMs) return `Start forfra bliver muligt, når udsendelsen er slut (kl. ${clock(programme.stop)}).`;
+  return 'Start forfra bliver muligt om et øjeblik: arkivet får udsendelsens sidste minutter.';
 }
 
 function pad(value: number): string {

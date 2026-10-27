@@ -1,4 +1,5 @@
 import type { Programme } from '@norstream/core';
+import { archiveComplete } from '../player/archiveContinuation.js';
 
 /**
  * Guidens tidsgitter, som ren beregning.
@@ -264,21 +265,27 @@ export type GuideAction =
  * | Programmet | Handling |
  * |---|---|
  * | sendes nu | afspil kanalen |
- * | er slut, og kanalen har arkiv | start forfra fra programmets starttidspunkt |
+ * | er slut og helt i arkivet, og kanalen har arkiv | start forfra fra programmets starttidspunkt |
+ * | er lige slut (under to minutter) | ingenting, indtil arkivet har de sidste minutter |
  * | er slut, uden arkiv | ingenting |
  * | kommer senere | ingenting |
  *
  * `hasDialect` er om panelets timeshift-dialekt er fundet. Uden den kan der
  * ikke bygges en arkiv-URL, uanset hvad kanalen paastaar om sit arkiv.
+ *
+ * `nowMs` er guidens nu. "Helt i arkivet" er `archiveComplete` (v425): en
+ * udsendelse maerkes foerst som start-forfra naar hele den ligger i arkivet,
+ * se forklaringen ved `programmeOptions`.
  */
 export function guideAction(
   cell: GuideCell,
   channel: { hasArchive: boolean },
   hasDialect: boolean,
+  nowMs: number,
 ): GuideAction {
   if (cell.programme === null) return 'none';
   if (cell.state === 'live') return 'play';
-  if (cell.state === 'past' && channel.hasArchive && hasDialect) return 'restart';
+  if (cell.state === 'past' && channel.hasArchive && hasDialect && archiveComplete(cell.programme, nowMs)) return 'restart';
   return 'none';
 }
 
@@ -301,16 +308,33 @@ export interface ProgrammeOptions {
  * ogsaa "se kanalen", og det var forvirrende — man har rullet
  * tilbage til noget bestemt, og at se kanalen live er ikke det. Kan den ikke
  * startes forfra (intet arkiv, ingen dialekt), staar kanalen live tilbage
- * som det eneste, med forklaringen. Den der sendes lige nu faar alle tre.
+ * som det eneste, med forklaringen.
+ *
+ * Start forfra tilbydes KUN naar hele udsendelsen ligger i arkivet
+ * (`archiveComplete`: slut plus to minutter, v425). Den der sendes lige nu
+ * faar altsaa kun "se kanalen". Foer kunne en igangvaerende udsendelse
+ * startes forfra: afspilleren hentede saa arkivet i stykker frem til den
+ * levende kant og maatte bestille et nyt stykke igen og igen, og hvert
+ * stykkeskift froes eller hakkede hos brugeren, i udgave efter udgave
+ * (v373-v424). Brugeren bad om at knappen venter til udsendelsen er slut.
+ * Naar den er, daekker ét arkivstykke det hele, og der er intet skift at
+ * fryse paa. En udsendelse der er slut men endnu ikke helt i arkivet faar
+ * ogsaa kun "se kanalen", med bladets forklaring om at det kommer om et
+ * oejeblik.
+ *
+ * `programme` er null paa et hul i programdata; `nowMs` er guidens nu.
  */
 export function programmeOptions(
   state: CellState,
   channel: { hasArchive: boolean },
   hasDialect: boolean,
+  programme: { stop: Date } | null,
+  nowMs: number,
 ): ProgrammeOptions {
   const archive = channel.hasArchive && hasDialect;
-  // Fremtiden kan ikke startes forfra; den er ikke sendt endnu.
-  const restart = archive && state !== 'future' && state !== 'gap';
+  // Kun det der er slut OG helt gemt kan startes forfra: hverken fremtiden,
+  // det der sendes nu, eller det der sluttede for et oejeblik siden.
+  const restart = archive && programme !== null && archiveComplete(programme, nowMs);
   if (state === 'past' && restart) return { play: false, restart: true };
   return { play: true, restart };
 }
