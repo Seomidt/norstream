@@ -93,6 +93,17 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
   const [fetching, setFetching] = useState(true);
   const [listHeight, setListHeight] = useState(0);
   const [dayWantsFocus, setDayWantsFocus] = useState(isTV);
+  // En ny kanal eller en ny kalenderdag aabner altid paa "I dag" (v427).
+  // Siden bliver monteret mens afspilleren er fremme og ved kanalskift, og
+  // foer fulgte en valgt dag (fx samme ugedag i sidste uge) med til naeste.
+  const openedFor = useRef(`${channel.id}\u0000${todayMs}`);
+  useEffect(() => {
+    const key = `${channel.id}\u0000${todayMs}`;
+    if (openedFor.current === key) return;
+    openedFor.current = key;
+    setDayDelta(0);
+    setDayWantsFocus(isTV);
+  }, [channel.id, todayMs]);
   const [sheet, setSheet] = useState<{ programme: Programme; state: CellState } | null>(null);
   // Et gammelt programblad maa ikke overleve under en ny dags oversigt.
   useEffect(() => { setSheet(null); }, [channel.id, todayMs]);
@@ -228,17 +239,29 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
     }
   }, [programmes, allProgrammes, dayDelta, dayBounds]);
 
-  // Vis de arkivdage panelet oplyser, ogsaa mens historikken hentes.
-  // EPG-huller maa ikke skjule dage der faktisk findes i kanalens arkiv.
-  const daysBack = useMemo((): number => {
-    if (allProgrammes === null || allProgrammes.length === 0) return Math.min(MAX_DAYS_BACK, Math.max(1, channel.archiveDays));
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+  // Vis de arkivdage panelet oplyser, og saa langt tilbage som tabellen
+  // raekker (v280). EPG-huller maa ikke skjule dage der findes i arkivet.
+  const wantedDaysBack = useMemo((): number | null => {
+    if (allProgrammes === null) return null;
+    if (allProgrammes.length === 0) return Math.min(MAX_DAYS_BACK, Math.max(1, channel.archiveDays));
     const earliest = new Date(allProgrammes[0]!.start);
     earliest.setHours(0, 0, 0, 0);
-    const diffDays = Math.round((todayStart.getTime() - earliest.getTime()) / 86_400_000);
+    const diffDays = Math.round((todayMs - earliest.getTime()) / 86_400_000);
     return Math.min(MAX_DAYS_BACK, Math.max(1, channel.archiveDays, diffDays));
-  }, [allProgrammes, channel.archiveDays]);
+  }, [allProgrammes, channel.archiveDays, todayMs]);
+  // Dagraekken bygges én gang pr. besoeg (kanal og kalenderdag) og vokser
+  // ikke bagefter (v427). Foer stod der 6 dage fra arkivet, og naar tabellen
+  // var laest kom fire mere ind FORAN "I dag". Paa tv flyttede fokus saa til
+  // den foerste knap, som er 7 dage tilbage: OK viste samme ugedag i sidste
+  // uge, mens man troede man saa i dag (28/10 gav 21/10, 29/10 gav 22/10).
+  const [frozenDays, setFrozenDays] = useState<{ key: string; back: number } | null>(null);
+  const daysKey = `${channel.id}\u0000${todayMs}`;
+  useEffect(() => {
+    if (wantedDaysBack === null || frozenDays?.key === daysKey) return;
+    setFrozenDays({ key: daysKey, back: wantedDaysBack });
+    logEvent('guide', `hele dagen v427: dagraekke fast for besoeget: ${wantedDaysBack + 1 + DAYS_FORWARD} dage, ${wantedDaysBack} tilbage`);
+  }, [wantedDaysBack, daysKey, frozenDays]);
+  const daysBack = frozenDays?.key === daysKey ? frozenDays.back : null;
 
   function stateOf(programme: Programme): CellState {
     const ms = now.getTime();
@@ -253,7 +276,7 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
   }
 
   const days: number[] = [];
-  for (let delta = -daysBack; delta <= DAYS_FORWARD; delta += 1) days.push(delta);
+  if (daysBack !== null) for (let delta = -daysBack; delta <= DAYS_FORWARD; delta += 1) days.push(delta);
 
   return (
     <TVFocusGuideView style={styles.container} autoFocus={isTV} trapFocusLeft={isTV} trapFocusRight={isTV}>
@@ -279,8 +302,14 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
             style={[styles.dayChip, delta === dayDelta && styles.dayChipActive]}
             // Paa tv lander fjernbetjeningen paa den valgte dag naar siden aabner.
             hasTVPreferredFocus={dayWantsFocus && delta === dayDelta}
-            onFocus={() => setDayWantsFocus(false)}
-            onPress={() => setDayDelta(delta)}
+            onFocus={() => {
+              setDayWantsFocus(false);
+              logEvent('guide', `hele dagen v427: fokus paa ${dayLabel(now, delta)} (dag ${delta}), valgt dag ${dayDelta}`);
+            }}
+            onPress={() => {
+              logEvent('guide', `hele dagen v427: valgt ${dayLabel(now, delta)} (dag ${delta})`);
+              setDayDelta(delta);
+            }}
           >
             <Text numberOfLines={1} style={[styles.dayChipText, delta === dayDelta && styles.dayChipTextActive]}>
               {dayLabel(now, delta)}

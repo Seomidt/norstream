@@ -550,3 +550,54 @@ it('standby fra onsdag 21/10 til onsdag 28/10: rigtig dato og plan straks ved ge
   expect(chips.some(n=>textOf(n)==='I dag 28.10')).toBe(true);
   expect(tree.root.findAllByType(ProgrammeSheet)).toHaveLength(0);
 });
+
+
+describe('dagraekken i Hele dagen v427', () => {
+  const at = (day: number, hour = 19) => new Date(2026, 9, day, hour, 0, 0);
+  const item = (day: number, title: string): Programme => ({ channelId: channel.id, title, description: null, start: at(day), stop: at(day, 20) });
+  const chipTexts = (tree: ReactTestRenderer) => tree.root.findByType(host('ScrollView')).findAllByType(TvPressable).map(textOf);
+  const rows = (tree: ReactTestRenderer) => (tree.root.findByType(host('NativeList')).props.data as Programme[]).map(p => p.title);
+
+  it('vokser ikke foran I dag naar panelets friske svar raekker laengere tilbage end det gemte', async () => {
+    // Torsdag 29/10: det gemte gaar til mandag 26/10, panelets svar til torsdag 22/10.
+    vi.setSystemTime(at(29, 15));
+    mocks.list.mockResolvedValue([item(26, 'Mandag'), item(29, 'I dag')]);
+    // Panelets svar kommer efter det gemte, som paa boksen (1,5 s senere i loggen).
+    let answer!: () => void;
+    mocks.full.mockImplementation((...args: any[]) => new Promise(resolve => {
+      answer = () => {
+        args[5].onProgrammes(channel.id, [item(22, 'Torsdag i sidste uge'), item(26, 'Mandag'), item(29, 'I dag')]);
+        resolve({ fetched: 1, programmes: 3, failed: 0 });
+      };
+    }));
+    const tree = await mount(dayElement({ ...channel, archiveDays: 3 } as StoredChannel));
+    await measureDay(tree);
+    expect(chipTexts(tree)[0]).toBe('man 26.10');
+    await act(async () => { answer(); });
+    const chips = chipTexts(tree);
+    // Tre dage tilbage fra det gemte, ingen "tor 22.10" sat ind foran fokus.
+    expect(chips[0]).toBe('man 26.10');
+    expect(chips).not.toContain('tor 22.10');
+    expect(chips).toContain('I dag 29.10');
+    expect(rows(tree)).toEqual(['I dag']);
+    // Den valgte dag har fokus-praeferencen, ikke den foerste knap.
+    const preferred = tree.root.findByType(host('ScrollView')).findAllByType(TvPressable).filter(n => n.props.hasTVPreferredFocus === true).map(textOf);
+    expect(preferred.every(text => text === 'I dag 29.10')).toBe(true);
+  });
+
+  it('aabner paa I dag ved kanalskift, ogsaa naar en dag i sidste uge var valgt', async () => {
+    vi.setSystemTime(at(29, 15));
+    mocks.list.mockResolvedValue([item(22, 'Torsdag i sidste uge'), item(29, 'I dag')]);
+    mocks.full.mockResolvedValue({ fetched: 0, programmes: 0, failed: 0 });
+    const tree = await mount(dayElement());
+    await measureDay(tree);
+    const lastThursday = tree.root.findByType(host('ScrollView')).findAllByType(TvPressable).find(n => textOf(n) === 'tor 22.10')!;
+    await act(async () => lastThursday.props.onPress());
+    expect(rows(tree)).toEqual(['Torsdag i sidste uge']);
+    const other = { ...channel, id: 'source:2', name: 'Testkanal 2' } as StoredChannel;
+    mocks.list.mockResolvedValue([{ ...item(22, 'Anden kanal sidste uge'), channelId: other.id }, { ...item(29, 'Anden kanal i dag'), channelId: other.id }]);
+    await act(async () => { tree.update(dayElement(other)); });
+    await measureDay(tree);
+    expect(rows(tree)).toEqual(['Anden kanal i dag']);
+  });
+});
