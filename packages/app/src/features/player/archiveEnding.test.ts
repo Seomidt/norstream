@@ -1,0 +1,804 @@
+import { createElement } from 'react';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AppSession } from '../../session.js';
+import type { StoredChannel } from '../../storage/channels.js';
+import type { Programme } from '@norstream/core';
+
+// Native afspilning er daekket af playbackConnection.test. Her afproeves
+// skaermens rigtige EOF-lyttere, kildevalg, genforsoeg og unmount med TV2-loggen.
+const f = vi.hoisted(() => ({
+  listeners: new Map<string, Set<(value: any) => void>>(),
+  requests: [] as Array<{ from: Date; minutes: number }>,
+  offsets: [] as number[],
+  clock: vi.fn(async (..._args: unknown[]) => ({ offsetMinutes: 120 } as { offsetMinutes: number; timeZone?: string })),
+  saveProgress: vi.fn(async (..._args: unknown[]) => {}),
+  loads: [] as Array<{ source: unknown; seek: number }>,
+  back: vi.fn(),
+  seekImmediately: true,
+  endBeforeSeek: false,
+  released: 0,
+  appState: { currentState: 'active', addEventListener: (_event: string, fn: (state: string) => void) => {
+    let entries = f.listeners.get('appState');
+    if (entries === undefined) { entries = new Set(); f.listeners.set('appState', entries); }
+    entries.add(fn); return { remove: () => entries!.delete(fn) };
+  } },
+  setting: vi.fn(async () => 'php'),
+  /** Landscapes fjernbetjeningslytter, saa en test kan trykke pil op og faa bjaelken frem. */
+  tvKey: null as null | ((event: { eventType: string; eventKeyAction?: number }) => void),
+  /** Programoversigtens nu/naeste for live-skaermen; null som standard (ingen EPG). */
+  nowNext: { now: null, next: null } as { now: Programme | null; next: Programme | null },
+  player: {
+    currentTime: 0, bufferedPosition: 90, duration: 1020, playing: true,
+    status: 'readyToPlay', playbackRate: 1, volume: 1, muted: false,
+    availableAudioTracks: [{ id: 'audio' }], audioTrack: { id: 'audio' },
+    availableVideoTracks: [{ id: 'video' }], videoTrack: { id: 'video' },
+    availableSubtitleTracks: [], subtitleTrack: null,
+    addListener: (event: string, fn: (value: any) => void) => {
+      let entries = f.listeners.get(event);
+      if (entries === undefined) { entries = new Set(); f.listeners.set(event, entries); }
+      entries.add(fn);
+      return { remove: () => entries!.delete(fn) };
+    },
+    play: () => { f.player.playing = true; },
+    pause: () => { f.player.playing = false; },
+    seekBy: (seconds: number) => { if (f.seekImmediately) f.player.currentTime = Math.max(0, Math.min(f.player.duration, f.player.currentTime + seconds)); },
+  },
+}));
+vi.mock('react-native', () => ({
+  AppState: f.appState,
+  Platform: { isTV: true, OS: 'android' }, StyleSheet: { create: (v: unknown) => v, absoluteFill: {} },
+  View: 'View', Text: 'Text', Pressable: 'Pressable', ActivityIndicator: 'ActivityIndicator',
+  useWindowDimensions: () => ({ width: 864, height: 486 }), useTVEventHandler: (fn: (event: any) => void) => { f.tvKey = fn; },
+}));
+vi.mock('expo-video', () => ({ VideoView: 'VideoView', useVideoPlayer: () => f.player }));
+vi.mock('expo-status-bar', () => ({ StatusBar: () => null }));
+vi.mock('expo-keep-awake', () => ({ useKeepAwake: () => {} }));
+vi.mock('react-native-safe-area-context', () => ({ useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }) }));
+vi.mock('@norstream/core', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@norstream/core')>(),
+  detectTimeshiftDialect: vi.fn(),
+  buildTimeshiftUrl: (_creds: unknown, _id: unknown, from: Date, minutes: number, _dialect: unknown, offset: number) => {
+    f.requests.push({ from, minutes });
+    f.offsets.push(offset);
+    return `https://example.invalid/archive/${f.requests.length}.ts`;
+  },
+}));
+vi.mock('./playbackConnection.js', () => ({ PlaybackConnection: class {
+  committed = true; prepared = true; active = true; seeking = false; preparationPhase = 'klar';
+  get endedBeforeSeek() { return f.endBeforeSeek; }
+  async load(source: unknown, _archive: boolean, seek = 0) {
+    f.loads.push({ source, seek }); f.player.currentTime = seek; f.player.status = 'readyToPlay';
+    if (f.endBeforeSeek && seek > 0) throw new Error('ended-before-seek');
+  }
+  position() { return true; }
+  sourceLoaded() { return true; }
+  status() {} cancel() {} dispose() {} setPlayingIntent() {}
+  release() { f.released += 1; return Promise.resolve(); }
+} }));
+vi.mock('../../storage/settings.js', () => ({
+  getTimeshiftDialect: () => f.setting(),
+  getPanelOffsetMinutes: async () => 120, getSubtitlePreference: async () => null,
+  setTimeshiftDialect: async () => {}, setLastChannelId: async () => {},
+}));
+vi.mock('../../storage/programmes.js', () => ({ getNowNext: async () => f.nowNext }));
+vi.mock('../../storage/channels.js', () => ({ listChannels: async () => [] }));
+vi.mock('../../storage/history.js', () => ({ recordChannelWatch: async () => {}, saveArchiveProgress: f.saveProgress }));
+vi.mock('../../sync/epgCache.js', () => ({ ensureEpg: async () => {} }));
+vi.mock('../../sync/panelClock.js', () => ({ refreshPanelClock: f.clock }));
+vi.mock('../../sources/access.js', () => ({ liveUrlFor: (_access: unknown, _channel: unknown, format: string) => `https://example.invalid/live.${format}` }));
+vi.mock('../../net/doh.js', () => ({ streamSource: (source: string) => source }));
+vi.mock('../../diagnostics/reporter.js', () => ({ setPlaybackSnapshot: () => {}, closePlaybackSnapshot: () => {} }));
+vi.mock('../../diagnostics/log.js', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../diagnostics/log.js')>(), logEvent: () => {}, clockOf: () => 'tid',
+}));
+vi.mock('../../ui/ChannelLogo.js', () => ({ ChannelLogo: () => null }));
+vi.mock('./ChannelOverlay.js', () => ({ ChannelOverlay: () => null }));
+vi.mock('./TrackPicker.js', () => ({ TrackPicker: () => null }));
+vi.mock('./RadioView.js', () => ({ RadioView: () => null }));
+vi.mock('./useRadioNowPlaying.js', () => ({ useRadioNowPlaying: () => null }));
+vi.mock('../radio/useSaveSong.js', () => ({ useSaveSong: () => null }));
+
+import { PlayerScreen } from './PlayerScreen.js';
+import { LandscapePlayer } from './Landscape.js';
+import { applyStreamFormatSetting } from './format.js';
+
+const at = (time: string) => new Date(`2026-10-16T${time}Z`);
+const news = { channelId: 'tv2', title: '18-Nyhederne', description: null, start: at('18:00:00'), stop: at('18:20:00') };
+const access = { creds: {} };
+const session = { db: {}, access: () => access } as unknown as AppSession;
+const channel = { id: 'tv2', sourceId: 'test', streamId: 'tv2', name: 'TV 2', logoUrls: [], hasArchive: true } as unknown as StoredChannel;
+let tree: ReactTestRenderer | null;
+beforeEach(() => {
+  vi.useFakeTimers(); vi.setSystemTime(at('18:19:08.546'));
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  f.requests.length = 0; f.loads.length = 0; f.listeners.clear();
+  f.offsets.length = 0; f.clock.mockReset().mockResolvedValue({ offsetMinutes: 120 });
+  f.saveProgress.mockClear();
+  f.player.currentTime = 0; f.player.status = 'readyToPlay'; f.player.playing = true;
+  f.player.duration = 1020; f.seekImmediately = true;
+  f.setting.mockReset().mockResolvedValue('php');
+  f.back.mockReset(); f.appState.currentState = 'active'; f.endBeforeSeek = false; f.released = 0;
+  f.nowNext = { now: null, next: null }; f.tvKey = null;
+  applyStreamFormatSetting('auto');
+  tree = null;
+});
+afterEach(async () => {
+  if (tree !== null) await act(async () => tree!.unmount());
+  expect([...f.listeners.values()].every(entries => entries.size === 0)).toBe(true);
+  expect(vi.getTimerCount()).toBe(0);
+  vi.unstubAllGlobals(); vi.useRealTimers();
+});
+const mount = async (programme = news) => act(async () => { tree = create(createElement(PlayerScreen, { session, channel, startFrom: programme, onBack: f.back })); });
+async function end(position: number, now: string) {
+  vi.setSystemTime(at(now));
+  await act(async () => {
+    f.player.currentTime = position; f.player.status = 'idle'; f.player.playing = false;
+    for (const fn of [...f.listeners.get('playToEnd') ?? []]) fn(undefined);
+  });
+}
+
+describe('TV2: igangvaerende udsendelse slutter under forsinket afspilning', () => {
+  it('19 News: arkivet starter ved udsendelsens egen tid uden fast +60 (v423)', async () => {
+    vi.setSystemTime(new Date('2026-10-25T18:15:00Z'));
+    f.clock.mockResolvedValue({ offsetMinutes: 60 });
+    const programme = { ...news, title: '19 News', start: new Date('2026-10-25T18:00:00Z'), stop: new Date('2026-10-25T18:30:00Z') };
+    await mount(programme);
+    expect(f.requests).toEqual([{ from: programme.start, minutes: 13 }]);
+    await act(async () => {
+      f.player.currentTime = 30;
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 30, videoRenderedFrames: 0 });
+      f.player.currentTime = 0; f.player.status = 'idle'; f.player.playing = false;
+      for (const fn of [...f.listeners.get('playToEnd') ?? []]) fn(undefined);
+    });
+    expect(f.requests[1]?.from).toEqual(programme.start);
+    expect(f.loads[1]?.seek).toBe(30);
+    expect(f.saveProgress.mock.calls.at(-1)).toHaveLength(5);
+  });
+
+  it('bruger vintertid til arkivet fra foer skiftet, naar panelet nu er paa sommertid', async () => {
+    vi.setSystemTime(new Date('2027-03-28T17:04:00Z'));
+    f.clock.mockResolvedValue({ offsetMinutes: 120, timeZone: 'Europe/Copenhagen' });
+    await mount({ ...news, start: new Date('2027-03-27T19:00:00Z'), stop: new Date('2027-03-27T19:30:00Z') });
+    expect(f.offsets).toEqual([60]);
+  });
+
+  it('bruger et friskt panelur efter vintertid og genbruger det ved fortsaettelse', async () => {
+    vi.setSystemTime(new Date('2026-10-25T17:04:00Z'));
+    f.clock.mockResolvedValue({ offsetMinutes: 60, timeZone: 'Europe/Copenhagen' });
+    const programme = { ...news, start: new Date('2026-10-25T17:00:00Z'), stop: new Date('2026-10-25T17:30:00Z') };
+    await mount(programme);
+    expect(f.offsets).toEqual([60]);
+    expect(f.clock).toHaveBeenCalledTimes(1);
+    expect(f.clock.mock.calls[0]?.slice(0, 2)).toEqual([session.db, channel.sourceId]);
+    await act(async () => {
+      f.player.currentTime = 30;
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 30, videoRenderedFrames: 0 });
+      f.player.currentTime = 0; f.player.status = 'idle'; f.player.playing = false;
+      for (const fn of [...f.listeners.get('playToEnd') ?? []]) fn(undefined);
+    });
+    expect(f.offsets).toEqual([60, 60]);
+    expect(f.clock).toHaveBeenCalledTimes(1);
+    expect(f.loads.map(load => load.seek)).toEqual([0, 30]);
+  });
+
+  it('bruger sommertid til gaarssdagens arkiv selv om panelet nu er paa vintertid', async () => {
+    vi.setSystemTime(new Date('2026-10-25T17:04:00Z'));
+    f.clock.mockResolvedValue({ offsetMinutes: 60, timeZone: 'Europe/Copenhagen' });
+    await mount({ ...news, start: new Date('2026-10-24T16:00:00Z'), stop: new Date('2026-10-24T16:30:00Z') });
+    expect(f.offsets).toEqual([120]);
+    expect(f.clock).toHaveBeenCalledTimes(1);
+  });
+
+  it('et sent svar fra paneluret maa ikke starte arkivet efter Tilbage', async () => {
+    let resolveClock!: (clock: { offsetMinutes: number }) => void;
+    f.clock.mockImplementationOnce(() => new Promise(resolve => { resolveClock = resolve; }));
+    await mount();
+    expect(f.requests).toHaveLength(0);
+    await act(async () => { tree!.unmount(); tree = null; });
+    await act(async () => resolveClock({ offsetMinutes: 60 }));
+    expect(f.requests).toHaveLength(0);
+    expect(f.loads).toHaveLength(0);
+  });
+
+  it('brugerens Proev igen henter ur paa ny efter et mislykket arkivforloeb', async () => {
+    await mount();
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await status('error'); await advance(attempt * 1500);
+    }
+    expect(f.clock).toHaveBeenCalledTimes(1);
+    f.clock.mockResolvedValue({ offsetMinutes: 60 });
+    const retry = tree!.root.findAllByType('Text' as any).find(node => node.children.join('') === 'Prøv igen');
+    expect(retry).toBeDefined();
+    await act(async () => retry!.parent!.props.onPress());
+    expect(f.clock).toHaveBeenCalledTimes(2);
+    expect(f.offsets.at(-1)).toBe(60);
+    expect(f.requests.at(-1)?.from).toEqual(news.start);
+  });
+
+  it.each([undefined, 0].flatMap(frames => [{ frames, completed: false }, { frames, completed: true }]))('bevarer 30 sekunders fremdrift gennem gentagne EOF, faerdig $completed og billedtaeller $frames', async ({ frames, completed }) => {
+    if (completed) vi.setSystemTime(at('18:40:00'));
+    await mount(completed ? news : { ...news, stop: at('19:00:00') });
+    for (const [index, start] of [0, 30, 0].entries()) {
+      f.player.playing = true;
+      for (let second = 1; second <= 30; second += 1) {
+        await act(async () => {
+          f.player.currentTime = start + second;
+          for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: start + second, videoRenderedFrames: frames });
+        });
+        await advance(1000);
+      }
+      expect(f.loads).toHaveLength(index + 1);
+      await act(async () => {
+        // Nogle native EOF-forloeb nulstiller uret inden slut-haendelsen.
+        f.player.currentTime = 0; f.player.status = 'idle'; f.player.playing = false;
+        for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 0, videoRenderedFrames: frames });
+        for (const fn of [...f.listeners.get('playToEnd') ?? []]) fn(undefined);
+      });
+      expect(f.loads).toHaveLength(index + 2);
+    }
+    expect(f.requests.map(request => request.from)).toEqual([at('18:00:00'), at('18:00:00'), at('18:01:00'), at('18:01:00')]);
+    expect(f.loads.map(load => load.seek)).toEqual([0, 30, 0, 30]);
+    expect(f.loads.map(load => load.source)).not.toContain('https://example.invalid/live.ts');
+    expect(f.back).not.toHaveBeenCalled();
+  });
+
+  it('genforbinder fra 30 s efter native fejl med nulstillet ur og tom billedtaeller', async () => {
+    await mount({ ...news, stop: at('19:00:00') });
+    f.player.currentTime = 30;
+    await act(async () => {
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 30, videoRenderedFrames: 0 });
+    });
+    f.player.currentTime = 0;
+    await status('error'); await advance(1500);
+    expect(f.loads.map(load => load.seek)).toEqual([0, 30]);
+    expect(f.requests[1]?.from).toEqual(news.start);
+  });
+
+  it('et bevidst HLS-tilbage-seek nulstiller billeduret og bevarer det lavere tidspunkt ved EOF', async () => {
+    applyStreamFormatSetting('m3u8'); f.setting.mockResolvedValue('path');
+    await mount();
+    f.player.currentTime = 80;
+    await act(async () => {
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 80, videoRenderedFrames: 2000 });
+      expect(tree!.root.findByType(LandscapePlayer).props.onPlayerKey('left')).toBe(true);
+    });
+    expect(f.player.currentTime).toBe(70);
+    await act(async () => {
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 70, videoRenderedFrames: 2001 });
+    });
+    await end(0, '18:20:08.546');
+    expect(f.requests[1]?.from).toEqual(at('18:01:00'));
+    expect(f.loads[1]?.seek).toBe(10);
+  });
+
+  it.each([
+    { key: 'left', taps: 1, duration: 1020, target: 70, seek: 10 },
+    { key: 'left', taps: 2, duration: 1020, target: 60, seek: 0 },
+    { key: 'right', taps: 1, duration: 1020, target: 110, seek: 50 },
+    { key: 'right', taps: 1, duration: 85, target: 85, seek: 25 },
+  ])('venter paa $taps asynkrone HLS-spolinger $key til $target s trods gamle samples og native poll', async ({ key, taps, duration, target, seek }) => {
+    applyStreamFormatSetting('m3u8'); f.setting.mockResolvedValue('path');
+    f.seekImmediately = false; f.player.duration = duration;
+    await mount();
+    f.player.currentTime = 80;
+    await act(async () => {
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 80, videoRenderedFrames: 2000 });
+      for (let tap = 0; tap < taps; tap++) expect(tree!.root.findByType(LandscapePlayer).props.onPlayerKey(key)).toBe(true);
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 80, videoRenderedFrames: 2001 });
+    });
+    await advance(3000); // native uret staar stadig paa den gamle position
+    f.player.currentTime = target;
+    await act(async () => {
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: target, videoRenderedFrames: 2002 });
+    });
+    await end(0, '18:20:08.546');
+    expect(f.requests[1]?.from).toEqual(at('18:01:00'));
+    expect(f.loads[1]?.seek).toBe(seek);
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('fortsaetter fra native slutposition ved idle uden en playToEnd-haendelse', async () => {
+    await mount();
+    vi.setSystemTime(at('18:36:10.171'));
+    f.player.currentTime = 1020.379;
+    f.player.status = 'idle'; f.player.playing = false;
+    await advance(3000);
+    expect(f.requests[1]).toEqual({ from: at('18:17:00'), minutes: 17 });
+    expect(f.loads[1]!.seek).toBeCloseTo(0.379);
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('venter paa nye arkivdata selv om native playing staar fast paa true ved EOF', async () => {
+    await mount();
+    await end(1020, '18:19:08.546');
+    f.player.playing = true;
+    // idle kan foelge uden en frisk playingChange. Uret gaar ikke frem.
+    await advance(30_000);
+    expect(f.requests[1]).toEqual({ from: at('18:17:00'), minutes: 1 });
+    expect(f.loads).toHaveLength(2);
+    expect(f.loads.map(load => load.source)).not.toContain('https://example.invalid/live.ts');
+  });
+
+  it('sidste billedhaendelse foer EOF maa ikke ligne tilbagespoling under ventning', async () => {
+    await mount();
+    f.player.currentTime = 1018;
+    await act(async () => {
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 1018, videoRenderedFrames: 100 });
+    });
+    await end(1020, '18:19:08.546');
+    f.player.playing = true;
+    await advance(30_000);
+    expect(f.requests[1]).toEqual({ from: at('18:17:00'), minutes: 1 });
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('baggrunden slipper arkivets forbindelse, og forgrunden tager den igen fra samme sted (v424)', async () => {
+    await mount();
+    await act(async () => {
+      f.player.currentTime = 600;
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 600, videoRenderedFrames: 15000 });
+    });
+    await background('background');
+    expect(f.released).toBe(1);
+    vi.setSystemTime(at('18:36:10.171'));
+    f.player.currentTime = 1020.379; f.player.status = 'idle'; f.player.playing = false;
+    await advance(21_000);
+    expect(f.loads).toHaveLength(1);
+    await background('active');
+    expect(f.loads).toHaveLength(2);
+    expect(f.loads[1]).toEqual({ source: 'https://example.invalid/archive/1.ts', seek: 600 });
+    expect(f.requests).toHaveLength(1);
+  });
+
+  it('en pauset udsendelse maa ikke genindlaeses ved idle', async () => {
+    await mount();
+    await act(async () => tree!.root.findByType(LandscapePlayer).props.onPlayerKey('playPause'));
+    vi.setSystemTime(at('18:36:10.171'));
+    f.player.currentTime = 1020.379;
+    await status('idle');
+    await advance(21_000);
+    expect(f.loads).toHaveLength(1);
+    await act(async () => tree!.root.findByType(LandscapePlayer).props.onPlayerKey('playPause'));
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('en ventetimer afbryder ikke arkivet naar nye billeder og tiden faktisk gaar frem', async () => {
+    await mount();
+    await end(1020, '18:19:08.546');
+    f.player.playing = true; f.player.status = 'readyToPlay'; f.player.currentTime = 1025;
+    await act(async () => {
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 1025, videoRenderedFrames: 100 });
+    });
+    await advance(15_000);
+    expect(f.loads).toHaveLength(1);
+  });
+
+  it('stopper ved EPG-slut naar stroemmen naar dertil, og henter ikke flere stykker (v425)', async () => {
+    await mount();
+    expect(f.requests[0]).toEqual({ from: news.start, minutes: 17 });
+    await end(1020.379, '18:36:10.171');
+    expect(f.requests[1]).toEqual({ from: at('18:17:00'), minutes: 17 });
+    expect(f.loads[1]!.seek).toBeCloseTo(0.379);
+    // 179,340 s fra 18:17 er 0,66 s foer 18:20 og regnes som EPG-slut (v424).
+    // Foer v425 blev slutmargenen hentet som et tredje stykke fra 18:20, og
+    // det stykkeskift efter udsendelsens slutning var det der froes. Nu er
+    // udsendelsen set til ende: intet slutvalg, tilbage til oversigten.
+    await end(179.340, '18:39:08.451');
+    expect(f.requests).toHaveLength(2);
+    expect(f.loads).toHaveLength(2);
+    expect(f.back).toHaveBeenCalledTimes(1);
+    expect(f.player.playing).toBe(false);
+    const texts = tree!.root.findAllByType('Text' as any).map(n => n.children.join('')).join(' ');
+    expect(texts).not.toContain('Hent 5 min mere');
+    expect(texts).not.toContain('Hent 15 min mere');
+    expect(texts).not.toContain('Arkivstykket er slut');
+    await act(async () => { vi.advanceTimersByTime(60_000); });
+    expect(f.requests).toHaveLength(2);
+    expect(f.loads.map(load => load.source)).not.toContain('https://example.invalid/live.ts');
+  });
+
+  it('et stykke der ramte den levende kant inde i slutmargenen afsluttes uden et nyt stykke (v425)', async () => {
+    // Startet forfra kl. 18:22:30, lige efter at udsendelsen blev komplet (18:20 + 120 s):
+    // stykket gaar fra 18:00 til 18:21, forbi EPG-slut men foer margenens 18:35.
+    vi.setSystemTime(at('18:22:30'));
+    f.player.duration = 1260;
+    await mount();
+    expect(f.requests).toEqual([{ from: news.start, minutes: 21 }]);
+    await end(1260, '18:44:00');
+    expect(f.requests).toHaveLength(1);
+    expect(f.loads).toHaveLength(1);
+    expect(f.back).toHaveBeenCalledTimes(1);
+    expect(f.player.playing).toBe(false);
+  });
+
+  it('genforbinder fra det seneste viste sekund efter flere arkivskift uden at aabne live', async () => {
+    await mount();
+    await end(1020.379, '18:36:10.171');
+    // Panelet leverede kun ét minut af det andet stykke: kanten 18:18 ligger
+    // foer EPG-slut, saa der fortsaettes (v425 stopper kun ved EPG-slut).
+    await end(60, '18:37:10.171');
+    expect(f.requests[2]).toEqual({ from: at('18:18:00'), minutes: 17 });
+    expect(f.loads[2]!.seek).toBe(0);
+    // Tiden er lokal for det tredje stykke, som begynder kl. 18.18.
+    // En fejl efter yderligere 69 s maa ikke starte udsendelsen om.
+    await act(async () => {
+      f.player.currentTime = 69.34;
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 69.34, videoRenderedFrames: 2000, bufferedPosition: 159.34 });
+    });
+    await status('error');
+    await advance(1500);
+    expect(f.requests[3]).toEqual({ from: at('18:19:00'), minutes: 16 });
+    expect(f.loads[3]!.seek).toBeCloseTo(9.34);
+    expect(f.loads.map(load => load.source)).toEqual([
+      'https://example.invalid/archive/1.ts', 'https://example.invalid/archive/2.ts',
+      'https://example.invalid/archive/3.ts', 'https://example.invalid/archive/4.ts',
+    ]);
+    expect(f.back).not.toHaveBeenCalled();
+  });
+
+  it('en fejl inde i slutmargenen, efter EPG-slut, genforbinder fra det naaede punkt og gaar ikke til oversigten (v425)', async () => {
+    await mount();
+    await end(1020.379, '18:36:10.171');
+    // Andet stykke: 18:17-18:34 (17 min). Kl. 18:21:09 i indholdet, forbi
+    // EPG-slut 18:20 men foer slutgraensen 18:35, haenger afspilleren. Det er
+    // ikke en slut paa stykket, saa EPG-slut maa ikke sende brugeren tilbage.
+    expect(f.requests[1]).toEqual({ from: at('18:17:00'), minutes: 17 });
+    await act(async () => {
+      f.player.currentTime = 249.34;
+      for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 249.34, videoRenderedFrames: 6000, bufferedPosition: 339.34 });
+    });
+    vi.setSystemTime(at('18:40:20'));
+    await status('error');
+    await advance(1500);
+    expect(f.back).not.toHaveBeenCalled();
+    expect(f.requests[2]).toEqual({ from: at('18:21:00'), minutes: 14 });
+    expect(f.loads[2]!.seek).toBeCloseTo(9.34);
+    expect(f.loads.map(load => load.source)).not.toContain('https://example.invalid/live.ts');
+    const texts = tree!.root.findAllByType('Text' as any).map(n => n.children.join('')).join(' ');
+    expect(texts).not.toContain('kunne ikke afspilles');
+  });
+
+  it('venter 15 s naar panelets fil slutter foer spoletiden, i stedet for to genforsoeg paa samme minut (v424)', async () => {
+    await mount();
+    await end(1020.379, '18:36:10.171');
+    f.endBeforeSeek = true;
+    await end(150, '18:39:08.451');
+    expect(f.requests).toHaveLength(3);
+    expect(f.requests[2]).toEqual({ from: at('18:19:00'), minutes: 16 });
+    expect(f.loads[2]!.seek).toBeCloseTo(30);
+    let texts = tree!.root.findAllByType('Text' as any).map(n => n.children.join('')).join(' ');
+    expect(texts).toContain('Venter på næste arkivstykke');
+    await advance(14_999);
+    expect(f.requests).toHaveLength(3);
+    f.endBeforeSeek = false;
+    await advance(1);
+    expect(f.requests).toHaveLength(4);
+    expect(f.requests[3]).toEqual({ from: at('18:19:00'), minutes: 16 });
+    expect(f.loads[3]!.seek).toBeCloseTo(30);
+    texts = tree!.root.findAllByType('Text' as any).map(n => n.children.join('')).join(' ');
+    expect(texts).not.toContain('kunne ikke afspilles');
+    expect(f.back).not.toHaveBeenCalled();
+  });
+
+  it('stopper efter to korte filer ved samme sekund med en forstaaelig besked', async () => {
+    await mount();
+    await end(1020.379, '18:36:10.171');
+    f.endBeforeSeek = true;
+    await end(150, '18:39:08.451');
+    await advance(15_000);
+    expect(f.requests).toHaveLength(4);
+    await advance(15_000);
+    expect(f.requests).toHaveLength(4);
+    const texts = tree!.root.findAllByType('Text' as any).map(n => n.children.join('')).join(' ');
+    expect(texts).toContain('Arkivet leverer ikke mere lige nu');
+  });
+
+  it('aabner ikke en sen arkivfortsaettelse efter brugeren er gaaet tilbage', async () => {
+    await mount();
+    let resolve!: (value: string) => void;
+    f.setting.mockImplementation(() => new Promise<string>(done => { resolve = done; }));
+    await end(1020.379, '18:36:10.171');
+    await act(async () => tree!.unmount()); tree = null;
+    await act(async () => resolve('php'));
+    expect(f.requests).toHaveLength(1);
+    expect(f.loads).toHaveLength(1);
+  });
+});
+
+const mountLive = async () => act(async () => {
+  tree = create(createElement(PlayerScreen, { session, channel, onBack: f.back }));
+});
+async function status(value: string) {
+  await act(async () => {
+    f.player.status = value;
+    for (const fn of [...f.listeners.get('statusChange') ?? []]) fn({ status: value });
+  });
+}
+async function background(value: string) {
+  await act(async () => {
+    f.appState.currentState = value;
+    for (const fn of [...f.listeners.get('appState') ?? []]) fn(value);
+  });
+}
+const advance = async (ms: number) => act(async () => { vi.advanceTimersByTime(ms); });
+
+describe('Live: baade lyd og billede stopper uden native fejl', () => {
+  async function playNormally(seconds: number) {
+    await act(async () => {
+      f.player.playing = true; f.player.status = 'readyToPlay';
+      for (let second = 0; second <= seconds; second += 1) {
+        if (second > 0) vi.advanceTimersByTime(1000);
+        f.player.currentTime = second;
+        for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: second });
+      }
+    });
+  }
+  async function shortEnd(seconds: number, resetNative = false) {
+    await playNormally(seconds);
+    await act(async () => {
+      f.player.playing = false; f.player.status = 'idle';
+      if (resetNative) {
+        f.player.currentTime = 0;
+        for (const fn of [...f.listeners.get('timeUpdate') ?? []]) fn({ currentTime: 0 });
+      }
+      for (const fn of [...f.listeners.get('playToEnd') ?? []]) fn(undefined);
+      for (const fn of [...f.listeners.get('statusChange') ?? []]) fn({ status: 'idle' });
+    });
+  }
+  it('TV2-loggens 48/67 sekunders TS-EOF skifter til HLS trods stabilt nulstillet genforsoegsbudget', async () => {
+    await mountLive(); await shortEnd(48); await advance(1500);
+    expect(f.loads.map(load => load.source)).toEqual(['https://example.invalid/live.ts', 'https://example.invalid/live.ts']);
+    await shortEnd(67);
+    expect(f.loads.map(load => load.source)).toEqual(['https://example.invalid/live.ts', 'https://example.invalid/live.ts', 'https://example.invalid/live.m3u8']);
+    await shortEnd(77); await advance(1500);
+    // v424: to korte HLS-forloeb er ikke en doed kanal. Genforbind videre
+    // efter 5 s i stedet for fejlskaermen; samme ene forbindelse.
+    await shortEnd(78);
+    expect(f.loads).toHaveLength(4);
+    let texts = tree!.root.findAllByType('Text' as any).map(node => node.children.join('')).join(' ');
+    expect(texts).toContain('Forbinder …');
+    await advance(4999);
+    expect(f.loads).toHaveLength(4);
+    await advance(1);
+    expect(f.loads).toHaveLength(5);
+    expect(f.loads[4]!.source).toBe('https://example.invalid/live.m3u8');
+    texts = tree!.root.findAllByType('Text' as any).map(node => node.children.join('')).join(' ');
+    expect(texts).not.toContain('Streamen kunne ikke afspilles');
+    expect(f.requests).toHaveLength(0);
+  });
+  it('Proev igen efter fejlskaermen vender tilbage til standardformatet (v424)', async () => {
+    await mountLive(); await shortEnd(48); await advance(1500); await shortEnd(67);
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await status('error'); await advance(attempt * 1500);
+    }
+    const retry = tree!.root.findAllByType('Text' as any).find(node => node.children.join('') === 'Prøv igen');
+    await act(async () => retry!.parent!.props.onPress());
+    expect(f.loads).toHaveLength(6);
+    expect(f.loads[5]!.source).toBe('https://example.invalid/live.ts');
+  });
+  it('viser Forbinder under en live-genforbindelse og slipper forbindelsen i baggrunden (v424)', async () => {
+    await mountLive();
+    await act(async () => { for (const fn of [...f.listeners.get('videoTrackChange') ?? []]) fn({ videoTrack: { id: 'video', mimeType: 'video/avc', size: { width: 1280, height: 720 }, isSupported: true } }); });
+    await end(60, '18:20:08.546');
+    let texts = tree!.root.findAllByType('Text' as any).map(node => node.children.join('')).join(' ');
+    expect(texts).toContain('Forbinder …');
+    await advance(1500);
+    await status('readyToPlay');
+    texts = tree!.root.findAllByType('Text' as any).map(node => node.children.join('')).join(' ');
+    expect(texts).not.toContain('Forbinder …');
+    await background('background');
+    expect(f.released).toBe(1);
+    await background('active');
+    expect(f.loads).toHaveLength(3);
+    expect(f.loads[2]!.source).toBe('https://example.invalid/live.ts');
+  });
+  it('HLS der afvises efter korte TS-sessioner har fortsat et afgraenset budget uden formatcyklus', async () => {
+    await mountLive(); await shortEnd(48); await advance(1500); await shortEnd(67);
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await status('error'); await advance(attempt * 1500);
+    }
+    expect(f.loads.map(load => load.source)).toEqual([
+      'https://example.invalid/live.ts', 'https://example.invalid/live.ts',
+      'https://example.invalid/live.m3u8', 'https://example.invalid/live.m3u8', 'https://example.invalid/live.m3u8',
+    ]);
+    const texts = tree!.root.findAllByType('Text' as any).map(node => node.children.join('')).join(' ');
+    expect(texts).toContain('Streamen kunne ikke afspilles. Prøv igen.');
+  });
+  it('skifter ogsaa til HLS naar native melder EOF ved nul efter 48/67 sekunders faktisk afspilning', async () => {
+    await mountLive(); await shortEnd(48, true); await advance(1500);
+    await shortEnd(67, true);
+    expect(f.loads.map(load => load.source)).toEqual([
+      'https://example.invalid/live.ts', 'https://example.invalid/live.ts', 'https://example.invalid/live.m3u8',
+    ]);
+    expect(f.requests).toHaveLength(0);
+  });
+  it('genforbinder efter EOF og idle, men aabner kun en forbindelse', async () => {
+    await mountLive();
+    await end(60, '18:20:08.546');
+    await status('idle');
+    await advance(1499);
+    expect(f.loads).toHaveLength(1);
+    await advance(1);
+    expect(f.loads).toHaveLength(2);
+    expect(f.loads[1]!.source).toEqual(f.loads[0]!.source);
+    expect(f.back).not.toHaveBeenCalled();
+  });
+
+  it('opdager en stoppet live-afspiller selv om playing er falsk og READY gentages', async () => {
+    await mountLive();
+    f.player.playing = false;
+    for (let i = 0; i < 7; i++) {
+      await status('loading'); await advance(1500);
+      await status('readyToPlay'); await advance(1500);
+    }
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('bevarer forbindelsen naar native uret gaar frem uden JS-timeUpdate', async () => {
+    await mountLive();
+    for (let i = 0; i < 12; i++) {
+      f.player.currentTime += 3;
+      await advance(3000);
+    }
+    expect(f.loads).toHaveLength(1);
+  });
+
+  it('opdager idle uden nogen EOF- eller status-haendelse', async () => {
+    await mountLive();
+    f.player.status = 'idle'; f.player.playing = false;
+    await advance(19_500);
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('respekterer pause og genforbinder foerst naar brugeren trykker afspil igen', async () => {
+    await mountLive();
+    await act(async () => tree!.root.findByType(LandscapePlayer).props.onPlayerKey('playPause'));
+    await end(60, '18:20:08.546'); await status('idle');
+    await advance(30_000);
+    expect(f.loads).toHaveLength(1);
+    await act(async () => tree!.root.findByType(LandscapePlayer).props.onPlayerKey('playPause'));
+    await advance(1500);
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('annullerer genforsoeg i baggrunden og opdager idle igen i forgrunden', async () => {
+    await mountLive();
+    await end(60, '18:20:08.546');
+    await background('background');
+    await advance(30_000);
+    expect(f.loads).toHaveLength(1);
+    await background('active');
+    await advance(3000);
+    expect(f.loads).toHaveLength(2);
+  });
+
+  it('annullerer et planlagt live-genforsoeg naar skaermen lukkes', async () => {
+    await mountLive(); await end(60, '18:20:08.546');
+    await act(async () => tree!.unmount()); tree = null;
+    await advance(30_000);
+    expect(f.loads).toHaveLength(1);
+  });
+
+  it('afslutter efter to tomme genforsoeg pr format uden at READY giver nyt budget', async () => {
+    await mountLive();
+    for (let i = 0; i < 6; i++) {
+      await end(0, '18:20:08.546');
+      await advance(((i % 3) + 1) * 1500);
+      await status('readyToPlay');
+    }
+    expect(f.loads).toHaveLength(6);
+    const texts = tree!.root.findAllByType('Text' as any).map(n => n.children.join('')).join(' ');
+    expect(texts).toContain('Streamen kunne ikke afspilles. Prøv igen.');
+  });
+});
+
+describe('Start forfra i bjaelken (v425)', () => {
+  // Lokal tid som skaermen viser den, uanset testmaskinens tidszone.
+  const hhmm = (date: Date) => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  const texts = () => tree!.root.findAllByType('Text' as any).map(node => node.children.join(''));
+
+  it.each(['18:19:08.546', '18:21:59.999'])('viser hvornaar Start forfra kommer, og ingen knap, mens udsendelsen sendes eller lige er slut (kl. %s)', async (now) => {
+    vi.setSystemTime(at(now));
+    f.nowNext = { now: news, next: null };
+    await mountLive();
+    const shown = texts();
+    expect(shown).not.toContain('Start forfra');
+    expect(shown).toContain(`Start forfra bliver muligt, når udsendelsen er slut (kl. ${hhmm(news.stop)})`);
+    expect(shown.join(' ')).not.toContain('Start forfra er ikke klar');
+    // Linjen er ingen knap: intet tryk og ingen fokusfaelde paa tv.
+    const hint = tree!.root.findAllByType('Text' as any).find(node => node.children.join('').startsWith('Start forfra bliver muligt'));
+    expect(hint!.parent!.props.onPress).toBeUndefined();
+    expect(f.requests).toHaveLength(0);
+    expect(f.loads.map(load => load.source)).toEqual(['https://example.invalid/live.ts']);
+  });
+
+  /** Rolig live-afspilning i `ms`: uret gaar og billedet bevaeger sig, saa vagthunden er tavs; ingen anden tilstand aendres. */
+  async function playLive(ms: number) {
+    for (let left = ms; left > 0; left -= Math.min(left, 1000)) {
+      const step = Math.min(left, 1000);
+      f.player.currentTime += step / 1000;
+      await advance(step);
+    }
+  }
+
+  /** Pil op paa fjernbetjeningen: bjaelken kommer frem igen, med PlayerScreens seneste tegning. */
+  const pressUp = async () => act(async () => { f.tvKey!({ eventType: 'up', eventKeyAction: 1 }); });
+
+  it('knappen kommer af sig selv praecis naar udsendelsen er slut og helt i arkivet, uden andet tryk', async () => {
+    // Kl. 18:19:08 under nyhederne. Bjaelken gemmer sig, og under rolig
+    // afspilning tegnes PlayerScreen ikke igen af andet (timeUpdate skriver
+    // kun refs); pil op viser bjaelken fra sidste tegning. Saa det er timeren
+    // ved sluttid + 120 s der skal faa knappen frem.
+    f.nowNext = { now: news, next: null };
+    await mountLive();
+    expect(texts()).not.toContain('Start forfra');
+    await playLive(at('18:22:00').getTime() - at('18:19:08.546').getTime() - 1);
+    expect(texts()).not.toContain('Start forfra bliver muligt');
+    await pressUp();
+    expect(texts()).not.toContain('Start forfra');
+    expect(texts().join(' ')).toContain('Start forfra bliver muligt');
+    await advance(1);
+    expect(texts()).toContain('Start forfra');
+    expect(texts().join(' ')).not.toContain('bliver muligt');
+    // Og efter at bjaelken har gemt sig igen, viser pil op stadig knappen.
+    await playLive(30_000);
+    expect(texts()).not.toContain('Start forfra');
+    await pressUp();
+    expect(texts()).toContain('Start forfra');
+    expect(f.loads.map(load => load.source)).toEqual(['https://example.invalid/live.ts']);
+  });
+
+  it('knappen gaelder den udsendelse man sad og saa, ogsaa naar den naeste er begyndt', async () => {
+    // Bjaelken laeser ikke programdata igen hen over et programskift, med
+    // vilje: det er 18-Nyhederne man sad med, der skal kunne startes forfra
+    // naar de er slut, ikke den udsendelse der er begyndt i mellemtiden.
+    const following = { ...news, title: 'Vejret', start: news.stop, stop: at('18:30:00') };
+    f.nowNext = { now: news, next: following };
+    await mountLive();
+    f.nowNext = { now: following, next: null };
+    await playLive(at('18:22:00').getTime() - at('18:19:08.546').getTime());
+    await pressUp();
+    const restart = tree!.root.findAllByType('Text' as any).find(node => node.children.join('') === 'Start forfra');
+    expect(restart).toBeDefined();
+    expect(restart!.parent!.props.hasTVPreferredFocus).toBe(true);
+    await act(async () => restart!.parent!.props.onPress());
+    expect(f.requests).toEqual([{ from: news.start, minutes: 20 }]);
+    expect(f.loads.at(-1)!.source).toBe('https://example.invalid/archive/1.ts');
+  });
+
+  it('viser Start forfra for den udsendelse der er slut og helt i arkivet, og henter den i ét stykke', async () => {
+    vi.setSystemTime(at('18:22:00'));
+    f.nowNext = { now: news, next: null };
+    await mountLive();
+    const shown = texts();
+    expect(shown).toContain('Start forfra');
+    expect(shown.join(' ')).not.toContain('når udsendelsen er slut');
+    const restart = tree!.root.findAllByType('Text' as any).find(node => node.children.join('') === 'Start forfra');
+    await act(async () => restart!.parent!.props.onPress());
+    expect(f.requests).toEqual([{ from: news.start, minutes: 20 }]);
+    expect(f.loads.at(-1)!.source).toBe('https://example.invalid/archive/1.ts');
+  });
+});
+
+it('28/10-loggen: reel filslut ved 1039.194 s fortsaetter udsendelsen uden at vente paa 45-minuttersestimatet', async () => {
+  const programme={...news,start:new Date('2026-10-28T18:00:00Z'),stop:new Date('2026-10-28T18:30:00Z')};
+  vi.setSystemTime(new Date('2026-10-28T18:52:11Z'));
+  f.clock.mockResolvedValue({offsetMinutes:60,timeZone:'Europe/Amsterdam'});
+  await mount(programme);
+  expect(f.requests[0]).toEqual({from:programme.start,minutes:45});
+  // Native EOF-patchen rapporterer den faktisk laeste laengde, ikke 2705 s.
+  f.player.duration=1039.201;
+  vi.setSystemTime(new Date('2026-10-28T19:09:48Z'));
+  await act(async()=>{
+    f.player.currentTime=1039.194;
+    for(const fn of [...f.listeners.get('timeUpdate')??[]])fn({currentTime:1039.194,videoRenderedFrames:25878});
+    f.player.status='idle';f.player.playing=false;
+    for(const fn of [...f.listeners.get('playToEnd')??[]])fn(undefined);
+  });
+  expect(f.requests).toHaveLength(2);
+  expect(f.requests[1]).toEqual({from:new Date('2026-10-28T18:17:00Z'),minutes:28});
+  expect(f.loads[1]?.seek).toBeCloseTo(19.194,3);
+  expect(f.back).not.toHaveBeenCalled();
+  expect(f.loads.map(load=>load.source)).not.toContain('https://example.invalid/live.ts');
+});
