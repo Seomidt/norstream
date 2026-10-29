@@ -221,6 +221,20 @@ export async function setMiniPreviewEnabled(
   await setSetting(db, KEY_PREVIEW, enabled ? 'on' : 'off');
 }
 
+/**
+ * Om Hjem (forsiden) er med i menuen (v428). Slaaet fra forsvinder Hjem, og
+ * appen starter i Guiden med fokus i programoversigten. Standard: til.
+ */
+const KEY_HOME = 'home_enabled';
+
+export async function getHomeEnabled(db: SqlDatabase): Promise<boolean> {
+  return (await getSetting(db, KEY_HOME)) !== 'off';
+}
+
+export async function setHomeEnabled(db: SqlDatabase, enabled: boolean): Promise<void> {
+  await setSetting(db, KEY_HOME, enabled ? 'on' : 'off');
+}
+
 const KEY_PANEL_EPG = 'panel_epg_enabled';
 
 /**

@@ -84,6 +84,7 @@ const SETTING_KEYS = [
   'subtitle_language',
   'stream_format',
   'mini_preview_enabled',
+  'home_enabled',
   'uniform_audio',
   'youtube_api_key',
   'tmdb_api_key',

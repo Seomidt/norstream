@@ -6,6 +6,8 @@ import {
   clearLastSyncMs,
   getLastSyncMs,
   getMiniPreviewEnabled,
+  getHomeEnabled,
+  setHomeEnabled,
   getPanelOffsetMinutes,
   getSetting,
   getTimeshiftDialect,
@@ -137,5 +139,15 @@ describe('mini-preview-indstillingen', () => {
     await expect(getMiniPreviewEnabled(db)).resolves.toBe(false);
     await setMiniPreviewEnabled(db, true);
     await expect(getMiniPreviewEnabled(db)).resolves.toBe(true);
+  });
+});
+
+describe('Vis Hjem (v428)', () => {
+  it('er slaaet til som standard og kan slaas fra og til igen', async () => {
+    await expect(getHomeEnabled(db)).resolves.toBe(true);
+    await setHomeEnabled(db, false);
+    await expect(getHomeEnabled(db)).resolves.toBe(false);
+    await setHomeEnabled(db, true);
+    await expect(getHomeEnabled(db)).resolves.toBe(true);
   });
 });

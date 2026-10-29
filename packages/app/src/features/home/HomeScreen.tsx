@@ -1,5 +1,5 @@
 import { deferredScreen } from '../../ui/deferredScreen.js';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, StyleSheet, Text, TVFocusGuideView, View } from 'react-native';
 import { XtreamAuthError } from '@norstream/core';
 import type { Programme } from '@norstream/core';
@@ -8,6 +8,7 @@ import type { StoredChannel } from '../../storage/channels.js';
 import {
   clearLastSyncMs,
   getLastSyncMs,
+  getHomeEnabled,
   getMiniPreviewEnabled,
   getStreamFormatSetting,
   getTmdbApiKey,
@@ -114,6 +115,9 @@ interface Props {
   onSourcesChanged: () => void;
   /** Udfyldes med det telefonens tilbage-knap skal goere i Hjem. Falsk = lad Android lukke. */
   backRef: { current: () => boolean };
+  /** Om Hjem er med i menuen (v428). Slaaet fra er Guiden startfanen. */
+  homeEnabled?: boolean;
+  onHomeEnabledChange?: (enabled: boolean) => void;
   /** Sand mens en afspiller eller filmside ligger over Hjem: previewet skal vaere afmonteret imens. */
   covered?: boolean;
 }
@@ -166,6 +170,8 @@ export function HomeScreen({
   onSourcesChanged,
   backRef,
   covered = false,
+  homeEnabled = true,
+  onHomeEnabledChange,
 }: Props) {
   const styles = useStyles(makeStyles);
   const coveredRef = useRef(covered);
@@ -180,6 +186,15 @@ export function HomeScreen({
   const insets = useSafeAreaInsets();
   const tab = place.tab;
   const setTab = (next: Tab): void => onPlaceChange({ ...place, tab: next });
+  // Startfanen: Hjem, eller Guiden naar Hjem er slaaet fra (v428). Tilbage
+  // ender her, og menuen viser ikke en fane der er slaaet fra.
+  const startTab: Tab = homeEnabled ? 'home' : 'guide';
+  const visibleTabs = useMemo(() => (homeEnabled ? TABS : TABS.filter(item => item.id !== 'home')), [homeEnabled]);
+  useEffect(() => {
+    if (!homeEnabled && tab === 'home') onPlaceChange({ ...place, tab: 'guide' });
+    // Kun naar Hjem slaas fra mens man staar paa den.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [homeEnabled, tab]);
   // Seneste `place`, saa stabile callbacks (til memoiseret GuideScreen) kan
   // laese den uden selv at aendre reference hver render.
   const placeRef = useRef(place);
@@ -284,8 +299,8 @@ export function HomeScreen({
       railControl.current?.requestFocus();
       return true;
     }
-    if (tab !== 'home') {
-      onPlaceChange({ ...place, tab: 'home' });
+    if (tab !== startTab) {
+      onPlaceChange({ ...place, tab: startTab });
       return true;
     }
     return false;
@@ -578,7 +593,7 @@ export function HomeScreen({
 
   const phoneTabs = !isTV && (
     <View style={[styles.tabBar, { paddingBottom: theme.spacing.sm + insets.bottom }]}>
-      {TABS.map(item => (
+      {visibleTabs.map(item => (
         <TvPressable key={item.id} style={styles.tab} onPress={() => selectTab(item.id)}>
           <Text style={[styles.tabIcon, tab === item.id && styles.tabActive]}>{item.icon}</Text>
           <Text style={[styles.tabLabel, tab === item.id && styles.tabActive]} numberOfLines={1} adjustsFontSizeToFit>
@@ -778,9 +793,12 @@ export function HomeScreen({
               setFavoritesToken((value) => value + 1);
               setLogoToken((value) => value + 1);
               void getMiniPreviewEnabled(session.db).then(setPreviewEnabled);
+              void getHomeEnabled(session.db).then(enabled => onHomeEnabledChange?.(enabled));
               void getStreamFormatSetting(session.db).then(applyStreamFormatSetting);
             }}
             onCloudSync={runCloud}
+            homeEnabled={homeEnabled}
+            onHomeEnabledChange={onHomeEnabledChange}
           />
         )}
       </TVFocusGuideView>
@@ -788,7 +806,7 @@ export function HomeScreen({
       {phoneTabs}
       </View>
       {isTV && <NavigationRail
-        tabs={TABS}
+        tabs={visibleTabs}
         activeTab={tab}
         enabled={!covered}
         onSelect={selectTab}

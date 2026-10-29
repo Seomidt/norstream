@@ -49,6 +49,7 @@ import {
   getLastChannelId,
   getTimeshiftDialect,
   getPanelOffsetMinutes,
+  setHomeEnabled,
 } from '../../storage/settings.js';
 import type { GuideInfoMode, HomeProvider, StreamFormatSetting, SubtitlePreference, VideoSurface } from '../../storage/settings.js';
 import { tmdbFetch } from '../../sync/tmdb.js';
@@ -92,6 +93,9 @@ interface Props {
   onRestored: () => void;
   /** Synkronisér med skyen nu (v340); svarer med hvad der skete. */
   onCloudSync?: () => Promise<CloudSyncOutcome>;
+  /** Om Hjem er med i menuen; slaaet fra starter appen i Guiden (v428). */
+  homeEnabled?: boolean;
+  onHomeEnabledChange?: (enabled: boolean) => void;
 }
 
 type SettingsGroup = 'channels' | 'guide' | 'playback' | 'vod' | 'look' | 'backup' | 'update' | 'debug' | 'account';
@@ -193,6 +197,8 @@ export function SettingsScreen({
   onSignedOut,
   onRestored,
   onCloudSync,
+  homeEnabled = true,
+  onHomeEnabledChange,
 }: Props) {
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
@@ -450,6 +456,11 @@ export function SettingsScreen({
   async function togglePreview(enabled: boolean): Promise<void> {
     await setMiniPreviewEnabled(session.db, enabled);
     onPreviewEnabledChange(enabled);
+  }
+
+  async function toggleHome(enabled: boolean): Promise<void> {
+    await setHomeEnabled(session.db, enabled);
+    onHomeEnabledChange?.(enabled);
   }
 
   async function chooseGuideInfo(mode: GuideInfoMode): Promise<void> {
@@ -1088,9 +1099,30 @@ export function SettingsScreen({
         </View>
       )}
 
-      <GroupHeader id="look" title="Udseende" hint="Lyst, mørkt eller følg solen" open={openGroup === 'look'} onToggle={toggleGroup} />
+      <GroupHeader id="look" title="Udseende og start" hint="Lyst, mørkt eller følg solen, og om appen starter i Hjem eller Guide" open={openGroup === 'look'} onToggle={toggleGroup} />
       {openGroup === 'look' && (
         <View style={styles.groupBody}>
+          <Text style={styles.subLabel}>Start</Text>
+          {/* Hele raekken kan trykkes: paa tv kan fjernbetjeningen ikke lande paa en Switch. */}
+          <TvPressable style={styles.row} onPress={() => void toggleHome(!homeEnabled)}>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Vis Hjem</Text>
+              <Text style={styles.rowHint}>
+                {homeEnabled
+                  ? 'Appen starter i Hjem. Slå fra for at starte direkte i Guiden.'
+                  : 'Hjem er skjult i menuen, og appen starter i Guiden.'}
+              </Text>
+            </View>
+            <Switch
+              value={homeEnabled}
+              focusable={false}
+              onValueChange={(value) => {
+                void toggleHome(value);
+              }}
+              trackColor={{ true: colors.accent, false: colors.border }}
+            />
+          </TvPressable>
+
           <Text style={styles.subLabel}>Tema</Text>
           <Text style={styles.hint}>Følg solen: lyst om dagen, mørkt om aftenen.</Text>
           <View style={styles.choices}>

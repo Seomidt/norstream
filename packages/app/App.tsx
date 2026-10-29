@@ -24,7 +24,7 @@ import { theme } from './src/ui/theme.js';
 import type { ThemeColors } from './src/ui/theme.js';
 import { ThemeProvider, useStyles, useTheme } from './src/ui/ThemeContext.js';
 import { setThemePreference, useResolvedScheme } from './src/ui/themeMode.js';
-import { getThemeMode, getThemePlace } from './src/storage/settings.js';
+import { getHomeEnabled, getThemeMode, getThemePlace } from './src/storage/settings.js';
 import { CanvasContext, TV_SAFE_MARGIN, TV_SCALE, isTV } from './src/ui/tv.js';
 import { startTvKeyTracking } from './src/ui/tvKeys.js';
 import { TvPressable } from './src/ui/TvPressable.js';
@@ -113,6 +113,8 @@ function AppInner() {
    * begyndte. Tilstanden bor her, hvor den overlever afspilleren.
    */
   const [place, setPlace] = useState<HomePlace>({ tab: 'home', browse: null, vod: null });
+  // Slaaet Hjem fra i Indstillinger, starter appen i Guiden (v428).
+  const [homeEnabled, setHomeEnabledState] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -125,8 +127,11 @@ function AppInner() {
       const created = await createSession();
       if (cancelled) return;
       // Temaet (foelg solen, moerkt, lyst) og stedet solen regnes for.
-      const [mode, placeKey] = await Promise.all([getThemeMode(created.db), getThemePlace(created.db)]);
+      const [mode, placeKey, home] = await Promise.all([getThemeMode(created.db), getThemePlace(created.db), getHomeEnabled(created.db)]);
       setThemePreference({ mode, ...(placeKey === null ? {} : { placeKey }) });
+      setHomeEnabledState(home);
+      if (!home) setPlace(current => current.tab === 'home' ? { ...current, tab: 'guide' } : current);
+      logEvent('opstart', `startfane: ${home ? 'Hjem' : 'Guide (Hjem slaaet fra)'}`);
       setSession(created);
       logEvent('opstart', `klar til forside: ${Date.now() - startedAt} ms`);
       setRoute(created.sources.length === 0 ? { name: 'onboarding' } : { name: 'home' });
@@ -329,6 +334,8 @@ function AppInner() {
             setRoute({ name: 'trailer', itemKey: null, trailerId: null, title: title.title, year: title.year, kind: 'movie' })
           }
           backRef={homeBack}
+          homeEnabled={homeEnabled}
+          onHomeEnabledChange={setHomeEnabledState}
           onSourcesChanged={() => {
             void (async () => {
               // Kilderne er skiftet: sessionen skal laese legitimation for de
@@ -339,7 +346,7 @@ function AppInner() {
           }}
           onSignedOut={(notice) => {
             setSession(null);
-            setPlace({ tab: 'home', browse: null, vod: null });
+            setPlace({ tab: homeEnabled ? 'home' : 'guide', browse: null, vod: null });
             setRoute({ name: 'onboarding', notice });
           }}
         />

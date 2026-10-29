@@ -375,11 +375,14 @@ export function TimelineGrid({
     seenSignal.current = focusFirstSignal;
     setFocusPulse(true);
   }, [focusFirstSignal]);
+  // Pulsen venter paa den foerste raekke (v428): ved opstart direkte i
+  // Guiden kommer kanalerne et oejeblik efter gitteret, og en puls uden
+  // raekker gav ingen noget fokus.
   useEffect(() => {
-    if (!focusPulse) return;
+    if (!focusPulse || channels.length === 0) return;
     const f = requestAnimationFrame(() => setFocusPulse(false));
     return () => cancelAnimationFrame(f);
-  }, [focusPulse]);
+  }, [focusPulse, channels.length]);
 
   const renderItem = useCallback(
     ({ item, index }: { item: StoredChannel; index: number }) => (

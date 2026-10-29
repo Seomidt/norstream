@@ -349,3 +349,26 @@ it('en kanalsynk startet foer video aabnes starter ikke favorit-EPG under videoe
   await act(async () => done({ rejected: [], synced: 0 }));
   expect(mocks.prefetch).not.toHaveBeenCalled();
 });
+
+it('HomeScreen uden Hjem (v428): menuen viser ikke Hjem, Hjem-fanen skifter til Guiden, og Tilbage ender i Guiden', async () => {
+  const props = playbackHomeProps();
+  await mount(createElement(HomeScreen, { ...props, homeEnabled: false }));
+  const ids = () => (tree!.root.findByType(NavigationRail).props.tabs as typeof tabs).map(item => item.id);
+  expect(ids()).not.toContain('home');
+  expect(ids()).toContain('guide');
+  // Stod man paa Hjem da den blev slaaet fra, flyttes man til Guiden.
+  expect(props.onPlaceChange).toHaveBeenCalledWith(expect.objectContaining({ tab: 'guide' }));
+  props.onPlaceChange.mockClear();
+  // Fra en anden fane gaar Tilbage (med fokus i menuen) til Guiden, ikke til Hjem.
+  await act(async () => tree!.update(createElement(HomeScreen, { ...props, homeEnabled: false, place: { tab: 'vod', browse: null, vod: null } as HomePlace })));
+  await focus('guide');
+  await act(async () => { expect(props.backRef.current()).toBe(true); });
+  expect(props.onPlaceChange).toHaveBeenLastCalledWith(expect.objectContaining({ tab: 'guide' }));
+  // Paa Guiden selv er der ikke mere at gaa tilbage til: Android maa lukke.
+  await act(async () => tree!.update(createElement(HomeScreen, { ...props, homeEnabled: false, place: { tab: 'guide', browse: null, vod: null } as HomePlace })));
+  await focus('guide');
+  await act(async () => { expect(props.backRef.current()).toBe(false); });
+  await act(async () => tree!.update(createElement(HomeScreen, { ...props, homeEnabled: true, place: { tab: 'guide', browse: null, vod: null } as HomePlace })));
+  expect(ids()).toContain('home');
+  await act(async () => { tree!.unmount(); tree = null; });
+});

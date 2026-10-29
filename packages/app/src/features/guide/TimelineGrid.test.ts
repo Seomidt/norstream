@@ -125,3 +125,19 @@ it('en langsom XML-fil blokerer ikke naeste kanals API',async()=>{
   expect(m.xml.mock.calls[0]![3].channelIds).not.toContain(channels[1]!.id);
   await act(async()=>wait.resolve({matched:0,programmes:0,channelIds:[]}));
 });
+
+it('giver foerste raekke fokus naar kanalerne kommer efter gitteret, som ved opstart direkte i Guiden (v428)', async () => {
+  m.list.mockResolvedValue([]); m.full.mockResolvedValue(ok); m.short.mockResolvedValue(ok);
+  // Rammerne koeres kun naar testen siger til, saa pulsen kan ses foer den slukkes.
+  const frames: Array<() => void> = [];
+  vi.stubGlobal('requestAnimationFrame', (f: () => void) => { frames.push(f); return frames.length; });
+  vi.stubGlobal('cancelAnimationFrame', () => undefined);
+  const flushFrames = async () => act(async () => { while (frames.length > 0) frames.shift()!(); });
+  await mount(props({ channels: [] }));
+  await flushFrames();
+  await update({ channels });
+  const preferred = tree!.root.findAllByType('TvPressable' as any).filter(n => n.props.hasTVPreferredFocus === true);
+  expect(preferred.length).toBeGreaterThan(0);
+  await flushFrames();
+  expect(tree!.root.findAllByType('TvPressable' as any).some(n => n.props.hasTVPreferredFocus === true)).toBe(false);
+});
