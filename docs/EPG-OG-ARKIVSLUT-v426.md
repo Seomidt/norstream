@@ -27,7 +27,7 @@ Kildekode gennemgået: androidx/media tag 1.9.0, `libraries/exoplayer/src/main/j
 
 Hele dagen/Se forfra viser fortsat den lokale tabel straks. Ved indgang hentes denne ene kanals fulde plan frisk i baggrunden, også hvis aldersmærket siger under seks timer. Et direkte API-svar bruges direkte på skærmen, så en anden skrivers SQL-data ikke bagefter genindblandes. XMLTV og M3U bevares; kun XML-fallback ved et tomt API-svar tvinges frisk for den ene kanal.
 
-Daggrænser, dataejerskab, filtrering og dagvalg bruger samme lokale kalenderdato. En åben side skifter derfor ikke blot navn ved midnat, mens en memoiseret liste beholder gårsdagens programmer. Dagknapperne viser også dato for I dag/I går/I morgen, fx I dag 28.10 over for ons 21.10. Loggen angiver den fulde lokale dato uden programtitler eller streamadresser.
+Ved genoptagelse fra standby og tilbagekomst til skærmen opdateres klokken straks. Den kan have stået stille siden onsdag 21/10, og må ikke vente på et minut-tik før onsdag 28/10 vises. Daggrænser, dataejerskab, filtrering og dagvalg bruger samme lokale kalenderdato. En åben side skifter derfor ikke blot navn ved midnat, mens en memoiseret liste beholder gårsdagens programmer. Dagknapperne viser også dato for I dag/I går/I morgen, fx I dag 28.10 over for ons 21.10. Loggen angiver den fulde lokale dato uden programtitler eller streamadresser.
 
 Der flyttes ingen EPG-tider med faste timer eller uger, og genudsendelser afduplikeres ikke efter titel. Hvis udbyderens friske svar selv indeholder en forkert programplan, kan denne klientrettelse ikke bevise den rigtige titel. Der er ikke tilføjet en generel blokering af cachen i resten af guiden.
 

@@ -72,10 +72,14 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
   useEffect(() => {
     const subscription = AppState?.addEventListener?.('change', state => {
       appActive.current = state === 'active';
+      // Timere kan vaere stoppet en hel uge i standby. Foerste tegning
+      // efter genoptagelse skal bruge dagens dato, ikke sidste besoegs.
+      if (appActive.current) setNow(new Date());
       setForeground(appActive.current);
     });
     return () => subscription?.remove();
   }, []);
+  useEffect(() => { if (active) setNow(new Date()); }, [active]);
   const current = useRef({ session, channelId: channel.id, active, foreground, todayMs });
   if (current.current.session !== session || current.current.channelId !== channel.id
     || current.current.active !== active || current.current.foreground !== foreground || current.current.todayMs !== todayMs) {
@@ -90,6 +94,8 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
   const [listHeight, setListHeight] = useState(0);
   const [dayWantsFocus, setDayWantsFocus] = useState(isTV);
   const [sheet, setSheet] = useState<{ programme: Programme; state: CellState } | null>(null);
+  // Et gammelt programblad maa ikke overleve under en ny dags oversigt.
+  useEffect(() => { setSheet(null); }, [channel.id, todayMs]);
   // Naar arket lukker, tilbage til det der aabnede det: ellers gav Android
   // fokus til det foerste trykpunkt paa skaermen.
   const sheetWasOpen = useRef(false);

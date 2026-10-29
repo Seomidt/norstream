@@ -7,13 +7,13 @@ import type { StoredChannel } from '../../storage/channels.js';
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(), channels: vi.fn(), full: vi.fn(), panel: vi.fn(),
-  log: vi.fn(), scroll: vi.fn(), keys: new Set<(event: Record<string, unknown>) => void>(),
+  log: vi.fn(), scroll: vi.fn(), appListeners: new Set<(state:string)=>void>(), keys: new Set<(event: Record<string, unknown>) => void>(),
 }));
 vi.mock('react-native', async () => {
   const React = await import('react');
   return {
     Platform: { isTV: true, OS: 'android' },
-    AppState: {currentState:'active',addEventListener:()=>({remove(){}})},
+    AppState: {currentState:'active',addEventListener:(_event:string,listener:(state:string)=>void)=>{mocks.appListeners.add(listener);return{remove(){mocks.appListeners.delete(listener);}}}},
     View: 'View', Text: 'Text', Pressable: 'Pressable', ScrollView: 'ScrollView',
     TVFocusGuideView: 'TVFocusGuideView', ActivityIndicator: 'ActivityIndicator', Modal: 'Modal',
     StyleSheet: { create: (s: unknown) => s, hairlineWidth: 0.5 },
@@ -134,6 +134,7 @@ afterEach(async () => {
   if (rendered !== null) await act(async () => rendered!.unmount());
   rendered = null;
   expect(mocks.keys.size).toBe(0);
+  expect(mocks.appListeners.size).toBe(0);
   expect(vi.getTimerCount()).toBe(0);
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -528,4 +529,24 @@ describe('absolut dato og autoritativ dagsplan v426', () => {
     await act(async()=>{await vi.advanceTimersByTimeAsync(60_000);});
     expect(tree.root.findByType(host('NativeList')).props.data[0].title).toBe('Naeste onsdag');
   });
+});
+
+
+it('standby fra onsdag 21/10 til onsdag 28/10: rigtig dato og plan straks ved genoptagelse, foer noget minut-tik', async () => {
+  const at=(day:number)=>new Date(2026,9,day,20,0,0);
+  const item=(day:number):Programme=>({channelId:channel.id,title:`Udsendelse ${day}/10`,description:null,start:new Date(2026,9,day,19),stop:at(day)});
+  const shared=[item(21),item(28)];
+  vi.setSystemTime(at(21));mocks.list.mockResolvedValue(shared);mocks.full.mockResolvedValue({fetched:0,programmes:0,failed:0});
+  const tree=await mount(dayElement());await measureDay(tree);
+  expect(tree.root.findByType(host('NativeList')).props.data[0].title).toBe('Udsendelse 21/10');
+  const row=tree.root.findAllByType(TvPressable).find(n=>textOf(n).includes('Udsendelse 21/10'))!;
+  await act(async()=>row.props.onPress());
+  expect(tree.root.findAllByType(ProgrammeSheet)).toHaveLength(1);
+  await act(async()=>{for(const f of mocks.appListeners)f('background');});
+  vi.setSystemTime(at(28));
+  await act(async()=>{for(const f of mocks.appListeners)f('active');});
+  expect(tree.root.findByType(host('NativeList')).props.data[0].title).toBe('Udsendelse 28/10');
+  const chips=tree.root.findByType(host('ScrollView')).findAllByType(TvPressable);
+  expect(chips.some(n=>textOf(n)==='I dag 28.10')).toBe(true);
+  expect(tree.root.findAllByType(ProgrammeSheet)).toHaveLength(0);
 });
