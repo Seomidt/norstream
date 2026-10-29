@@ -151,7 +151,7 @@ describe('dagsoversigt paa TV med faktisk React-livscyklus', () => {
     expect(list.props.onScrollToIndexFailed).toBeUndefined();
   });
 
-  it('viser den gemte tabel straks og fornyer den i baggrunden uden at tvinge (v423)', async () => {
+  it('viser det gemte straks, men fornyer denne kanals dagsplan ved indgang (v426)', async () => {
     const full = deferred<unknown>();
     mocks.full.mockReturnValue(full.promise);
     const tree = await mount(dayElement());
@@ -159,7 +159,7 @@ describe('dagsoversigt paa TV med faktisk React-livscyklus', () => {
     expect(mocks.list).toHaveBeenCalledTimes(1);
     expect(tree.root.findByType(host('NativeList')).props.data).toHaveLength(48);
     expect(mocks.full.mock.calls[0]![5]).toMatchObject({ shouldContinue: expect.any(Function) });
-    expect(mocks.full.mock.calls[0]![5].force).toBeUndefined();
+    expect(mocks.full.mock.calls[0]![5].force).toBe(true);
     await act(async () => full.resolve({ fetched: 1, programmes: 480, failed: 0, reason: null }));
     expect(tree.root.findByType(host('NativeList')).props.data).toHaveLength(48);
     expect(mocks.panel).not.toHaveBeenCalled();
@@ -482,5 +482,50 @@ describe('Start forfra kun naar udsendelsen er slut og helt i arkivet (v425)', (
     expect(restart.mock.calls[0]![0]).toBe(channel);
     expect(restart.mock.calls[0]![1].title).toBe('Program 370');
     expect(tree.root.findAllByType(ProgrammeSheet)).toHaveLength(0);
+  });
+});
+
+
+describe('absolut dato og autoritativ dagsplan v426', () => {
+  const at = (day: number, hour = 19) => new Date(2026, 9, day, hour, 0, 0);
+  const episode = (day: number, title: string): Programme => ({channelId:channel.id,title,description:null,start:at(day),stop:at(day,20)});
+
+  it('holder onsdag 21/10 og onsdag 28/10 adskilt med dato i dagvalget', async () => {
+    vi.setSystemTime(at(28,21));
+    const old=episode(21,'Afsnit fra 21/10'), current=episode(28,'Afsnit fra 28/10');
+    mocks.list.mockResolvedValue([old,current]);
+    const tree=await mount(dayElement());await measureDay(tree);
+    const rows=()=>tree.root.findByType(host('NativeList')).props.data as Programme[];
+    expect(rows().map(p=>p.title)).toEqual(['Afsnit fra 28/10']);
+    const chips=tree.root.findByType(host('ScrollView')).findAllByType(TvPressable);
+    expect(chips.some(n=>textOf(n)==='I dag 28.10')).toBe(true);
+    const lastWednesday=chips.find(n=>textOf(n)==='ons 21.10')!;
+    await act(async()=>lastWednesday.props.onPress());
+    expect(rows().map(p=>p.title)).toEqual(['Afsnit fra 21/10']);
+    await act(async()=>chips.find(n=>textOf(n)==='I dag 28.10')!.props.onPress());
+    expect(rows().map(p=>p.title)).toEqual(['Afsnit fra 28/10']);
+  });
+
+  it('et friskt API-svar erstatter dagens gamle plan uden genindblanding fra SQL', async () => {
+    vi.setSystemTime(at(28,21));
+    const stale=episode(28,'Gammel plan'), fresh=episode(28,'Ny plan');
+    mocks.list.mockResolvedValue([stale]);
+    mocks.full.mockImplementation(async (...args: any[])=>{args[5].onProgrammes(channel.id,[fresh]);return{fetched:1,programmes:1,failed:0};});
+    const tree=await mount(dayElement());await measureDay(tree);
+    expect(mocks.full.mock.calls[0]![5].force).toBe(true);
+    expect(tree.root.findByType(host('NativeList')).props.data.map((p:Programme)=>p.title)).toEqual(['Ny plan']);
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+  });
+
+  it('et aabent vindue skifter faktisk kalenderdag og viser ikke gaarsdagens liste under nyt navn', async () => {
+    vi.setSystemTime(at(21,23));
+    const shared=[episode(21,'Foerste onsdag'),episode(28,'Naeste onsdag')];
+    mocks.list.mockResolvedValue(shared);
+    mocks.full.mockResolvedValue({fetched:0,programmes:0,failed:0});
+    const tree=await mount(dayElement());await measureDay(tree);
+    expect(tree.root.findByType(host('NativeList')).props.data[0].title).toBe('Foerste onsdag');
+    vi.setSystemTime(at(28,21));
+    await act(async()=>{await vi.advanceTimersByTimeAsync(60_000);});
+    expect(tree.root.findByType(host('NativeList')).props.data[0].title).toBe('Naeste onsdag');
   });
 });

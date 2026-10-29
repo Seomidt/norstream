@@ -53,6 +53,17 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
   const { colors } = useTheme();
   const styles = useStyles(makeStyles);
   const tail = useTvListTail();
+  // Nu tikker hvert minut mens siden staar aaben (v425): "Sendes nu" og
+  // Start forfra-maerket foelger klokken, saa en udsendelse der lige er slut
+  // faar sit maerke saa snart arkivet har de sidste minutter, uden at man
+  // skal trykke paa noget. Samme nu bruges til tilstand, maerke og blad.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const todayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const [data, setData] = useState<{
     entry: object; programmes: Programme[]; error: string | null;
   } | null>(null);
@@ -65,10 +76,10 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
     });
     return () => subscription?.remove();
   }, []);
-  const current = useRef({ session, channelId: channel.id, active, foreground });
+  const current = useRef({ session, channelId: channel.id, active, foreground, todayMs });
   if (current.current.session !== session || current.current.channelId !== channel.id
-    || current.current.active !== active || current.current.foreground !== foreground) {
-    current.current = { session, channelId: channel.id, active, foreground };
+    || current.current.active !== active || current.current.foreground !== foreground || current.current.todayMs !== todayMs) {
+    current.current = { session, channelId: channel.id, active, foreground, todayMs };
   }
   // En tidligere aabnings tegning maa ikke blinke frem foer effekternes oprydning.
   const ownData = active && foreground && data?.entry === current.current ? data : null;
@@ -104,24 +115,14 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
       cancelled = true;
     };
   }, [session.db, channel.id, sheet]);
-  // Nu tikker hvert minut mens siden staar aaben (v425): "Sendes nu" og
-  // Start forfra-maerket foelger klokken, saa en udsendelse der lige er slut
-  // faar sit maerke saa snart arkivet har de sidste minutter, uden at man
-  // skal trykke paa noget. Samme nu bruges til tilstand, maerke og blad.
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
 
   const dayBounds = useCallback((delta: number): { from: Date; to: Date } => {
-    const from = new Date();
-    from.setHours(0, 0, 0, 0);
+    const from = new Date(todayMs);
     from.setDate(from.getDate() + delta);
     const to = new Date(from);
     to.setDate(to.getDate() + 1);
     return { from, to };
-  }, []);
+  }, [todayMs]);
 
   // Den valgte dag skaeres ud af det hentede span — ingen nyt opslag pr. dag.
   const programmes = useMemo((): Programme[] | null => {
@@ -141,7 +142,6 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
   const liveIndex = programmes === null || dayDelta !== 0 ? -1
     : currentProgramme !== null ? programmes.indexOf(currentProgramme)
       : programmes.findIndex(programme => programme.start.getTime() > now.getTime());
-  const todayMs = dayBounds(0).from.getTime();
   useEffect(() => {
     if (!active || !foreground) return;
     let cancelled = false;
@@ -167,21 +167,28 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
         const access = session.access?.(channel.sourceId);
         const isM3u = access?.source.kind === 'm3u';
         if (!isM3u && session.credsBySource.has(channel.sourceId)) {
-          // Kun naar tabellen er gammel (alder eller tidsskift); ellers intet kald.
+          // Det gemte staar allerede paa skaermen. Denne ene kanals fulde
+          // oversigt fornyes ved indgang; alder alene beviser ikke at dagens
+          // programplan er uforandret. Andre guide-raekker beholder cachen.
+          let snapshot: Programme[] | null = null;
           const result = await ensureFullEpg(db, session.credsBySource, session.fetchImpl, [channel], new Date(), {
-            shouldContinue: () => !stopped(),
+            force: true, shouldContinue: () => !stopped(),
+            onProgrammes: (_id, items) => { if (!stopped()) snapshot = items; },
           });
           if (stopped()) return;
           if (result.failed > 0 && shown === 0) throw new Error('epg-refresh-failed');
           if (result.fetched > 0 && result.programmes === 0) {
             const creds = session.credsBySource.get(channel.sourceId)!;
             await syncPanelEpg(db, channel.sourceId, creds, {
-              channelIds: [channelId], shouldContinue: () => !stopped(),
+              force: true, fresh: true, channelIds: [channelId], shouldContinue: () => !stopped(),
             });
           }
           if (stopped()) return;
           if (result.fetched > 0 || result.programmes > 0) {
-            const items = await listProgrammes(db, channelId, from, to);
+            // Et direkte API-svar blandes ikke med andre skraermes SQL-svar.
+            const items: Programme[] = result.programmes > 0 && snapshot !== null
+              ? (snapshot as Programme[]).filter(p => p.stop > from && p.start < to)
+              : await listProgrammes(db, channelId, from, to);
             if (!stopped()) setData({ entry, programmes: items, error: null });
           }
         } else if (shown === 0 && !isM3u) {
@@ -211,9 +218,9 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
 
   useEffect(() => {
     if (programmes !== null) {
-      logEvent('guide', `hele dagen v386: dag ${dayDelta}, ${programmes.length} programmer, ${allProgrammes?.length ?? 0} i tabellen`);
+      logEvent('guide', `hele dagen v426: dato ${localDate(dayBounds(dayDelta).from)}, dag ${dayDelta}, ${programmes.length} programmer, ${allProgrammes?.length ?? 0} i tabellen`);
     }
-  }, [programmes, allProgrammes, dayDelta]);
+  }, [programmes, allProgrammes, dayDelta, dayBounds]);
 
   // Vis de arkivdage panelet oplyser, ogsaa mens historikken hentes.
   // EPG-huller maa ikke skjule dage der faktisk findes i kanalens arkiv.
@@ -392,12 +399,14 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
 const WEEKDAYS = ['søn', 'man', 'tir', 'ons', 'tor', 'fre', 'lør'];
 
 function dayLabel(now: Date, delta: number): string {
-  if (delta === 0) return 'I dag';
-  if (delta === -1) return 'I går';
-  if (delta === 1) return 'I morgen';
   const date = new Date(now);
   date.setDate(date.getDate() + delta);
-  return `${WEEKDAYS[date.getDay()]} ${pad(date.getDate())}.${pad(date.getMonth() + 1)}`;
+  const label = delta === 0 ? 'I dag' : delta === -1 ? 'I går' : delta === 1 ? 'I morgen' : WEEKDAYS[date.getDay()];
+  return `${label} ${pad(date.getDate())}.${pad(date.getMonth() + 1)}`;
+}
+
+function localDate(date: Date): string {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 function pad(value: number): string {

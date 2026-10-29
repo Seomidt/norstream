@@ -780,3 +780,25 @@ describe('Start forfra i bjaelken (v425)', () => {
     expect(f.loads.at(-1)!.source).toBe('https://example.invalid/archive/1.ts');
   });
 });
+
+it('28/10-loggen: reel filslut ved 1039.194 s fortsaetter udsendelsen uden at vente paa 45-minuttersestimatet', async () => {
+  const programme={...news,start:new Date('2026-10-28T18:00:00Z'),stop:new Date('2026-10-28T18:30:00Z')};
+  vi.setSystemTime(new Date('2026-10-28T18:52:11Z'));
+  f.clock.mockResolvedValue({offsetMinutes:60,timeZone:'Europe/Amsterdam'});
+  await mount(programme);
+  expect(f.requests[0]).toEqual({from:programme.start,minutes:45});
+  // Native EOF-patchen rapporterer den faktisk laeste laengde, ikke 2705 s.
+  f.player.duration=1039.201;
+  vi.setSystemTime(new Date('2026-10-28T19:09:48Z'));
+  await act(async()=>{
+    f.player.currentTime=1039.194;
+    for(const fn of [...f.listeners.get('timeUpdate')??[]])fn({currentTime:1039.194,videoRenderedFrames:25878});
+    f.player.status='idle';f.player.playing=false;
+    for(const fn of [...f.listeners.get('playToEnd')??[]])fn(undefined);
+  });
+  expect(f.requests).toHaveLength(2);
+  expect(f.requests[1]).toEqual({from:new Date('2026-10-28T18:17:00Z'),minutes:28});
+  expect(f.loads[1]?.seek).toBeCloseTo(19.194,3);
+  expect(f.back).not.toHaveBeenCalled();
+  expect(f.loads.map(load=>load.source)).not.toContain('https://example.invalid/live.ts');
+});

@@ -45,7 +45,7 @@ const v419After = previousAfter.replace(
 // Content-Length) regnede Media3 stykket for en live-stroem: ingen spoling i
 // bufferen, hvert overlap genlaest fra byte 0 med en ekstra forbindelse, og
 // en netfejl satte stykket tilbage til 0 i stilhed.
-const after = v419After
+const v424After = v419After
   .replace(
     `  val sequentialFactory = if (archiveTs) {`,
     `  // Bestilte minutter fra adressen: duration= (php) eller /timeshift/u/p/<min>/ (path).
@@ -63,16 +63,74 @@ const after = v419After
     `                override fun getDurationUs() = seekMap.durationUs`,
     `                override fun getDurationUs() = if (archiveDurationUs == androidx.media3.common.C.TIME_UNSET) seekMap.durationUs else archiveDurationUs`,
   );
+// v426: den bestilte laengde er kun et opstartsestimat. Ved rigtig EOF
+// erstattes det af sidste sample, ellers kan Media3 aldrig melde STATE_ENDED
+// for et afkortet svar (fx 1039 s leveret af 2705 s oplyst i v425-loggen).
+const after = v424After
+  .replace(
+    `      else object : androidx.media3.extractor.Extractor by extractor {
+        override fun init(output: androidx.media3.extractor.ExtractorOutput) {
+          extractor.init(object : androidx.media3.extractor.ExtractorOutput by output {`,
+    `      else object : androidx.media3.extractor.Extractor by extractor {
+        private var finalDurationUs = androidx.media3.common.C.TIME_UNSET
+        private var largestSampleTimeUs = Long.MIN_VALUE
+        private var finalOutput: androidx.media3.extractor.ExtractorOutput? = null
+        private var latestSeekMap: androidx.media3.extractor.SeekMap? = null
+        override fun init(output: androidx.media3.extractor.ExtractorOutput) {
+          finalOutput = output
+          extractor.init(object : androidx.media3.extractor.ExtractorOutput by output {
+            override fun track(id: Int, type: Int): androidx.media3.extractor.TrackOutput {
+              val track = output.track(id, type)
+              if (type != androidx.media3.common.C.TRACK_TYPE_AUDIO && type != androidx.media3.common.C.TRACK_TYPE_VIDEO) return track
+              return object : androidx.media3.extractor.TrackOutput by track {
+                override fun sampleMetadata(timeUs: Long, flags: Int, size: Int, offset: Int, cryptoData: androidx.media3.extractor.TrackOutput.CryptoData?) {
+                  if (timeUs >= 0L) largestSampleTimeUs = maxOf(largestSampleTimeUs, timeUs)
+                  track.sampleMetadata(timeUs, flags, size, offset, cryptoData)
+                }
+              }
+            }`,
+  )
+  .replace(
+    `              output.seekMap(object : androidx.media3.extractor.SeekMap {`,
+    `              val mapped = object : androidx.media3.extractor.SeekMap {`,
+  )
+  .replace(
+    `                override fun getDurationUs() = if (archiveDurationUs == androidx.media3.common.C.TIME_UNSET) seekMap.durationUs else archiveDurationUs`,
+    `                override fun getDurationUs() = if (finalDurationUs != androidx.media3.common.C.TIME_UNSET) finalDurationUs
+                  else if (archiveDurationUs == androidx.media3.common.C.TIME_UNSET) seekMap.durationUs else archiveDurationUs`,
+  )
+  .replace(
+    `                )
+              })
+            }`,
+    `                )
+              }
+              latestSeekMap = mapped
+              output.seekMap(mapped)
+            }`,
+  )
+  .replace(
+    `        override fun seek(position: Long, timeUs: Long) {`,
+    `        override fun read(input: androidx.media3.extractor.ExtractorInput, seekPosition: androidx.media3.extractor.PositionHolder): Int {
+          val result = extractor.read(input, seekPosition)
+          if (result == androidx.media3.extractor.Extractor.RESULT_END_OF_INPUT && finalDurationUs == androidx.media3.common.C.TIME_UNSET) {
+            finalDurationUs = if (largestSampleTimeUs == Long.MIN_VALUE) 0L else largestSampleTimeUs + 10_000L
+            latestSeekMap?.let { finalOutput?.seekMap(it) }
+          }
+          return result
+        }
+        override fun seek(position: Long, timeUs: Long) {`,
+  );
 const hash = '8ffd704064677f8862f093b43a14c20584c6235b9602384979a0e5498cb943ee';
 export function patchArchiveTs(source) {
   const digest = text => createHash('sha256').update(text).digest('hex');
   if (digest(source) === hash && source.split(before).length === 2) return source.replace(before, after);
-  const original = source.replace(after, before).replace(v419After, before).replace(previousAfter, before);
+  const original = source.replace(after, before).replace(v424After, before).replace(v419After, before).replace(previousAfter, before);
   if (digest(original) === hash) return patchArchiveTs(original);
   throw new Error('Ukendt expo-video DataSourceUtils.kt: kontroller arkiv-patch foer build');
 }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const path = new URL('../node_modules/expo-video/android/src/main/java/expo/modules/video/utils/DataSourceUtils.kt', import.meta.url);
   await writeFile(path, patchArchiveTs(await readFile(path, 'utf8')));
-  console.log('Expo-video: sekventiel arkiv-TS med oplyst varighed og uden PCR-byte-seek klargjort');
+  console.log('Expo-video: sekventiel arkiv-TS med reel EOF-varighed og uden PCR-byte-seek klargjort');
 }

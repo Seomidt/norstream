@@ -15,7 +15,12 @@ it('installerer afgraenset sekventiel TS-patch og afviser ukendte native version
   expect(installed).toContain('else dataSourceFactory');
   expect(installed).toContain('extractor.underlyingImplementation !is androidx.media3.extractor.ts.TsExtractor');
   expect(installed).toContain('androidx.media3.extractor.SeekPoint.START');
-  expect(installed).toContain('override fun getDurationUs() = if (archiveDurationUs == androidx.media3.common.C.TIME_UNSET) seekMap.durationUs else archiveDurationUs');
+  expect(installed).toContain('override fun getDurationUs() = if (finalDurationUs != androidx.media3.common.C.TIME_UNSET) finalDurationUs');
+  expect(installed).toContain('else if (archiveDurationUs == androidx.media3.common.C.TIME_UNSET) seekMap.durationUs else archiveDurationUs');
+  expect(installed).toContain('result == androidx.media3.extractor.Extractor.RESULT_END_OF_INPUT');
+  expect(installed).toContain('largestSampleTimeUs = maxOf(largestSampleTimeUs, timeUs)');
+  expect(installed).toContain('largestSampleTimeUs + 10_000L');
+  expect(installed).toContain('latestSeekMap?.let { finalOutput?.seekMap(it) }');
   expect(installed).toContain('uri.getQueryParameter("duration")');
   expect(installed).toContain('segments.indexOf("timeshift")');
   expect(installed).toContain('(it * 60L + 5L) * 1_000_000L');
