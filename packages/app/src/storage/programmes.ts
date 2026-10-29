@@ -48,6 +48,13 @@ export interface UpsertOptions {
   replaceWindow?: boolean;
   /** Komplet, frisk kanaloversigt: erstat ogsaa et tomt svar atomisk. */
   replaceChannelIds?: readonly string[];
+  /**
+   * Frisk fuld tabel (v429): slet kanalens raekker der begynder foer batchens
+   * sidste slut, ogsaa fortid uden for batchen, men behold det der kommer
+   * efter. Tabellen kan slutte ved nu, og saa er de kommende fra nu/naeste
+   * det eneste der viser hvad der sendes senere.
+   */
+  replaceThroughEnd?: boolean;
 }
 
 // Uafhaengige EPG-hentninger maa ikke flette deres slet/indsaet-trin.
@@ -108,6 +115,10 @@ async function writeProgrammes(
           // En fuld HTTP-succes med nul programmer skal ogsaa kunne rydde
           // den gamle oversigt. Fejlede HTTP-kald kommer aldrig herind.
           await db.runAsync('DELETE FROM programmes WHERE channel_id = ?', [channelId]);
+        } else if (options.replaceThroughEnd === true && channelRows.length > 0) {
+          let to = Number.NEGATIVE_INFINITY;
+          for (const row of channelRows) to = Math.max(to, row.stop.getTime());
+          await db.runAsync('DELETE FROM programmes WHERE channel_id = ? AND start_ms < ?', [channelId, to]);
         } else if (options.replaceWindow === true && channelRows.length > 0) {
           let from = Number.POSITIVE_INFINITY;
           let to = Number.NEGATIVE_INFINITY;

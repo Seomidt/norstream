@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, AppState, FlatList, ScrollView, StyleSheet, Text, TVFocusGuideView, View } from 'react-native';
+import { XtreamClient, parseChannelKey } from '@norstream/core';
 import type { Programme } from '@norstream/core';
+import { describePanelTable, describeShortAgainstTable, describeTableNow } from '../../diagnostics/epgCompare.js';
+import { withPanel } from '../../sync/panelGate.js';
 import type { AppSession } from '../../session.js';
 import type { StoredChannel } from '../../storage/channels.js';
-import { listProgrammes } from '../../storage/programmes.js';
+import { listProgrammes, upsertProgrammes } from '../../storage/programmes.js';
 import { ensureFullEpg } from '../../sync/epgCache.js';
 import { syncPanelEpg } from '../../sync/panelEpg.js';
 import { ChannelLogo } from '../../ui/ChannelLogo.js';
@@ -191,7 +194,30 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
           const result = await ensureFullEpg(db, session.credsBySource, session.fetchImpl, [channel], new Date(), {
             force: true, shouldContinue: () => !stopped(),
             onProgrammes: (_id, items) => { if (!stopped()) snapshot = items; },
+            onPanelSummary: (_id, summary) => logEvent('epg', describePanelTable(summary)),
           });
+          // Fejlfinding v429: tabellen omkring nu, mod sidste uge og mod
+          // panelets egen nu/naeste. Kun tal og klokkeslaet i loggen.
+          const table = snapshot as Programme[] | null;
+          if (table !== null && !stopped()) {
+            const nowMs = Date.now();
+            logEvent('epg', describeTableNow(table, nowMs, todayMs));
+            const streamId = parseChannelKey(channelId)?.streamId;
+            const creds = session.credsBySource.get(channel.sourceId);
+            if (streamId !== undefined && creds !== undefined) {
+              try {
+                const short = await withPanel(false, () => new XtreamClient(creds, session.fetchImpl).getShortEpg(streamId, 12));
+                if (!stopped()) logEvent('epg', describeShortAgainstTable(short, table, Date.now()));
+                // Gem de kommende, som guiden goer: rakte tabellen kun til nu,
+                // er det dem der viser hvad der sendes senere (v429).
+                if (short.length > 0 && !stopped()) {
+                  await upsertProgrammes(db, short.map(p => ({ ...p, channelId })), { replaceWindow: true });
+                }
+              } catch {
+                logEvent('epg', 'nu/naeste v429: panelet svarede ikke');
+              }
+            }
+          }
           if (stopped()) return;
           if (result.failed > 0 && shown === 0) throw new Error('epg-refresh-failed');
           if (result.fetched > 0 && result.programmes === 0) {
@@ -203,9 +229,19 @@ export function ChannelDayScreen({ session, channel, hasDialect, active = true, 
           if (stopped()) return;
           if (result.fetched > 0 || result.programmes > 0) {
             // Et direkte API-svar blandes ikke med andre skraermes SQL-svar.
-            const items: Programme[] = result.programmes > 0 && snapshot !== null
-              ? (snapshot as Programme[]).filter(p => p.stop > from && p.start < to)
-              : await listProgrammes(db, channelId, from, to);
+            // Efter tabellens sidste udsendelse tages de gemte kommende
+            // programmer med (nu/naeste og panelets fil), saa listen kan
+            // rulles forbi det der sendes nu (v429).
+            let items: Programme[];
+            if (result.programmes > 0 && snapshot !== null) {
+              const direct = (snapshot as Programme[]).filter(p => p.stop > from && p.start < to);
+              const directEnd = direct.reduce((max, p) => Math.max(max, p.stop.getTime()), 0);
+              const later = (await listProgrammes(db, channelId, new Date(directEnd), to)).filter(p => p.start.getTime() >= directEnd);
+              if (later.length > 0) logEvent('epg', `hele dagen v429: ${later.length} kommende programmer efter tabellens slut taget med`);
+              items = [...direct, ...later];
+            } else {
+              items = await listProgrammes(db, channelId, from, to);
+            }
             if (!stopped()) setData({ entry, programmes: items, error: null });
           }
         } else if (shown === 0 && !isM3u) {

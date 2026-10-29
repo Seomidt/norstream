@@ -1,3 +1,12 @@
+## v429 — TV2 i Hele dagen: kommende programmer og målinger af "sidste uges program" (29. oktober 2026)
+
+Brugeren efter v428: "I dag" under Hele dagen på TV2 viser stadig sidste torsdags program, og listen kan ikke rulles forbi udsendelsen der sendes nu. Loggen kl. 17.10 viste, at "I dag 29.10" både havde fokus og var valgt; v427's forklaring (dagvalget) var altså ikke hele sagen. To ting i v429:
+
+1. **Kommende programmer.** Siden v426 slettede "Hele dagen" hele kanalens gemte programmer ved en tvungen hentning og viste kun panelets tabel; sluttede tabellen ved nu, forsvandt de kommende fra nu/næste. Nu erstatter en tvungen tabel alt før sin egen slut, men beholder det der kommer efter (`replaceThroughEnd` i `storage/programmes.ts`), "Hele dagen" henter og gemmer panelets nu/næste (12 programmer), og listen viser de gemte kommende efter tabellens slut.
+2. **Målinger uden titler** (`diagnostics/epgCompare.ts`, `summarizeEpgListings` i core): `panel-tabel v429` (antal, spænd, panelets dato-tekst minus tidsstempel i timer), `tabel nu v429` (antal efter nu, sidste slut, hvor mange af dagens programmer har samme titel og klokkeslæt som 7 dage før) og `nu/naeste v429` (panelets nu/næste mod tabellen og mod sidste uge).
+
+**Næste skridt: læs de tre v429-linjer i diagnostikken efter brugeren har åbnet TV2 under Hele dagen.** Er "i dag X af Y som 7 dage før" høj, og panelets nu/næste afviger fra tabellen, er panelets tabel en kopi af sidste uge, og nu/næste skal have forrang. Er dato-teksten 168 t fra tidsstemplet, er det panelets tidsstempler der er forskudt.
+
 ## v428 — Hjem kan slås fra; appen starter så i Guiden (29. oktober 2026)
 
 Brugeren: "Kan du lave i indstillinger så man kan slå hjem menu fra og til … når det er slået fra skal den starte op i guide og åbne den." Indstillinger → Udseende og start → **Vis Hjem** (standard til, nøgle `home_enabled`, med i sikkerhedskopien). Slået fra: Hjem forsvinder fra menuen (tv-søjlen og telefonens fanelinje), appen starter på Guide-fanen, og Tilbage ender i Guiden i stedet for Hjem; på Guiden går Tilbage til menuen og derefter ud af appen, som Hjem gør. Står man på Hjem, når den slås fra, flyttes man til Guiden. Guidens tv-gitter giver nu første række fokus, også når kanalerne kommer efter gitteret (før blev fokus-pulsen brugt op på et tomt gitter ved opstart). Filer: `storage/settings.ts`, `storage/backup.ts`, `App.tsx`, `features/home/HomeScreen.tsx`, `features/settings/SettingsScreen.tsx`, `features/guide/TimelineGrid.tsx` og tests. Loggen: `opstart: startfane: …`. 1400 app-tests grønne.

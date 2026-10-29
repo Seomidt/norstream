@@ -515,7 +515,9 @@ describe('absolut dato og autoritativ dagsplan v426', () => {
     const tree=await mount(dayElement());await measureDay(tree);
     expect(mocks.full.mock.calls[0]![5].force).toBe(true);
     expect(tree.root.findByType(host('NativeList')).props.data.map((p:Programme)=>p.title)).toEqual(['Ny plan']);
-    expect(mocks.list).toHaveBeenCalledTimes(1);
+    // Andet opslag gaelder kun det der kommer efter API-svarets slut (v429).
+    expect(mocks.list).toHaveBeenCalledTimes(2);
+    expect(mocks.list.mock.calls[1]![2]).toEqual(fresh.stop);
   });
 
   it('et aabent vindue skifter faktisk kalenderdag og viser ikke gaarsdagens liste under nyt navn', async () => {
@@ -600,4 +602,18 @@ describe('dagraekken i Hele dagen v427', () => {
     await measureDay(tree);
     expect(rows(tree)).toEqual(['Anden kanal i dag']);
   });
+});
+
+it('Hele dagen kan rulles forbi det der sendes nu, naar panelets tabel slutter ved nu (v429)', async () => {
+  const at = (hour: number) => new Date(2026, 9, 29, hour, 0, 0);
+  const item = (hour: number, title: string): Programme => ({ channelId: channel.id, title, description: null, start: at(hour), stop: at(hour + 1) });
+  vi.setSystemTime(new Date(2026, 9, 29, 17, 30));
+  // Tabellen slutter med udsendelsen der sendes nu; de kommende ligger i SQL fra nu/naeste.
+  const table = [item(16, 'Tidligere'), item(17, 'Nu')];
+  mocks.list.mockImplementation(async (_db: unknown, _id: string, from: Date) =>
+    from.getTime() >= at(18).getTime() ? [item(18, 'Senere'), item(19, 'Endnu senere')] : [...table, item(18, 'Senere')]);
+  mocks.full.mockImplementation(async (...args: any[]) => { args[5].onProgrammes(channel.id, table); return { fetched: 1, programmes: 2, failed: 0 }; });
+  const tree = await mount(dayElement());
+  await measureDay(tree);
+  expect((tree.root.findByType(host('NativeList')).props.data as Programme[]).map(p => p.title)).toEqual(['Tidligere', 'Nu', 'Senere', 'Endnu senere']);
 });

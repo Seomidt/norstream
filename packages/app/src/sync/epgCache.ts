@@ -1,5 +1,5 @@
 import { XtreamAuthError, XtreamClient, parseChannelKey } from '@norstream/core';
-import type { FetchLike, Programme, XtreamCredentials } from '@norstream/core';
+import type { EpgListingSummary, FetchLike, Programme, XtreamCredentials } from '@norstream/core';
 import { groupBySource } from '../sources/access.js';
 import { maxArchiveDays } from '../storage/channels.js';
 import {
@@ -100,6 +100,8 @@ export interface EnsureEpgOptions {
   shouldContinue?: () => boolean;
   /** Guiden tegner dette HTTP-svar, aldrig en blanding med andre SQL-skrivere. */
   onProgrammes?: (channelId: string, programmes: Programme[]) => void;
+  /** Tal om panelets raa tabel (v429), kun fra ensureFullEpg. */
+  onPanelSummary?: (channelId: string, summary: EpgListingSummary) => void;
 }
 
 /**
@@ -292,7 +294,9 @@ export async function ensureFullEpg(
       const streamId = parseChannelKey(key)?.streamId ?? key;
       let batch;
       try {
-        batch = await withPanel(background, () => stopped() ? Promise.resolve(null) : client.getFullEpg(streamId));
+        const detailed = await withPanel(background, () => stopped() ? Promise.resolve(null) : client.getFullEpgDetailed(streamId));
+        if (detailed !== null) options.onPanelSummary?.(key, detailed.summary);
+        batch = detailed === null ? null : detailed.programmes;
       } catch (cause) {
         if (cause instanceof XtreamAuthError) authFailure = cause;
         failed += 1;
@@ -303,10 +307,14 @@ export async function ensureFullEpg(
       if (batch === null) return;
 
       const snapshot = batch.map((p) => ({ ...p, channelId: key }));
-      await upsertProgrammes(db, snapshot, {
-        replaceWindow: true,
-        ...(options.force === true ? { replaceChannelIds: [key] } : {}),
-      });
+      // En tvungen hentning erstatter alt foer tabellens slut, men beholder
+      // det der kommer efter (v429). Foer slettede den hele kanalen, ogsaa de
+      // kommende programmer fra nu/naeste, naar panelets tabel sluttede ved
+      // nu: saa kunne Hele dagen ikke rulles forbi udsendelsen der sendes.
+      // Et tomt, vellykket svar rydder stadig kanalen.
+      await upsertProgrammes(db, snapshot, options.force === true
+        ? (snapshot.length === 0 ? { replaceChannelIds: [key] } : { replaceThroughEnd: true })
+        : { replaceWindow: true });
       options.onProgrammes?.(key, snapshot);
       await markArchiveFetched(db, key, now);
       fetched += 1;

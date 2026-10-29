@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapEpgListings } from './epgListings.js';
+import { mapEpgListings, summarizeEpgListings } from './epgListings.js';
 
 /** "TV Avisen" */
 const TITLE = 'VFYgQXZpc2Vu';
@@ -96,5 +96,19 @@ describe('mapEpgListings', () => {
       expect(mapEpgListings('1', raw)).toEqual([]);
     }
     expect(mapEpgListings('1', [null, 7, ['nej'], listing()])).toHaveLength(1);
+  });
+});
+
+describe('summarizeEpgListings v429', () => {
+  it('taeller poster og forskellen mellem dato-tekst og tidsstempel', () => {
+    const ts = Date.UTC(2026, 9, 29, 18, 0) / 1000;
+    const summary = summarizeEpgListings({ epg_listings: [
+      { start: '2026-10-29 19:00:00', start_timestamp: String(ts) },
+      { start: '2026-11-05 19:00:00', start_timestamp: String(ts + 3600) },
+      { start_timestamp: 'x' },
+    ] });
+    expect(summary.count).toBe(2);
+    expect(summary.firstMs).toBe(ts * 1000);
+    expect(summary.textMinusTimestampHours).toEqual({ '1': 1, '168': 1 });
   });
 });

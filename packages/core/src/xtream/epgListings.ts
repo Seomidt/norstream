@@ -75,6 +75,44 @@ function mapListing(streamId: string, raw: RawEpgListing): Programme | null {
   };
 }
 
+/** Tal om panelets raa tabel, uden titler (v429): til fejlfinding af datoer. */
+export interface EpgListingSummary {
+  count: number;
+  /** Tidligste og seneste start_timestamp i ms, eller null. */
+  firstMs: number | null;
+  lastMs: number | null;
+  /**
+   * Panelets egen dato-tekst (`start`, "2026-10-29 19:00:00" i panelets zone)
+   * minus start_timestamp, i hele timer, med antal. Normalt én vaerdi: panelets
+   * forskel fra UTC. 168 timer ville betyde at teksten er en uge foran.
+   */
+  textMinusTimestampHours: Record<string, number>;
+}
+
+const START_TEXT = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/;
+
+export function summarizeEpgListings(raw: unknown): EpgListingSummary {
+  const summary: EpgListingSummary = { count: 0, firstMs: null, lastMs: null, textMinusTimestampHours: {} };
+  for (const item of listingsOf(raw)) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) continue;
+    const record = item as RawEpgListing & { start?: unknown };
+    const start = secondsToDate(record.start_timestamp);
+    if (start === null) continue;
+    summary.count += 1;
+    const ms = start.getTime();
+    summary.firstMs = summary.firstMs === null ? ms : Math.min(summary.firstMs, ms);
+    summary.lastMs = summary.lastMs === null ? ms : Math.max(summary.lastMs, ms);
+    const match = typeof record.start === 'string' ? START_TEXT.exec(record.start.trim()) : null;
+    if (match !== null) {
+      const [, y, mo, d, h, mi, s] = match;
+      const textMs = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi), s === undefined ? 0 : Number(s));
+      const key = String(Math.round((textMs - ms) / 3_600_000));
+      summary.textMinusTimestampHours[key] = (summary.textMinusTimestampHours[key] ?? 0) + 1;
+    }
+  }
+  return summary;
+}
+
 /**
  * Oversaetter svaret fra `get_short_epg` eller `get_simple_data_table` til
  * programmer.

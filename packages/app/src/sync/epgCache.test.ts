@@ -499,14 +499,16 @@ describe('direkte EPG-opdatering fra synlig guide', () => {
   });
 });
 
-it('en frisk fuld oversigt erstatter gamle raekker uden for det nye svar, kun for den bestilte kanal', async () => {
+it('en frisk fuld oversigt erstatter alt foer sin slut og beholder kommende efter den, kun for den bestilte kanal (v429)', async () => {
   const make = (channelId: string, minutes: number, title: string) => ({channelId,title,description:null,start:new Date(NOW.getTime()+minutes*60_000),stop:new Date(NOW.getTime()+(minutes+30)*60_000)});
   await upsertProgrammes(db,[make(WITH_ARCHIVE.id,-180,'Gammel fortid'),make(WITH_ARCHIVE.id,240,'Gammel fremtid'),make(WITHOUT_ARCHIVE.id,240,'Anden kanal')]);
   const fetchImpl = archivePanel({'247634':[listing(0)]});
   const result = await ensureFullEpg(db,sources,fetchImpl,[WITH_ARCHIVE],NOW,{force:true});
   expect(result).toMatchObject({fetched:1,programmes:1,failed:0});
-  expect((await db.getAllAsync<{channel_id:string;title:string}>('SELECT channel_id,title FROM programmes ORDER BY channel_id'))).toEqual([
+  expect((await db.getAllAsync<{channel_id:string;title:string}>('SELECT channel_id,title FROM programmes ORDER BY channel_id, start_ms'))).toEqual([
     {channel_id:WITH_ARCHIVE.id,title:'TV Avisen'},
+    // Efter tabellens slut: det kommende fra nu/naeste bliver staaende.
+    {channel_id:WITH_ARCHIVE.id,title:'Gammel fremtid'},
     {channel_id:WITHOUT_ARCHIVE.id,title:'Anden kanal'},
   ]);
 });

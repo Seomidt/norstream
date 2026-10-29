@@ -12,7 +12,8 @@ import { truthyFlag } from './coerce.js';
 import { mapCategories, mapChannels } from './mapping.js';
 import { panelClockFromServerInfo, panelOffsetFromServerInfo } from './serverInfo.js';
 import type { PanelClock } from './serverInfo.js';
-import { mapEpgListings } from './epgListings.js';
+import { mapEpgListings, summarizeEpgListings } from './epgListings.js';
+import type { EpgListingSummary } from './epgListings.js';
 import { mapEpisodes, mapVodDetails, mapVodItems } from './vodMapping.js';
 
 export interface FetchLikeResponse {
@@ -209,8 +210,13 @@ export class XtreamClient {
    * ikke for alle 22.142 kanaler.
    */
   async getFullEpg(streamId: string): Promise<Programme[]> {
+    return (await this.getFullEpgDetailed(streamId)).programmes;
+  }
+
+  /** Som getFullEpg, plus tal om det raa svar til fejlfinding (v429). */
+  async getFullEpgDetailed(streamId: string): Promise<{ programmes: Programme[]; summary: EpgListingSummary }> {
     const body = await this.request('get_simple_data_table', { stream_id: streamId });
-    return mapEpgListings(streamId, body);
+    return { programmes: mapEpgListings(streamId, body), summary: summarizeEpgListings(body) };
   }
 
   /**

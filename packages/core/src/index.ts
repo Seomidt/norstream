@@ -47,7 +47,8 @@ export type { FetchLike, FetchLikeResponse, XtreamAccountInfo } from './xtream/c
 
 export { detectTimeshiftDialect } from './xtream/probe.js';
 
-export { mapEpgListings } from './xtream/epgListings.js';
+export { mapEpgListings, summarizeEpgListings } from './xtream/epgListings.js';
+export type { EpgListingSummary } from './xtream/epgListings.js';
 export {
   durationMinutes,
   mapEpisodes,
